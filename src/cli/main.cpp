@@ -32,6 +32,7 @@ void usage() {
       "  goto <line> [col]          move caret (ordinary caret motion)\n"
       "  def | decl | refs          go to definition / declaration / list references\n"
       "  sym <query>                workspace symbol search (fuzzy)\n"
+      "  grep <text>                literal text search in the workspace (first 50 hits)\n"
       "  hover | complete           hover text / completion list at caret\n"
       "  switch                     switch between source and header\n"
       "  back | fwd                 navigate backward / forward\n"
@@ -180,6 +181,21 @@ int main(int argc, char** argv) {
         std::getline(ss, q);
         q.erase(0, q.find_first_not_of(' '));
         runNav([&](auto cb) { ed.findSymbols(q, cb); });
+      } else if (cmd == "grep") {
+        std::string q;
+        std::getline(ss, q);
+        q.erase(0, q.find_first_not_of(' '));
+        SearchOptions so;
+        so.maxResults = 50;
+        bool done = false;
+        ed.findInWorkspace(q, so, [](const std::vector<SearchMatch>& ms) {
+          for (auto& m : ms) std::cout << m.file.string() << ":" << m.line + 1 << ":" << m.column + 1 << ": " << m.text << "\n";
+        }, [&](const SearchSummary& s) {
+          std::cout << s.matches << " matches" << (s.truncated ? " (truncated)" : "") << " in " << s.elapsedMs << " ms"
+                    << (s.error.empty() ? "" : " error: " + s.error) << "\n";
+          done = true;
+        });
+        ed.waitFor([&] { return done; }, 60000);
       } else if (cmd == "hover") {
         bool done = false;
         ed.hover([&](const std::string& t, const std::string& e) {

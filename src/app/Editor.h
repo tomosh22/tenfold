@@ -11,6 +11,7 @@
 
 #include "core/Document.h"
 #include "nav/NavigationHistory.h"
+#include "search/TextSearch.h"
 #include "semantic/SemanticEngine.h"
 #include "workspace/Workspace.h"
 
@@ -72,6 +73,16 @@ class Editor {
   void complete(std::function<void(const std::vector<LspCompletionItem>&, const std::string& error)> done);
   void switchSourceHeader(std::function<void(bool jumped, const std::string& error)> done);
 
+  // --- find in workspace (results arrive via post(), i.e. on the pump thread) ---
+  // Searches Workspace::codeFiles() (+ other files if opts.includeOtherFiles) in the background. Open documents
+  // are searched from their in-memory text (snapshotted now). `onDone` always fires, after the last batch;
+  // after cancel() no further batches are delivered. The handle stays valid until shutdown.
+  using SearchBatch = std::function<void(const std::vector<SearchMatch>&)>;
+  using SearchDone = std::function<void(const SearchSummary&)>;
+  SearchHandle findInWorkspace(const std::string& query, SearchOptions opts, SearchBatch onBatch, SearchDone onDone);
+  // Jump to a result (goes through gotoLocation, so it lands in navigation history).
+  bool gotoSearchMatch(const SearchMatch& m, std::string* error = nullptr);
+
   // --- editing at the caret ---
   void insertText(const std::string& text);
   void deleteRange(Range r);
@@ -96,6 +107,7 @@ class Editor {
   Document* current_ = nullptr;
   Location cursor_;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
+  std::vector<SearchHandle> searches_;
 
   std::mutex qmu_;
   std::deque<std::function<void()>> queue_;
