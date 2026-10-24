@@ -27,6 +27,7 @@ endif()
 add_library(tenfold_core STATIC
   src/core/TextBuffer.cpp
   src/core/Document.cpp
+  src/core/PathUtil.cpp
   src/nav/NavigationHistory.cpp
   ${TENFOLD_PROCESS_SRC}
   src/lsp/JsonRpc.cpp
@@ -56,6 +57,7 @@ add_executable(tenfold-tests
   tests/test_compdb.cpp
   tests/test_semantic.cpp
   tests/test_process.cpp
+  tests/test_paths.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

@@ -99,38 +99,10 @@ void Document::removeListener(int id) {
   std::erase_if(listeners_, [id](auto& p) { return p.first == id; });
 }
 
-std::string pathToUri(const std::filesystem::path& p) {
-  std::string s = p.generic_string();
-  std::string out = "file://";
-  if (!s.empty() && s[0] != '/') out += '/';  // Windows drive letters: file:///C:/...
-  static const char* hex = "0123456789ABCDEF";
-  for (unsigned char c : s) {
-    if (std::isalnum(c) || c == '/' || c == '-' || c == '_' || c == '.' || c == '~' || c == ':') {
-      out += static_cast<char>(c);
-    } else {
-      out += '%';
-      out += hex[c >> 4];
-      out += hex[c & 15];
-    }
-  }
-  return out;
-}
+std::string pathToUri(const std::filesystem::path& p) { return pathToUri(p.generic_string(), nativePathStyle()); }
 
 std::filesystem::path uriToPath(const std::string& uri) {
-  std::string s = uri;
-  if (s.rfind("file://", 0) == 0) s = s.substr(7);
-  std::string out;
-  for (size_t i = 0; i < s.size(); ++i) {
-    if (s[i] == '%' && i + 2 < s.size()) {
-      out += static_cast<char>(std::stoi(s.substr(i + 1, 2), nullptr, 16));
-      i += 2;
-    } else {
-      out += s[i];
-    }
-  }
-  // file:///C:/x -> C:/x on Windows-style paths
-  if (out.size() > 2 && out[0] == '/' && std::isalpha(static_cast<unsigned char>(out[1])) && out[2] == ':') out.erase(0, 1);
-  return std::filesystem::path(out);
+  return std::filesystem::path(uriToPathString(uri, nativePathStyle()));
 }
 
 }  // namespace tf

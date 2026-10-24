@@ -153,7 +153,7 @@ void SemanticEngine::prepareCompileCommands() {
 bool SemanticEngine::startClangd(std::string* error) {
   std::string exe = opt_.clangdPath.empty() ? ws_.settings().clangdPath : opt_.clangdPath;
   if (exe.empty()) exe = "clangd";
-  std::string resolved = findExecutable(exe);
+  std::string resolved = findExecutable(exe, /*preferBundled=*/opt_.clangdPath.empty() && ws_.settings().clangdPath.empty());
   if (resolved.empty()) {
     if (error) *error = "clangd not found: " + exe;
     return false;
@@ -172,6 +172,19 @@ bool SemanticEngine::startClangd(std::string* error) {
              "--limit-references=10000",
              "--log=error",
              "-j=" + std::to_string(std::max(2u, std::thread::hardware_concurrency()))};
+  if (compdbSource_ == "vcxproj") {
+    // MSVC system headers: let clangd ask cl.exe. The toolchain is user-overridable and persisted.
+    auto cl = compdb::discoverCl(ws_.settings().msvcToolchain, compdb::systemMsvcProbe());
+    if (cl) {
+      if (ws_.settings().msvcToolchain.empty()) {
+        ws_.settings().msvcToolchain = cl->generic_string();
+        ws_.saveSettings();
+      }
+      for (auto& a : compdb::msvcClangdArgs(*cl)) lo.args.push_back(a);
+    } else {
+      log("cl.exe not found; set \"msvcToolchain\" in .tenfold/workspace.json for MSVC system headers");
+    }
+  }
   for (auto& a : ws_.settings().clangdExtraArgs) lo.args.push_back(a);
   for (auto& a : opt_.clangdArgs) lo.args.push_back(a);
   lo.fallbackFlags = {"-std=" + ws_.settings().cppStandard, "-I" + ws_.root().string()};

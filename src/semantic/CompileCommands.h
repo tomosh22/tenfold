@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <map>
 #include <optional>
 #include <string>
@@ -61,6 +62,27 @@ std::vector<std::filesystem::path> inferIncludeDirs(const std::vector<std::files
 std::vector<CompileCommand> heuristic(const std::filesystem::path& root, const std::vector<std::filesystem::path>& sources,
                                       const std::vector<std::filesystem::path>& headers, const std::string& std = "c++20",
                                       const std::vector<std::string>& includePaths = {});
+
+// ---- MSVC toolchain discovery (for clangd --query-driver) ----
+// Inputs are injected so the logic runs on any host against a fake tree.
+struct MsvcProbe {
+  std::string vcToolsInstallDir;           // value of %VCToolsInstallDir% ("" if unset)
+  std::function<std::string()> vswhere;    // returns vswhere's installationPath output ("" if unavailable)
+};
+// <toolsDir>/bin/Hostx64/x64/cl.exe if it exists.
+std::optional<std::filesystem::path> clExeInToolsDir(const std::filesystem::path& toolsDir);
+// <installationPath>/VC/Tools/MSVC/<newest version>/bin/Hostx64/x64/cl.exe.
+std::optional<std::filesystem::path> clExeInVsInstall(const std::filesystem::path& installationPath);
+// Resolve cl.exe. `configured` (workspace.json "msvcToolchain": a cl.exe path,
+// or a directory containing it) wins and skips discovery; otherwise
+// VCToolsInstallDir, then vswhere. Returns nullopt if nothing is found.
+std::optional<std::filesystem::path> discoverCl(const std::string& configured, const MsvcProbe& probe);
+// The probe backed by the real environment and (on Windows) vswhere.exe.
+MsvcProbe systemMsvcProbe();
+// "--query-driver=<dir of cl.exe>/**"
+std::string queryDriverArg(const std::filesystem::path& clExe);
+// clangd arguments contributed by a known MSVC toolchain (empty if none).
+std::vector<std::string> msvcClangdArgs(const std::filesystem::path& clExe);
 
 // MSBuild-style property expansion: "$(Name)" -> value (unknown -> "").
 std::string expandProperties(const std::string& s, const std::map<std::string, std::string>& props);

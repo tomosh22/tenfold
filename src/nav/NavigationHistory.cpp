@@ -3,10 +3,12 @@
 #include <algorithm>
 #include <cstdlib>
 
+#include "core/PathUtil.h"
+
 namespace tf {
 
 bool NavigationHistory::near(const Location& a, const Location& b) const {
-  return a.file == b.file && std::abs(a.pos.line - b.pos.line) < opt_.coalesceLines;
+  return pathsEqual(a.file, b.file) && std::abs(a.pos.line - b.pos.line) < opt_.coalesceLines;
 }
 
 void NavigationHistory::push(Entry e) {
@@ -84,14 +86,14 @@ void NavigationHistory::onLinesReplaced(const std::filesystem::path& file, int s
 
 void NavigationHistory::onFileRenamed(const std::filesystem::path& from, const std::filesystem::path& to) {
   for (auto& e : entries_)
-    if (e.loc.file == from) e.loc.file = to;
+    if (pathsEqual(e.loc.file, from)) e.loc.file = to;
 }
 
 void NavigationHistory::onFileRemoved(const std::filesystem::path& file) {
   size_t orig = 0;
   size_t newCursor = cursor_;
   for (auto it = entries_.begin(); it != entries_.end(); ++orig) {
-    if (it->loc.file == file) {
+    if (pathsEqual(it->loc.file, file)) {
       if (orig < cursor_) --newCursor;
       it = entries_.erase(it);
     } else {
