@@ -56,7 +56,9 @@ std::vector<Document*> Editor::documents() {
 
 Document* Editor::open(const fs::path& pathIn, std::string* error) {
   std::error_code ec;
-  fs::path path = fs::weakly_canonical(pathIn.is_absolute() ? pathIn : ws_.root() / pathIn, ec);
+  // The stored path keeps the caller's spelling (first open wins); only the
+  // lookup key is canonicalised and normalised, so cursor/history paths round-trip.
+  fs::path path = pathIn.is_absolute() ? pathIn : ws_.root() / pathIn;
   if (Document* d = document(path)) return d;
   auto doc = std::make_unique<Document>(path);
   if (!doc->loadFromDisk(error)) return nullptr;
@@ -67,7 +69,7 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
     if (semantic_) semantic_->didChange(d, ch);
     if (current_ == &d) cursor_.pos = d.buffer().clamp(cursor_.pos);
   });
-  docs_[pathKey(path)] = std::move(doc);
+  docs_[pathKey(fs::weakly_canonical(path, ec))] = std::move(doc);
   if (semantic_) semantic_->didOpen(*raw);
   return raw;
 }
@@ -76,8 +78,9 @@ bool Editor::close(const fs::path& path) {
   Document* d = document(path);
   if (!d) return false;
   if (semantic_) semantic_->didClose(*d);
+  std::error_code ec;
   if (current_ == d) { current_ = nullptr; cursor_ = {}; }
-  docs_.erase(pathKey(d->path()));
+  docs_.erase(pathKey(fs::weakly_canonical(d->path(), ec)));
   return true;
 }
 
