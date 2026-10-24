@@ -1,0 +1,162 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CLANGD_VERSION: "22.1.1"
+  CLANG_FORMAT_VERSION: "18.1.8"
+  NINJA_VERSION: "1.12.1"
+
+jobs:
+  build:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    # Windows jobs cannot build until A1 lands (POSIX-only Process.cpp, GCC-style warning flags).
+    # TODO(A1): remove once Windows Process lands
+    continue-on-error: ${{ matrix.experimental }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: linux-gcc-release
+            os: ubuntu-24.04
+            preset: release
+            cc: gcc
+            cxx: g++
+            experimental: false
+          - name: linux-clang-release
+            os: ubuntu-24.04
+            preset: release
+            cc: clang
+            cxx: clang++
+            experimental: false
+          # Debug + -fsanitize=address,undefined (see the "asan" preset in CMakePresets.json).
+          - name: linux-clang-asan-ubsan
+            os: ubuntu-24.04
+            preset: asan
+            experimental: false
+          - name: windows-msvc
+            os: windows-2022
+            preset: msvc
+            msvc_env: true
+            experimental: true # TODO(A1): remove once Windows Process lands
+          - name: windows-clang-cl
+            os: windows-2022
+            preset: clang-cl
+            msvc_env: true
+            experimental: true # TODO(A1): remove once Windows Process lands
+          - name: macos-appleclang
+            os: macos-14
+            preset: release
+            cc: clang
+            cxx: clang++
+            experimental: false
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clangd and Ninja (pip)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "clangd==${CLANGD_VERSION}" "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: MSVC developer environment
+        if: matrix.msvc_env
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: x64
+
+      - name: Toolchain versions
+        shell: bash
+        run: |
+          command -v clangd ninja cmake
+          clangd --version
+          ninja --version
+          cmake --version
+
+      - name: Configure
+        shell: bash
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+        run: cmake --preset "${{ matrix.preset }}"
+
+      - name: Build
+        shell: bash
+        run: cmake --build --preset "${{ matrix.preset }}" --parallel
+
+      - name: Test
+        shell: bash
+        run: ctest --preset "${{ matrix.preset }}" --timeout 300
+
+  format:
+    name: clang-format (changed files)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clang-format
+        run: |
+          python -m pip install "clang-format==${CLANG_FORMAT_VERSION}"
+          clang-format --version
+
+      - name: Check changed C++ files
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          PUSH_BEFORE: ${{ github.event.before }}
+          HEAD_SHA: ${{ github.sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          set -euo pipefail
+          zero=0000000000000000000000000000000000000000
+          base=""
+          if [ "$EVENT_NAME" = "pull_request" ]; then
+            # Merge base of the PR target and the PR head.
+            base="$(git merge-base "$PR_BASE_SHA" "$HEAD_SHA" 2>/dev/null || echo "$PR_BASE_SHA")"
+          elif [ -n "$PUSH_BEFORE" ] && [ "$PUSH_BEFORE" != "$zero" ] && git cat-file -e "$PUSH_BEFORE^{commit}" 2>/dev/null; then
+            base="$PUSH_BEFORE"
+          else
+            # First push, new branch, or a force-push that dropped the old tip:
+            # use the merge base with the default branch, else the head's parent,
+            # else (root commit) the empty tree.
+            if git rev-parse --verify -q "origin/$DEFAULT_BRANCH" >/dev/null \
+               && b="$(git merge-base "origin/$DEFAULT_BRANCH" "$HEAD_SHA" 2>/dev/null)" \
+               && [ "$b" != "$HEAD_SHA" ]; then
+              base="$b"
+            elif git rev-parse --verify -q "$HEAD_SHA^" >/dev/null; then
+              base="$(git rev-parse "$HEAD_SHA^")"
+            else
+              base="$(git hash-object -t tree /dev/null)"
+            fi
+          fi
+          echo "Diff base: $base"
+          mapfile -t files < <(git diff --name-only --diff-filter=ACMR "$base" "$HEAD_SHA" -- '*.cpp' '*.cc' '*.cxx' '*.h' '*.hpp' '*.hxx' ':!third_party')
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No C++ files changed."
+            exit 0
+          fi
+          printf 'Checking %s\n' "${files[@]}"
+          clang-format --dry-run --Werror "${files[@]}"

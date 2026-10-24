@@ -1,0 +1,34 @@
+---
+Language: Cpp
+BasedOnStyle: Google
+Standard: c++20
+IndentWidth: 2
+ColumnLimit: 120
+AccessModifierOffset: -1
+DerivePointerAlignment: false
+PointerAlignment: Left
+SortIncludes: CaseSensitive
+IncludeBlocks: Regroup
+IncludeCategories:
+  # C / POSIX / system headers
+  - Regex: '^<.*\.h>$'
+    Priority: 2
+  # std headers (no extension)
+  - Regex: '^<[a-z_]+>$'
+    Priority: 3
+  # third_party
+  - Regex: '^[<"]nlohmann/.*[>"]$'
+    Priority: 4
+  # project headers
+  - Regex: '^".*"$'
+    Priority: 5
+  - Regex: '.*'
+    Priority: 6
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: AllIfsAndElse
+AllowShortLoopsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+SpacesBeforeTrailingComments: 2
+AlignEscapedNewlines: Left

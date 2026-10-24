@@ -37,6 +37,12 @@ ninja -C build
 ./build/tenfold-tests            # 31 tests, including clangd integration
 ```
 
+CI / presets: `CMakePresets.json` mirrors the CI matrix, so
+`cmake --preset release && cmake --build --preset release && ctest --preset release`
+works locally (also `debug`, `asan`, and on Windows `msvc` / `clang-cl` from a VS developer prompt).
+GitHub Actions (`.github/workflows/ci.yml`) builds gcc, clang, clang ASan+UBSan, MSVC,
+clang-cl and AppleClang, and runs `clang-format --dry-run --Werror` on changed C++ files only.
+
 ## Try it
 
 `tenfold-cli` is a scriptable front end over the editor model. Point it at a
