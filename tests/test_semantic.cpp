@@ -5,6 +5,7 @@
 
 #include "app/Editor.h"
 #include "test_main.h"
+#include "core/PathUtil.h"
 #include "workspace/Workspace.h"
 
 using namespace tf;
@@ -13,6 +14,11 @@ namespace fs = std::filesystem;
 namespace {
 
 const fs::path kRoot = fs::path(TENFOLD_SOURCE_DIR) / "examples/sample_project";
+
+// The engine stores absolute paths; on a cross-built Windows binary run under
+// Wine the test's POSIX-style root is only made absolute (Z:) by the engine, and
+// separators may differ, so compare absolutised paths through pathKey.
+bool samePath(const fs::path& a, const fs::path& b) { return pathsEqual(fs::absolute(a), fs::absolute(b)); }
 
 // Line (0-based) of "// @MARK:name" in a file.
 int markLine(const fs::path& file, const std::string& name) {
@@ -111,19 +117,19 @@ TEST(semantic_fast_only_navigation_and_back) {
   // The fast index knows two length_sq symbols (decl + def) - approximate but useful.
   CHECK_EQ(o.calls.back().second.size(), 2u);
   // Ambiguous -> the editor does not auto-jump.
-  CHECK(f.ed.cursor().file == main);
+  CHECK(samePath(f.ed.cursor().file, main));
   // Unambiguous: Vec2f alias.
   auto o2 = f.gotoDef(main, "decl_v", "Vec2f");
   REQUIRE(!o2.calls.empty());
   REQUIRE(o2.calls.back().second.size() == 1u);
-  CHECK(f.ed.cursor().file == hdr);
+  CHECK(samePath(f.ed.cursor().file, hdr));
   CHECK_EQ(f.ed.cursor().pos.line, markLine(hdr, "Vec2f"));
   // ...and Back returns to main.cpp at the use site.
   CHECK(f.ed.back());
-  CHECK(f.ed.cursor().file == main);
+  CHECK(samePath(f.ed.cursor().file, main));
   CHECK_EQ(f.ed.cursor().pos.line, markLine(main, "decl_v"));
   CHECK(f.ed.forward());
-  CHECK(f.ed.cursor().file == hdr);
+  CHECK(samePath(f.ed.cursor().file, hdr));
   // Approximate completion / symbol search work without clangd.
   bool done = false;
   std::vector<SymbolLocation> syms;
@@ -193,7 +199,7 @@ TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
   int backs = 0;
   while (f.ed.back()) ++backs;
   CHECK(backs >= static_cast<int>(cases.size()));
-  CHECK(f.ed.cursor().file == main);
+  CHECK(samePath(f.ed.cursor().file, main));
   CHECK_EQ(f.ed.cursor().pos.line, markLine(main, cases.front().useMark));
   // Forward all the way returns to the final destination.
   while (f.ed.forward()) {}
