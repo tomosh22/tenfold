@@ -32,6 +32,9 @@ bool Editor::start(std::string* error) {
 }
 
 void Editor::shutdown() {
+  for (auto& h : searches_) h.cancel();
+  for (auto& h : searches_) h.wait();
+  searches_.clear();
   if (semantic_) {
     semantic_->stop();
     semantic_.reset();
@@ -269,6 +272,41 @@ const std::vector<Diagnostic>& Editor::diagnostics(const fs::path& file) const {
   static const std::vector<Diagnostic> empty;
   auto it = diagnostics_.find(file.generic_string());
   return it == diagnostics_.end() ? empty : it->second;
+}
+
+// ---------------------------------------------------------------------------
+// Find in workspace
+// ---------------------------------------------------------------------------
+
+SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opts, SearchBatch onBatch,
+                                     SearchDone onDone) {
+  opts.query = query;
+  SearchInput in;
+  in.root = ws_.root();
+  in.files = ws_.codeFiles();
+  if (opts.includeOtherFiles) in.files.insert(in.files.end(), ws_.otherFiles().begin(), ws_.otherFiles().end());
+  // Snapshot open documents on this thread; the search must not touch live buffers.
+  for (Document* d : documents()) {
+    std::string rel = d->path().lexically_relative(ws_.root()).generic_string();
+    if (!rel.empty() && rel.compare(0, 2, "..") != 0) in.overrides[rel] = d->buffer().text();
+  }
+  searches_.erase(std::remove_if(searches_.begin(), searches_.end(), [](const SearchHandle& h) { return h.finished(); }),
+                  searches_.end());
+  SearchHandle h = SearchHandle::create();  // queued batches check its cancel flag when they are pumped
+  TextSearch::start(
+      std::move(in), std::move(opts),
+      [this, h, onBatch](std::vector<SearchMatch>&& batch) {
+        post([h, onBatch, batch = std::move(batch)] {
+          if (!h.cancelled() && onBatch) onBatch(batch);
+        });
+      },
+      [this, onDone](const SearchSummary& s) { post([onDone, s] { if (onDone) onDone(s); }); }, h);
+  searches_.push_back(h);
+  return h;
+}
+
+bool Editor::gotoSearchMatch(const SearchMatch& m, std::string* error) {
+  return gotoLocation({m.file, {m.line, m.column}}, error, m.text.substr(0, 80));
 }
 
 }  // namespace tf
