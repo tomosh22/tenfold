@@ -10,3 +10,8 @@ set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM NEVER)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY ONLY)
 set(CMAKE_FIND_ROOT_PATH_MODE_INCLUDE ONLY)
 set(CMAKE_EXE_LINKER_FLAGS_INIT "-static")
+# Keep pkg-config inside the mingw sysroot so host (Linux) packages such as
+# libpcre2-dev are never picked up; missing ones fall back to FetchContent.
+set(ENV{PKG_CONFIG_LIBDIR} "${CMAKE_FIND_ROOT_PATH}/lib/pkgconfig")
+set(ENV{PKG_CONFIG_PATH} "")
+set(ENV{PKG_CONFIG_SYSROOT_DIR} "${CMAKE_FIND_ROOT_PATH}")
