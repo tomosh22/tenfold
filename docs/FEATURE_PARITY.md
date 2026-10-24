@@ -15,7 +15,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 |---|---|---|
 | Navigate Backward / Forward | ✅ | `NavigationHistory`; VS-style semantics; edit tracking. Suggested keys: Alt+Left / Alt+Right and Ctrl+- / Ctrl+Shift+- (VS). |
 | Navigation that cannot miss | ✅ | clangd authoritative, fast index approximate, budgeted delivery, cold-start augmentation. |
-| Still instant | ✅ | fast index at startup; clangd background index persisted; approximate results within the budget. |
+| Still instant | ✅ | fast index at startup, persisted to `.tenfold/fastindex.bin` so warm starts only re-lex changed files (A4); clangd background index persisted; approximate results within the budget. |
 
 ## Workspace and files
 
@@ -27,7 +27,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Makefile / bare folders | ✅ | Heuristic include paths. |
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. **verify** 10x's `.10x` workspace format if import is wanted. |
 | Fast "open file" fuzzy search | 🔶 | `Workspace` has the file list; reuse `FastIndex::fuzzyScore`. |
-| Find in workspace (text search) | ⬜ | Parallel grep over `Workspace::codeFiles()`; results feed `NavigationHistory`. |
+| Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI in B5. |
 | File watching / external changes | ⬜ | |
 
 ## Code intelligence
@@ -77,6 +77,6 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Item | Status | Notes |
 |---|---|---|
-| Process spawning | ⬜ | `Process` interface fixed; needs CreateProcess + pipes. |
-| MSVC headers for clangd | ⬜ | Ship `clangd.exe`; `clang-cl` driver commands already generated; add `--query-driver` for the installed `cl.exe`. |
-| Paths / URIs | ✅ | `pathToUri`/`uriToPath` handle drive letters. |
+| Process spawning | ✅ | `Process_win32.cpp` (A1): CreateProcessW, inherited pipes, kill-on-close job object. Verified via mingw + Wine; MSVC via CI. |
+| MSVC headers for clangd | 🔶 | `cl.exe` discovery (VCToolsInstallDir / vswhere / `msvcToolchain` setting) and `--query-driver` done (A2). Shipping `clangd.exe` + bundled `bin/` lookup is D1. |
+| Paths / URIs | ✅ | `pathToUri`/`uriToPath` handle drive letters and UNC; case/separator-insensitive `pathKey`/`pathsEqual` on Windows (A2). |
