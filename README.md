@@ -1,0 +1,109 @@
+# Tenfold
+
+A from-scratch C++ code editor engine in the spirit of the
+[10x editor](https://10xeditor.com): instant startup, whole-workspace symbol
+search in milliseconds, native speed everywhere. It exists to fix two things
+that 10x gets wrong while keeping everything else it gets right:
+
+1. **No back button.** Tenfold has a full Visual Studio style
+   *Navigate Backward / Forward* history (`src/nav/`). Every jump records
+   where you came from and where you landed, far caret moves are remembered,
+   nearby points coalesce, edits keep old entries pointing at the right line,
+   and a fresh jump truncates the forward stack. See
+   `tests/test_navigation.cpp` for the exact semantics.
+2. **A fast parser that misses things.** Tenfold's semantic engine
+   (`src/semantic/`) is two-tier. A 10x-style lexer index gives instant,
+   approximate answers, but the *authority* is clangd, the real Clang
+   frontend driven by the project's actual compile flags. Templates,
+   `auto`, typedef chains, explicit specialisations, `decltype`, overloads,
+   overrides and macro-generated members all resolve exactly, because they
+   are resolved by the compiler. Approximate answers are only ever shown
+   while clangd is still thinking, and they are labelled as such.
+
+This repository contains the **engine and a headless front end**. The
+graphical front end (GPU text rendering, tabs, panels, key bindings) is the
+next milestone; everything here is UI-agnostic so it can sit on top without
+changes. See `docs/ARCHITECTURE.md` and `docs/FEATURE_PARITY.md`.
+
+## Build and test
+
+Requirements: a C++20 compiler (GCC 13 / Clang 18 tested), CMake 3.20+,
+and `clangd` on `PATH` (or pass `--clangd <path>`). Without clangd everything
+still works in approximate mode.
+
+```sh
+cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+ninja -C build
+./build/tenfold-tests            # 31 tests, including clangd integration
+```
+
+## Try it
+
+`tenfold-cli` is a scriptable front end over the editor model. Point it at a
+workspace root (a folder, a `.sln`, or a `CMakeLists.txt` directory) and type
+commands:
+
+```sh
+./build/tenfold-cli examples/sample_project
+> open src/main.cpp:12:17      # caret on s->area(), where s is an auto variable
+> def                          # -> geometry.h:38 Shape::area  [authoritative]
+> back                         # -> main.cpp:12:17
+> fwd                          # -> geometry.h:38
+> open src/main.cpp:16:17      # b.get_w(), a macro-generated member
+> def                          # -> geometry.h:53, the GEO_GETTER line
+> sym geo::Tr                  # fuzzy, qualified symbol search
+> refs | hover | complete | history | status | quit
+```
+
+`examples/sample_project` is deliberately full of constructs that defeat
+heuristic parsers (alias to template, `auto` return types, `decltype`,
+specialisations, macro-generated members). `tests/test_semantic.cpp` proves
+that clangd resolves all of them, and that the fast index alone cannot see
+the macro-generated one.
+
+Generate a `compile_commands.json` from a Visual Studio solution without
+running the editor:
+
+```sh
+./build/tenfold-cli compdb path/to/Game.sln --config Debug --platform x64 -o compile_commands.json
+```
+
+## What is where
+
+```
+src/core        TextBuffer (UTF-8 lines, CRLF aware), Document (undo/redo, listeners, URIs)
+src/nav         NavigationHistory: back/forward with coalescing and edit tracking
+src/lsp         Process, JSON-RPC framing, typed LspClient for clangd
+src/semantic    CppLexer, FastIndex (heuristic symbols + fuzzy search),
+                CompileCommands (compile_commands.json discovery; CMake, .sln/.vcxproj,
+                heuristic generators; MSBuild property/condition evaluation),
+                SemanticEngine (two-tier query policy)
+src/workspace   Workspace scanning, settings (.tenfold/workspace.json)
+src/app         Editor: documents + caret + navigation + semantic commands + main-thread queue
+src/cli         tenfold-cli, the headless reference front end
+tests           unit + integration tests (tiny self-contained framework)
+examples        sample project used by the tests
+docs            architecture and 10x feature-parity notes
+third_party     nlohmann/json (single header)
+```
+
+## Numbers
+
+Release build, 4 cores. Godot engine source tree (8755 files, 175 MB):
+workspace scan 59 ms, fast index 1.4 s (507k symbols), editor interactive
+2.4 s after a cold launch and 0.2 s warm; clangd has the opened translation
+unit parsed 1.3 s later and answers go-to-definition in under 10 ms from
+then on. Full details and caveats in `docs/IMPLEMENTATION_PLAN.md`.
+
+## Status
+
+Done and tested: text model, navigation history, LSP client, clangd
+integration (definition, declaration, type definition, implementation,
+references, hover, completion, signature help, document/workspace symbols,
+rename, diagnostics, source/header switch), fast index, compile-command
+discovery and generation, workspace scanning, editor model, CLI.
+
+Not yet done: the graphical front end, Windows process spawning
+(`src/lsp/Process.cpp` is POSIX; the interface is ready for a CreateProcess
+implementation), build/debug/VCS integration, scripting. See
+`docs/FEATURE_PARITY.md` for the full list and plan.
