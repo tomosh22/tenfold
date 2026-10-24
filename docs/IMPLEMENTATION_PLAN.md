@@ -502,6 +502,9 @@ orchestrator should split them along the file boundaries listed).
 
 ## Benchmarks (keep updated via A8)
 
+Current numbers, methodology and per-budget pass/fail live in `docs/BENCHMARKS.md`
+(run `tools/bench.sh`). The table below is the original historical baseline, kept as is.
+
 Reference machine: 4 cores, 15 GB RAM, Linux, GCC 13 Release build, clangd 22.
 
 | Workspace | Launch → interactive | Launch → first TU parsed | `def` after parse | Fast index |
