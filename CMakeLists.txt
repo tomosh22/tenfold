@@ -11,11 +11,24 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 find_package(Threads REQUIRED)
 
+if(WIN32)
+  set(TENFOLD_PROCESS_SRC src/lsp/Process_win32.cpp)
+else()
+  set(TENFOLD_PROCESS_SRC src/lsp/Process_posix.cpp)
+endif()
+if(MSVC)
+  set(TENFOLD_WARN /W4)
+  set(TENFOLD_WARN_CORE /W4 /wd4100)
+else()
+  set(TENFOLD_WARN -Wall -Wextra)
+  set(TENFOLD_WARN_CORE -Wall -Wextra -Wno-unused-parameter)
+endif()
+
 add_library(tenfold_core STATIC
   src/core/TextBuffer.cpp
   src/core/Document.cpp
   src/nav/NavigationHistory.cpp
-  src/lsp/Process.cpp
+  ${TENFOLD_PROCESS_SRC}
   src/lsp/JsonRpc.cpp
   src/lsp/LspClient.cpp
   src/semantic/CppLexer.cpp
@@ -28,11 +41,11 @@ add_library(tenfold_core STATIC
 )
 target_include_directories(tenfold_core PUBLIC src third_party)
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
-target_compile_options(tenfold_core PRIVATE -Wall -Wextra -Wno-unused-parameter)
+target_compile_options(tenfold_core PRIVATE ${TENFOLD_WARN_CORE})
 
 add_executable(tenfold-cli src/cli/main.cpp)
 target_link_libraries(tenfold-cli PRIVATE tenfold_core)
-target_compile_options(tenfold-cli PRIVATE -Wall -Wextra)
+target_compile_options(tenfold-cli PRIVATE ${TENFOLD_WARN})
 
 enable_testing()
 add_executable(tenfold-tests
@@ -42,6 +55,7 @@ add_executable(tenfold-tests
   tests/test_fastindex.cpp
   tests/test_compdb.cpp
   tests/test_semantic.cpp
+  tests/test_process.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
