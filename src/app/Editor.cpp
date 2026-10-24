@@ -44,7 +44,7 @@ void Editor::shutdown() {
 
 Document* Editor::document(const fs::path& path) {
   std::error_code ec;
-  auto it = docs_.find(fs::weakly_canonical(path, ec).generic_string());
+  auto it = docs_.find(pathKey(fs::weakly_canonical(path, ec)));
   return it == docs_.end() ? nullptr : it->second.get();
 }
 
@@ -67,7 +67,7 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
     if (semantic_) semantic_->didChange(d, ch);
     if (current_ == &d) cursor_.pos = d.buffer().clamp(cursor_.pos);
   });
-  docs_[path.generic_string()] = std::move(doc);
+  docs_[pathKey(path)] = std::move(doc);
   if (semantic_) semantic_->didOpen(*raw);
   return raw;
 }
@@ -77,7 +77,7 @@ bool Editor::close(const fs::path& path) {
   if (!d) return false;
   if (semantic_) semantic_->didClose(*d);
   if (current_ == d) { current_ = nullptr; cursor_ = {}; }
-  docs_.erase(d->path().generic_string());
+  docs_.erase(pathKey(d->path()));
   return true;
 }
 

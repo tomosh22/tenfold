@@ -4,6 +4,7 @@
 #include <string>
 #include <vector>
 
+#include "core/PathUtil.h"
 #include "core/TextBuffer.h"
 
 namespace tf {

@@ -14,6 +14,7 @@ find_package(Threads REQUIRED)
 add_library(tenfold_core STATIC
   src/core/TextBuffer.cpp
   src/core/Document.cpp
+  src/core/PathUtil.cpp
   src/nav/NavigationHistory.cpp
   src/lsp/Process.cpp
   src/lsp/JsonRpc.cpp
@@ -42,6 +43,7 @@ add_executable(tenfold-tests
   tests/test_fastindex.cpp
   tests/test_compdb.cpp
   tests/test_semantic.cpp
+  tests/test_paths.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

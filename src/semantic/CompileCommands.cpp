@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
+#include <cstdlib>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -590,6 +592,103 @@ std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs
     out.push_back(std::move(c));
   }
   return out;
+}
+
+std::optional<fs::path> clExeInToolsDir(const fs::path& toolsDir) {
+  std::error_code ec;
+  fs::path cl = toolsDir / "bin" / "Hostx64" / "x64" / "cl.exe";
+  if (fs::is_regular_file(cl, ec)) return cl;
+  return std::nullopt;
+}
+
+namespace {
+std::vector<int> versionParts(const std::string& v) {
+  std::vector<int> out;
+  size_t i = 0;
+  while (i < v.size()) {
+    size_t j = i;
+    int n = 0;
+    while (j < v.size() && std::isdigit(static_cast<unsigned char>(v[j]))) n = n * 10 + (v[j++] - '0');
+    out.push_back(n);
+    i = (j == i) ? i + 1 : j + 1;
+  }
+  return out;
+}
+std::string trimLine(std::string s) {
+  size_t nl = s.find_first_of("\r\n");
+  if (nl != std::string::npos) s.resize(nl);
+  while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
+  size_t b = 0;
+  while (b < s.size() && std::isspace(static_cast<unsigned char>(s[b]))) ++b;
+  return s.substr(b);
+}
+}  // namespace
+
+std::optional<fs::path> clExeInVsInstall(const fs::path& installationPath) {
+  std::error_code ec;
+  fs::path msvc = installationPath / "VC" / "Tools" / "MSVC";
+  std::vector<std::pair<std::vector<int>, fs::path>> versions;
+  for (auto& e : fs::directory_iterator(msvc, ec)) {
+    if (e.is_directory(ec)) versions.emplace_back(versionParts(e.path().filename().string()), e.path());
+  }
+  std::sort(versions.begin(), versions.end(), [](auto& a, auto& b) { return a.first > b.first; });
+  for (auto& v : versions)
+    if (auto cl = clExeInToolsDir(v.second)) return cl;  // newest that actually has cl.exe
+  return std::nullopt;
+}
+
+std::optional<fs::path> discoverCl(const std::string& configured, const MsvcProbe& probe) {
+  if (!configured.empty()) {
+    fs::path c(configured);
+    std::error_code ec;
+    if (fs::is_directory(c, ec)) {
+      if (fs::is_regular_file(c / "cl.exe", ec)) return c / "cl.exe";
+      if (auto cl = clExeInToolsDir(c)) return cl;
+    }
+    return c;  // user override is trusted as given
+  }
+  if (!probe.vcToolsInstallDir.empty()) {
+    if (auto cl = clExeInToolsDir(fs::path(probe.vcToolsInstallDir))) return cl;
+  }
+  if (probe.vswhere) {
+    std::string install = trimLine(probe.vswhere());
+    if (!install.empty()) {
+      if (auto cl = clExeInVsInstall(fs::path(install))) return cl;
+    }
+  }
+  return std::nullopt;
+}
+
+MsvcProbe systemMsvcProbe() {
+  MsvcProbe p;
+  if (const char* v = std::getenv("VCToolsInstallDir")) p.vcToolsInstallDir = v;
+#ifdef _WIN32
+  p.vswhere = [] {
+    std::string exe = "vswhere.exe";
+    if (const char* pf = std::getenv("ProgramFiles(x86)")) {
+      fs::path cand = fs::path(pf) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe";
+      std::error_code ec;
+      if (fs::is_regular_file(cand, ec)) exe = cand.string();
+    }
+    std::string cmd = "\"" + exe + "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
+                      "-property installationPath";
+    std::string out;
+    if (FILE* f = _popen(("\"" + cmd + "\"").c_str(), "r")) {
+      char buf[512];
+      while (fgets(buf, sizeof buf, f)) out += buf;
+      _pclose(f);
+    }
+    return out;
+  };
+#endif
+  return p;
+}
+
+std::string queryDriverArg(const fs::path& clExe) { return "--query-driver=" + clExe.parent_path().generic_string() + "/**"; }
+
+std::vector<std::string> msvcClangdArgs(const fs::path& clExe) {
+  if (clExe.empty()) return {};
+  return {queryDriverArg(clExe)};
 }
 
 }  // namespace compdb

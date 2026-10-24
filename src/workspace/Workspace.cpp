@@ -4,6 +4,12 @@
 #include <cstdlib>
 #include <fstream>
 
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#endif
+
 #include <nlohmann/json.hpp>
 
 namespace tf {
@@ -50,6 +56,7 @@ bool Workspace::loadSettings(std::string* error) {
   settings_.vsConfiguration = j.value("vsConfiguration", settings_.vsConfiguration);
   settings_.vsPlatform = j.value("vsPlatform", settings_.vsPlatform);
   settings_.runCMake = j.value("runCMake", settings_.runCMake);
+  settings_.msvcToolchain = j.value("msvcToolchain", settings_.msvcToolchain);
   settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
   return true;
 }
@@ -67,6 +74,7 @@ bool Workspace::saveSettings(std::string* error) const {
   j["vsConfiguration"] = settings_.vsConfiguration;
   j["vsPlatform"] = settings_.vsPlatform;
   j["runCMake"] = settings_.runCMake;
+  j["msvcToolchain"] = settings_.msvcToolchain;
   j["followSymlinks"] = settings_.followSymlinks;
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
@@ -144,24 +152,78 @@ bool Workspace::hasCMake() const {
   return fs::is_regular_file(root_ / "CMakeLists.txt", ec);
 }
 
-std::string findExecutable(const std::string& name) {
-  if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos) {
-    std::error_code ec;
-    return fs::is_regular_file(name, ec) ? name : "";
-  }
-  const char* path = std::getenv("PATH");
-  if (!path) return "";
-  std::string p(path);
+std::vector<std::string> splitPathList(const std::string& pathList, char sep) {
+  std::vector<std::string> out;
   size_t start = 0;
-  while (start <= p.size()) {
-    size_t sep = p.find(':', start);
-    if (sep == std::string::npos) sep = p.size();
-    fs::path cand = fs::path(p.substr(start, sep - start)) / name;
-    std::error_code ec;
-    if (fs::is_regular_file(cand, ec)) return cand.string();
-    start = sep + 1;
+  while (start <= pathList.size()) {
+    size_t e = pathList.find(sep, start);
+    if (e == std::string::npos) e = pathList.size();
+    if (e > start) out.push_back(pathList.substr(start, e - start));
+    start = e + 1;
+  }
+  return out;
+}
+
+std::vector<std::string> executableCandidates(const std::string& name, bool windows, const std::vector<std::string>& exts) {
+  if (!windows) return {name};
+  std::string ln = lower(name);
+  for (auto& e : exts)
+    if (ln.size() >= e.size() && ln.compare(ln.size() - e.size(), e.size(), lower(e)) == 0) return {name};
+  std::vector<std::string> out;
+  for (auto& e : exts) out.push_back(name + e);
+  return out;
+}
+
+fs::path bundledBinDir() {
+  fs::path exe;
+#ifdef _WIN32
+  wchar_t buf[MAX_PATH * 4];
+  DWORD n = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(sizeof(buf) / sizeof(buf[0])));
+  if (n > 0 && n < sizeof(buf) / sizeof(buf[0])) exe = fs::path(std::wstring(buf, n));
+#else
+  std::error_code ec;
+  exe = fs::read_symlink("/proc/self/exe", ec);
+  if (ec) exe.clear();
+#endif
+  if (exe.empty()) return {};
+  return exe.parent_path() / "bin";
+}
+
+std::string findExecutableIn(const std::string& name, const std::vector<std::string>& dirs, bool windows) {
+  for (auto& d : dirs) {
+    for (auto& c : executableCandidates(name, windows)) {
+      fs::path cand = fs::path(d) / c;
+      std::error_code ec;
+      if (fs::is_regular_file(cand, ec)) return cand.string();
+    }
   }
   return "";
+}
+
+std::string findExecutable(const std::string& name) { return findExecutable(name, false); }
+
+std::string findExecutable(const std::string& name, bool preferBundled) {
+#ifdef _WIN32
+  const bool windows = true;
+  const char sep = ';';
+#else
+  const bool windows = false;
+  const char sep = ':';
+#endif
+  if (name.find('/') != std::string::npos || name.find('\\') != std::string::npos) {
+    std::error_code ec;
+    for (auto& c : executableCandidates(name, windows))
+      if (fs::is_regular_file(c, ec)) return c;
+    return "";
+  }
+  std::vector<std::string> dirs;
+  fs::path bin = bundledBinDir();
+  if (preferBundled && !bin.empty()) dirs.push_back(bin.string());
+  if (const char* path = std::getenv("PATH")) {
+    for (auto& d : splitPathList(path, sep)) dirs.push_back(d);
+  }
+  if (!preferBundled && !bin.empty()) dirs.push_back(bin.string());
+  return findExecutableIn(name, dirs, windows);
 }
 
 }  // namespace tf

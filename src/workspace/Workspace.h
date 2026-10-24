@@ -27,6 +27,9 @@ class Workspace {
     std::string vsConfiguration = "Debug";
     std::string vsPlatform = "x64";
     bool runCMake = true;                      // configure CMake projects to obtain compile commands
+    // Path of the MSVC cl.exe used for clangd's --query-driver (.vcxproj/.sln projects).
+    // User-overridable; when empty it is discovered and then persisted here.
+    std::string msvcToolchain;
   };
 
   explicit Workspace(std::filesystem::path root);
@@ -61,5 +64,20 @@ class Workspace {
 };
 
 std::string findExecutable(const std::string& name);
+// preferBundled: look in the editor's own bin/ before PATH (used when the user
+// has not configured an explicit executable path). Otherwise bin/ is a fallback.
+std::string findExecutable(const std::string& name, bool preferBundled);
+
+// Pure pieces of executable lookup, testable on any host.
+// Split a PATH-style string on `sep`, dropping empty entries.
+std::vector<std::string> splitPathList(const std::string& pathList, char sep);
+// File names to try for `name`: on Windows the PATHEXT-style extensions are
+// appended unless `name` already ends in one of them.
+std::vector<std::string> executableCandidates(const std::string& name, bool windows,
+                                              const std::vector<std::string>& exts = {".exe", ".cmd", ".bat"});
+// The editor's bin/ directory next to the running executable ("" if unknown).
+std::filesystem::path bundledBinDir();
+// Search `dirs` in order for any candidate; returns the first existing file.
+std::string findExecutableIn(const std::string& name, const std::vector<std::string>& dirs, bool windows);
 
 }  // namespace tf
