@@ -24,6 +24,7 @@ add_library(tenfold_core STATIC
   src/semantic/XmlLite.cpp
   src/semantic/SemanticEngine.cpp
   src/workspace/Workspace.cpp
+  src/workspace/FileWatcher.cpp
   src/app/Editor.cpp
 )
 target_include_directories(tenfold_core PUBLIC src third_party)
@@ -42,6 +43,7 @@ add_executable(tenfold-tests
   tests/test_fastindex.cpp
   tests/test_compdb.cpp
   tests/test_semantic.cpp
+  tests/test_filewatcher.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

@@ -12,6 +12,7 @@
 #include "core/Document.h"
 #include "nav/NavigationHistory.h"
 #include "semantic/SemanticEngine.h"
+#include "workspace/FileWatcher.h"
 #include "workspace/Workspace.h"
 
 namespace tf {
@@ -49,6 +50,19 @@ class Editor {
   std::vector<Document*> documents();
   bool close(const std::filesystem::path& path);
   bool save(Document& doc, std::string* error = nullptr);
+  // Replace the buffer with the file's current content (undo history is cleared,
+  // the document is clean afterwards). Only the changed line range is replaced,
+  // so navigation history entries and the language server stay in sync.
+  bool reloadFromDisk(Document& doc, std::string* error = nullptr);
+
+  // --- file watching ---
+  // Fired on the pump thread when a file that is open in a Document changed on
+  // disk and its content differs from what we last loaded / saved / reloaded.
+  // The UI decides: reloadFromDisk(doc) or keep the buffer (the notification
+  // repeats only on the next change on disk).
+  using ExternalChangeHandler = std::function<void(Document&)>;
+  void onExternalChange(ExternalChangeHandler h) { externalChange_ = std::move(h); }
+  FileWatcher* fileWatcher() { return watcher_.get(); }  // null when watching is disabled
 
   // --- caret & navigation ---
   Location cursor() const { return cursor_; }
@@ -86,6 +100,11 @@ class Editor {
 
  private:
   void setCurrent(Document* d, Position p);
+  void startWatching();
+  void handleFileEvent(const FileWatcher::Event& ev);   // pump thread
+  void checkExternalChange(Document& doc);
+  void rescanWorkspace();
+  void refreshBuildSystem();
   void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done);
 
   Workspace ws_;
@@ -97,6 +116,10 @@ class Editor {
   Location cursor_;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
 
+  std::unique_ptr<FileWatcher> watcher_;
+  bool buildRefreshRunning_ = false, buildRefreshAgain_ = false;
+  ExternalChangeHandler externalChange_;
+  std::map<std::string, size_t> diskHash_;  // key: generic path; hash of the bytes last loaded / saved
   std::mutex qmu_;
   std::deque<std::function<void()>> queue_;
   std::condition_variable qcv_;

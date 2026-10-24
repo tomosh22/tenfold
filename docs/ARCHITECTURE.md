@@ -32,6 +32,19 @@ thread.
 * `FastIndex::indexFiles` uses a **thread pool** (hardware concurrency) and
   is launched by `SemanticEngine::start()` on a background thread. Lookups
   take a shared lock, so the index is queryable while it is still filling.
+* `FileWatcher` (`src/workspace/`) owns one **watcher thread** (inotify on
+  Linux, `ReadDirectoryChangesW` on Windows, polling elsewhere or when the
+  inotify watch limit is hit). It debounces events per path (200 ms) and
+  calls back on that thread. The callback does only the thread-safe, cheap
+  part itself (`SemanticEngine::fileChanged/fileRemoved`, one file re-lexed
+  into the `FastIndex`) and `Editor::post()`s the rest: workspace file lists,
+  navigation history, open-document checks (`Editor::onExternalChange`) and
+  build-system refresh. Heavy follow-ups (compile-database regeneration, bulk
+  re-index after a directory rename) run on a lazily started **engine worker
+  thread**; a moved compile database is applied by `restartClangd()` on the
+  main thread. Files open in a `Document` are never re-indexed from disk
+  behind the user's back. Watching is on by default; disable it with
+  `"watchFiles": false` in `.tenfold/workspace.json`.
 * `SemanticEngine` has a small **timer thread** that implements the result
   budget (below).
 

@@ -27,6 +27,7 @@ class Workspace {
     std::string vsConfiguration = "Debug";
     std::string vsPlatform = "x64";
     bool runCMake = true;                      // configure CMake projects to obtain compile commands
+    bool watchFiles = true;                    // keep index / history / documents in sync with the file system
   };
 
   explicit Workspace(std::filesystem::path root);
@@ -45,6 +46,15 @@ class Workspace {
   const std::vector<std::filesystem::path>& otherFiles() const { return others_; }
   std::vector<std::filesystem::path> codeFiles() const;  // sources + headers
   size_t fileCount() const { return sources_.size() + headers_.size() + others_.size(); }
+
+  // Incremental maintenance of the file lists (used by the file watcher; call
+  // from the editor thread). Paths that are not workspace files are ignored.
+  // Each returns true if a list changed.
+  bool noteFileAdded(const std::filesystem::path& file);
+  bool noteFileRemoved(const std::filesystem::path& file);
+  bool noteFileRenamed(const std::filesystem::path& from, const std::filesystem::path& to);
+  // Every listed file at or below `dir`.
+  std::vector<std::filesystem::path> filesUnder(const std::filesystem::path& dir) const;
 
   bool isSource(const std::filesystem::path& p) const;
   bool isHeader(const std::filesystem::path& p) const;
