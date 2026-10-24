@@ -34,6 +34,7 @@ add_library(tenfold_core STATIC
   src/lsp/LspClient.cpp
   src/semantic/CppLexer.cpp
   src/semantic/FastIndex.cpp
+  src/semantic/FastIndexStore.cpp
   src/semantic/CompileCommands.cpp
   src/semantic/XmlLite.cpp
   src/semantic/SemanticEngine.cpp
@@ -90,6 +91,7 @@ add_executable(tenfold-tests
   tests/test_textbuffer.cpp
   tests/test_navigation.cpp
   tests/test_fastindex.cpp
+  tests/test_fastindexstore.cpp
   tests/test_compdb.cpp
   tests/test_semantic.cpp
   tests/test_process.cpp

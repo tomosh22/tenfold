@@ -69,6 +69,8 @@ class SemanticEngine {
     std::vector<std::string> clangdArgs;    // extra args
     int clangdBudgetMs = 250;               // wait this long before showing approximate results
     int indexThreads = 0;                   // 0 -> hardware concurrency
+    bool persistFastIndex = true;           // load/save <root>/.tenfold/fastindex.bin (FastIndexStore)
+    int fastIndexSaveSeconds = 60;          // periodic save interval while the index is dirty
     std::filesystem::path logDir;           // empty -> <root>/.tenfold
     std::function<void(const std::string&)> log;
     bool traceLsp = false;
@@ -84,6 +86,8 @@ class SemanticEngine {
     size_t fastFiles = 0;
     size_t fastSymbols = 0;
     double fastSeconds = 0;
+    size_t fastRelexed = 0;  // files lexed at startup (the rest came from the persisted store)
+    size_t fastReused = 0;
     std::string compdbSource;  // existing | cmake | vcxproj | heuristic | none
     std::filesystem::path compdbPath;
     size_t compdbEntries = 0;
@@ -149,6 +153,7 @@ class SemanticEngine {
   void prepareCompileCommands();
   bool startClangd(std::string* error);
   void startFastIndex();
+  void saveFastIndex();
   void timerLoop();
   void log(const std::string& msg) const;
 
@@ -173,6 +178,10 @@ class SemanticEngine {
   std::thread indexThread_;
   std::atomic<bool> fastDone_{false};
   FastIndex::Stats fastStats_;
+  std::mutex saveMu_;  // serialises saves and guards saveRun_/savedGen_
+  std::condition_variable saveCv_;
+  bool saveRun_ = false;
+  uint64_t savedGen_ = ~0ull;  // FastIndex::generation() last persisted (or loaded unchanged)
 
   // Deadline timer for the "approximate first" policy.
   std::thread timer_;

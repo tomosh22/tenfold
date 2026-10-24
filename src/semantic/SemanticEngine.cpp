@@ -1,8 +1,12 @@
 #include "semantic/SemanticEngine.h"
 
 #include <algorithm>
+#include <chrono>
 #include <fstream>
+#include <mutex>
 #include <sstream>
+
+#include "semantic/FastIndexStore.h"
 
 namespace tf {
 
@@ -236,14 +240,51 @@ bool SemanticEngine::startClangd(std::string* error) {
   return true;
 }
 
+void SemanticEngine::saveFastIndex() {
+  if (!opt_.persistFastIndex) return;
+  uint64_t gen = fast_.generation();
+  if (gen == savedGen_) return;
+  std::string err;
+  if (FastIndexStore::save(ws_.cacheDir() / "fastindex.bin", fast_.exportFiles(), &err))
+    savedGen_ = gen;
+  else
+    log("fast index save failed: " + err);
+}
+
 void SemanticEngine::startFastIndex() {
   fastDone_ = false;
+  {
+    std::lock_guard<std::mutex> g(saveMu_);
+    saveRun_ = true;
+  }
   indexThread_ = std::thread([this] {
-    fastStats_ = fast_.indexFiles(ws_.codeFiles(), opt_.indexThreads);
+    FastIndexStore::Entries cached;
+    if (opt_.persistFastIndex) {
+      std::string err;
+      if (auto loaded = FastIndexStore::load(ws_.cacheDir() / "fastindex.bin", &err))
+        cached = std::move(*loaded);
+      else
+        log("fast index store not used: " + err);
+    }
+    fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
+    {
+      std::lock_guard<std::mutex> g(saveMu_);
+      // Nothing to write back if every entry came from the store untouched.
+      if (fastStats_.relexed == 0 && fastStats_.dropped == 0 && fastStats_.reused > 0) savedGen_ = fast_.generation();
+    }
     fastDone_ = true;
     cv_.notify_all();
     log("fast index: " + std::to_string(fastStats_.files) + " files, " + std::to_string(fastStats_.symbols) +
-        " symbols, " + std::to_string(fastStats_.bytes / 1024) + " KiB in " + std::to_string(fastStats_.seconds) + "s");
+        " symbols, " + std::to_string(fastStats_.bytes / 1024) + " KiB lexed (" + std::to_string(fastStats_.relexed) +
+        " relexed, " + std::to_string(fastStats_.reused) + " cached, " + std::to_string(fastStats_.dropped) +
+        " dropped) in " + std::to_string(fastStats_.seconds) + "s");
+    // Persist now (cold start) and then every fastIndexSaveSeconds while dirty; once more at shutdown.
+    std::unique_lock<std::mutex> lk(saveMu_);
+    while (saveRun_) {
+      saveFastIndex();
+      saveCv_.wait_for(lk, std::chrono::seconds(std::max(1, opt_.fastIndexSaveSeconds)), [this] { return !saveRun_; });
+    }
+    saveFastIndex();
   });
 }
 
@@ -262,6 +303,11 @@ void SemanticEngine::stop() {
     cv_.notify_all();
     if (timer_.joinable()) timer_.join();
   }
+  {
+    std::lock_guard<std::mutex> g(saveMu_);
+    saveRun_ = false;
+  }
+  saveCv_.notify_all();
   if (indexThread_.joinable()) indexThread_.join();
   if (clangd_) {
     clangd_->stop();
@@ -279,6 +325,8 @@ SemanticEngine::Status SemanticEngine::status() const {
     s.clangdIndex = clangd_->indexProgress();
   }
   s.fastIndexDone = fastDone_;
+  s.fastRelexed = fastStats_.relexed;
+  s.fastReused = fastStats_.reused;
   s.fastFiles = fast_.fileCount();
   s.fastSymbols = fast_.symbolCount();
   s.fastSeconds = fastDone_ ? fastStats_.seconds : 0;

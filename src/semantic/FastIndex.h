@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -32,6 +33,10 @@ struct FileSymbols {
   std::filesystem::path file;
   std::vector<Symbol> symbols;
   std::vector<std::string> includes;  // paths as written in #include directives
+  // On-disk stat of the file when it was lexed (0 = unknown, e.g. lexed from an unsaved buffer). The persisted
+  // store (FastIndexStore) trusts an entry only when both still match. mtime is last_write_time in clock ticks.
+  int64_t mtime = 0;
+  uint64_t size = 0;
 };
 
 // Heuristic declaration extractor: lexer-based, no preprocessing, no type
@@ -54,12 +59,29 @@ class FastIndex {
     size_t symbols = 0;
     size_t bytes = 0;
     double seconds = 0;
+    size_t reused = 0;   // indexFilesCached: entries taken from the cache (stat matched)
+    size_t relexed = 0;  // files actually read and lexed
+    size_t dropped = 0;  // cached entries whose file is no longer in the list / on disk
   };
 
   // Index files from disk using `threads` workers. Blocking; call from a
   // background thread for a responsive UI. `progress(done, total)` is optional.
   Stats indexFiles(const std::vector<std::filesystem::path>& files, int threads = 0,
                    std::function<void(size_t, size_t)> progress = {});
+  // Warm-start variant: `cached` holds entries from a previous run (FastIndexStore::load). A file whose
+  // mtime and size still match its cached entry is reused without being read; new and changed files are lexed;
+  // cached entries not in `files` (or no longer readable) are dropped. The result is inserted with a single
+  // bulk import (one lock acquisition). Stats.reused/relexed/dropped report what happened.
+  Stats indexFilesCached(const std::vector<std::filesystem::path>& files,
+                         std::vector<std::shared_ptr<const FileSymbols>> cached, int threads = 0,
+                         std::function<void(size_t, size_t)> progress = {});
+  // Bulk insert (replaces entries with the same path). Takes the lock once.
+  void importFiles(std::vector<std::shared_ptr<const FileSymbols>> files);
+  // Snapshot of every indexed file (cheap: shared_ptr copies), for persisting.
+  std::vector<std::shared_ptr<const FileSymbols>> exportFiles() const;
+  // Incremented by every mutation; lets a saver tell whether the index changed since it last persisted.
+  uint64_t generation() const { return generation_.load(std::memory_order_acquire); }
+
   void updateFile(const std::filesystem::path& file, std::string_view text);
   void removeFile(const std::filesystem::path& file);
   void clear();
@@ -88,6 +110,7 @@ class FastIndex {
   std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> files_;  // key: generic path string
   std::unordered_map<std::string, std::vector<Ref>> byName_;                    // key: exact name
   size_t symbolCount_ = 0;
+  std::atomic<uint64_t> generation_{0};
 };
 
 }  // namespace tf

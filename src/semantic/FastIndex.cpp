@@ -8,6 +8,10 @@
 #include <thread>
 #include <unordered_set>
 
+#ifdef __unix__
+#include <sys/stat.h>
+#endif
+
 #include "semantic/CppLexer.h"
 
 namespace tf {
@@ -683,12 +687,32 @@ bool readFile(const std::filesystem::path& p, std::string& out) {
 }
 }  // namespace
 
+namespace {
+// One stat() call: mtime in nanoseconds since the epoch (clock ticks elsewhere) and size.
+bool statFile(const std::filesystem::path& p, int64_t* mtime, uint64_t* size) {
+#ifdef __unix__
+  struct stat st;
+  if (::stat(p.c_str(), &st) != 0) return false;
+  *mtime = static_cast<int64_t>(st.st_mtim.tv_sec) * 1000000000ll + st.st_mtim.tv_nsec;
+  *size = static_cast<uint64_t>(st.st_size);
+  return true;
+#else
+  std::error_code ec;
+  *mtime = std::filesystem::last_write_time(p, ec).time_since_epoch().count();
+  if (ec) return false;
+  *size = std::filesystem::file_size(p, ec);
+  return !ec;
+#endif
+}
+}  // namespace
+
 void FastIndex::addLocked(std::shared_ptr<const FileSymbols> fs) {
   std::string key = keyFor(fs->file);
   removeLocked(key);
   for (size_t i = 0; i < fs->symbols.size(); ++i) byName_[fs->symbols[i].name].push_back({fs, i});
   symbolCount_ += fs->symbols.size();
   files_[key] = std::move(fs);
+  ++generation_;
 }
 
 void FastIndex::removeLocked(const std::string& key) {
@@ -703,13 +727,26 @@ void FastIndex::removeLocked(const std::string& key) {
   }
   symbolCount_ -= old->symbols.size();
   files_.erase(it);
+  ++generation_;
 }
 
 FastIndex::Stats FastIndex::indexFiles(const std::vector<std::filesystem::path>& files, int threads,
                                        std::function<void(size_t, size_t)> progress) {
+  return indexFilesCached(files, {}, threads, std::move(progress));
+}
+
+FastIndex::Stats FastIndex::indexFilesCached(const std::vector<std::filesystem::path>& files,
+                                             std::vector<std::shared_ptr<const FileSymbols>> cached, int threads,
+                                             std::function<void(size_t, size_t)> progress) {
   auto t0 = std::chrono::steady_clock::now();
   if (threads <= 0) threads = static_cast<int>(std::max(1u, std::thread::hardware_concurrency()));
-  std::atomic<size_t> next{0}, done{0}, bytes{0};
+  std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> cache;
+  cache.reserve(cached.size());
+  for (auto& c : cached) cache.emplace(keyFor(c->file), std::move(c));
+  cached.clear();
+
+  std::vector<std::shared_ptr<const FileSymbols>> results(files.size());
+  std::atomic<size_t> next{0}, done{0}, bytes{0}, reused{0}, relexed{0}, inCache{0};
   std::vector<std::thread> pool;
   for (int t = 0; t < threads; ++t) {
     pool.emplace_back([&] {
@@ -717,13 +754,24 @@ FastIndex::Stats FastIndex::indexFiles(const std::vector<std::filesystem::path>&
       while (true) {
         size_t i = next++;
         if (i >= files.size()) break;
-        if (readFile(files[i], content)) {
-          bytes += content.size();
-          auto fs = std::make_shared<FileSymbols>();
-          fs->file = files[i];
-          fs->symbols = extractSymbols(content, &fs->includes);
-          std::unique_lock<std::shared_mutex> lk(mu_);
-          addLocked(std::move(fs));
+        int64_t mtime = 0;
+        uint64_t size = 0;
+        if (statFile(files[i], &mtime, &size)) {
+          auto it = cache.find(keyFor(files[i]));  // read-only after construction: safe from all workers
+          if (it != cache.end()) ++inCache;
+          if (it != cache.end() && it->second->mtime == mtime && it->second->size == size && mtime != 0) {
+            results[i] = it->second;
+            ++reused;
+          } else if (readFile(files[i], content)) {
+            bytes += content.size();
+            auto fs = std::make_shared<FileSymbols>();
+            fs->file = files[i];
+            fs->mtime = mtime;
+            fs->size = size;
+            fs->symbols = extractSymbols(content, &fs->includes);
+            results[i] = std::move(fs);
+            ++relexed;
+          }
         }
         size_t d = ++done;
         if (progress) progress(d, files.size());
@@ -731,12 +779,42 @@ FastIndex::Stats FastIndex::indexFiles(const std::vector<std::filesystem::path>&
     });
   }
   for (auto& th : pool) th.join();
+
+  size_t kept = reused;
+  std::vector<std::shared_ptr<const FileSymbols>> batch;
+  batch.reserve(files.size());
+  for (auto& r : results)
+    if (r) batch.push_back(std::move(r));
+  importFiles(std::move(batch));
+
   Stats st;
   st.files = fileCount();
   st.symbols = symbolCount();
   st.bytes = bytes;
+  st.reused = kept;
+  st.relexed = relexed;
+  st.dropped = cache.size() > inCache ? cache.size() - inCache : 0;
   st.seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
   return st;
+}
+
+void FastIndex::importFiles(std::vector<std::shared_ptr<const FileSymbols>> files) {
+  size_t total = 0;
+  for (auto& f : files) total += f->symbols.size();
+  std::unique_lock<std::shared_mutex> lk(mu_);
+  if (files_.empty()) {
+    files_.reserve(files.size());
+    byName_.reserve(total / 2 + 16);
+  }
+  for (auto& f : files) addLocked(std::move(f));
+}
+
+std::vector<std::shared_ptr<const FileSymbols>> FastIndex::exportFiles() const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::vector<std::shared_ptr<const FileSymbols>> out;
+  out.reserve(files_.size());
+  for (auto& [k, fs] : files_) out.push_back(fs);
+  return out;
 }
 
 void FastIndex::updateFile(const std::filesystem::path& file, std::string_view text) {
@@ -765,6 +843,7 @@ void FastIndex::clear() {
   files_.clear();
   byName_.clear();
   symbolCount_ = 0;
+  ++generation_;
 }
 
 size_t FastIndex::fileCount() const {
