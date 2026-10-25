@@ -158,9 +158,16 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
     return 1;
   }
+  // D3D11 calls stay behind the define: without D3D11 the class is declared but not linked, and an unoptimised build
+  // keeps the (never taken) branch.
   auto presentFrame = [&] {
-    if (d3dRenderer) d3dRenderer->present();
-    else win->swap();
+#ifdef TENFOLD_HAVE_D3D11
+    if (d3dRenderer) {
+      d3dRenderer->present();
+      return;
+    }
+#endif
+    win->swap();
   };
   std::unique_ptr<Editor> editor;  // editor mode only; the --shell demo owns its own
   const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
@@ -227,7 +234,9 @@ int main(int argc, char** argv) {
 
   if (!shot.empty()) {
     if (glRenderer) glRenderer->setOffscreen(true);
+#ifdef TENFOLD_HAVE_D3D11
     if (d3dRenderer) d3dRenderer->setOffscreen(true);
+#endif
     if (app) app->tick(nowMs());
     drawFrame(width, height, -100, -100);
     std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
