@@ -74,6 +74,9 @@ class Workbench : public RootWidget {
   // ---- Editor sync ----
   void sync();
   StatusBar& status() { return *status_; }
+  // A thin bar above the panel tree. `bar` must be a child of the workbench (addChild) and is laid out in the top
+  // `height` pixels; pass nullptr to remove the reservation. Not owned here.
+  void setTopBar(Widget* bar, float height);
 
   // ---- persistence (<workspace>/.tenfold/layout.json) ----
   std::filesystem::path layoutPath() const;
@@ -121,6 +124,8 @@ class Workbench : public RootWidget {
   Editor& editor_;
   Widget* top_ = nullptr;
   StatusBar* status_ = nullptr;
+  Widget* topBar_ = nullptr;
+  float topBarH_ = 0;
   Overlay* overlay_ = nullptr;
   Panel* active_ = nullptr;
   std::map<int, TabInfo> tabs_;

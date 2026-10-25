@@ -11,43 +11,6 @@ constexpr int kBefore = 5, kLines = 12;
 
 SymbolSearch::SymbolSearch(PickerEnv& env) : env_(env) {}
 
-SymbolSearch::~SymbolSearch() {
-  alive_.reset();
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    stop_ = true;
-  }
-  cv_.notify_all();
-  if (worker_.joinable()) worker_.join();
-}
-
-void SymbolSearch::submit(const std::string& query, Editor::NavResult cb) {
-  {
-    std::lock_guard<std::mutex> lk(mu_);
-    jobQuery_ = query;
-    jobCb_ = std::move(cb);
-    hasJob_ = true;
-  }
-  if (!worker_.joinable()) worker_ = std::thread([this] { workerLoop(); });
-  cv_.notify_one();
-}
-
-void SymbolSearch::workerLoop() {
-  for (;;) {
-    std::string q;
-    Editor::NavResult cb;
-    {
-      std::unique_lock<std::mutex> lk(mu_);
-      cv_.wait(lk, [&] { return stop_ || hasJob_; });
-      if (stop_) return;
-      q = std::move(jobQuery_);
-      cb = std::move(jobCb_);
-      hasJob_ = false;
-    }
-    env_.editor.findSymbols(q, std::move(cb));  // posts its answer to the Editor's main-thread queue
-  }
-}
-
 void SymbolSearch::open() {
   close();
   env_.lines.clearCache();  // previews read files from disk: start from fresh contents
@@ -118,7 +81,7 @@ void SymbolSearch::fire() {
     if (!alive.expired()) onResult(seq, c, locs, err);
   };
   if (search_) search_(q, cb);
-  else submit(q, cb);
+  else env_.editor.findSymbols(q, cb);
 }
 
 void SymbolSearch::onResult(uint64_t seq, Confidence c, const std::vector<SymbolLocation>& locs,

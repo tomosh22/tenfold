@@ -1,11 +1,9 @@
 #pragma once
-#include <condition_variable>
 #include <cstdint>
 #include <functional>
 #include <memory>
 #include <mutex>
 #include <string>
-#include <thread>
 #include <vector>
 
 #include "ui/features/PickerUtil.h"
@@ -22,13 +20,11 @@ class SymbolSearch {
  public:
   using SearchFn = std::function<void(const std::string& query, Editor::NavResult)>;
   explicit SymbolSearch(PickerEnv& env);
-  ~SymbolSearch();
+  ~SymbolSearch() = default;
   SymbolSearch(const SymbolSearch&) = delete;
   SymbolSearch& operator=(const SymbolSearch&) = delete;
 
-  // Default: Editor::findSymbols, issued from a worker thread so that the (synchronous) fast-tier scan of a huge
-  // index never blocks the UI thread; results still come back through Editor::post. A newer query replaces one
-  // that has not started yet. An injected function runs on the calling (UI) thread instead (tests).
+  // Default: Editor::findSymbols on the main thread (it becomes non-blocking with A10). Tests inject fakes.
   void setSearchFn(SearchFn fn) { search_ = std::move(fn); }
   void setDebounceMs(int ms) { debounceMs_ = ms; }
   void open();
@@ -45,8 +41,6 @@ class SymbolSearch {
   void fire();
   void onResult(uint64_t seq, Confidence c, const std::vector<SymbolLocation>& locs, const std::string& err);
   void updatePreview();
-  void submit(const std::string& query, Editor::NavResult cb);
-  void workerLoop();
 
   PickerEnv& env_;
   SearchFn search_;
@@ -57,12 +51,6 @@ class SymbolSearch {
   bool pending_ = false;
   int64_t lastFire_ = -1000000;
   std::shared_ptr<int> alive_ = std::make_shared<int>(0);  // callbacks in flight check it before touching `this`
-  std::thread worker_;
-  std::mutex mu_;
-  std::condition_variable cv_;
-  bool stop_ = false, hasJob_ = false;
-  std::string jobQuery_;
-  Editor::NavResult jobCb_;
 };
 
 }  // namespace tf::ui

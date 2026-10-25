@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,7 @@
 #include "ui/commands/KeyMap.h"
 #include "ui/features/FileSearch.h"
 #include "ui/features/NavResultPicker.h"
+#include "ui/features/NavigationUi.h"
 #include "ui/features/SymbolSearch.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/shell/Workbench.h"
@@ -53,10 +55,17 @@ class EditorApp {
   CommandRegistry& commands() { return registry_; }
   KeyMap& keys() { return keys_; }
   const std::vector<KeyBindingDiag>& diagnostics() const { return diags_; }
+  // B6: back/forward toolbar + dropdown (null without a Workbench). The status-bar "← 3 | 1 →" segment follows the
+  // nav.statusCounts setting; until settings are wired into the app, whoever owns the Settings calls this (default
+  // off).
+  NavigationUi* navigationUi() { return nav_.get(); }
+  void setNavStatusCounts(bool on);
 
  private:
   void setMessage(const std::string& text, int ttlMs = 0, bool pending = false);
   void bindUiCommands();
+  void runCommandId(const std::string& id, const std::string& arg, const char* context);
+  std::string shortcutFor(const std::string& command) const;
   const char* activeContext() const;
   void showNavResults(uint64_t token, const std::string& title, size_t minResults, Confidence c,
                       const std::vector<SymbolLocation>& locs, const std::string& err);
@@ -70,6 +79,7 @@ class EditorApp {
   std::string message_;
   int ttlMs_ = 0;       // set by setMessage, converted to expiry_ on the next call that knows the time
   int64_t expiry_ = 0;  // 0 = never
+  std::unique_ptr<NavigationUi> nav_;
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
   int64_t now_ = 0;
   uint64_t navToken_ = 0;

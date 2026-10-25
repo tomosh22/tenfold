@@ -7,6 +7,7 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -89,6 +90,16 @@ class Editor {
   void activateDocument(Document& d, Position p = {}) { setCurrent(&d, p); }
   bool back();
   bool forward();
+  // Jump to entry `index` of navigation().entries() by walking the history cursor with back()/forward(), so the jump
+  // itself adds no entries (leaving the live position records it once, exactly like back()). The current document
+  // and caret change like after back()/forward(). False for an index out of range or when a step fails.
+  bool goToHistoryEntry(size_t index);
+  // Where the last edit ended (the primary caret after typing, deleting, undo/redo, replaceRange, applyEdits to the
+  // current document). It follows line insertions / deletions in its file like history entries do, also for changes
+  // that are not user edits (reloadFromDisk). Nullopt before the first edit.
+  std::optional<Location> lastEditLocation() const {
+    return lastEdit_.file.empty() ? std::nullopt : std::optional<Location>(lastEdit_);
+  }
 
   // --- semantic commands (results arrive via post(), i.e. on the pump thread) ---
   // If the result is a single unambiguous location the editor jumps there and
@@ -204,6 +215,9 @@ class Editor {
   void clampCarets();
   void restoreCaretsAfterHistory();
   void commitMove(const Location& from);
+  void noteEdit() {
+    if (current_) lastEdit_ = cursor_;
+  }
   void applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious);
   int64_t nowMs() const;
   void breakTyping() { typingOpen_ = false; }
@@ -233,6 +247,7 @@ class Editor {
   NavigationHistory nav_;
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;
+  Location lastEdit_;              // see lastEditLocation()
   Location cursor_;                // file + carets_[0].head
   std::vector<Selection> carets_;  // primary first, then document order; empty without a current document
   std::vector<int> wants_;         // per caret preferred column (code points), -1 = unset

@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <condition_variable>
+#include <cstdlib>
 #include <fstream>
 #include <optional>
 #include <set>
@@ -186,6 +187,15 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
   raw->addListener([this](Document& d, const Document::Change& ch) {
     int newLines = 1 + static_cast<int>(std::count(ch.newText.begin(), ch.newText.end(), '\n'));
     nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
+      int& ln = lastEdit_.pos.line;
+      if (ln > ch.removed.end.line) {
+        ln += newLines - (ch.removed.end.line - ch.removed.start.line + 1);
+      } else if (ln > ch.removed.start.line) {
+        ln = ch.removed.start.line;
+        lastEdit_.pos.column = 0;
+      }
+    }
     if (semantic_) semantic_->didChange(d, ch);
     if (current_ == &d && !inEdit_) clampCarets();
   });
@@ -740,6 +750,23 @@ bool Editor::forward() {
   return true;
 }
 
+bool Editor::goToHistoryEntry(size_t index) {
+  const size_t n = nav_.entries().size();
+  if (index >= n) return false;
+  const auto done = [&] {
+    return nav_.cursor() == index || (index + 1 == nav_.entries().size() && nav_.cursor() >= nav_.entries().size());
+  };
+  if (nav_.cursor() >= n && index + 1 == n) {  // at the live position, asking for the newest entry
+    const Location& e = nav_.entries().back().loc;
+    if (e.file == cursor_.file && std::abs(e.pos.line - cursor_.pos.line) < opt_.navigation.coalesceLines) return true;
+  }
+  for (size_t guard = 0; guard < 2 * n + 4 && !done(); ++guard) {
+    const bool live = nav_.cursor() >= nav_.entries().size();
+    if (live || nav_.cursor() > index ? !back() : !forward()) return false;
+  }
+  return done();
+}
+
 // ---------------------------------------------------------------------------
 // Semantic commands
 // ---------------------------------------------------------------------------
@@ -883,6 +910,7 @@ void Editor::applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious) {
   wants_.assign(n, -1);
   normalizeCarets();
   doc.endGroup(carets_);
+  noteEdit();
 }
 
 void Editor::insertText(const std::string& text) {
@@ -967,6 +995,7 @@ void Editor::replaceRange(Range r, const std::string& text) {
   inEdit_ = false;
   setPrimaryOnly(r.start);
   current_->endGroup(carets_);
+  noteEdit();
 }
 
 void Editor::deleteRange(Range r) { replaceRange(r, {}); }
@@ -977,7 +1006,10 @@ bool Editor::undo() {
   inEdit_ = true;
   const bool ok = current_->undo();
   inEdit_ = false;
-  if (ok) restoreCaretsAfterHistory();
+  if (ok) {
+    restoreCaretsAfterHistory();
+    noteEdit();
+  }
   return ok;
 }
 
@@ -987,7 +1019,10 @@ bool Editor::redo() {
   inEdit_ = true;
   const bool ok = current_->redo();
   inEdit_ = false;
-  if (ok) restoreCaretsAfterHistory();
+  if (ok) {
+    restoreCaretsAfterHistory();
+    noteEdit();
+  }
   return ok;
 }
 
@@ -1227,7 +1262,10 @@ bool Editor::applyEdits(const FileEdits& edits, std::string* error) {
       }
     }
     inEdit_ = false;
-    if (cur) clampCarets();
+    if (cur) {
+      clampCarets();
+      noteEdit();
+    }
     d->endGroup(cur ? carets_ : std::vector<Selection>{});
   }
   return true;
