@@ -146,6 +146,19 @@ bool Editor::start(std::string* error) {
       if (!applyEdits(edits, &err) && opt_.log) opt_.log("workspace/applyEdit failed: " + err);
     });
   });
+  // Automatic clangd restarts re-send the open documents from the pump thread (they are owned by it).
+  semantic_->setPoster([this](std::function<void()> fn) {
+    post([this, fn = std::move(fn)] {
+      if (semantic_) fn();
+    });
+  });
+  semantic_->onClangdHealth([this](const SemanticEngine::ClangdHealth& h) {
+    post([this, text = h.text()] {
+      if (text == clangdStatus_) return;
+      clangdStatus_ = text;
+      if (opt_.onClangdStatus) opt_.onClangdStatus(text);
+    });
+  });
   hookTokens();
   if (ws_.settings().watchFiles) startWatching();
   bool ok = semantic_->start(error);
@@ -1129,6 +1142,14 @@ void Editor::restoreCaretsAfterHistory() {
 // ---------------------------------------------------------------------------
 // Queue
 // ---------------------------------------------------------------------------
+
+bool Editor::restartClangd(std::string* error) {
+  if (!semantic_) {
+    if (error) *error = "not started";
+    return false;
+  }
+  return semantic_->restartClangd(error);
+}
 
 void Editor::post(std::function<void()> fn) {
   {

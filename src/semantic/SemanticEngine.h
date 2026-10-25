@@ -112,6 +112,25 @@ class SemanticEngine {
     std::function<void(const std::string&)> log;
     bool traceLsp = false;
     int semanticTokensDebounceMs = 150;  // after didOpen / didChange (only while onSemanticTokens has a handler)
+    // Crash recovery (D2): after an unexpected clangd exit the engine restarts it after restartBackoffInitialMs,
+    // doubling per consecutive crash up to restartBackoffMaxMs. A crash after restartHealthyMs of healthy running
+    // starts the count again; restartMaxFastCrashes consecutive fast crashes (or failed restarts) make it give up.
+    int restartBackoffInitialMs = 500;
+    int restartBackoffMaxMs = 30000;
+    int restartHealthyMs = 60000;
+    int restartMaxFastCrashes = 5;
+  };
+
+  // Lifecycle of the clangd child as the status bar shows it.
+  struct ClangdHealth {
+    enum class Phase { Disabled, Starting, Running, Restarting, Stopped };
+    Phase phase = Phase::Disabled;
+    int crashes = 0;        // consecutive fast crashes so far (the attempt number while Restarting)
+    int totalRestarts = 0;  // restarts completed since start() (automatic and manual)
+    std::string lastError;  // why the last start/restart failed, if it did
+    // "" while Disabled/Running, else "clangd starting...", "clangd restarting (2)...", "clangd stopped: crashed 5
+    // times" / "clangd stopped: <error>".
+    std::string text() const;
   };
 
   struct TokenStats {
@@ -170,7 +189,22 @@ class SemanticEngine {
                               std::function<void(bool locationChanged)> done = {});
   // Restart clangd against the current compile database and re-open the open
   // documents. Blocks for the clangd handshake; call from the editor thread.
+  // Also the manual "restart clangd" command: it cancels a pending automatic restart, resets the crash count and
+  // works after the engine gave up.
   bool restartClangd(std::string* error = nullptr);
+
+  // --- clangd crash recovery (D2) ---
+  // Thread-safe snapshot of the clangd lifecycle.
+  ClangdHealth clangdHealth() const;
+  // Delay before restart number `crashes` (1-based): initial * 2^(crashes-1), capped at the maximum.
+  static int backoffDelayMs(const Options& opt, int crashes);
+  std::string clangdStatusText() const { return clangdHealth().text(); }
+  // Called (outside any engine lock, on the supervisor / calling thread) after every health change.
+  void onClangdHealth(std::function<void(const ClangdHealth&)> h);
+  // After an automatic restart the open documents must be re-sent from the thread that owns them. With a poster
+  // set, the engine hands that step to it (Editor: its post()); without one it runs on the supervisor thread,
+  // which is only safe while no document is edited concurrently (CLI, tests).
+  void setPoster(std::function<void(std::function<void()>)> poster);
 
   // Document lifecycle (forwarded to clangd and the fast index).
   void didOpen(Document& doc);
@@ -256,6 +290,14 @@ class SemanticEngine {
   void runAsync(std::function<void()> task);
   void workerLoop();
   bool startClangd(std::string* error);
+  std::shared_ptr<LspClient> launchClangd(std::string* error);  // start a client without publishing it
+  void supervisorLoop();
+  void handleCrash(const std::shared_ptr<LspClient>& dead);
+  void noteCrash(std::shared_ptr<LspClient> c);
+  void adoptPending(uint64_t id);
+  void reopenDocuments(LspClient& c);
+  void resetClientState();
+  void setHealth(ClangdHealth::Phase phase, int crashes, const std::string& err = {});
   void startFastIndex();
   void saveFastIndex();
   void timerLoop();
@@ -321,6 +363,23 @@ class SemanticEngine {
   std::unique_ptr<SymbolJob> symPending_;
   bool symStop_ = false;
   std::atomic<uint64_t> symGen_{0};
+
+  // Crash supervisor (D2). supMu_ guards everything below it; lifeMu_ serialises client launches (supervisor
+  // and manual restart); the lock order is lifeMu_ -> supMu_ -> clientMu_.
+  std::thread supThread_;
+  mutable std::mutex supMu_;
+  std::condition_variable supCv_;
+  std::mutex lifeMu_;
+  bool supStop_ = false;
+  std::shared_ptr<LspClient> crashed_;      // reported dead, not yet handled
+  std::shared_ptr<LspClient> adoptClient_;  // restarted, waiting for the document re-sync on the owning thread
+  uint64_t adoptGen_ = 0;
+  uint64_t manualGen_ = 0;  // bumped by restartClangd(): abandons an automatic restart in progress
+  int consecutive_ = 0;
+  std::chrono::steady_clock::time_point runStart_;
+  ClangdHealth health_;
+  std::function<void(const ClangdHealth&)> healthHandler_;
+  std::function<void(std::function<void()>)> poster_;
 
   std::thread indexThread_;
   std::atomic<bool> fastDone_{false};

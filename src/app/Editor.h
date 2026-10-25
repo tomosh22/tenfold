@@ -42,6 +42,9 @@ class Editor {
     bool watchForcePolling = false;  // use the polling backend even where native events exist
     // Monotonic milliseconds used for the typing-pause undo boundary; null means std::chrono::steady_clock.
     std::function<int64_t()> clock;
+    // Fired on the pump thread whenever the clangd status text changes ("clangd restarting (2)...", "clangd stopped:
+    // crashed 5 times"; empty when clangd runs normally or is disabled).
+    std::function<void(const std::string&)> onClangdStatus;
   };
 
   enum class Direction { Left, Right, Up, Down, LineStart, LineEnd, DocStart, DocEnd, PageUp, PageDown };
@@ -59,6 +62,11 @@ class Editor {
   SemanticEngine& semantic() { return *semantic_; }
   bool started() const { return semantic_ != nullptr; }  // semantic() is only valid after start()
   NavigationHistory& navigation() { return nav_; }
+  // --- clangd lifecycle (crash recovery is automatic, see SemanticEngine) ---
+  // Status-bar text as of the last pumped change (pump thread).
+  const std::string& clangdStatusText() const { return clangdStatus_; }
+  // The "Restart clangd" command: blocks for the handshake, re-opens the open documents, resets the crash count.
+  bool restartClangd(std::string* error = nullptr);
 
   // --- documents ---
   Document* open(const std::filesystem::path& path, std::string* error = nullptr);
@@ -336,6 +344,7 @@ class Editor {
   Workspace ws_;
   Options opt_;
   std::unique_ptr<SemanticEngine> semantic_;
+  std::string clangdStatus_;
   NavigationHistory nav_;
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;

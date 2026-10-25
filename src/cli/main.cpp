@@ -19,6 +19,7 @@
 #endif
 
 #include "app/Editor.h"
+#include "core/CrashHandler.h"
 #include "semantic/CompileCommands.h"
 
 using namespace tf;
@@ -495,6 +496,7 @@ int runBench(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
+  tf::installCrashHandler();
   if (argc < 2) {
     usage();
     return 2;
