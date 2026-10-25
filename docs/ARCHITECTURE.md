@@ -346,9 +346,13 @@ Running Object Table enumeration.
   `cancel()` sets an atomic flag that the filter and the devenv launch wait check, so shutdown never hangs.
 * **Connecting.** The ROT is enumerated for monikers `!VisualStudio.DTE.<ver>:<pid>` (any version, newest first). The
   instance whose `Solution.FullName` equals the workspace solution (case-insensitive, separators, `.`/`..`, `\\?\`
-  normalised) wins. Otherwise `devenv.exe "<sln>"` is launched (`vswhere.exe -latest -property productPath` under
-  `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`; `TENFOLD_DEVENV` overrides the path) and the ROT is polled
-  for up to 90 s until an instance has loaded that solution. Without a solution the newest running instance is used
+  normalised) wins. Otherwise a new instance is created through COM automation (`CoCreateInstance` of the DTE
+  ProgID, newest version first, then `VisualStudio.DTE`; on a helper thread so the 90 s launch bound and `cancel()`
+  apply), made visible (`MainWindow.Visible`, `UserControl = true`: a normal window that stays open after tenfold
+  disconnects) and told `Solution.Open(sln)`. Only if that fails is `devenv.exe "<sln>"` spawned (`vswhere.exe -latest
+  -property productPath` under `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`; `TENFOLD_DEVENV` overrides the
+  path) and the ROT polled for up to 90 s until an instance has loaded that solution; that timeout's error lists the
+  automation failure and every Visual Studio entry of the ROT with its `Solution.FullName`. Without a solution the newest running instance is used
   and `DebugSnapshot::lastError` carries a note saying so. A dead instance (`RPC_E_DISCONNECTED`,
   `RPC_S_SERVER_UNAVAILABLE`, ...) turns the next poll into `Disconnected`; the next command reconnects.
 * **Commands.** start / continue `Debugger.Go(false)`; Ctrl+F5 `ExecuteCommand("Debug.StartWithoutDebugging")`;

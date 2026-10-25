@@ -349,3 +349,14 @@ jobs:
         env:
           TENFOLD_VS_DTE_TEST: "1"
         run: ./build/msvc/tenfold-tests.exe vsdte
+
+      - name: Visual Studio ActivityLog tails (on failure)
+        if: failure()
+        shell: pwsh
+        run: |
+          Get-ChildItem "$env:LOCALAPPDATA\Microsoft\VisualStudio" -Directory -Filter "17.0_*" -ErrorAction SilentlyContinue | ForEach-Object {
+            $log = Join-Path $_.FullName "ActivityLog.xml"
+            Write-Host "=== $log"
+            if (Test-Path $log) { Get-Content $log -Tail 150 } else { Write-Host "(no ActivityLog.xml)" }
+          }
+          Get-Process devenv, ServiceHub* -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime

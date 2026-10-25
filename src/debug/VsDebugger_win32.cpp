@@ -2,9 +2,12 @@
 
 #include <atomic>
 #include <chrono>
+#include <condition_variable>
 #include <cstdlib>
 #include <filesystem>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <thread>
@@ -149,6 +152,64 @@ bool runCapture(const std::wstring& cmdline, DWORD timeoutMs, std::string& out, 
   CloseHandle(pi.hThread);
   CloseHandle(rd);
   return done;
+}
+
+// Creating Visual Studio through COM (CLSID of the DTE ProgID, CLSCTX_LOCAL_SERVER) blocks until the new devenv is
+// up and cannot be interrupted, so it runs on a helper thread in the multithreaded apartment; the interface travels
+// to the worker's apartment in a stream. The thread stays alive until the worker took the interface (the marshalled
+// reference lives in that thread's apartment) or gave up waiting (then it cleans up and exits by itself).
+struct CreateState {
+  std::mutex mu;
+  std::condition_variable cv;
+  bool done = false, taken = false, abandoned = false;
+  HRESULT hr = E_FAIL;
+  IStream* stream = nullptr;
+  std::string progId, error;
+};
+
+void createDteThread(const std::shared_ptr<CreateState>& st) {
+  const bool inited = SUCCEEDED(CoInitializeEx(nullptr, COINIT_MULTITHREADED));
+  IDispatch* disp = nullptr;
+  HRESULT hr = E_FAIL;
+  std::string tried;
+  // Newest first, then the version-independent ProgID.
+  for (const wchar_t* progId :
+       {L"VisualStudio.DTE.18.0", L"VisualStudio.DTE.17.0", L"VisualStudio.DTE.16.0", L"VisualStudio.DTE"}) {
+    CLSID clsid;
+    HRESULT h = CLSIDFromProgID(progId, &clsid);
+    if (SUCCEEDED(h))
+      h = CoCreateInstance(clsid, nullptr, CLSCTX_LOCAL_SERVER, IID_IDispatch, reinterpret_cast<void**>(&disp));
+    if (SUCCEEDED(h)) {
+      std::lock_guard<std::mutex> lk(st->mu);
+      st->progId = com::narrow(progId, wcslen(progId));
+      hr = S_OK;
+      break;
+    }
+    if (!tried.empty()) tried += "; ";
+    tried += com::narrow(progId, wcslen(progId)) + ": " + describeHr("CoCreateInstance", h);
+    hr = h;
+  }
+  IStream* stream = nullptr;
+  if (SUCCEEDED(hr) && disp) { hr = CoMarshalInterThreadInterfaceInStream(IID_IDispatch, disp, &stream); }
+  {
+    std::lock_guard<std::mutex> lk(st->mu);
+    st->hr = hr;
+    st->stream = stream;
+    if (FAILED(hr)) st->error = tried.empty() ? describeHr("creating Visual Studio", hr) : tried;
+    st->done = true;
+  }
+  st->cv.notify_all();
+  {
+    std::unique_lock<std::mutex> lk(st->mu);
+    st->cv.wait(lk, [&] { return st->taken || st->abandoned; });
+    if (st->stream && !st->taken) {  // nobody will unmarshal it
+      CoReleaseMarshalData(st->stream);
+      st->stream->Release();
+      st->stream = nullptr;
+    }
+  }
+  if (disp) disp->Release();
+  if (inited) CoUninitialize();
 }
 
 class VsDebugger final : public Debugger {
@@ -579,10 +640,19 @@ class VsDebugger final : public Debugger {
       return DebugResult::success();
     }
     if (!launchIfMissing) return DebugResult::noInstance("no running Visual Studio has " + sln + " open");
-    // Launch devenv.exe "<sln>" and wait for it to register in the ROT and load the solution.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kLaunchWaitMs);
+    // First choice: create the instance through COM automation (no first-run UI in the way, no ROT race), then open
+    // the solution in it. The devenv.exe spawn below is the fallback.
+    std::string diag;
+    if (Dispatch created = createViaAutomation(sln, deadline, diag)) {
+      dte_ = created;
+      return DebugResult::success();
+    }
+    if (retry_.cancelled.load()) return DebugResult::failure("cancelled while waiting for Visual Studio to start");
+    // Fallback: launch devenv.exe "<sln>" and wait for it to register in the ROT and load the solution.
     std::string err;
     std::wstring devenv = findDevenv(err);
-    if (devenv.empty()) return DebugResult::failure(err);
+    if (devenv.empty()) return DebugResult::failure(err + "; automation: " + diag);
     std::wstring cmd = L"\"" + devenv + L"\" \"" + ws_.solution.wstring() + L"\"";
     STARTUPINFOW si{};
     si.cb = sizeof si;
@@ -592,7 +662,6 @@ class VsDebugger final : public Debugger {
                                   ")");
     CloseHandle(pi.hThread);
     CloseHandle(pi.hProcess);
-    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(kLaunchWaitMs);
     for (;;) {
       if (!sleepMs(500)) return DebugResult::failure("cancelled while waiting for Visual Studio to start");
       std::vector<com::DteInstance> now = com::enumerateDteInstances();
@@ -603,8 +672,76 @@ class VsDebugger final : public Debugger {
       }
       if (std::chrono::steady_clock::now() > deadline)
         return DebugResult::failure("Visual Studio did not open " + sln + " within " +
-                                    std::to_string(kLaunchWaitMs / 1000) + " s");
+                                    std::to_string(kLaunchWaitMs / 1000) + " s; automation: " + diag + "; " +
+                                    describeRot());
     }
+  }
+
+  // What the Running Object Table holds, for the error message of a launch that did not work out.
+  std::string describeRot() {
+    std::string s = "ROT:";
+    std::vector<com::DteInstance> inst = com::enumerateDteInstances();
+    for (com::DteInstance& i : inst) { s += " [" + i.displayName + " solution='" + solutionOf(i.dte) + "']"; }
+    for (const std::string& n : com::enumerateRotNames()) {
+      bool listed = false;
+      for (const com::DteInstance& i : inst) listed = listed || i.displayName == n;
+      if (!listed) s += " [" + n + " (not a bindable DTE)]";
+    }
+    if (inst.empty()) s += " (no DTE instance)";
+    return s;
+  }
+
+  Dispatch createViaAutomation(const std::string& sln, std::chrono::steady_clock::time_point deadline,
+                               std::string& diag) {
+    auto st = std::make_shared<CreateState>();
+    std::thread([st] { createDteThread(st); }).detach();
+    {
+      std::unique_lock<std::mutex> lk(st->mu);
+      while (!st->done) {
+        st->cv.wait_for(lk, std::chrono::milliseconds(50));
+        if (st->done) break;
+        const bool timeout = std::chrono::steady_clock::now() > deadline;
+        if (retry_.cancelled.load() || timeout) {
+          st->abandoned = true;
+          st->cv.notify_all();
+          diag += timeout ? "creating Visual Studio through COM timed out" : "cancelled";
+          return Dispatch();
+        }
+      }
+    }
+    IDispatch* raw = nullptr;
+    HRESULT hr;
+    {
+      std::lock_guard<std::mutex> lk(st->mu);
+      hr = st->hr;
+      if (FAILED(hr)) {
+        diag += st->error;
+        st->taken = true;
+      } else {
+        hr = CoGetInterfaceAndReleaseStream(st->stream, IID_IDispatch, reinterpret_cast<void**>(&raw));
+        st->stream = nullptr;  // consumed whether it worked or not
+        st->taken = true;
+        if (FAILED(hr)) diag += describeHr("unmarshalling the DTE", hr);
+      }
+    }
+    st->cv.notify_all();
+    if (FAILED(hr) || !raw) return Dispatch();
+    Dispatch dte(raw, false);
+    // A normal Visual Studio window that stays open after tenfold disconnects.
+    std::string d;
+    Dispatch win;
+    if (SUCCEEDED(dte.getObject(L"MainWindow", win))) win.putProperty(L"Visible", Variant::fromBool(true));
+    dte.putProperty(L"UserControl", Variant::fromBool(true));
+    Dispatch solution;
+    hr = dte.getObject(L"Solution", solution, &d);
+    if (SUCCEEDED(hr)) hr = solution.call(L"Open", {Variant::fromString(sln)}, nullptr, &d);  // returns once loaded
+    if (FAILED(hr)) {
+      diag += describeHr("Solution.Open", hr, d) + " (instance " + (st->progId.empty() ? "?" : st->progId) + " closed)";
+      dte.putProperty(L"UserControl", Variant::fromBool(false));
+      dte.call(L"Quit", {}, nullptr);
+      return Dispatch();
+    }
+    return dte;
   }
 
   DebugWorkspaceInfo ws_;

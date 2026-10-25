@@ -149,4 +149,7 @@ struct DteInstance {
 // the calling thread.
 std::vector<DteInstance> enumerateDteInstances();
 
+// Display names of the ROT entries that mention "VisualStudio" or "devenv" (any case), bound or not: diagnostics.
+std::vector<std::string> enumerateRotNames();
+
 }  // namespace tf::com
