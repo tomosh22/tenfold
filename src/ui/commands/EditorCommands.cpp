@@ -259,7 +259,10 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Workbench.CycleMruNext", "Next Recent Document");
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");
+  addUi(r, "Workbench.CloseTab", "Close Tab");
   addUi(r, "App.Quit", "Quit");
+  addUi(r, "App.CommandPalette", "Command Palette...");
+  addUi(r, "Clangd.Restart", "Restart clangd");
   addUi(r, "Editor.Copy", "Copy");
   addUi(r, "Editor.Cut", "Cut");
   addUi(r, "Editor.Paste", "Paste");

@@ -13,10 +13,12 @@
 #include "ui/features/BookmarkList.h"
 #include "ui/features/BreakpointList.h"
 #include "ui/features/BuildPanel.h"
+#include "ui/features/CommandPalette.h"
 #include "ui/features/CompileInfo.h"
 #include "ui/features/CompletionPopup.h"
 #include "ui/features/ConfigurationPicker.h"
 #include "ui/features/DiagnosticsPanel.h"
+#include "ui/features/ExternalChanges.h"
 #include "ui/features/FileSearch.h"
 #include "ui/features/FindInFiles.h"
 #include "ui/features/FindReplace.h"
@@ -26,6 +28,7 @@
 #include "ui/features/NavigationUi.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
+#include "ui/features/UnsavedPrompt.h"
 #include "ui/features/VcsUi.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/settings/Settings.h"
@@ -52,6 +55,11 @@ class Settings;
 // every view for the session; the caret movement commands offer the focused view the chance to move by visual row.
 // C3c: the Vcs.* commands (VcsUi) are bound here; Escape first closes the inline diff blocks of the focused view, a
 // regained window focus re-reads the version-control status, and VcsManager::onError messages reach the status bar.
+// P2: unsaved changes (UnsavedPrompt: closing the last view of a dirty tab, closing the window and App.Quit ask Save /
+// Don't Save / Cancel; setting editor.confirmUnsaved), files changed or deleted on disk (ExternalChanges; setting
+// editor.reloadExternalChanges), the command palette (App.CommandPalette) and Clangd.Restart. The status bar shows the
+// engine's clangd health text and, for a heuristic compile database, a "flags: heuristic" segment that runs
+// Help.ShowCompileCommand when clicked.
 //
 // `bench` may be null (any other RootWidget with TextViews, e.g. ShellDemo or a test); then the workbench commands
 // stay unbound and messages are only available through message(). Bindings come from loadKeyBindings(workspace root,
@@ -79,6 +87,13 @@ class EditorApp {
   // C2c: breakpoint list (Debug.ShowBreakpoints) and the condition input (Debug.EditCondition).
   BreakpointList& breakpointList() { return *breakpointList_; }
   CompileInfo& compileInfo() { return *compileInfo_; }  // D4: Help.ShowCompileCommand
+  UnsavedPrompt& unsavedPrompt() { return *unsaved_; }
+  ExternalChanges& externalChanges() { return *external_; }
+  CommandPalette& commandPalette() { return *palette_; }
+  bool confirmUnsaved() const { return confirmUnsaved_; }  // setting editor.confirmUnsaved
+  // Quit like App.Quit and closing the window do: with dirty documents (and editor.confirmUnsaved) the Save All / Don't
+  // Save / Cancel prompt opens and quitRequested() stays false until the user agrees. True when it quits at once.
+  bool requestQuit();
   CompletionPopup& completion() { return *completion_; }
   HoverTooltip& hover() { return *hover_; }
   SignatureHelp& signatureHelp() { return *sigHelp_; }
@@ -123,6 +138,7 @@ class EditorApp {
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
   std::string shortcutFor(const std::string& command) const;
+  std::string bindingFor(const std::string& command) const;  // any context, for the command palette
   const char* activeContext() const;
   void showNavResults(uint64_t token, const std::string& title, size_t minResults, Confidence c,
                       const std::vector<SymbolLocation>& locs, const std::string& err);
@@ -164,6 +180,10 @@ class EditorApp {
   std::unique_ptr<HoverTooltip> hover_;
   std::unique_ptr<SignatureHelp> sigHelp_;
   std::unique_ptr<VcsUi> vcsUi_;
+  std::unique_ptr<UnsavedPrompt> unsaved_;
+  std::unique_ptr<ExternalChanges> external_;
+  std::unique_ptr<CommandPalette> palette_;
+  bool confirmUnsaved_ = true;
   BuildPanel* build_ = nullptr;  // owned by the Workbench's bottom dock
 };
 

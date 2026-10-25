@@ -120,21 +120,12 @@ cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
 ./build-ui/tenfold-ui examples/sample_project src/geometry.cpp
 ```
 
-Tabs, split panels (drag a tab to a panel edge) and the status bar are the Workbench; each tab is a text view. Main keys
-(placeholders until the 10x key map is known; `assets/keybindings.default.txt`, overridable in
-`<workspace>/.tenfold/keybindings.txt` and the user config dir; parse errors show in the status bar):
-
-| Keys | Action |
-| --- | --- |
-| Ctrl+Tab / Ctrl+Shift+Tab | cycle recent tabs |
-| Alt+Left / Alt+Right, Ctrl+-, mouse back/forward | navigation history back / forward |
-| F12, Ctrl+F12, Shift+F12, Alt+O | definition, declaration, references, header/source |
-| Ctrl+S, Ctrl+Z / Ctrl+Y, Ctrl+A | save, undo / redo, select all |
-| Ctrl+C / X / V | copy, cut, paste (several carets: one line per caret) |
-| Ctrl+Alt+Up / Down, Ctrl+D, Ctrl-click, Alt-drag | more carets, next occurrence, column select |
-| Alt+1 .. 4 | focus panel |
-| Ctrl+P, Ctrl+, Ctrl+Shift+F | file / symbol / workspace pickers: not available yet |
-| Ctrl+Q | quit (Escape collapses carets, it does not quit) |
+Tabs, split panels (drag a tab to a panel edge) and the status bar are the Workbench; each tab is a text view. Key
+bindings are placeholders until the 10x key map is known (`docs/OPEN_QUESTIONS.md` #1): the current defaults are in
+[`assets/keybindings.default.txt`](assets/keybindings.default.txt) (overridable in `<workspace>/.tenfold/keybindings.txt`
+and the user config dir; parse errors show in the status bar), and **`Ctrl+Shift+P` opens the command palette**, which lists
+every command with its key. Pickers, search, editing, build, debugger and version-control commands, settings and themes are
+described in [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md). Quitting or closing a modified tab asks to save first.
 
 `tenfold-ui --shell` is the widget demo and `--demo` the renderer scene; `--screenshot out.png [--size WxH]` renders one
 frame headless.

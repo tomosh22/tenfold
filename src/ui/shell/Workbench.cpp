@@ -103,10 +103,12 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   status_->addSegment("workspace", StatusBar::Align::Left);
   status_->addSegment("pos", StatusBar::Align::Left);
   status_->addSegment("clangd", StatusBar::Align::Left);
+  status_->addSegment("flags", StatusBar::Align::Left);
   status_->addSegment("fastindex", StatusBar::Align::Left);
   status_->addSegment("build", StatusBar::Align::Left);
   status_->addSegment("debug", StatusBar::Align::Left);
   status_->addSegment("vcs", StatusBar::Align::Left);
+  status_->addSegment("disk", StatusBar::Align::Left);
   status_->addSegment("encoding", StatusBar::Align::Right);
   status_->addSegment("eol", StatusBar::Align::Right);
   status_->setText("workspace", editor_.workspace().root().filename().string());
@@ -136,7 +138,7 @@ std::unique_ptr<Panel> Workbench::makePanel() {
     setActivePanel(raw);
     cycle_ = {};
   };
-  raw->onCloseRequested = [this](int id) { closeTab(id); };
+  raw->onCloseRequested = [this](int id) { requestCloseTab(id); };
   raw->tabs().onBeginDragOut = [this](int id, float x, float y) { beginTabDrag(id, x, y); };
   return p;
 }
@@ -336,7 +338,8 @@ int Workbench::findTab(Panel* p, const Document& doc) const {
 int Workbench::addTabTo(Panel* p, Document& doc, bool pinned) {
   const int id = nextId_++;
   tabs_[id] = {doc.path()};
-  p->addTab(id, doc.path().filename().string(), makeDocumentView(editor_, doc), pinned);
+  p->addTab(id, doc.path().filename().string() + (fileMissing(doc.path()) ? " (deleted)" : ""),
+            makeDocumentView(editor_, doc), pinned);
   p->tabs().setDirty(id, doc.dirty());
   return id;
 }
@@ -361,22 +364,50 @@ void Workbench::noteRecent(const fs::path& file) {
   if (recent_.size() > kMaxRecent) recent_.resize(kMaxRecent);
 }
 
-void Workbench::releaseDocument(const fs::path& path) {
+void Workbench::releaseDocument(const fs::path& path, bool discard) {
   for (const auto& [id, t] : tabs_)
     if (t.path == path) return;
   Document* d = editor_.document(path);
-  if (d && !d->dirty()) editor_.close(path);
+  if (d && (discard || !d->dirty())) editor_.close(path);
   lastCur_ = editor_.currentDocument();
 }
 
-bool Workbench::closeTab(int id) {
+bool Workbench::isLastViewOfDirty(int id) const {
+  const auto it = tabs_.find(id);
+  if (it == tabs_.end()) return false;
+  Document* d = editor_.document(it->second.path);
+  if (!d || !d->dirty()) return false;
+  for (const auto& [other, t] : tabs_)
+    if (other != id && t.path == it->second.path) return false;
+  return true;
+}
+
+bool Workbench::requestCloseTab(int id) {
+  if (confirmClose && isLastViewOfDirty(id) && confirmClose(id)) return true;
+  return closeTab(id);
+}
+
+void Workbench::setFileMissing(const fs::path& file, bool missing) {
+  const std::string key = file.generic_string();
+  if (missing ? !missing_.insert(key).second : missing_.erase(key) == 0) return;
+  for (Panel* p : panels())
+    for (const auto& t : p->tabs().tabs()) {
+      const auto it = tabs_.find(t.id);
+      if (it != tabs_.end() && it->second.path == file)
+        p->tabs().setTitle(t.id, file.filename().string() + (missing ? " (deleted)" : ""));
+    }
+  refreshStatus();
+}
+
+bool Workbench::closeTab(int id, bool discard) {
   Panel* p = panelOf(id);
   if (!p) return false;
   const fs::path path = tabs_[id].path;
   p->removeTab(id);
   tabs_.erase(id);
   cycle_ = {};
-  releaseDocument(path);
+  releaseDocument(path, discard);
+  if (discard || !editor_.document(path)) missing_.erase(path.generic_string());
   if (p == active_) showActiveTab();
   requestLayout();
   return true;
@@ -616,8 +647,9 @@ void Workbench::refreshStatus() {
     status_->setText("eol", cur->buffer().lineEnding() == LineEnding::CRLF ? "CRLF" : "LF");
     status_->setText("encoding", "UTF-8");
     status_->setText("vcs", vcsStatusText(editor_.vcs(), cur->path()));
+    status_->setText("disk", fileMissing(cur->path()) ? "deleted on disk" : "");
   } else {
-    for (const char* k : {"pos", "eol", "encoding", "vcs"}) status_->setText(k, "");
+    for (const char* k : {"pos", "eol", "encoding", "vcs", "disk"}) status_->setText(k, "");
   }
   const SemanticEngine::Status st = editor_.started() ? editor_.semantic().status() : SemanticEngine::Status{};
   std::string clangd = "clangd: off";
@@ -628,7 +660,16 @@ void Workbench::refreshStatus() {
                (st.clangdIndex.percentage >= 0 ? " " + std::to_string(st.clangdIndex.percentage) + "%" : "");
     else clangd = "clangd: ready";
   }
+  // The engine's own health text ("clangd restarting (2)...", "clangd stopped: crashed 5 times") beats on/off.
+  if (const std::string& health = editor_.clangdStatusText(); !health.empty()) clangd = health;
   status_->setText("clangd", clangd);
+  // The compile database is a guess (no solution, CMake or compile_commands.json found): what clangd answers rests on
+  // guessed flags. Only while clangd runs (without it the "clangd: off" text already says answers are approximate).
+  // Click: Help.ShowCompileCommand says why (EditorApp binds the click).
+  status_->setText("flags",
+                   st.clangdRunning && (st.compdbSource == "heuristic" || st.compdbSource == "generated(cached)")
+                       ? "flags: heuristic"
+                       : std::string());
   {  // C2c: debugger state, and the orange bar while the debuggee runs or is stopped
     const DebugSession& dbg = editor_.debug();
     const bool active = dbg.connected() || dbg.mode() != DebugMode::Disconnected;

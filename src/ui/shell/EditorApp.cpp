@@ -113,6 +113,21 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
+  unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
+  external_ = std::make_unique<ExternalChanges>(pickerEnv_, bench_);
+  {
+    CommandPalette::Hooks ph;
+    ph.binding = [this](const std::string& id) { return bindingFor(id); };
+    ph.run = [this](const std::string& id) {
+      CommandContext cc;
+      cc.editor = &editor_;
+      cc.context = activeContext();
+      const Command* c = registry_.find(id);
+      if (c && !c->isEnabled(cc)) setMessage(c->name + " is not available right now", kMessageMs);
+      else runCommandId(id, "", activeContext());
+    };
+    palette_ = std::make_unique<CommandPalette>(pickerEnv_, registry_, std::move(ph));
+  }
   {
     VcsUi::Hooks vh;
     vh.activeView = [this]() -> TextView* {
@@ -134,7 +149,15 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     bench_->status().addSegment("config", StatusBar::Align::Left, [this](const std::string&) {
       runCommandId("Build.SelectConfiguration", "", activeContext());
     });
+    bench_->status().setOnClick(
+        "flags", [this](const std::string&) { runCommandId("Help.ShowCompileCommand", "", activeContext()); });
     bench_->status().addSegment("navcounts", StatusBar::Align::Right);
+    bench_->confirmClose = [this](int id) {  // the tab's x / middle click on the last view of a dirty document
+      if (!confirmUnsaved_) return false;
+      closePickers();
+      unsaved_->ask({bench_->tabPath(id)}, [this, id](bool discarded) { bench_->closeTab(id, discarded); });
+      return true;
+    };
     NavigationUi::Hooks hooks;
     hooks.run = [this](const std::string& id) {
       runCommandId(id, "", activeContext());
@@ -164,8 +187,12 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 }
 
 EditorApp::~EditorApp() {
+  if (bench_) bench_->confirmClose = nullptr;
   vcsUi_.reset();  // unhooks VcsManager::onError, closes its confirmation
   closePickers();  // their callbacks point into this object
+  palette_.reset();
+  external_.reset();  // unhooks Editor::onExternalChange
+  unsaved_.reset();
   if (build_) {
     build_->onClose = nullptr;
     build_->onMessage = nullptr;
@@ -258,6 +285,8 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
 // settings (applySettings stays public for callers without a SettingsService).
 void EditorApp::applySettings(const Settings& s) {
   pickerEnv_.preview = s.getBool("picker.preview");
+  confirmUnsaved_ = s.getBool("editor.confirmUnsaved");
+  external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
   vcsUi_->applySettings(s);
 }
 
@@ -271,6 +300,9 @@ void EditorApp::closePickers() {
   bookmarkList_->close();
   breakpointList_->close();
   compileInfo_->close();
+  palette_->close();
+  unsaved_->close();
+  external_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
 }
@@ -285,6 +317,28 @@ std::string EditorApp::shortcutFor(const std::string& command) const {
     if (b.command == command && b.context == "global" && b.arg.empty() && !b.chords.empty() && !b.chords[0].mouse)
       return formatChords(b.chords);
   return {};
+}
+
+// The first key binding of a command in any context (global ones first), arguments excluded; for the palette.
+std::string EditorApp::bindingFor(const std::string& command) const {
+  if (std::string g = shortcutFor(command); !g.empty()) return g;
+  for (const KeyBinding& b : keys_.bindings())
+    if (b.command == command && b.arg.empty() && !b.chords.empty() && !b.chords[0].mouse) return formatChords(b.chords);
+  for (const KeyBinding& b : keys_.bindings())
+    if (b.command == command && b.arg.empty() && !b.chords.empty()) return formatChords(b.chords);
+  return {};
+}
+
+bool EditorApp::requestQuit() {
+  if (quit_) return true;
+  std::vector<std::filesystem::path> dirty;
+  if (confirmUnsaved_)
+    for (Document* d : editor_.documents())
+      if (d->dirty()) dirty.push_back(d->path());
+  if (dirty.empty()) return quit_ = true;
+  closePickers();
+  unsaved_->ask(dirty, [this](bool) { quit_ = true; });
+  return false;
 }
 
 void EditorApp::bindUiCommands() {
@@ -376,7 +430,42 @@ void EditorApp::bindUiCommands() {
         fwd ? "Editor.FindNext" : "Editor.FindPrev",
         [this, fwd](const CommandContext&, std::string_view) { return findReplace_->step(fwd); },
         [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
-  registry_.bind("App.Quit", [this](const CommandContext&, std::string_view) { return quit_ = true; });
+  registry_.bind("App.Quit", [this](const CommandContext&, std::string_view) {
+    requestQuit();  // with unsaved changes this opens the prompt; quitRequested() follows the answer
+    return true;
+  });
+  registry_.bind("App.CommandPalette", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    palette_->open();
+    return true;
+  });
+  registry_.bind(
+      "Clangd.Restart",
+      [this](const CommandContext&, std::string_view) {
+        std::string err;
+        if (!editor_.restartClangd(&err)) {
+          setMessage(
+              "Restart clangd failed: " + (err.empty() ? std::string("clangd is disabled or not available") : err),
+              kDiagMs);
+          return true;
+        }
+        setMessage("clangd restarted", kMessageMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->started(); });
+  // File.Save: the engine's reason (read-only file, locked file, ...) reaches the status bar instead of a bare failure.
+  registry_.bind(
+      "File.Save",
+      [this](const CommandContext& c, std::string_view) {
+        Document* d = c.editor->currentDocument();
+        if (!d) return false;
+        std::string err;
+        if (c.editor->save(*d, &err)) return true;
+        setMessage("Cannot save " + d->path().filename().string() + (err.empty() ? std::string() : ": " + err),
+                   kDiagMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
       "Editor.Copy", [](const CommandContext& c, std::string_view) { return doCopy(*c.editor); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
@@ -439,6 +528,14 @@ void EditorApp::bindUiCommands() {
       setMessage(std::string(m->severity == BuildSeverity::Error ? "error: " : "warning: ") + m->text, kMessageMs);
       return true;
     });
+  registry_.bind(
+      "Workbench.CloseTab",
+      [this](const CommandContext&, std::string_view) {
+        if (!bench_->activePanel() || bench_->activePanel()->activeId() < 0) return false;
+        bench_->requestCloseTab(bench_->activePanel()->activeId());
+        return true;
+      },
+      [this](const CommandContext&) { return bench_->activePanel() && bench_->activePanel()->activeId() >= 0; });
   registry_.bind("View.ToggleBuildPanel", [this](const CommandContext&, std::string_view) {
     bench_->toggleBottomPanel("Build");
     return true;
@@ -600,6 +697,7 @@ int EditorApp::tick(int64_t nowMs) {
   if (const int due = symbols_->tick(nowMs); due >= 0) soonest(due);
   if (const int due = find_->tick(nowMs); due >= 0) soonest(due);
   findReplace_->tick(nowMs);
+  soonest(external_->tick(nowMs));
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
   if (bench_) bench_->status().setText("config", configPicker_->statusText());

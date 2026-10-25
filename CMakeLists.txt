@@ -262,6 +262,9 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/VcsUi.cpp
     src/ui/features/DiffTool.cpp
     src/ui/features/CompileInfo.cpp
+    src/ui/features/CommandPalette.cpp
+    src/ui/features/ExternalChanges.cpp
+    src/ui/features/UnsavedPrompt.cpp
     src/ui/view/Viewport.cpp
     src/ui/view/Layout.cpp
     src/ui/view/Highlighter.cpp
@@ -341,10 +344,14 @@ if(TENFOLD_BUILD_UI)
     src/debug/FakeDebugger.cpp  # test support (the scripted backend of the debugger UI tests)
     tests/ui/test_vcs_ui.cpp
     tests/ui/test_config_ui.cpp
+    tests/ui/test_p2_ui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  # tests/ui/test_p2_ui.cpp drives the status bar against the fake clangd of tests/test_crash.cpp.
+  add_dependencies(tenfold-ui-tests tenfold-test-helper)
+  target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_TEST_HELPER="$<TARGET_FILE:tenfold-test-helper>")
   add_test(NAME ui-unit COMMAND tenfold-ui-tests)
 endif()
 

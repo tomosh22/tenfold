@@ -50,6 +50,8 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.autoIndent", SettingType::Bool},
                                              {"editor.autoClosePairs", SettingType::Bool},
                                              {"editor.trimTrailingWhitespace", SettingType::Bool},
+                                             {"editor.confirmUnsaved", SettingType::Bool},
+                                             {"editor.reloadExternalChanges", SettingType::String},
                                              {"font.editor", SettingType::Font},
                                              {"font.fallbacks", SettingType::String},
                                              {"font.size", SettingType::Float},

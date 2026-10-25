@@ -285,7 +285,10 @@ int main(int argc, char** argv) {
     win->waitEvent(wait, events);
     for (const ui::InputEvent& e : events) {
       if (e.type == ui::InputType::Quit) {
-        quit = true;
+        // Closing the window asks about unsaved changes first (editor.confirmUnsaved); the answer arrives as a later
+        // event.
+        if (app) app->requestQuit();
+        if (!app || app->quitRequested()) quit = true;
       } else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
                  e.type == ui::InputType::ScaleChanged) {
         dirty = true;

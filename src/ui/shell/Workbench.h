@@ -1,6 +1,8 @@
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <map>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -21,7 +23,11 @@ namespace tf::ui {
 //    change callback, so call sync() once per frame / event batch: it reveals the current document's tab (the active
 //    panel's if it has one, else another panel's, else a new tab in the active panel) and refreshes dirty markers and
 //    the status bar. Opening a file as a *jump* is the caller's business (editor.gotoLocation, then sync()).
-//  * Closing the last tab of a document closes it in the Editor unless it is dirty (no save prompt here yet).
+//  * Closing the last tab of a document closes it in the Editor unless it is dirty. A user-initiated close (the tab's
+//  x,
+//    middle click, requestCloseTab) of the last view of a dirty document first calls `confirmClose` when the front end
+//    set it (EditorApp: Save / Don't Save / Cancel); the programmatic closeTab never asks, and closeTab(id, true)
+//    discards the changes (the document is closed in the Editor too).
 // Split semantics: splitting duplicates the active tab into the new panel (like a "split view" in 10x/VS); the new
 // panel becomes active. Dragging a tab onto a content edge moves it into a new split. A panel emptied by a drag is
 // removed; closing the last tab by hand leaves an empty panel. Key bindings are B4's: everything here is a method.
@@ -49,7 +55,16 @@ class Workbench : public RootWidget {
 
   // ---- tabs ----
   int openFile(const std::filesystem::path& path, Panel* in = nullptr);  // tab id or -1; focuses an existing tab
-  bool closeTab(int id);
+  bool closeTab(int id, bool discard = false);  // discard: also close a dirty document in the Editor (changes lost)
+  // A close the user asked for. When `confirmClose` is set and the tab is the last view of a dirty document, it is
+  // called instead of closing and returns true if it took over (it calls closeTab itself once the user agrees).
+  bool requestCloseTab(int id);
+  std::function<bool(int id)> confirmClose;
+  bool isLastViewOfDirty(int id) const;
+  // Files known to be gone from disk (EditorApp polls): their tabs get a "(deleted)" title suffix and the status bar a
+  // "deleted on disk" segment while the document is current. The buffer stays.
+  void setFileMissing(const std::filesystem::path& file, bool missing);
+  bool fileMissing(const std::filesystem::path& file) const { return missing_.count(file.generic_string()) != 0; }
   void closeOthers(int id);          // other unpinned tabs of the same panel
   void closeAllButPinned(Panel* p);  // pinned tabs stay
   void setPinned(int id, bool pinned);
@@ -130,7 +145,7 @@ class Workbench : public RootWidget {
   int addTabTo(Panel* p, Document& doc, bool pinned);
   int findTab(Panel* p, const Document& doc) const;
   Document* docOf(int id) const;
-  void releaseDocument(const std::filesystem::path& path);
+  void releaseDocument(const std::filesystem::path& path, bool discard = false);
   void showDocument(Document& d);
   void showActiveTab();
   void focusActiveView();
@@ -158,6 +173,7 @@ class Workbench : public RootWidget {
   Panel* active_ = nullptr;
   std::map<int, TabInfo> tabs_;
   std::map<std::string, Position> lastCaret_;
+  std::set<std::string> missing_;  // generic paths of open documents whose file vanished
   std::vector<std::filesystem::path> recent_;
   Document* lastCur_ = nullptr;
   int nextId_ = 1;
