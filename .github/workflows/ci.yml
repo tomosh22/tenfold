@@ -369,7 +369,6 @@ jobs:
     if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
-    continue-on-error: ${{ matrix.name == 'macos-arm64' }}  # Windows and Linux packages are blocking; macOS best effort
     strategy:
       fail-fast: false
       matrix:
