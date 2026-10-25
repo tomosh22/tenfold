@@ -59,12 +59,20 @@ std::vector<std::filesystem::path> inferIncludeDirs(const std::vector<std::files
 
 // Best-effort commands for a bare directory of sources. With `includePaths`
 // (from the fast index) the -I set is inferred; otherwise every directory
-// containing a header is used (capped).
+// containing a header is used (capped). With `clDriver` the commands use the
+// clang-cl driver (argv[0] "clang-cl", /std:, /EHsc, /c) so clangd finds the
+// MSVC STL and Windows SDK headers (INCLUDE / Visual Studio detection); the
+// default is GCC-style clang/clang++. -I flags are spelled "-I" in both.
 std::vector<CompileCommand> heuristic(const std::filesystem::path& root,
                                       const std::vector<std::filesystem::path>& sources,
                                       const std::vector<std::filesystem::path>& headers,
                                       const std::string& std = "c++20",
-                                      const std::vector<std::string>& includePaths = {});
+                                      const std::vector<std::string>& includePaths = {}, bool clDriver = false);
+
+// Flags a standalone clangd needs to find the system headers of this host
+// when a compile command does not carry them: "-isysroot <SDK>" on macOS
+// (SDKROOT, else `xcrun --show-sdk-path`); empty elsewhere.
+std::vector<std::string> platformSystemFlags();
 
 // ---- MSVC toolchain discovery (for clangd --query-driver) ----
 // Inputs are injected so the logic runs on any host against a fake tree.

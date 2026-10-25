@@ -540,7 +540,11 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
   if (opts.includeOtherFiles) in.files.insert(in.files.end(), ws_.otherFiles().begin(), ws_.otherFiles().end());
   // Snapshot open documents on this thread; the search must not touch live buffers.
   for (Document* d : documents()) {
-    std::string rel = d->path().lexically_relative(ws_.root()).generic_string();
+    // The workspace root is canonical while a document keeps the caller's spelling
+    // (macOS /var -> /private/var, Windows 8.3 names and case), so canonicalise first.
+    std::error_code ec;
+    std::string rel =
+        pathKey(fs::weakly_canonical(d->path(), ec).lexically_relative(ws_.root()).generic_string(), nativePathStyle());
     if (!rel.empty() && rel.compare(0, 2, "..") != 0) in.overrides[rel] = d->buffer().text();
   }
   searches_.erase(

@@ -591,19 +591,19 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
   CHECK_EQ(before.parent_path().string(), (f.dir.path / ".tenfold").string());
 
   // A real compile_commands.json appears at the root: the location changes.
-  writeFile(f.dir.path / "compile_commands.json", "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" +
-                                                      (f.dir.path / "src/a.cpp").string() +
+  writeFile(f.dir.path / "compile_commands.json", "[{\"directory\":\"" + f.dir.path.generic_string() +
+                                                      "\",\"file\":\"" + (f.dir.path / "src/a.cpp").generic_string() +
                                                       "\",\"arguments\":[\"clang++\",\"-std=c++20\",\"-c\",\"" +
-                                                      (f.dir.path / "src/a.cpp").string() + "\"]}]");
+                                                      (f.dir.path / "src/a.cpp").generic_string() + "\"]}]");
   CHECK(f.ed->waitFor([&] { return startCount() == 2; }, 20000));
   CHECK_EQ(f.ed->semantic().status().compdbPath.parent_path().string(), f.dir.path.string());
   CHECK(f.ed->semantic().status().clangdInitialized);
 
   // Editing the database in place: clangd re-reads it itself, no restart.
-  writeFile(f.dir.path / "compile_commands.json", "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" +
-                                                      (f.dir.path / "src/a.cpp").string() +
+  writeFile(f.dir.path / "compile_commands.json", "[{\"directory\":\"" + f.dir.path.generic_string() +
+                                                      "\",\"file\":\"" + (f.dir.path / "src/a.cpp").generic_string() +
                                                       "\",\"arguments\":[\"clang++\",\"-std=c++17\",\"-c\",\"" +
-                                                      (f.dir.path / "src/a.cpp").string() + "\"]}]");
+                                                      (f.dir.path / "src/a.cpp").generic_string() + "\"]}]");
   CHECK(f.ed->waitFor(
       [&] {
         return f.ed->semantic().compileCommands().size() == 1 &&

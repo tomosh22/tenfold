@@ -141,7 +141,13 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     // the include directories instead of guessing. It is normally done within
     // a second or two; cap the wait so a huge cold workspace still starts.
     waitForFastIndex(15000);
-    auto cmds = compdb::heuristic(root, sources, headers, ws_.settings().cppStandard, fast_.allIncludes());
+#ifdef _WIN32
+    constexpr bool kClDriver = true;  // clangd finds the MSVC STL / Windows SDK through the clang-cl driver
+#else
+    constexpr bool kClDriver = false;
+#endif
+    auto cmds = compdb::heuristic(root, sources, headers, ws_.settings().cppStandard, fast_.allIncludes(), kClDriver);
+    const std::vector<std::string> sysFlags = compdb::platformSystemFlags();
     // The include directories are identical for every file. Repeating them
     // per entry makes the JSON enormous (hundreds of MB on big trees), so the
     // database keeps only compiler + std + file and the shared flags go into
@@ -155,6 +161,9 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
           keep.push_back(a);
         }
       }
+      // A standalone clangd does not know the system headers (macOS SDK); they must
+      // stay in the command, not the -I config, so they come right after the driver.
+      keep.insert(keep.begin() + 1, sysFlags.begin(), sysFlags.end());
       c.arguments = std::move(keep);
     }
     compdbPath = ws_.cacheDir() / "compile_commands.json";
@@ -215,7 +224,12 @@ bool SemanticEngine::startClangd(std::string* error) {
              "--limit-references=10000",
              "--log=error",
              "-j=" + std::to_string(std::max(2u, std::thread::hardware_concurrency()))};
-  if (compdbSource_ == "vcxproj") {
+#ifdef _WIN32
+  const bool wantMsvcArgs = compdbSource_ == "vcxproj" || compdbSource_ == "heuristic";
+#else
+  const bool wantMsvcArgs = compdbSource_ == "vcxproj";
+#endif
+  if (wantMsvcArgs) {
     // MSVC system headers: let clangd ask cl.exe. The toolchain is user-overridable and persisted.
     auto cl = compdb::discoverCl(ws_.settings().msvcToolchain, compdb::systemMsvcProbe());
     if (cl) {
@@ -232,6 +246,11 @@ bool SemanticEngine::startClangd(std::string* error) {
   for (auto& a : opt_.clangdArgs) lo.args.push_back(a);
   lo.fallbackFlags = {"-std=" + ws_.settings().cppStandard, "-I" + ws_.root().string()};
   lo.env = {{"XDG_CONFIG_HOME", (ws_.cacheDir() / "clangd-config").string()}};
+#ifdef _WIN32
+  // clangd on Windows reads its user config from %LOCALAPPDATA%\clangd, ignoring XDG_CONFIG_HOME;
+  // without this the shared -I flags in our private config.yaml would never be applied.
+  lo.env.emplace_back("LOCALAPPDATA", (ws_.cacheDir() / "clangd-config").string());
+#endif
   if (opt_.traceLsp) {
     lo.trace = [this](const std::string& dir, const Json& j) { log(dir + " " + j.dump().substr(0, 400)); };
   }
