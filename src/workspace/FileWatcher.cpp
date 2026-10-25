@@ -724,7 +724,16 @@ bool FileWatcher::start(const fs::path& root, IgnoreFn ignoreFn, Callback cb) {
   if (!fs::is_directory(root, ec)) return false;
   Impl::Snapshot snap;
   bool usePoll = false;
-  if (!d.startPlatform(snap, usePoll)) return false;
+  if (d.opt.forcePolling) {
+    usePoll = true;
+    {
+      std::lock_guard<std::mutex> lk(d.mu);
+      d.mode = "poll";
+    }
+    snap = d.takeSnapshot();
+  } else if (!d.startPlatform(snap, usePoll)) {
+    return false;
+  }
   d.running = true;
   d.thread = std::thread([&d, usePoll, snap = std::move(snap)]() mutable { d.threadMain(usePoll, std::move(snap)); });
   return true;
@@ -762,6 +771,12 @@ std::string FileWatcher::mode() const {
   std::lock_guard<std::mutex> lk(impl_->mu);
   return impl_->mode;
 }
+
+bool FileWatcher::eventDriven() const {
+  std::string m = mode();
+  return !m.empty() && m != "poll";
+}
+bool FileWatcher::detectsRenames() const { return eventDriven(); }
 
 size_t FileWatcher::watchCount() const { return impl_->watchesPlatform(); }
 

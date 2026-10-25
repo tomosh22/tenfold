@@ -39,6 +39,7 @@ class FileWatcher {
   struct Options {
     int debounceMs = 200;
     int pollMs = 2000;                          // polling mode scan interval
+    bool forcePolling = false;                  // use the portable polling scan on every platform (tests, odd file systems)
     size_t maxWatches = 0;                      // inotify: act as if the watch limit were this (0 = system limit); for tests
     std::function<void(const std::string&)> log;
   };
@@ -60,6 +61,13 @@ class FileWatcher {
   // Also watch one directory that ignoreFn would exclude (non-recursive), e.g.
   // the folder holding compile_commands.json. Linux only (no-op elsewhere); thread-safe.
   void addDirectory(const std::filesystem::path& dir);
+
+  // Backend capabilities (valid while running). The polling backend is not
+  // event driven (latency is pollMs + debounce) and cannot pair renames: a
+  // rename is seen as Deleted(old) + Created(new), and directory events are
+  // not reported (their files are).
+  bool eventDriven() const;
+  bool detectsRenames() const;
 
   // Diagnostics: "inotify", "readdirchanges", "poll" or "" when stopped.
   std::string mode() const;
