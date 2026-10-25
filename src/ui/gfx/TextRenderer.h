@@ -35,6 +35,8 @@ class TextRenderer {
 
   float lineHeight() const { return layout_.lineHeight(); }
   float cellWidth() const { return layout_.cellWidth(); }
+  // The layout rules (tabs, wide chars) and byte <-> column <-> x mappings, for views that hit-test (B2a).
+  const TextLayout& textLayout() const { return layout_; }
   const std::string& fontPath() const { return fontPath_; }
   void setStyle(const TextViewStyle& s) { style_ = s; }
 

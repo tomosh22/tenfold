@@ -174,11 +174,13 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/Splitter.cpp
     src/ui/widgets/Panel.cpp
     src/ui/widgets/StatusBar.cpp
-    src/ui/widgets/LinesView.cpp
+    src/ui/widgets/TextView.cpp
+    src/ui/view/Viewport.cpp
+    src/ui/view/Layout.cpp
     src/ui/widgets/ShellDemo.cpp
   )
   target_include_directories(tenfold_ui PUBLIC src)
-  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text)
+  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text tenfold_core)
   target_compile_options(tenfold_ui PRIVATE ${TENFOLD_WARN})
 
   add_executable(tenfold-ui src/ui_app/main.cpp)
@@ -192,6 +194,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_renderer.cpp
     tests/ui/test_text_view.cpp
     tests/ui/test_widgets.cpp
+    tests/ui/test_editor_view.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

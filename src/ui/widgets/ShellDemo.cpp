@@ -1,25 +1,14 @@
 #include "ui/widgets/ShellDemo.h"
 
-#include <fstream>
-
-#include "ui/widgets/LinesView.h"
-
 namespace tf::ui {
 
-namespace {
-std::shared_ptr<const std::vector<std::string>> readLines(const std::string& path) {
-  auto lines = std::make_shared<std::vector<std::string>>();
-  std::ifstream in(path, std::ios::binary);
-  for (std::string l; std::getline(in, l);) {
-    if (!l.empty() && l.back() == '\r') l.pop_back();
-    lines->push_back(std::move(l));
-  }
-  if (lines->empty()) lines->push_back("(cannot read " + path + ")");
-  return lines;
+TextView* ShellDemo::view(int tabId) const {
+  auto it = views_.find(tabId);
+  return it == views_.end() ? nullptr : it->second;
 }
-}  // namespace
 
-ShellDemo::ShellDemo(gfx::TextRenderer& text, const std::string& dir, const Theme& theme) : RootWidget(text, theme) {
+ShellDemo::ShellDemo(gfx::TextRenderer& text, const std::string& dir, const Theme& theme)
+    : RootWidget(text, theme), editor_(std::make_unique<Editor>(dir)) {
   auto split = std::make_unique<Splitter>(Splitter::Orientation::Horizontal);
   auto left = std::make_unique<Panel>(), right = std::make_unique<Panel>();
   left_ = left.get();
@@ -30,7 +19,12 @@ ShellDemo::ShellDemo(gfx::TextRenderer& text, const std::string& dir, const Them
   for (Panel* p : {left_, right_}) {
     for (int k = 0; k < 3; ++k) {
       const std::string f = files[p == left_ ? k : 2 - k];
-      p->addTab(id++, title(f), std::make_unique<LinesView>(readLines(dir + f)), p == right_ && k == 0);
+      auto tv = std::make_unique<TextView>(*editor_, editor_->open(dir + f));
+      views_[id] = tv.get();
+      tv->onStateChanged = [this, v = tv.get()] {
+        if (v->hasFocus()) status_->setText("pos", v->positionText());
+      };
+      p->addTab(id++, title(f), std::move(tv), p == right_ && k == 0);
     }
     p->setActive(p == left_ ? 1 : 5);
   }
@@ -51,13 +45,39 @@ ShellDemo::ShellDemo(gfx::TextRenderer& text, const std::string& dir, const Them
   status_->setText("encoding", "UTF-8");
   status_->setText("eol", "LF");
   for (Panel* p : {left_, right_})
-    p->onActivated = [this](int tab) { status_->setText("pos", "Ln 1, Col 1  (tab " + std::to_string(tab) + ")"); };
+    p->onActivated = [this](int tab) {
+      if (TextView* v = view(tab)) {
+        v->activate();
+        status_->setText("pos", v->positionText());
+      }
+    };
+  if (TextView* v = view(left_->activeId())) v->activate();
 }
 
 void ShellDemo::onLayout() {
   const RectF& b = bounds();
   const float sh = status_->preferredHeight();
   split_->layout({b.x, b.y, b.w, b.h - sh});
+  status_->layout({b.x, b.y + b.h - sh, b.w, sh});
+}
+
+EditorShell::EditorShell(gfx::TextRenderer& text, Editor& editor, const Theme& theme) : RootWidget(text, theme) {
+  auto tv = std::make_unique<TextView>(editor);
+  view_ = tv.get();
+  addChild(std::move(tv));
+  auto sb = std::make_unique<StatusBar>();
+  status_ = sb.get();
+  addChild(std::move(sb));
+  status_->addSegment("encoding", StatusBar::Align::Right);
+  status_->setText("encoding", "UTF-8");
+  view_->onStateChanged = [this] { status_->setText("pos", view_->positionText()); };
+  view_->setFocus();
+}
+
+void EditorShell::onLayout() {
+  const RectF& b = bounds();
+  const float sh = status_->preferredHeight();
+  view_->layout({b.x, b.y, b.w, b.h - sh});
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
 }
 
