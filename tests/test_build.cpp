@@ -386,7 +386,11 @@ TEST(build_runner_restart_cancels_previous) {
         bDone = true;
       },
       &err));
-  REQUIRE(pump.until([&] { return aDone && bDone; }, 20000));
+  const bool both = pump.until([&] { return aDone && bDone; }, 20000);
+  if (!both)  // diagnostics for platforms where the cancel of A did not take effect (macOS CI hang)
+    std::cerr << "    aDone=" << aDone << " bDone=" << bDone << " aLines=" << aLines.size()
+              << " bLines=" << bLines.size() << " running=" << runner.running() << "\n";
+  REQUIRE(both);
   CHECK(aRes.cancelled);
   CHECK(!bRes.cancelled);
   CHECK_EQ(bRes.exitCode, 0);
