@@ -125,6 +125,7 @@ Editor::Editor(fs::path root) : Editor(std::move(root), Options()) {}
 Editor::Editor(fs::path root, Options opt) : ws_(std::move(root)), opt_(std::move(opt)), nav_(opt_.navigation) {
   if (!opt_.semantic.log) opt_.semantic.log = opt_.log;
   ws_.loadSettings();
+  debug_ = std::make_unique<DebugSession>(*this);
 }
 
 Editor::~Editor() { shutdown(); }
@@ -132,6 +133,7 @@ Editor::~Editor() { shutdown(); }
 bool Editor::start(std::string* error) {
   auto t0 = std::chrono::steady_clock::now();
   ws_.scan();
+  loadBreakpoints();
   if (opt_.log) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
     opt_.log("workspace scan: " + std::to_string(ws_.fileCount()) + " files in " + std::to_string(ms) + " ms");
@@ -173,7 +175,9 @@ bool Editor::start(std::string* error) {
 }
 
 void Editor::shutdown() {
+  debug_->shutdown();  // first: it may wait (bounded) for a blocked backend call
   saveBookmarks();
+  saveBreakpoints();
   buildRunner_.reset();  // kills a running build and joins its reader before the queue goes away
   buildRunning_ = false;
   for (auto& h : searches_) h.cancel();
@@ -215,6 +219,7 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
     bookmarksLoaded_ = true;
     bookmarks_.load(ws_.cacheDir() / "bookmarks.json", ws_.root());
   }
+  loadBreakpoints();
   auto doc = std::make_unique<Document>(path);
   if (!doc->loadFromDisk(error)) return nullptr;
   Document* raw = doc.get();
@@ -222,6 +227,7 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
     int newLines = 1 + static_cast<int>(std::count(ch.newText.begin(), ch.newText.end(), '\n'));
     nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
     bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
     if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
       int& ln = lastEdit_.pos.line;
       if (ln > ch.removed.end.line) {
@@ -281,6 +287,7 @@ bool Editor::save(Document& doc, std::string* error) {
   }
   if (!doc.saveToDisk(error)) return false;
   saveBookmarks();
+  saveBreakpoints();
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
   if (semantic_) semantic_->didSave(doc);
   return true;
@@ -447,6 +454,7 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           ws_.noteFileRenamed(f, to);
           nav_.onFileRenamed(f, to);
           bookmarks_.onFileRenamed(f, to);
+          breakpoints_.onFileRenamed(f, to);
           semantic_->fileRemoved(f);
           semantic_->watchedFileChanged(f, 3);
           semantic_->watchedFileChanged(to, 1);
@@ -457,6 +465,7 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
         ws_.noteFileRenamed(ev.oldPath, ev.path);
         nav_.onFileRenamed(ev.oldPath, ev.path);
         bookmarks_.onFileRenamed(ev.oldPath, ev.path);
+        breakpoints_.onFileRenamed(ev.oldPath, ev.path);
         semantic_->watchedFileChanged(ev.oldPath, 3);
         semantic_->watchedFileChanged(ev.path, 1);
         touched(ev.path);  // editors save by renaming a temp file over the target
@@ -1149,6 +1158,23 @@ bool Editor::restartClangd(std::string* error) {
     return false;
   }
   return semantic_->restartClangd(error);
+}
+
+bool Editor::toggleBreakpoint() {
+  if (!current_) return false;
+  const bool now = breakpoints_.toggle(current_->path(), carets_[0].head.line);
+  saveBreakpoints();
+  return now;
+}
+
+void Editor::loadBreakpoints() {
+  if (breakpointsLoaded_) return;
+  breakpointsLoaded_ = true;
+  breakpoints_.load(ws_.cacheDir() / "breakpoints.json", ws_.root());
+}
+
+void Editor::saveBreakpoints() {
+  if (breakpoints_.dirty()) breakpoints_.save(ws_.cacheDir() / "breakpoints.json", ws_.root());
 }
 
 void Editor::post(std::function<void()> fn) {

@@ -49,6 +49,8 @@ add_library(tenfold_core STATIC
   src/app/Editor.cpp
   src/app/EditorEditing.cpp
   src/app/Bookmarks.cpp
+  src/debug/Breakpoints.cpp
+  src/debug/DebugSession.cpp
   src/build/AnsiStrip.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
@@ -115,6 +117,9 @@ add_executable(tenfold-tests
   tests/test_build.cpp
   tests/test_symbol_search.cpp
   tests/test_crash.cpp
+  tests/test_debug_breakpoints.cpp
+  tests/test_debug_session.cpp
+  src/debug/FakeDebugger.cpp  # test support
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.

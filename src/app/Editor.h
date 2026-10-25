@@ -17,6 +17,9 @@
 #include "build/ErrorParser.h"
 #include "core/Document.h"
 #include "core/Selection.h"
+#include "debug/Breakpoints.h"
+#include "debug/DebugSession.h"
+#include "debug/Debugger.h"
 #include "nav/NavigationHistory.h"
 #include "search/TextSearch.h"
 #include "semantic/SemanticEngine.h"
@@ -254,6 +257,18 @@ class Editor {
   bool gotoBookmarkItem(const Bookmarks::Item& b);  // via gotoLocation, column 0
   void saveBookmarks();                             // no-op unless something changed
 
+  // --- debugger (C2a) ---
+  // Line breakpoints (follow edits, persisted in .tenfold/breakpoints.json when they change and on save()) and the
+  // session that talks to a debugger backend; see DebugSession for the threading and sync rules.
+  Breakpoints& breakpoints() { return breakpoints_; }
+  DebugSession& debug() { return *debug_; }
+  // Installs how a backend is created (Windows: the Visual Studio one). Without it the session reports "no debugger
+  // backend on this platform".
+  void setDebuggerFactory(std::function<std::unique_ptr<Debugger>()> f) { debug_->setFactory(std::move(f)); }
+  bool toggleBreakpoint();  // at the primary caret's line; true when now set
+  void loadBreakpoints();   // once per Editor; a missing file is fine
+  void saveBreakpoints();   // no-op unless something changed
+
   // Injectable time source (milliseconds, monotonic) for the typing-pause boundary.
   void setClock(std::function<int64_t()> clock) { opt_.clock = std::move(clock); }
 
@@ -363,6 +378,8 @@ class Editor {
   EditingOptions editing_;
   Bookmarks bookmarks_;
   bool bookmarksLoaded_ = false;
+  Breakpoints breakpoints_;
+  bool breakpointsLoaded_ = false;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
   std::vector<SearchHandle> searches_;
 
@@ -382,6 +399,7 @@ class Editor {
   std::mutex qmu_;
   std::deque<std::function<void()>> queue_;
   std::condition_variable qcv_;
+  std::unique_ptr<DebugSession> debug_;  // last member: stopped and destroyed first
 };
 
 }  // namespace tf
