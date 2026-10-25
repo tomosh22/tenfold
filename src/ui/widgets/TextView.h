@@ -20,14 +20,15 @@ namespace tf::ui {
 // The editor view (B2a): shows one Document of an Editor with a line-number gutter, current-line highlight, every
 // selection (behind the text) and every caret (overlay layer, on top of the text), scrolls vertically and horizontally
 // (smoothly by default) and turns mouse / keyboard input into Editor commands. The view never changes carets or text
-// itself: clicks go through Editor::setSelections / columnSelect, text through insertText, so
-// undo groups, navigation history and LSP sync stay the Editor's business. Scroll state is the view's own.
+// itself: clicks go through Editor::setSelections / columnSelect, text through typeText (auto-close / auto-indent live
+// in the Editor), so undo groups, navigation history and LSP sync stay the Editor's business. Scroll state is the
+// view's own.
 //
 // Binding: TextView(editor) follows Editor::currentDocument(); TextView(editor, doc) is pinned to `doc` (tabs). Only
 // the Editor's current document has carets; a pinned view of another document shows none until activate() (called by
 // a click or by the owner when its tab is selected) makes it current via Editor::activateDocument, which records no
 // navigation history. Keys are not handled here: EditorApp maps them to commands (KeyMap -> CommandRegistry); the view
-// handles text input (InputType::Text -> Editor::insertText), the mouse and the wheel.
+// handles text input (InputType::Text -> Editor::typeText), the mouse and the wheel.
 //
 // Colouring (B2b): C/C++ files are coloured lexically at once (Highlighter, cached per line, visible lines only) and
 // upgraded to clangd semantic tokens when setSemanticTokens delivers them (they override identifier colours only);
@@ -70,6 +71,10 @@ class TextView : public Widget {
   void setSemanticTokens(std::vector<TokenSpan> spans, const LspSemanticTokensLegend& legend);
   // Search matches for the scrollbar's marker lane (B5b).
   void setSearchMarkers(const std::vector<Range>& matches);
+  // Find / replace in file (B8): every match is highlighted in the visible lines (`current` is drawn stronger, -1 =
+  // none) and fills the scrollbar's search lane instead of the find-in-files markers until cleared (empty list).
+  void setFindMatches(std::vector<Range> matches, int current);
+  const std::vector<Range>& findMatches() const { return findMatches_; }
   bool colouring() const;  // true for C/C++ files
   // The bracket at / before the primary caret and its partner (positions of the two bracket characters).
   std::optional<std::pair<Position, Position>> bracketMatch();
@@ -106,6 +111,7 @@ class TextView : public Widget {
   void bindDocument();
   uint64_t diagnosticSignature() const;
   void updateDiagMarkers();
+  void updateSearchLane();
   void paintWhitespace(PaintContext& ctx, const Layout& L, const std::string& line, float textX, float y,
                        const RectF& clip) const;
   void paintSquiggles(PaintContext& ctx, const Layout& L, float sx, float sy, int first, int last);
@@ -127,6 +133,11 @@ class TextView : public Widget {
   int listenId_ = 0;
   uint32_t themeGen_ = 0xFFFFFFFFu;
   uint64_t diagSig_ = 0;
+  std::vector<Range> findMatches_;  // sorted
+  int findCurrent_ = -1;
+  std::vector<int> searchLines_;  // find-in-files markers, restored when the in-file matches go away
+  uint64_t bookmarkGen_ = ~0ull;
+  std::vector<int> bookmarkLines_;  // of the bound document, refreshed on paint
 
   // What was last seen, to detect changes.
   const Document* seenDoc_ = nullptr;

@@ -9,10 +9,13 @@
 #include "app/Editor.h"
 #include "ui/commands/CommandRegistry.h"
 #include "ui/commands/KeyMap.h"
+#include "ui/features/BookmarkList.h"
 #include "ui/features/CompletionPopup.h"
 #include "ui/features/DiagnosticsPanel.h"
 #include "ui/features/FileSearch.h"
 #include "ui/features/FindInFiles.h"
+#include "ui/features/FindReplace.h"
+#include "ui/features/GoToLine.h"
 #include "ui/features/HoverTooltip.h"
 #include "ui/features/NavResultPicker.h"
 #include "ui/features/NavigationUi.h"
@@ -56,6 +59,10 @@ class EditorApp {
   NavResultPicker& navResults() { return *navResults_; }
   FindInFiles& findInFiles() { return *find_; }
   DiagnosticsPanel& diagnosticsPanel() { return *diagPanel_; }
+  // B8: find / replace in the current file (Ctrl+F / Ctrl+H), go to line (Ctrl+G), bookmark list.
+  FindReplace& findReplace() { return *findReplace_; }
+  GoToLine& goToLine() { return *goToLine_; }
+  BookmarkList& bookmarkList() { return *bookmarkList_; }
   CompletionPopup& completion() { return *completion_; }
   HoverTooltip& hover() { return *hover_; }
   SignatureHelp& signatureHelp() { return *sigHelp_; }
@@ -89,6 +96,7 @@ class EditorApp {
   void setMessage(const std::string& text, int ttlMs = 0, bool pending = false);
   void showDiagnostics();
   void applyEditorSettings();
+  void applyEditingSettings(const Settings& s);
   void forEachView(const std::function<void(TextView&)>& fn);
   void bindUiCommands();
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
@@ -122,6 +130,9 @@ class EditorApp {
   std::unique_ptr<NavResultPicker> navResults_;
   std::unique_ptr<FindInFiles> find_;
   std::unique_ptr<DiagnosticsPanel> diagPanel_;
+  std::unique_ptr<FindReplace> findReplace_;
+  std::unique_ptr<GoToLine> goToLine_;
+  std::unique_ptr<BookmarkList> bookmarkList_;
   std::unique_ptr<CompletionPopup> completion_;
   std::unique_ptr<HoverTooltip> hover_;
   std::unique_ptr<SignatureHelp> sigHelp_;

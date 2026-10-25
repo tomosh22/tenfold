@@ -91,13 +91,13 @@ void registerEditorCommands(CommandRegistry& r) {
     c.editor->del();
     return true;
   });
-  // Plain "\n" / "\t": auto-indent and tab-width/spaces policy come with the editing settings (later).
+  // Enter / Tab are smart (B8): auto-indent, indent unit, indent a multi-line selection. See Editor::EditingOptions.
   addEd(r, "Editor.Enter", "Insert New Line", [](const CommandContext& c, std::string_view) {
-    c.editor->insertText("\n");
+    c.editor->insertNewline();
     return true;
   });
-  addEd(r, "Editor.Tab", "Insert Tab", [](const CommandContext& c, std::string_view) {
-    c.editor->insertText("\t");
+  addEd(r, "Editor.Tab", "Insert Tab / Indent", [](const CommandContext& c, std::string_view) {
+    c.editor->insertTab();
     return true;
   });
   // Ctrl+Backspace / Ctrl+Delete: without a selection extend each caret by a word first, then delete.
@@ -138,7 +138,54 @@ void registerEditorCommands(CommandRegistry& r) {
     return true;
   });
 
-  // --- UI-only: the front end binds these (B3b / B5) ---
+  // --- editing conveniences (B8): each is one undo step at every caret ---
+  struct Simple {
+    const char* id;
+    const char* name;
+    void (Editor::*fn)();
+  };
+  static const Simple simple[] = {
+      {"Editor.Outdent", "Outdent Lines", &Editor::outdentLines},
+      {"Editor.Indent", "Indent Lines", &Editor::indentLines},
+      {"Editor.ToggleLineComment", "Toggle Line Comment", &Editor::toggleLineComment},
+      {"Editor.ToggleBlockComment", "Toggle Block Comment", &Editor::toggleBlockComment},
+      {"Editor.Duplicate", "Duplicate Line / Selection", &Editor::duplicate},
+      {"Editor.JoinLines", "Join Lines", &Editor::joinLines},
+      {"Editor.DeleteLines", "Delete Line", &Editor::deleteLines},
+  };
+  for (const Simple& sc : simple)
+    addEd(r, sc.id, sc.name, [fn = sc.fn](const CommandContext& c, std::string_view) {
+      (c.editor->*fn)();
+      return true;
+    });
+  for (bool down : {false, true})
+    addEd(r, down ? "Editor.MoveLinesDown" : "Editor.MoveLinesUp", down ? "Move Lines Down" : "Move Lines Up",
+          [down](const CommandContext& c, std::string_view) {
+            c.editor->moveLines(down);
+            return true;
+          });
+  addEd(r, "Editor.ToggleBookmark", "Toggle Bookmark", [](const CommandContext& c, std::string_view) {
+    c.editor->toggleBookmark();
+    return true;
+  });
+  for (bool fwd : {true, false})
+    r.add({fwd ? "Editor.NextBookmark" : "Editor.PrevBookmark", fwd ? "Next Bookmark" : "Previous Bookmark",
+           [fwd](const CommandContext& c, std::string_view) { return c.editor->gotoBookmark(fwd); },
+           [](const CommandContext& c) { return hasEditor(c) && !c.editor->bookmarks().empty(); }});
+  for (bool crlf : {false, true})
+    addEd(r, crlf ? "Editor.LineEndingCRLF" : "Editor.LineEndingLF", crlf ? "Line Endings: CRLF" : "Line Endings: LF",
+          [crlf](const CommandContext& c, std::string_view) {
+            c.editor->setLineEnding(*c.editor->currentDocument(), crlf ? LineEnding::CRLF : LineEnding::LF);
+            return true;
+          });
+
+  // --- UI-only: the front end binds these (B3b / B5 / B8) ---
+  addUi(r, "Editor.GotoLine", "Go to Line...");
+  addUi(r, "Editor.Find", "Find in File...");
+  addUi(r, "Editor.Replace", "Replace in File...");
+  addUi(r, "Editor.FindNext", "Find Next");
+  addUi(r, "Editor.FindPrev", "Find Previous");
+  addUi(r, "Editor.ListBookmarks", "List Bookmarks...");
   addUi(r, "File.OpenFile", "Open File...");
   addUi(r, "Search.SymbolSearch", "Go to Symbol in Workspace...");
   addUi(r, "Search.FindInWorkspace", "Find in Workspace...");

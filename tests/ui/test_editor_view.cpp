@@ -306,7 +306,7 @@ TEST(textview_keyboard_edits_and_moves) {
   CHECK_EQ(f.sel(), std::string("(0:6-0:6)"));
   f.key(Key::Enter);
   f.key(Key::Tab);
-  CHECK_EQ(f.txt(), std::string("aontwo\n\t\nthree\n"));
+  CHECK_EQ(f.txt(), std::string("aontwo\n    \nthree\n"));
   f.key(Key::Home, ModCtrl);
   CHECK_EQ(f.sel(), std::string("(0:0-0:0)"));
   f.key(Key::End, ModCtrl | ModShift);
@@ -316,14 +316,14 @@ TEST(textview_keyboard_edits_and_moves) {
   f.key(Key::Down);
   CHECK_EQ(f.sel(), std::string("(1:0-1:0)"));
   f.key(Key::Backspace, ModCtrl);  // delete previous word: here the line break
-  CHECK_EQ(f.txt(), std::string("aontwo\t\nthree\n"));
+  CHECK_EQ(f.txt(), std::string("aontwo    \nthree\n"));
   f.key(Key::Unknown);
   f.key(Key('A'), ModCtrl);
   CHECK_EQ(f.sel(), std::string("(0:0-2:0)"));
   f.key(Key('Z'), ModCtrl);
   f.key(Key('Y'), ModCtrl);
   f.key(Key('Z'), ModCtrl | ModShift);  // ctrl+shift+z is redo too: nothing left to redo
-  CHECK_EQ(f.txt(), std::string("aontwo\t\nthree\n"));
+  CHECK_EQ(f.txt(), std::string("aontwo    \nthree\n"));
   // Ctrl+Alt+Down adds a caret below; Escape collapses.
   f.click({0, 1});
   f.key(Key::Down, ModCtrl | ModAlt);

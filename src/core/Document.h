@@ -33,6 +33,12 @@ class Document {
   int version() const { return version_; }
   bool dirty() const { return dirty_; }
   bool existsOnDisk() const { return onDisk_; }
+  // Switches the line ending written on save (LF / CRLF) and marks the document dirty. Not an undo step.
+  void setLineEnding(LineEnding e) {
+    if (buf_.lineEnding() == e) return;
+    buf_.setLineEnding(e);
+    dirty_ = true;
+  }
 
   // Editing API. All edits go through here so listeners always fire.
   TextBuffer::EditResult replace(Range r, std::string_view text);

@@ -44,6 +44,8 @@ add_library(tenfold_core STATIC
   src/search/TextSearch.cpp
   src/workspace/FileWatcher.cpp
   src/app/Editor.cpp
+  src/app/EditorEditing.cpp
+  src/app/Bookmarks.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
 )
@@ -104,6 +106,7 @@ add_executable(tenfold-tests
   tests/test_textsearch.cpp
   tests/test_filewatcher.cpp
   tests/test_multicaret.cpp
+  tests/test_editing.cpp
   tests/test_lsp_features.cpp
   tests/test_build.cpp
 )
@@ -186,6 +189,9 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/NavResultPicker.cpp
     src/ui/features/PopupBox.cpp
     src/ui/features/FindInFiles.cpp
+    src/ui/features/FindReplace.cpp
+    src/ui/features/GoToLine.cpp
+    src/ui/features/BookmarkList.cpp
     src/ui/features/CompletionPopup.cpp
     src/ui/features/HoverTooltip.cpp
     src/ui/features/SignatureHelp.cpp
@@ -250,6 +256,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_view_colouring.cpp
     tests/ui/test_pickers.cpp
     tests/ui/test_b5b.cpp
+    tests/ui/test_b8.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

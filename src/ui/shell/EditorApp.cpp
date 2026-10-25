@@ -95,6 +95,17 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     });
   });
   diagPanel_ = std::make_unique<DiagnosticsPanel>(pickerEnv_);
+  findReplace_ = std::make_unique<FindReplace>(pickerEnv_);
+  findReplace_->setViewsFn([this](const std::function<void(TextView&)>& fn) { forEachView(fn); });
+  findReplace_->setAreaFn([this] {
+    RectF r = root_.bounds();
+    forEachView([&](TextView& v) {
+      if (v.document() == editor_.currentDocument() && v.visible()) r = v.bounds();
+    });
+    return r;
+  });
+  goToLine_ = std::make_unique<GoToLine>(pickerEnv_);
+  bookmarkList_ = std::make_unique<BookmarkList>(pickerEnv_);
   completion_ = std::make_unique<CompletionPopup>(pickerEnv_);
   hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
@@ -125,6 +136,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 
 EditorApp::~EditorApp() {
   closePickers();  // their callbacks point into this object
+  findReplace_.reset();
   completion_.reset();
   hover_.reset();
   sigHelp_.reset();
@@ -158,12 +170,26 @@ void EditorApp::showDiagnostics() {
 void EditorApp::applyEditorSettings() {
   if (!settings_) return;
   const EditorSettings es = editorSettings(settings_->settings());
+  applyEditingSettings(settings_->settings());
   setNavStatusCounts(settings_->settings().getBool("nav.statusCounts"));
   applySettings(settings_->settings());
   forEachView([&](TextView& v) {
     v.applySettings(es);
     v.settingsGen = settingsGen_;
   });
+}
+
+// editor.indentUnit: "tab" or a number of spaces (1..16); anything else keeps four spaces.
+void EditorApp::applyEditingSettings(const Settings& s) {
+  Editor::EditingOptions& o = editor_.editing();
+  std::string unit = s.getString("editor.indentUnit");
+  for (char& c : unit) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const int n = std::atoi(unit.c_str());
+  o.indentUnit = unit == "tab" ? "\t" : std::string(static_cast<size_t>(n >= 1 && n <= 16 ? n : 4), ' ');
+  o.detectIndent = s.getBool("editor.detectIndent");
+  o.autoIndent = s.getBool("editor.autoIndent");
+  o.autoClosePairs = s.getBool("editor.autoClosePairs");
+  o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
 }
 
 void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::function<bool()> rebuildFont) {
@@ -198,6 +224,8 @@ void EditorApp::closePickers() {
   navResults_->close();
   find_->close();
   diagPanel_->close();
+  goToLine_->close();
+  bookmarkList_->close();
   if (files_) files_->close();
 }
 
@@ -244,6 +272,30 @@ void EditorApp::bindUiCommands() {
     diagPanel_->open();
     return true;
   });
+  registry_.bind("Editor.GotoLine", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    goToLine_->open();
+    return true;
+  });
+  registry_.bind("Editor.ListBookmarks", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    bookmarkList_->open();
+    return true;
+  });
+  for (bool replace : {false, true})
+    registry_.bind(
+        replace ? "Editor.Replace" : "Editor.Find",
+        [this, replace](const CommandContext&, std::string_view) {
+          closePickers();
+          findReplace_->open(replace);
+          return true;
+        },
+        [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  for (bool fwd : {true, false})
+    registry_.bind(
+        fwd ? "Editor.FindNext" : "Editor.FindPrev",
+        [this, fwd](const CommandContext&, std::string_view) { return findReplace_->step(fwd); },
+        [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind("App.Quit", [this](const CommandContext&, std::string_view) { return quit_ = true; });
   registry_.bind(
       "Editor.Copy", [](const CommandContext& c, std::string_view) { return doCopy(*c.editor); },
@@ -414,6 +466,7 @@ int EditorApp::tick(int64_t nowMs) {
   auto soonest = [&](int ms) { wait = wait < 0 ? ms : std::min(wait, ms); };
   if (const int due = symbols_->tick(nowMs); due >= 0) soonest(due);
   if (const int due = find_->tick(nowMs); due >= 0) soonest(due);
+  findReplace_->tick(nowMs);
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
   if (nav_) {

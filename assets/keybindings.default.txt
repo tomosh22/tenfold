@@ -45,6 +45,8 @@ Ctrl+Tab = Workbench.CycleMruNext
 Ctrl+Shift+Tab = Workbench.CycleMruPrev
 
 # --- Editing (placeholders for the keys the text view handles today) ---
+# B8 editing conveniences. All PLACEHOLDERS (OPEN_QUESTIONS #1 / #8): Ctrl+Shift+D is free (Ctrl+D is "add next
+# occurrence"); the others follow the usual editor conventions, not 10x.
 
 [editor] Left = Editor.CaretLeft
 [editor] Right = Editor.CaretRight
@@ -90,3 +92,26 @@ Ctrl+Shift+Tab = Workbench.CycleMruPrev
 [editor] Ctrl+C = Editor.Copy
 [editor] Ctrl+X = Editor.Cut
 [editor] Ctrl+V = Editor.Paste
+
+# --- Editing conveniences (B8) ---
+[editor] Shift+Tab = Editor.Outdent
+[editor] Ctrl+/ = Editor.ToggleLineComment
+[editor] Ctrl+Shift+/ = Editor.ToggleBlockComment
+[editor] Ctrl+Shift+D = Editor.Duplicate
+[editor] Alt+Up = Editor.MoveLinesUp
+[editor] Alt+Down = Editor.MoveLinesDown
+[editor] Ctrl+J = Editor.JoinLines
+[editor] Ctrl+Shift+K = Editor.DeleteLines
+Ctrl+G = Editor.GotoLine
+
+# Bookmarks.
+[editor] Ctrl+F2 = Editor.ToggleBookmark
+[editor] F2 = Editor.NextBookmark
+[editor] Shift+F2 = Editor.PrevBookmark
+Ctrl+Shift+F2 = Editor.ListBookmarks
+
+# Find / replace in the current file (Escape closes the bar; Enter / Shift+Enter step while it has focus).
+Ctrl+F = Editor.Find
+Ctrl+H = Editor.Replace
+F3 = Editor.FindNext
+Shift+F3 = Editor.FindPrev
