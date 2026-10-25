@@ -22,10 +22,13 @@ Theme parseTheme(std::string_view text, std::string_view source, std::vector<Set
 const std::vector<std::string>& themeColorNames();
 const std::vector<std::string>& themeTokenKinds();
 const std::vector<std::string>& themeTokenModifiers();
-// Keys a shipped theme must define: all color.* plus the lexical kinds and the common semantic types.
+// Keys a shipped theme must define: all non-optional color.* (the optional ones are listed in themeOptionalColorNames)
+// plus the lexical kinds and the common semantic types.
 std::vector<std::string> requiredThemeKeys();
+// Colour names whose transparent default means "legacy look"; vs-dark defines them all.
+std::vector<std::string> themeOptionalColorNames();
 
-std::string_view builtinThemeText(std::string_view name);  // "dark", "light"; empty if unknown
+std::string_view builtinThemeText(std::string_view name);  // "dark", "light", "vs-dark"; empty if unknown
 // Path of the file a named theme resolves to (workspace .tenfold/themes, then userDir/themes); empty = built-in.
 std::filesystem::path findThemeFile(std::string_view name, const std::filesystem::path& workspaceRoot,
                                     const std::filesystem::path& userDir);

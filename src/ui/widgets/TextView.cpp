@@ -317,7 +317,7 @@ int TextView::onTick(int64_t nowMs) {
 void TextView::paint(PaintContext& ctx) {
   const RectF& b = bounds();
   const Theme& th = ctx.theme;
-  ctx.fill(b, th.panelBackground);
+  ctx.fill(b, Theme::orElse(th.editorBackground, th.panelBackground));
   const Document* d = document();
   if (!d) return;
   bindDocument();
@@ -346,6 +346,8 @@ void TextView::paint(PaintContext& ctx) {
     Color hit = th.dirtyMarker, now = th.dirtyMarker;
     hit.a = 0.30f;
     now.a = 0.65f;
+    hit = Theme::orElse(th.findHighlight, hit);
+    now = Theme::orElse(th.findHighlightCurrent, now);
     auto it = std::lower_bound(findMatches_.begin(), findMatches_.end(), first,
                                [](const Range& r, int line) { return r.end.line < line; });
     for (; it != findMatches_.end() && it->start.line < last; ++it) {
@@ -362,11 +364,22 @@ void TextView::paint(PaintContext& ctx) {
   if (cur) {
     const std::vector<Selection>& sels = editor_.selections();
     const int headLine = sels[0].head.line;
-    if (settings_.highlightCurrentLine && headLine >= first && headLine < last)
-      ctx.fill(intersect({clip.x, b.y + L.lineTop(headLine, sy), clip.w, lh}, clip),
-               mix(th.panelBackground, th.text, 0.05f));
+    if (settings_.highlightCurrentLine && headLine >= first && headLine < last) {
+      const RectF line = intersect({clip.x, b.y + L.lineTop(headLine, sy), clip.w, lh}, clip);
+      ctx.fill(line, Theme::orElse(th.currentLineFill, mix(th.panelBackground, th.text, 0.05f)));
+      if (th.currentLineBorder.a > 0 && line.w > 2 && line.h > 2) {  // 1px outline (top, bottom, left, right)
+        ctx.fill({line.x, line.y, line.w, 1}, th.currentLineBorder);
+        ctx.fill({line.x, line.y + line.h - 1, line.w, 1}, th.currentLineBorder);
+        ctx.fill({line.x, line.y, 1, line.h}, th.currentLineBorder);
+        ctx.fill({line.x + line.w - 1, line.y, 1, line.h}, th.currentLineBorder);
+      }
+    }
+  }
+  if (cur || th.selectionInactive.a > 0) {
+    const std::vector<Selection>& sels = editor_.selections();
     Color selColor = th.tabAccent;
     selColor.a = 0.38f;
+    selColor = cur ? Theme::orElse(th.selectionActive, selColor) : th.selectionInactive;
     for (const Selection& s : sels) {
       if (s.empty()) continue;
       const Range r = s.range();
@@ -520,7 +533,7 @@ void TextView::paintOverlay(PaintContext& ctx) {
   L.visibleLines(sy, bounds().h, buf.lineCount(), first, last);
   const RectF clip = textArea();
   const float w = std::max(1.0f, std::floor(L.cellWidth() / 6)), x0 = bounds().x + L.textOffset(buf.lineCount()) - sx;
-  const Color c = hasFocus() ? ctx.theme.text : ctx.theme.textDim;
+  const Color c = hasFocus() ? Theme::orElse(ctx.theme.editorCaret, ctx.theme.text) : ctx.theme.textDim;
   for (const Selection& s : editor_.selections()) {
     const Position p = s.head;
     if (p.line < first || p.line >= last) continue;

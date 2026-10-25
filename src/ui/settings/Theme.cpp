@@ -14,10 +14,14 @@ const char kDark[] =
 const char kLight[] =
 #include "DefaultThemeLight.inc"
     ;
+const char kVsDark[] =
+#include "DefaultThemeVsDark.inc"
+    ;
 
 struct ColorMember {
   const char* name;
   gfx::Color Theme::*ptr;
+  bool optional = false;  // transparent default = legacy look; shipped themes need not define it
 };
 const std::vector<ColorMember>& colorMembers() {
   static const std::vector<ColorMember> m = {
@@ -55,6 +59,18 @@ const std::vector<ColorMember>& colorMembers() {
       {"scrollbarTrack", &Theme::scrollbarTrack},
       {"scrollbarThumb", &Theme::scrollbarThumb},
       {"bracketMatch", &Theme::bracketMatch},
+      {"editorBackground", &Theme::editorBackground, true},
+      {"currentLineFill", &Theme::currentLineFill, true},
+      {"currentLineBorder", &Theme::currentLineBorder, true},
+      {"selectionActive", &Theme::selectionActive, true},
+      {"selectionInactive", &Theme::selectionInactive, true},
+      {"findHighlight", &Theme::findHighlight, true},
+      {"findHighlightCurrent", &Theme::findHighlightCurrent, true},
+      {"editorCaret", &Theme::editorCaret, true},
+      {"tabActiveText", &Theme::tabActiveText, true},
+      {"tabInactiveText", &Theme::tabInactiveText, true},
+      {"popupBackground", &Theme::popupBackground, true},
+      {"popupBorder", &Theme::popupBorder, true},
   };
   return m;
 }
@@ -98,11 +114,19 @@ const std::vector<std::string>& themeTokenModifiers() {
 
 std::vector<std::string> requiredThemeKeys() {
   std::vector<std::string> r;
-  for (auto& n : themeColorNames()) r.push_back("color." + n);
+  for (auto& m : colorMembers())
+    if (!m.optional) r.push_back(std::string("color.") + m.name);
   for (auto& n : kLexical) r.push_back("token." + n);
   for (const char* n : {"namespace", "type", "class", "enum", "enumMember", "typeParameter", "concept", "function",
                         "method", "property", "variable", "parameter", "macro"})
     r.push_back(std::string("token.") + n);
+  return r;
+}
+
+std::vector<std::string> themeOptionalColorNames() {
+  std::vector<std::string> r;
+  for (auto& m : colorMembers())
+    if (m.optional) r.push_back(m.name);
   return r;
 }
 
@@ -147,6 +171,7 @@ Theme parseTheme(std::string_view text, std::string_view source, std::vector<Set
 std::string_view builtinThemeText(std::string_view name) {
   if (name == "dark") return kDark;
   if (name == "light") return kLight;
+  if (name == "vs-dark") return kVsDark;
   return {};
 }
 

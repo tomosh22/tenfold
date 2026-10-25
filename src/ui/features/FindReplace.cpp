@@ -103,8 +103,8 @@ class FindReplace::Bar : public Widget {
 
   void paint(PaintContext& ctx) override {
     const Theme& t = ctx.theme;
-    ctx.fill({box_.x - 1, box_.y - 1, box_.w + 2, box_.h + 2}, t.splitterHot);
-    ctx.fill(box_, t.tabInactive);
+    ctx.fill({box_.x - 1, box_.y - 1, box_.w + 2, box_.h + 2}, Theme::orElse(t.popupBorder, t.splitterHot));
+    ctx.fill(box_, Theme::orElse(t.popupBackground, t.tabInactive));
     const float lh = ctx.lineHeight();
     auto label = [&](const RectF& r, const char* s, bool on) {
       if (on) ctx.fill(r, t.selection);

@@ -284,8 +284,8 @@ void ListPopup::paintPreview(PaintContext& ctx, const RectF& r) {
 void ListPopup::paint(PaintContext& ctx) {
   const Theme& t = ctx.theme;
   const RectF p = popupRect();
-  ctx.fill({p.x - 1, p.y - 1, p.w + 2, p.h + 2}, t.splitterHot);
-  ctx.fill(p, t.tabInactive);
+  ctx.fill({p.x - 1, p.y - 1, p.w + 2, p.h + 2}, Theme::orElse(t.popupBorder, t.splitterHot));
+  ctx.fill(p, Theme::orElse(t.popupBackground, t.tabInactive));
   const float hy = p.y + t.verticalPad + ((input_ ? input_->preferredHeight() : rowHeight()) - ctx.lineHeight()) / 2;
   if (!input_ && !title_.empty()) ctx.text(p.x + t.padding, hy, title_, t.text, p);
   if (!status_.empty()) {

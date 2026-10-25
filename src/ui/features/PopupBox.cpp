@@ -95,8 +95,8 @@ static Color styleColor(const Theme& t, PopupSpan::Style s) {
 
 void PopupBox::paint(PaintContext& ctx) {
   const Theme& t = ctx.theme;
-  ctx.fill({box_.x - 1, box_.y - 1, box_.w + 2, box_.h + 2}, t.splitterHot);
-  ctx.fill(box_, t.tabInactive);
+  ctx.fill({box_.x - 1, box_.y - 1, box_.w + 2, box_.h + 2}, Theme::orElse(t.popupBorder, t.splitterHot));
+  ctx.fill(box_, Theme::orElse(t.popupBackground, t.tabInactive));
   const float rh = rowH(), lh = ctx.lineHeight(), pad = 8, ty = (rh - lh) / 2;
   const RectF listClip{box_.x, box_.y, std::min(box_.w, listW_), box_.h};
   for (int i = first_, row = 0; i < static_cast<int>(lines_.size()) && row < maxRows_; ++i, ++row) {

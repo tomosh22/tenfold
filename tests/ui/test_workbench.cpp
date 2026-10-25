@@ -8,6 +8,7 @@
 #include "../text/text_test_util.h"
 #include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
+#include "ui/settings/Theme.h"
 #include "ui/shell/Workbench.h"
 #include "ui_test.h"
 
@@ -416,6 +417,74 @@ TEST(workbench_golden_b3_workbench) {
   if (bad > golden.size() / 4 / 500) {
     gfx::writePngFile("b3_workbench.actual.png", px.data(), w, h);
     std::cerr << "    " << bad << " pixels differ; wrote b3_workbench.actual.png\n";
+  }
+  CHECK(bad <= golden.size() / 4 / 500);
+}
+
+// B7b: the shell (tabs, panels, splitters, status bar) in the vs-dark theme.
+TEST(workbench_golden_vs_dark_workbench) {
+  SKIP_IF_NO_GL(fx);
+  std::string font;
+  for (const char* p : {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf"})
+    if (std::ifstream(p).good()) {
+      font = p;
+      break;
+    }
+  if (font.empty()) {
+    std::cerr << "    SKIP golden: DejaVuSansMono not installed; goldens are only comparable with the same font\n";
+    return;
+  }
+  std::string err;
+  auto tr = gfx::TextRenderer::create(font, 15.0f, 1.0f, &err);
+  REQUIRE(tr != nullptr);
+  std::vector<SettingsDiag> diags;
+  const Theme vs = loadTheme("vs-dark", {}, {}, diags);
+  CHECK(diags.empty());
+  Editor ed(TENFOLD_SOURCE_DIR "/examples/sample_project");
+  Workbench wb(*tr, ed, vs);
+  const int geo = wb.openFile("src/geometry.cpp");
+  wb.openFile("src/main.cpp");
+  wb.openFile("include/geometry.h");
+  wb.setPinned(geo, true);
+  Panel* p0 = wb.activePanel();
+  Panel* p1 = wb.splitActive(Splitter::Orientation::Horizontal);
+  wb.openFile("src/main.cpp");
+  wb.splitPanel(p1, Splitter::Orientation::Vertical, true, -1);
+  wb.openFile("src/geometry.cpp");
+  static_cast<Splitter*>(p0->parent())->setRatio(0.45f);
+  wb.setActivePanel(p0);
+  p0->setActive(p0->tabs().tabs()[1].id);
+  wb.sync();
+  gfx::GlRenderer& r = *fx->renderer;
+  const int w = 1024, h = 640;
+  r.setOffscreen(true);
+  wb.render(r, w, h);
+  std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+  REQUIRE(r.readPixels(w, h, px.data()));
+  tr->releaseTexture(r);
+  const std::string path = TENFOLD_SOURCE_DIR "/tests/golden/vs_dark_workbench.png";
+  if (uitest::updateGoldens) {
+    REQUIRE(gfx::writePngFile(path, px.data(), w, h));
+    std::cerr << "    golden updated: " << path << "\n";
+    return;
+  }
+  int gw = 0, gh = 0;
+  std::vector<uint8_t> golden;
+  if (!gfx::readPngFile(path, gw, gh, golden)) {
+    CHECK(!"golden missing or unreadable; run tenfold-ui-tests --update-goldens");
+    return;
+  }
+  REQUIRE(gw == w && gh == h);
+  size_t bad = 0;
+  for (size_t i = 0; i < golden.size(); i += 4) {
+    int d = 0;
+    for (int c = 0; c < 4; ++c) d = std::max(d, std::abs(int(golden[i + c]) - int(px[i + c])));
+    if (d > 3) ++bad;
+  }
+  if (bad > golden.size() / 4 / 500) {
+    gfx::writePngFile("vs_dark_workbench.actual.png", px.data(), w, h);
+    std::cerr << "    " << bad << " pixels differ; wrote vs_dark_workbench.actual.png\n";
   }
   CHECK(bad <= golden.size() / 4 / 500);
 }
