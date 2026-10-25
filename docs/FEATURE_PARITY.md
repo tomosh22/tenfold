@@ -63,7 +63,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Feature | Status | Notes |
 |---|---|---|
-| GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). TextView (B2), tabs/panels (B3) next. |
+| GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
 | Key bindings as a text file | ⬜ | **verify** 10x's `KeyMappings.10x_settings` grammar if users want to import theirs. |
 | Colour schemes as text files | ⬜ | **verify** format. |
 | Settings as text file | ⬜ | **verify** 10x's `Settings.10x_settings` keys. |
