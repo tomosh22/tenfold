@@ -286,6 +286,14 @@ bool SemanticEngine::startClangd(std::string* error) {
     }
     h(file, std::move(out));
   });
+  clangd_->onApplyEdit([this](const std::string& label, const Json& edit) {
+    std::function<void(const std::string&, FileEdits)> h;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      h = applyEditHandler_;
+    }
+    if (h) h(label, editsFromServer(edit));
+  });
   clangd_->onLogMessage([this](int, const std::string& m) { log("clangd: " + m); });
   clangd_->onDisconnect([this] {
     log("clangd exited");
@@ -520,6 +528,13 @@ bool SemanticEngine::restartClangd(std::string* error) {
     for (auto& [uri, d] : openDocs_) docs.push_back(const_cast<Document*>(d));
     fileStatus_.clear();
   }
+  {
+    std::lock_guard<std::mutex> lk(tokMu_);  // result ids are meaningless to a new server
+    for (auto& [uri, st] : tokens_) {
+      st.resultId.clear();
+      st.data.clear();
+    }
+  }
   if (clangd_) {
     clangd_->stop();
     clangd_.reset();
@@ -539,22 +554,26 @@ Position SemanticEngine::toServer(const Document& doc, Position p) const {
   return {p.line, TextBuffer::utf8ToUtf16Column(doc.buffer().line(p.line), p.column)};
 }
 
-Location SemanticEngine::fromServer(const LspLocation& l) const {
-  Location out;
-  out.file = uriToPath(l.uri);
-  out.pos = l.range.start;
-  if (clangd_ && clangd_->offsetEncoding() != "utf-8" && out.pos.column > 0) {
+Position SemanticEngine::posFromServer(const std::string& uri, Position p) const {
+  if (clangd_ && clangd_->offsetEncoding() != "utf-8" && p.column > 0) {
     std::string line;
     const Document* doc = nullptr;
     {
       std::lock_guard<std::mutex> lk(mu_);
-      auto it = openDocs_.find(l.uri);
+      auto it = openDocs_.find(uri);
       if (it != openDocs_.end()) doc = it->second;
     }
-    if (doc && out.pos.line < doc->buffer().lineCount()) line = doc->buffer().line(out.pos.line);
-    else line = readLineOfFile(out.file, out.pos.line);
-    out.pos.column = TextBuffer::utf16ToUtf8Column(line, out.pos.column);
+    if (doc && p.line < doc->buffer().lineCount()) line = doc->buffer().line(p.line);
+    else line = readLineOfFile(uriToPath(uri), p.line);
+    p.column = TextBuffer::utf16ToUtf8Column(line, p.column);
   }
+  return p;
+}
+
+Location SemanticEngine::fromServer(const LspLocation& l) const {
+  Location out;
+  out.file = uriToPath(l.uri);
+  out.pos = posFromServer(l.uri, l.range.start);
   return out;
 }
 
@@ -580,6 +599,7 @@ void SemanticEngine::didOpen(Document& doc) {
   }
   fast_.updateFile(doc.path(), doc.buffer().text());
   if (auto* c = clangd()) c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().text());
+  scheduleTokens(doc);
 }
 
 void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
@@ -592,6 +612,7 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
       c->didChangeFull(doc.uri(), doc.version(), doc.buffer().text());
     }
   }
+  scheduleTokens(doc);
 }
 
 void SemanticEngine::didSave(Document& doc) {
@@ -603,6 +624,10 @@ void SemanticEngine::didClose(Document& doc) {
     std::lock_guard<std::mutex> lk(mu_);
     openDocs_.erase(doc.uri());
     fileStatus_.erase(doc.uri());
+  }
+  {
+    std::lock_guard<std::mutex> lk(tokMu_);
+    tokens_.erase(doc.uri());
   }
   if (auto* c = clangd()) c->didClose(doc.uri());
 }
@@ -676,13 +701,23 @@ std::vector<SymbolLocation> SemanticEngine::approximateSymbols(const std::string
 void SemanticEngine::timerLoop() {
   std::unique_lock<std::mutex> lk(mu_);
   while (timerRun_) {
-    if (pending_.empty()) {
+    if (pending_.empty() && delayed_.empty()) {
       cv_.wait(lk);
       continue;
     }
     auto now = std::chrono::steady_clock::now();
-    if (pending_.front().deadline > now) {
-      cv_.wait_until(lk, pending_.front().deadline);
+    if (!delayed_.empty() && delayed_.begin()->first <= now) {
+      auto fn = std::move(delayed_.begin()->second);
+      delayed_.erase(delayed_.begin());
+      lk.unlock();
+      fn();
+      lk.lock();
+      continue;
+    }
+    if (pending_.empty() || pending_.front().deadline > now) {
+      auto next = pending_.empty() ? delayed_.begin()->first : pending_.front().deadline;
+      if (!delayed_.empty()) next = std::min(next, delayed_.begin()->first);
+      cv_.wait_until(lk, next);
       continue;
     }
     auto st = pending_.front().state;
@@ -936,33 +971,375 @@ void SemanticEngine::rename(const Document& doc, Position pos, const std::string
   LspClient* c = clangd();
   if (!c) return cb({}, "clangd not running");
   c->rename(doc.uri(), toServer(doc, pos), newName, [this, cb](Json edit, const std::string& err) {
-    std::map<fs::path, std::vector<std::pair<Range, std::string>>> out;
-    if (!err.empty()) return cb(out, err);
-    auto addEdits = [&](const std::string& uri, const Json& edits) {
-      fs::path file = uriToPath(uri);
-      for (auto& e : edits) {
-        Range r = LspClient::rangeFromJson(e.value("range", Json::object()));
-        Location s = fromServer({uri, r});
-        Location en = fromServer({uri, {r.end, r.end}});
-        out[file].push_back({{s.pos, en.pos}, e.value("newText", "")});
-      }
-    };
-    if (edit.contains("changes")) {
-      for (auto& [uri, edits] : edit["changes"].items()) addEdits(uri, edits);
-    }
-    if (edit.contains("documentChanges")) {
-      for (auto& dc : edit["documentChanges"]) {
-        if (dc.contains("textDocument"))
-          addEdits(dc["textDocument"].value("uri", ""), dc.value("edits", Json::array()));
-      }
-    }
-    cb(out, {});
+    if (!err.empty()) return cb({}, err);
+    cb(editsFromServer(edit), {});
   });
 }
 
 void SemanticEngine::onDiagnostics(std::function<void(const fs::path&, std::vector<Diagnostic>)> h) {
   std::lock_guard<std::mutex> lk(mu_);
   diagHandler_ = std::move(h);
+}
+
+// ---------------------------------------------------------------------------
+// clangd-only features (no approximate tier: an answer from clangd, or an error)
+// ---------------------------------------------------------------------------
+
+template <class T>
+LspClient* SemanticEngine::requireClangd(const Callback<T>& cb) {
+  LspClient* c = clangd();
+  if (!c) cb(T{}, "clangd not running");
+  return c;
+}
+
+FileEdits SemanticEngine::editsFromServer(const Json& edit) const {
+  FileEdits out;
+  auto addEdits = [&](const std::string& uri, const Json& edits) {
+    TextEditList& list = out[uriToPath(uri)];
+    for (auto& e : edits) {
+      Range r = rangeFromServer(uri, LspClient::rangeFromJson(e.value("range", Json::object())));
+      list.push_back({r, e.value("newText", "")});
+    }
+  };
+  if (edit.contains("changes"))
+    for (auto& [uri, edits] : edit["changes"].items()) addEdits(uri, edits);
+  if (edit.contains("documentChanges")) {
+    for (auto& dc : edit["documentChanges"])
+      if (dc.contains("textDocument")) addEdits(dc["textDocument"].value("uri", ""), dc.value("edits", Json::array()));
+  }
+  return out;
+}
+
+void SemanticEngine::onApplyEdit(std::function<void(const std::string&, FileEdits)> h) {
+  std::lock_guard<std::mutex> lk(mu_);
+  applyEditHandler_ = std::move(h);
+}
+
+void SemanticEngine::runLater(int delayMs, std::function<void()> fn) {
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    delayed_.emplace(std::chrono::steady_clock::now() + std::chrono::milliseconds(delayMs), std::move(fn));
+  }
+  cv_.notify_all();
+}
+
+// ---- semantic tokens ----
+
+LspSemanticTokensLegend SemanticEngine::tokenLegend() const {
+  return clangd_ && clangd_->initialized() ? clangd_->semanticTokensLegend() : LspSemanticTokensLegend{};
+}
+
+SemanticEngine::TokenStats SemanticEngine::tokenStats() const {
+  std::lock_guard<std::mutex> lk(tokMu_);
+  return tokenStats_;
+}
+
+std::vector<TokenSpan> SemanticEngine::decodeTokens(const std::string& uri, const std::vector<uint32_t>& d) const {
+  const bool utf16 = clangd_ && clangd_->offsetEncoding() != "utf-8";
+  const Document* doc = nullptr;
+  if (utf16) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(uri);
+    if (it != openDocs_.end()) doc = it->second;
+  }
+  std::vector<TokenSpan> out;
+  out.reserve(d.size() / 5);
+  int line = 0, col = 0;
+  for (size_t i = 0; i + 4 < d.size(); i += 5) {
+    if (d[i] != 0) {
+      line += static_cast<int>(d[i]);
+      col = static_cast<int>(d[i + 1]);
+    } else {
+      col += static_cast<int>(d[i + 1]);
+    }
+    TokenSpan t;
+    t.line = line;
+    t.col = col;
+    t.len = static_cast<int>(d[i + 2]);
+    t.type = static_cast<uint16_t>(d[i + 3]);
+    t.modifiers = d[i + 4];
+    if (utf16 && doc && line < doc->buffer().lineCount()) {
+      const std::string& text = doc->buffer().line(line);
+      t.col = TextBuffer::utf16ToUtf8Column(text, col);
+      t.len = TextBuffer::utf16ToUtf8Column(text, col + t.len) - t.col;
+    }
+    out.push_back(t);
+  }
+  return out;
+}
+
+void SemanticEngine::requestTokens(const std::string& uri, Callback<std::vector<TokenSpan>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  if (!c->supportsSemanticTokens()) return cb({}, "clangd does not provide semantic tokens");
+  // Folds a reply into the stored state and delivers the decoded spans. False: a delta that does not fit.
+  auto accept = [this, uri, cb](LspSemanticTokens r, const std::string& prevId) {
+    std::vector<TokenSpan> spans;
+    {
+      std::lock_guard<std::mutex> lk(tokMu_);
+      TokenState& st = tokens_[uri];
+      if (r.full) {
+        st.data = std::move(r.data);
+      } else {
+        if (st.resultId != prevId) return false;
+        std::sort(r.edits.begin(), r.edits.end(), [](auto& a, auto& b) { return a.start > b.start; });
+        for (auto& e : r.edits) {
+          if (static_cast<size_t>(e.start) + e.deleteCount > st.data.size()) return false;
+          auto at = st.data.begin() + e.start;
+          at = st.data.erase(at, at + e.deleteCount);
+          st.data.insert(at, e.data.begin(), e.data.end());
+        }
+      }
+      st.resultId = std::move(r.resultId);
+      auto t0 = std::chrono::steady_clock::now();
+      spans = decodeTokens(uri, st.data);
+      tokenStats_.lastDecodeMs =
+          std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    }
+    cb(std::move(spans), {});
+    return true;
+  };
+  auto full = [this, c, uri, cb, accept] {
+    {
+      std::lock_guard<std::mutex> lk(tokMu_);
+      ++tokenStats_.fullRequests;
+    }
+    c->semanticTokensFull(uri, [cb, accept](LspSemanticTokens r, const std::string& err) {
+      if (!err.empty()) return cb({}, err);
+      r.full = true;
+      accept(std::move(r), {});
+    });
+  };
+  std::string prev;
+  {
+    std::lock_guard<std::mutex> lk(tokMu_);
+    auto it = tokens_.find(uri);
+    if (it != tokens_.end() && c->supportsTokenDelta()) prev = it->second.resultId;
+    if (!prev.empty()) ++tokenStats_.deltaRequests;
+  }
+  if (prev.empty()) return full();
+  c->semanticTokensDelta(uri, prev, [full, accept, prev](LspSemanticTokens r, const std::string& err) {
+    if (!err.empty() || !accept(std::move(r), prev)) full();  // unknown result id etc.: start over
+  });
+}
+
+void SemanticEngine::semanticTokens(const Document& doc, Callback<std::vector<TokenSpan>> cb) {
+  requestTokens(doc.uri(), std::move(cb));
+}
+
+void SemanticEngine::onSemanticTokens(std::function<void(const fs::path&, int, std::vector<TokenSpan>)> h) {
+  std::lock_guard<std::mutex> lk(tokMu_);
+  tokenHandler_ = std::move(h);
+}
+
+void SemanticEngine::scheduleTokens(const Document& doc) {
+  if (opt_.semanticTokensDebounceMs < 0) return;
+  std::string uri = doc.uri();
+  uint64_t gen;
+  {
+    std::lock_guard<std::mutex> lk(tokMu_);
+    if (!tokenHandler_) return;
+    TokenState& st = tokens_[uri];
+    gen = ++st.generation;
+    st.pendingVersion = doc.version();
+  }
+  runLater(opt_.semanticTokensDebounceMs, [this, uri, gen] {
+    int version;
+    std::function<void(const fs::path&, int, std::vector<TokenSpan>)> h;
+    {
+      std::lock_guard<std::mutex> lk(tokMu_);
+      auto it = tokens_.find(uri);
+      if (it == tokens_.end() || it->second.generation != gen || !tokenHandler_) return;  // superseded / closed
+      version = it->second.pendingVersion;
+      h = tokenHandler_;
+    }
+    if (!clangd()) return;
+    requestTokens(uri, [h, uri, version](std::vector<TokenSpan> spans, const std::string& err) {
+      if (err.empty()) h(uriToPath(uri), version, std::move(spans));
+    });
+  });
+}
+
+// ---- simple per-document queries ----
+
+void SemanticEngine::inlayHints(const Document& doc, Range range, Callback<std::vector<LspInlayHint>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  std::string uri = doc.uri();
+  c->inlayHints(uri, toServer(doc, range), [this, uri, cb](std::vector<LspInlayHint> hs, const std::string& err) {
+    for (auto& h : hs) h.pos = posFromServer(uri, h.pos);
+    cb(std::move(hs), err);
+  });
+}
+
+void SemanticEngine::foldingRanges(const Document& doc, Callback<std::vector<LspFoldingRange>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  std::string uri = doc.uri();
+  c->foldingRanges(uri, [this, uri, cb](std::vector<LspFoldingRange> rs, const std::string& err) {
+    for (auto& r : rs) {
+      if (r.startColumn >= 0) r.startColumn = posFromServer(uri, {r.startLine, r.startColumn}).column;
+      if (r.endColumn >= 0) r.endColumn = posFromServer(uri, {r.endLine, r.endColumn}).column;
+    }
+    cb(std::move(rs), err);
+  });
+}
+
+void SemanticEngine::documentHighlights(const Document& doc, Position pos, Callback<std::vector<LspHighlight>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  std::string uri = doc.uri();
+  c->documentHighlights(uri, toServer(doc, pos), [this, uri, cb](std::vector<LspHighlight> hs, const std::string& err) {
+    for (auto& h : hs) h.range = rangeFromServer(uri, h.range);
+    cb(std::move(hs), err);
+  });
+}
+
+void SemanticEngine::formatDocument(const Document& doc, Callback<TextEditList> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  std::string uri = doc.uri();
+  c->formatting(uri, [this, uri, cb](std::vector<LspTextEdit> es, const std::string& err) {
+    TextEditList out;
+    for (auto& e : es) out.push_back({rangeFromServer(uri, e.range), e.newText});
+    cb(std::move(out), err);
+  });
+}
+
+void SemanticEngine::formatRange(const Document& doc, Range range, Callback<TextEditList> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  std::string uri = doc.uri();
+  c->rangeFormatting(uri, toServer(doc, range), [this, uri, cb](std::vector<LspTextEdit> es, const std::string& err) {
+    TextEditList out;
+    for (auto& e : es) out.push_back({rangeFromServer(uri, e.range), e.newText});
+    cb(std::move(out), err);
+  });
+}
+
+// ---- hierarchies ----
+
+HierarchyItem SemanticEngine::hierarchyItemFromServer(const LspHierarchyItem& it) const {
+  HierarchyItem out;
+  out.name = it.name;
+  out.detail = it.detail;
+  out.kind = lspSymbolKindName(it.kind);
+  out.range = rangeFromServer(it.uri, it.range);
+  out.selection = rangeFromServer(it.uri, it.selectionRange);
+  out.loc = {uriToPath(it.uri), out.selection.start};
+  out.server = it;
+  return out;
+}
+
+void SemanticEngine::prepareCallHierarchy(const Document& doc, Position pos, Callback<std::vector<HierarchyItem>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->callHierarchyPrepare(doc.uri(), toServer(doc, pos),
+                          [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
+                            std::vector<HierarchyItem> out;
+                            for (auto& i : is) out.push_back(hierarchyItemFromServer(i));
+                            cb(std::move(out), e);
+                          });
+}
+
+void SemanticEngine::prepareTypeHierarchy(const Document& doc, Position pos, Callback<std::vector<HierarchyItem>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->typeHierarchyPrepare(doc.uri(), toServer(doc, pos),
+                          [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
+                            std::vector<HierarchyItem> out;
+                            for (auto& i : is) out.push_back(hierarchyItemFromServer(i));
+                            cb(std::move(out), e);
+                          });
+}
+
+void SemanticEngine::incomingCalls(const HierarchyItem& item, Callback<std::vector<CallEdge>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->callHierarchyCalls(item.server, true, [this, cb](std::vector<LspCall> cs, const std::string& e) {
+    std::vector<CallEdge> out;
+    for (auto& call : cs) {  // call sites live in the caller's file
+      CallEdge x{hierarchyItemFromServer(call.item), {}};
+      for (auto& r : call.ranges) x.ranges.push_back(rangeFromServer(call.item.uri, r));
+      out.push_back(std::move(x));
+    }
+    cb(std::move(out), e);
+  });
+}
+
+void SemanticEngine::outgoingCalls(const HierarchyItem& item, Callback<std::vector<CallEdge>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  std::string uri = item.server.uri;
+  c->callHierarchyCalls(item.server, false, [this, uri, cb](std::vector<LspCall> cs, const std::string& e) {
+    std::vector<CallEdge> out;
+    for (auto& call : cs) {  // call sites live in the queried (calling) item's file
+      CallEdge x{hierarchyItemFromServer(call.item), {}};
+      for (auto& r : call.ranges) x.ranges.push_back(rangeFromServer(uri, r));
+      out.push_back(std::move(x));
+    }
+    cb(std::move(out), e);
+  });
+}
+
+void SemanticEngine::supertypes(const HierarchyItem& item, Callback<std::vector<HierarchyItem>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->typeHierarchyItems(item.server, true, [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
+    std::vector<HierarchyItem> out;
+    for (auto& i : is) out.push_back(hierarchyItemFromServer(i));
+    cb(std::move(out), e);
+  });
+}
+
+void SemanticEngine::subtypes(const HierarchyItem& item, Callback<std::vector<HierarchyItem>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->typeHierarchyItems(item.server, false, [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
+    std::vector<HierarchyItem> out;
+    for (auto& i : is) out.push_back(hierarchyItemFromServer(i));
+    cb(std::move(out), e);
+  });
+}
+
+// ---- code actions, commands, watched files ----
+
+void SemanticEngine::codeActions(const Document& doc, Range range, Callback<std::vector<CodeAction>> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->codeActions(doc.uri(), toServer(doc, range), [this, cb](std::vector<LspCodeAction> as, const std::string& err) {
+    std::vector<CodeAction> out;
+    for (auto& a : as) {
+      CodeAction x;
+      x.title = a.title;
+      x.kind = a.kind;
+      x.preferred = a.preferred;
+      x.hasEdit = a.edit.is_object();
+      if (x.hasEdit) x.edit = editsFromServer(a.edit);
+      x.hasCommand = a.hasCommand;
+      x.command = a.command;
+      x.arguments = a.arguments;
+      out.push_back(std::move(x));
+    }
+    cb(std::move(out), err);
+  });
+}
+
+void SemanticEngine::executeCommand(const std::string& command, Json arguments, Callback<Json> cb) {
+  LspClient* c = requireClangd(cb);
+  if (!c) return;
+  c->executeCommand(command, std::move(arguments), std::move(cb));
+}
+
+void SemanticEngine::watchedFileChanged(const fs::path& file, int type) {
+  LspClient* c = clangd();
+  if (!c) return;
+  std::string uri = pathToUri(file);
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    if (openDocs_.count(uri)) return;
+  }
+  c->didChangeWatchedFiles({{uri, type}});
 }
 
 }  // namespace tf

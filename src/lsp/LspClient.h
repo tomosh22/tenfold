@@ -1,7 +1,9 @@
 #pragma once
 #include <atomic>
+#include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <mutex>
 #include <string>
 #include <vector>
@@ -67,6 +69,71 @@ struct LspSignatureHelp {
   int activeParameter = 0;
 };
 
+struct LspSemanticTokensLegend {
+  std::vector<std::string> types, modifiers;
+};
+
+// Result of semanticTokens/full (full == true) or /full/delta (full == false: `edits` patch the previous data).
+struct LspSemanticTokens {
+  struct Edit {
+    uint32_t start = 0, deleteCount = 0;
+    std::vector<uint32_t> data;
+  };
+  std::string resultId;
+  bool full = true;
+  std::vector<uint32_t> data;  // relative-encoded, 5 integers per token
+  std::vector<Edit> edits;
+};
+
+struct LspInlayHint {
+  Position pos;
+  std::string label;
+  int kind = 0;  // 1 type, 2 parameter
+  bool paddingLeft = false, paddingRight = false;
+};
+
+struct LspFoldingRange {
+  int startLine = 0, endLine = 0;
+  int startColumn = -1, endColumn = -1;  // -1: not given (whole line)
+  std::string kind;                      // comment | imports | region | ""
+};
+
+struct LspHighlight {
+  Range range;
+  int kind = 1;  // 1 text, 2 read, 3 write
+};
+
+struct LspHierarchyItem {  // call hierarchy and type hierarchy share the shape
+  std::string name, detail, uri;
+  int kind = 0;
+  Range range, selectionRange;
+  Json raw;  // the server's item, handed back verbatim for follow-up requests
+};
+
+struct LspCall {
+  LspHierarchyItem item;
+  std::vector<Range> ranges;  // call sites (fromRanges)
+};
+
+struct LspTextEdit {
+  Range range;
+  std::string newText;
+};
+
+struct LspCodeAction {
+  std::string title, kind;
+  bool preferred = false;
+  Json edit;  // WorkspaceEdit, null when absent
+  bool hasCommand = false;
+  std::string command;
+  Json arguments;
+};
+
+struct LspFileEvent {
+  std::string uri;
+  int type = 2;  // 1 created, 2 changed, 3 deleted
+};
+
 struct IndexProgress {
   bool active = false;
   int percentage = -1;
@@ -127,6 +194,31 @@ class LspClient {
   int workspaceSymbols(const std::string& query, Callback<std::vector<LspWorkspaceSymbol>> cb);
   int rename(const std::string& uri, Position p, const std::string& newName, Callback<Json> cb);  // WorkspaceEdit
   int switchSourceHeader(const std::string& uri, Callback<std::string> cb);                       // clangd extension
+  // --- clangd feature set (every position is in the server's encoding) ---
+  int semanticTokensFull(const std::string& uri, Callback<LspSemanticTokens> cb);
+  int semanticTokensDelta(const std::string& uri, const std::string& previousResultId, Callback<LspSemanticTokens> cb);
+  int inlayHints(const std::string& uri, Range r, Callback<std::vector<LspInlayHint>> cb);
+  int foldingRanges(const std::string& uri, Callback<std::vector<LspFoldingRange>> cb);
+  int documentHighlights(const std::string& uri, Position p, Callback<std::vector<LspHighlight>> cb);
+  int callHierarchyPrepare(const std::string& uri, Position p, Callback<std::vector<LspHierarchyItem>> cb);
+  int callHierarchyCalls(const LspHierarchyItem& item, bool incoming, Callback<std::vector<LspCall>> cb);
+  int typeHierarchyPrepare(const std::string& uri, Position p, Callback<std::vector<LspHierarchyItem>> cb);
+  int typeHierarchyItems(const LspHierarchyItem& item, bool supertypes, Callback<std::vector<LspHierarchyItem>> cb);
+  int formatting(const std::string& uri, Callback<std::vector<LspTextEdit>> cb);
+  int rangeFormatting(const std::string& uri, Range r, Callback<std::vector<LspTextEdit>> cb);
+  // Quick fixes use the diagnostics clangd last published for `uri` that touch `r`.
+  int codeActions(const std::string& uri, Range r, Callback<std::vector<LspCodeAction>> cb);
+  int executeCommand(const std::string& command, Json arguments, Callback<Json> cb);
+  void didChangeWatchedFiles(const std::vector<LspFileEvent>& events);
+  // Test hook: every file event sent with didChangeWatchedFiles so far (capped at 1000).
+  std::vector<LspFileEvent> sentFileEvents() const;
+  // Server -> client workspace/applyEdit. Runs on the reader thread. The request is answered {applied:true} right
+  // away (applying needs the UI thread), so the handler must post the edit.
+  void onApplyEdit(std::function<void(const std::string& label, const Json& edit)> h);
+  LspSemanticTokensLegend semanticTokensLegend() const;
+  bool supportsSemanticTokens() const;
+  bool supportsTokenDelta() const;
+
   int rawRequest(const std::string& method, Json params, Callback<Json> cb);
   void cancel(int id) { conn_.cancel(id); }
 
@@ -144,6 +236,7 @@ class LspClient {
   static Position positionFromJson(const Json& j);
   static Range rangeFromJson(const Json& j);
   static LspLocation locationFromJson(const Json& j);
+  static LspHierarchyItem hierarchyItemFromJson(const Json& j);
   static std::vector<LspLocation> locationsFromJson(const Json& j);
 
  private:
@@ -163,6 +256,9 @@ class LspClient {
   std::function<void(const std::string&, const std::string&)> fileStatusHandler_;
   std::function<void(const IndexProgress&)> progressHandler_;
   std::function<void(int, const std::string&)> logHandler_;
+  std::function<void(const std::string&, const Json&)> applyEditHandler_;
+  std::map<std::string, Json> rawDiagnostics_;  // uri -> last published diagnostics (server encoding)
+  std::vector<LspFileEvent> sentFileEvents_;
 };
 
 }  // namespace tf
