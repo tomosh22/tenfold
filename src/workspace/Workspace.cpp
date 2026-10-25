@@ -52,7 +52,12 @@ bool Workspace::loadSettings(std::string* error) {
   getv("sourceExtensions", settings_.sourceExtensions);
   getv("headerExtensions", settings_.headerExtensions);
   getv("otherExtensions", settings_.otherExtensions);
+  getv("ignoreDirNames", settings_.ignoreDirNames);
   getv("ignoreDirPrefixes", settings_.ignoreDirPrefixes);
+  {  // workspace.json files saved before the exact-name rule carry the old prefix defaults: move them to the new ones
+    const std::vector<std::string> legacy = {"build", "out", "cmake-build", "bin", "obj"};
+    if (settings_.ignoreDirPrefixes == legacy) settings_.ignoreDirPrefixes = Settings().ignoreDirPrefixes;
+  }
   getv("clangdExtraArgs", settings_.clangdExtraArgs);
   if (j.contains("ignoreDirs") && j["ignoreDirs"].is_array()) {
     settings_.ignoreDirs.clear();
@@ -79,11 +84,31 @@ bool Workspace::loadSettings(std::string* error) {
 }
 
 bool Workspace::saveSettings(std::string* error) const {
-  Json j;
+  // Merge into what is on disk: keys this class does not know (vcs.provider, vcs.p4Path, a nested "vcs" or "debug"
+  // object, anything a newer version or the user added) survive. A file that cannot be parsed is left untouched.
+  const fs::path file = cacheDir() / "workspace.json";
+  Json j = Json::object();
+  {
+    std::error_code ec;
+    if (fs::is_regular_file(file, ec)) {
+      std::ifstream in(file, std::ios::binary);
+      std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+      const bool blank = text.find_first_not_of(" \t\r\n") == std::string::npos;
+      if (!blank) {
+        Json old = Json::parse(text, nullptr, false);
+        if (!old.is_object()) {
+          if (error) *error = "workspace.json is not a valid JSON object; not overwriting it";
+          return false;
+        }
+        j = std::move(old);
+      }
+    }
+  }
   j["sourceExtensions"] = settings_.sourceExtensions;
   j["headerExtensions"] = settings_.headerExtensions;
   j["otherExtensions"] = settings_.otherExtensions;
   j["ignoreDirs"] = std::vector<std::string>(settings_.ignoreDirs.begin(), settings_.ignoreDirs.end());
+  j["ignoreDirNames"] = settings_.ignoreDirNames;
   j["ignoreDirPrefixes"] = settings_.ignoreDirPrefixes;
   j["cppStandard"] = settings_.cppStandard;
   j["clangdPath"] = settings_.clangdPath;
@@ -101,12 +126,28 @@ bool Workspace::saveSettings(std::string* error) const {
   j["undoGroupPauseMs"] = settings_.undoGroupPauseMs;
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
-  std::ofstream out(cacheDir() / "workspace.json");
-  if (!out) {
-    if (error) *error = "cannot write workspace.json";
+  // Write a temporary file next to it and rename over the target, so a crash never leaves a half-written file.
+  const fs::path tmp = cacheDir() / "workspace.json.tmp";
+  {
+    std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
+    if (!out) {
+      if (error) *error = "cannot write workspace.json";
+      return false;
+    }
+    out << j.dump(2);
+    out.flush();
+    if (!out) {
+      fs::remove(tmp, ec);
+      if (error) *error = "cannot write workspace.json";
+      return false;
+    }
+  }
+  fs::rename(tmp, file, ec);
+  if (ec) {
+    fs::remove(tmp, ec);
+    if (error) *error = "cannot replace workspace.json";
     return false;
   }
-  out << j.dump(2);
   return true;
 }
 
@@ -124,8 +165,10 @@ bool Workspace::isIgnoredDir(const fs::path& dir) const {
   std::string name = dir.filename().string();
   if (settings_.ignoreDirs.count(name)) return true;
   std::string ln = lower(name);
+  for (auto& n : settings_.ignoreDirNames)
+    if (ln == lower(n)) return true;
   for (auto& pre : settings_.ignoreDirPrefixes)
-    if (ln.rfind(lower(pre), 0) == 0 && ln != "src") return true;
+    if (!pre.empty() && ln.rfind(lower(pre), 0) == 0) return true;
   return false;
 }
 

@@ -79,9 +79,10 @@ empty window.
 The folder is scanned recursively. Source extensions are `.cpp .cc .cxx .c .cu .mm .m`, headers `.h .hpp .hh .hxx
 .inl .ipp .tpp .cuh` (and files with no extension), and `.txt .md .json .cmake .py .lua .natvis .def .rc` count as
 other files. Directories named `.git .svn .hg .vs .vscode .idea .cache .tenfold node_modules __pycache__` are skipped,
-and so is **every directory whose name starts with** `build`, `out`, `cmake-build`, `bin` or `obj` (case-insensitive;
-a directory called `src` is exempt). That prefix rule also hides folders such as `output`, `objects`, `builder` or
-`binding`. Change `sourceExtensions`, `headerExtensions`, `otherExtensions`, `ignoreDirs` and `ignoreDirPrefixes` in
+and so are build-output directories: those named exactly `build`, `out`, `bin` or `obj` (case-insensitive), and those
+whose name starts with `build-` or `cmake-build` (`build-x64`, `cmake-build-debug`). Look-alikes such as `output`,
+`objects`, `builder` or `binding` are scanned. Change `sourceExtensions`, `headerExtensions`, `otherExtensions`,
+`ignoreDirs`, `ignoreDirNames` and `ignoreDirPrefixes` in
 `.tenfold/workspace.json` (see [Workspace file](#workspace-file-tenfoldworkspacejson)). Symbolic links are not followed
 unless `followSymlinks` is set.
 
@@ -106,9 +107,12 @@ database. It tries these in order and uses the first that applies:
    fast index). Good enough to start, wrong for anything that depends on defines, generated headers or a particular
    include order.
 
-The result is named `existing`, `cmake`, `vcxproj`, `heuristic` or, on later runs of a heuristic workspace,
-`generated(cached)` (the database tenfold saved in `.tenfold/compile_commands.json` the first time). Delete that
-file to make tenfold regenerate it. The exact answer for any file is one command away: see
+The result is named `existing`, `cmake`, `vcxproj` or `heuristic`. The generated databases are cached in
+`.tenfold/compile_commands.json` with a stamp that records what made them, so a warm start still reports `heuristic`
+or `vcxproj`; a cached heuristic database is regenerated as soon as a `.sln` or a CMake project appears. (A cache made
+by an older tenfold has no stamp and shows as `generated(cached)`.) Delete the file to force regeneration. tenfold's
+private clangd config (`.tenfold/clangd-config`) is rewritten whenever the source changes, so the heuristic include
+flags never apply to a solution or `compile_commands.json` database. The exact answer for any file is one command away: see
 [Seeing the compile command for a file](#seeing-the-compile-command-for-a-file).
 
 tenfold writes only into `<workspace>\.tenfold\` (settings, logs, caches, generated databases) and `<workspace>\.cache\`
@@ -511,14 +515,16 @@ The default file also notes that undo grouping (`undoGrouping`, `undoGroupPauseM
 
 Per-workspace engine settings, JSON, read **once at start** (restart tenfold after editing by hand). A missing file
 means all defaults. Selecting a Visual Studio configuration, and the first discovery of `cl.exe`, *rewrite* the file
-with the keys below; **keys tenfold does not know about, including `vcs`, are dropped when that happens**, so keep a
-copy if you hand-edit `vcs.provider` or `vcs.p4Path`.
+with the keys below. The write is a merge: keys tenfold does not know about (`vcs.provider`, `vcs.p4Path`, nested
+objects, anything else) are kept, and the file is replaced atomically. A file that is not a valid JSON object is never
+overwritten; the operation fails with a message and you fix the file by hand.
 
 | Key | Default | Meaning |
 | --- | --- | --- |
 | `sourceExtensions`, `headerExtensions`, `otherExtensions` | see [Opening a workspace](#opening-a-workspace) | Which files are scanned and indexed. |
 | `ignoreDirs` | `.git .svn .hg .vs .vscode .idea .cache .tenfold node_modules __pycache__` | Directory names never scanned (setting it replaces the list). |
-| `ignoreDirPrefixes` | `build out cmake-build bin obj` | Directories whose name *starts with* one of these are skipped. |
+| `ignoreDirNames` | `build out bin obj` | Directories with exactly one of these names (case-insensitive) are skipped. |
+| `ignoreDirPrefixes` | `build- cmake-build` | Directories whose name *starts with* one of these are skipped. |
 | `followSymlinks` | `false` | Follow directory symlinks when scanning. |
 | `watchFiles` | `true` | Keep the index, history and file lists in step with the disk. |
 | `cppStandard` | `c++20` | `-std=` for heuristic commands and the fallback flags. |
@@ -720,9 +726,9 @@ Run `Help.ShowCompileCommand` on the file. Read the `Compile flags` line first, 
   from `cl.exe`. The report's `MSVC toolchain:` line shows which `cl.exe`, or `cl.exe not found`. Start tenfold from a
   Developer Command Prompt (so `VCToolsInstallDir` is set) or set `msvcToolchain` in `workspace.json` to the full path
   of `cl.exe`, then restart.
-* *Whole folders missing from search and symbols:* the scan skips directories whose names start with `build`, `out`,
-  `bin`, `obj`, `cmake-build` (also `output`, `objects`, ...); see [Opening a workspace](#opening-a-workspace) and change
-  `ignoreDirPrefixes`.
+* *Whole folders missing from search and symbols:* the scan skips directories named exactly `build`, `out`, `bin` or
+  `obj`, or starting with `build-` or `cmake-build`, besides the names in `ignoreDirs`; see
+  [Opening a workspace](#opening-a-workspace) and change `ignoreDirNames` / `ignoreDirPrefixes`.
 * *A language standard mismatch* shows as `-std=`/`/std:` in the command. In heuristic mode change `cppStandard`.
 
 ### clangd crashed or is restarting
