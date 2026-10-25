@@ -14,22 +14,24 @@
 namespace tf {
 
 Process::~Process() {
-  if (running()) kill();
+  if (running() || (tree_ && pid_ > 0)) kill();  // a tree: also reap stragglers that outlived the leader
   if (stdinFd_ >= 0) ::close(stdinFd_);
   if (stdoutFd_ >= 0) ::close(stdoutFd_);
   if (pid_ > 0 && !exited_) wait(100);
 }
 
 bool Process::start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
-                    const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv) {
+                    const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv,
+                    const ProcessOptions& options) {
   int inPipe[2], outPipe[2];
   if (::pipe(inPipe) != 0 || ::pipe(outPipe) != 0) {
     if (error) *error = std::strerror(errno);
     return false;
   }
   int errFd = -1;
-  if (!stderrLog.empty()) errFd = ::open(stderrLog.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  if (errFd < 0) errFd = ::open("/dev/null", O_WRONLY);
+  if (options.mergeStderr) errFd = -2;  // dup'd from the stdout pipe in the child
+  else if (!stderrLog.empty()) errFd = ::open(stderrLog.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
+  if (errFd == -1) errFd = ::open("/dev/null", O_WRONLY);
 
   std::vector<std::string> argvStorage;
   argvStorage.push_back(exe);
@@ -44,9 +46,10 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
     return false;
   }
   if (pid == 0) {
+    if (options.processTree) ::setpgid(0, 0);
     ::dup2(inPipe[0], STDIN_FILENO);
     ::dup2(outPipe[1], STDOUT_FILENO);
-    ::dup2(errFd, STDERR_FILENO);
+    ::dup2(errFd == -2 ? outPipe[1] : errFd, STDERR_FILENO);
     ::close(inPipe[0]);
     ::close(inPipe[1]);
     ::close(outPipe[0]);
@@ -60,9 +63,12 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
     ::execvp(exe.c_str(), argv.data());
     _exit(127);
   }
+  if (options.processTree) ::setpgid(pid, pid);  // also in the parent: no window without the group
   ::close(inPipe[0]);
   ::close(outPipe[1]);
   if (errFd > 2) ::close(errFd);
+  tree_ = options.processTree;
+  exitCode_ = -1;
   pid_ = pid;
   stdinFd_ = inPipe[1];
   stdoutFd_ = outPipe[0];
@@ -105,10 +111,12 @@ bool Process::running() const {
 }
 
 void Process::terminate() {
-  if (pid_ > 0 && !exited_) ::kill(pid_, SIGTERM);
+  if (tree_ && pid_ > 0) ::kill(-pid_, SIGTERM);  // the group outlives its leader while any member runs
+  else if (pid_ > 0 && !exited_) ::kill(pid_, SIGTERM);
 }
 void Process::kill() {
-  if (pid_ > 0 && !exited_) ::kill(pid_, SIGKILL);
+  if (tree_ && pid_ > 0) ::kill(-pid_, SIGKILL);
+  else if (pid_ > 0 && !exited_) ::kill(pid_, SIGKILL);
 }
 
 void Process::closeStdin() {

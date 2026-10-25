@@ -67,7 +67,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Key bindings as a text file | 🔶 | Done (B4 + B-INT): named commands, chords, contexts, `.tenfold/keybindings.txt` overlay, diagnostics in status bar. Defaults are placeholders: **verify** with the user's `KeyMappings.10x_settings` (OPEN_QUESTIONS #1). |
 | Colour schemes as text files | 🔶 | Mechanism done (B7): theme files with lexical + semantic token colours and fallbacks, hot reload. Shipped palettes are neutral placeholders: **verify** with 10x screenshots (OPEN_QUESTIONS #7). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
-| Build integration (run command, parse errors, jump) | ⬜ | Error jumps should go through `Editor::gotoLocation` so they are in history. |
+| Build integration (run command, parse errors, jump) | 🔶 | Engine done (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`; error jumps go through `gotoLocation`. Output panel, F4 binding and squiggle colour are UI work. See ARCHITECTURE "Build integration". |
 | Debugger integration | ⬜ | **verify** what 10x does (external debugger launch vs. integrated). |
 | Version control (Perforce / Git) | ⬜ | **verify** exact operations 10x exposes. |
 | Python scripting API | ⬜ | **verify** 10x's `N10X` module surface before designing ours. |

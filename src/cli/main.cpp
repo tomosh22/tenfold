@@ -30,6 +30,7 @@ void usage() {
   std::cerr
       << "usage: tenfold-cli <workspace-root> [options]\n"
          "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
+         "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
          "options:\n"
@@ -74,6 +75,56 @@ void printLocs(const std::vector<SymbolLocation>& locs, Confidence c) {
     if (!l.name.empty()) std::cout << " " << (l.container.empty() ? l.name : l.container + "::" + l.name);
     std::cout << "\n";
   }
+}
+
+// Streams the build output, then prints the parsed messages. Exit code: the build's (1 if it could not start).
+int runBuild(int argc, char** argv) {
+  if (argc < 3) {
+    usage();
+    return 2;
+  }
+  BuildOverrides bo;
+  for (int i = 3; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--config" && i + 1 < argc) bo.configuration = argv[++i];
+    else if (a == "--platform" && i + 1 < argc) bo.platform = argv[++i];
+    else if (a == "--cmd" && i + 1 < argc) bo.command = argv[++i];
+    else {
+      usage();
+      return 2;
+    }
+  }
+  Editor ed(argv[2]);  // not start()ed: no scan, no clangd
+  bool done = false;
+  BuildResult result;
+  std::string err;
+  if (!ed.build(
+          bo,
+          [](const std::vector<std::string>& lines) {
+            for (auto& l : lines) std::cout << l << "\n";
+            std::cout.flush();
+          },
+          [&](const BuildResult& r) {
+            result = r;
+            done = true;
+          },
+          &err)) {
+    std::cerr << "build: " << err << "\n";
+    return 1;
+  }
+  ed.waitFor([&] { return done; }, 24 * 3600 * 1000);
+  std::cout << "\n== " << ed.buildMessages().size() << " message(s): " << result.errors << " error(s), "
+            << result.warnings << " warning(s); exit code " << result.exitCode << ", " << result.elapsedMs
+            << " ms ==\n";
+  for (auto& m : ed.buildMessages()) {
+    const char* sev = m.severity == BuildSeverity::Error     ? "error"
+                      : m.severity == BuildSeverity::Warning ? "warning"
+                                                             : "note";
+    std::cout << (m.file.empty() ? "(no location)" : m.file);
+    if (m.line > 0) std::cout << ":" << m.line << (m.col > 0 ? ":" + std::to_string(m.col) : "");
+    std::cout << ": " << sev << (m.code.empty() ? "" : " [" + m.code + "]") << ": " << m.text << "\n";
+  }
+  return result.startFailed ? 1 : result.exitCode;
 }
 
 int runCompdb(int argc, char** argv) {
@@ -431,6 +482,7 @@ int main(int argc, char** argv) {
     return 2;
   }
   if (std::strcmp(argv[1], "compdb") == 0) return runCompdb(argc, argv);
+  if (std::strcmp(argv[1], "build") == 0) return runBuild(argc, argv);
   if (std::strcmp(argv[1], "bench") == 0) return runBench(argc, argv);
 
   Editor::Options opt;

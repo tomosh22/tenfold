@@ -1,4 +1,5 @@
 #pragma once
+#include <atomic>
 #include <filesystem>
 #include <string>
 #include <vector>
@@ -9,6 +10,17 @@ namespace tf {
 // to a log file (or discarded). Implemented in Process_posix.cpp (fork/exec)
 // and Process_win32.cpp (CreateProcessW + anonymous pipes + job object);
 // CMake picks one. This header must not include <windows.h>.
+// Optional start() behaviour; the defaults keep the original semantics (stderr to a log file, child in our group).
+struct ProcessOptions {
+  // stderr goes into the stdout pipe (one interleaved stream); stderrLog is ignored.
+  bool mergeStderr = false;
+  // The child leads its own process group (POSIX) / terminate() and kill() take down the whole job object
+  // (Windows), so they stop grandchildren too.
+  bool processTree = false;
+  // Windows only: use this string verbatim as the command line (exe/args are ignored). Ignored on POSIX.
+  std::string rawCommandLine;
+};
+
 class Process {
  public:
   Process() = default;
@@ -18,7 +30,8 @@ class Process {
 
   using Env = std::vector<std::pair<std::string, std::string>>;
   bool start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
-             const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv = {});
+             const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv = {},
+             const ProcessOptions& options = {});
 
   // Blocking write of the whole buffer. Returns false on broken pipe.
   bool write(const char* data, size_t n);
@@ -26,8 +39,10 @@ class Process {
   long read(char* buf, size_t n);
 
   bool running() const;
-  void terminate();              // SIGTERM / TerminateProcess
-  void kill();                   // SIGKILL / TerminateProcess
+  // SIGTERM / TerminateProcess; with ProcessOptions::processTree the whole group / job. Safe to call from a
+  // thread other than the one blocked in read()/wait().
+  void terminate();
+  void kill();                   // SIGKILL / TerminateProcess (same tree rule)
   int wait(int timeoutMs = -1);  // exit code, -1 if still running after timeout
   void closeStdin();
 
@@ -42,8 +57,9 @@ class Process {
   int stdinFd_ = -1;
   int stdoutFd_ = -1;
 #endif
-  int exitCode_ = -1;
-  bool exited_ = false;
+  bool tree_ = false;
+  std::atomic<int> exitCode_{-1};
+  std::atomic<bool> exited_{false};
 };
 
 }  // namespace tf
