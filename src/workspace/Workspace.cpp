@@ -63,6 +63,8 @@ bool Workspace::loadSettings(std::string* error) {
   settings_.vsConfiguration = j.value("vsConfiguration", settings_.vsConfiguration);
   settings_.vsPlatform = j.value("vsPlatform", settings_.vsPlatform);
   settings_.runCMake = j.value("runCMake", settings_.runCMake);
+  settings_.buildCommand = j.value("buildCommand", settings_.buildCommand);
+  settings_.buildDir = j.value("buildDir", settings_.buildDir);
   settings_.msvcToolchain = j.value("msvcToolchain", settings_.msvcToolchain);
   settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
   settings_.watchFiles = j.value("watchFiles", settings_.watchFiles);
@@ -88,6 +90,8 @@ bool Workspace::saveSettings(std::string* error) const {
   j["vsConfiguration"] = settings_.vsConfiguration;
   j["vsPlatform"] = settings_.vsPlatform;
   j["runCMake"] = settings_.runCMake;
+  j["buildCommand"] = settings_.buildCommand;
+  j["buildDir"] = settings_.buildDir;
   j["msvcToolchain"] = settings_.msvcToolchain;
   j["followSymlinks"] = settings_.followSymlinks;
   j["watchFiles"] = settings_.watchFiles;

@@ -11,6 +11,8 @@
 #include <string>
 #include <vector>
 
+#include "build/BuildRunner.h"
+#include "build/ErrorParser.h"
 #include "core/Document.h"
 #include "core/Selection.h"
 #include "nav/NavigationHistory.h"
@@ -211,6 +213,30 @@ class Editor {
   // and tests show diagnostics without a language server.
   void setDiagnostics(const std::filesystem::path& file, std::vector<Diagnostic> ds);
 
+  // --- build (C1) ---
+  // Runs the workspace build (see detectBuildCommand: settings / overrides, else msbuild / cmake --build / make) in
+  // the background; a running build is cancelled and replaced. Output lines and the final result arrive via post()
+  // (the pump thread). Messages found in the output are available through buildMessages() as they stream in; they
+  // and buildDiagnostics() are cleared when a new build starts. False (with `error`) if no command applies or the
+  // process cannot start; nothing is cleared then.
+  using BuildLines = std::function<void(const std::vector<std::string>&)>;
+  using BuildDone = std::function<void(const BuildResult&)>;
+  bool build(const BuildOverrides& overrides = {}, BuildLines onLines = {}, BuildDone onDone = {},
+             std::string* error = nullptr);
+  void cancelBuild();  // non-blocking; the done callback fires with cancelled = true
+  bool buildRunning() const { return buildRunning_; }
+  const BuildResult& lastBuildResult() const { return lastBuild_; }
+  const std::vector<BuildMessage>& buildMessages() const { return buildMessages_; }
+  // Jump (through gotoLocation, so Back returns) to the next / previous error or warning that has a source
+  // location, wrapping around; notes and location-less messages (LINK, make) are skipped. The first call after a
+  // build starts at the first (next) / last (prev) message. Nullopt when there is nothing to jump to.
+  std::optional<BuildMessage> nextBuildMessage(std::string* error = nullptr) { return stepBuildMessage(1, error); }
+  std::optional<BuildMessage> prevBuildMessage(std::string* error = nullptr) { return stepBuildMessage(-1, error); }
+  // Build messages of one file as diagnostics (severity 1 error, 2 warning, 3 note), kept apart from the clangd
+  // ones so a UI can colour them differently. A message without a column covers its whole line
+  // (end = start of the next line).
+  const std::vector<Diagnostic>& buildDiagnostics(const std::filesystem::path& file) const;
+
  private:
   struct CaretEdit {
     Range range;
@@ -233,6 +259,8 @@ class Editor {
   void checkExternalChange(Document& doc);
   void rescanWorkspace();
   void refreshBuildSystem();
+  std::optional<BuildMessage> stepBuildMessage(int dir, std::string* error);
+  void addBuildMessage(BuildMessage m);
   void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done);
   // Wraps `done` so it runs on the pump thread.
   template <class T>
@@ -268,6 +296,15 @@ class Editor {
   std::vector<Selection> typingCarets_;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
   std::vector<SearchHandle> searches_;
+
+  struct BuildSession;
+  std::unique_ptr<BuildRunner> buildRunner_;
+  std::shared_ptr<BuildSession> buildSession_;  // the build whose output we accept
+  bool buildRunning_ = false;
+  BuildResult lastBuild_;
+  std::vector<BuildMessage> buildMessages_;
+  std::map<std::string, std::vector<Diagnostic>> buildDiags_;  // key: docKey
+  int buildCursor_ = -1;                                       // index into buildMessages_ of the last jump
 
   std::unique_ptr<FileWatcher> watcher_;
   bool buildRefreshRunning_ = false, buildRefreshAgain_ = false;

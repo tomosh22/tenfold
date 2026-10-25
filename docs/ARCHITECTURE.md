@@ -130,6 +130,47 @@ fast editor must:
   negotiate UTF-8 offsets so our byte columns are clangd's columns; UTF-16
   conversion exists for servers that insist on it).
 
+## Build integration (C1, `src/build`)
+
+* **`BuildRunner`** runs one build at a time through `tf::Process` with
+  `ProcessOptions{mergeStderr, processTree}`: stderr shares the stdout pipe (one
+  interleaved, ordered stream), the child leads its own process group (POSIX,
+  `kill(-pgid)`) or is terminated through its job object (Windows
+  `TerminateJobObject`), so cancelling also stops compilers spawned by
+  make/msbuild. A reader thread splits the stream into lines and hands batches
+  to `Editor::post()`; the done callback carries exit code, elapsed time and
+  `cancelled`. Starting a build cancels the previous one (non-blocking; its
+  done callback still fires, its late output is dropped). A build that leaves a
+  background process holding the output pipe does not finish until that
+  process exits or is cancelled.
+* **Command selection** (`detectBuildCommand`): custom `buildCommand`
+  (override or `.tenfold/workspace.json`, run via `sh -c` / `cmd /s /c`) >
+  `.sln`/`.vcxproj` -> `msbuild <sln> /m /p:Configuration=<vsConfiguration>
+  /p:Platform=<vsPlatform>` > CMake -> `cmake --build <dir> --config <cfg>` >
+  Makefile -> `make -j<cores>`. The CMake directory is `buildDir` (setting or
+  override), else the directory of the compile database clangd uses when it
+  has a `CMakeCache.txt`, else `.tenfold/cmake-build`. Configuration and
+  platform are the same settings the compile database generation uses, so
+  clangd and the build agree. The build tree is not configured automatically.
+* **`ErrorParser`** (stateful, one per build) recognises MSVC
+  (`file(l,c): error C1234:`, column-less, `LINK : fatal error`, `x.obj :
+  error LNK`), MSBuild decorations (`  1>` prefixes, `[proj.vcxproj]` suffix,
+  duplicate summary lines), NMake `U1077`, GCC/Clang (`file:l:c: severity:`,
+  `[-Wflag]` as code, driver errors, ANSI colours, Windows drive letters),
+  `In file included from` chains (attached to the next error/warning as
+  `notes`) and make (`make: *** ...`, `Makefile:12: ***`). Paths use `/`,
+  relative ones resolve against the build's working directory; compare with
+  `tf::pathKey`.
+* **Editor**: `build()` clears `buildMessages()` / `buildDiagnostics()`; messages
+  arrive on the pump thread while output streams. `nextBuildMessage()` /
+  `prevBuildMessage()` wrap around errors and warnings that have a location
+  (notes and location-less messages are skipped) and jump with `gotoLocation`,
+  so Back returns and entries follow edits like any other. Build diagnostics
+  are stored per file apart from clangd's (`buildDiagnostics(file)` vs
+  `diagnostics(file)`), so a UI can colour them differently. Message line
+  numbers are those of the build time; they are not remapped when the buffer is
+  edited afterwards.
+
 ## Navigation history
 
 `NavigationHistory` is a deque of `{Location, Kind, label}` plus a cursor.

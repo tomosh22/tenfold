@@ -146,6 +146,8 @@ bool Editor::start(std::string* error) {
 }
 
 void Editor::shutdown() {
+  buildRunner_.reset();  // kills a running build and joins its reader before the queue goes away
+  buildRunning_ = false;
   for (auto& h : searches_) h.cancel();
   for (auto& h : searches_) h.wait();
   searches_.clear();
@@ -1096,6 +1098,104 @@ const std::vector<Diagnostic>& Editor::diagnostics(const fs::path& file) const {
   static const std::vector<Diagnostic> empty;
   auto it = diagnostics_.find(file.generic_string());
   return it == diagnostics_.end() ? empty : it->second;
+}
+
+// ---------------------------------------------------------------------------
+// Build
+// ---------------------------------------------------------------------------
+
+struct Editor::BuildSession {
+  explicit BuildSession(std::string cwd) : parser(std::move(cwd)) {}
+  ErrorParser parser;
+};
+
+bool Editor::build(const BuildOverrides& overrides, BuildLines onLines, BuildDone onDone, std::string* error) {
+  BuildCommand cmd;
+  if (!detectBuildCommand(ws_, overrides, &cmd, error)) return false;
+  if (!buildRunner_)
+    buildRunner_ = std::make_unique<BuildRunner>([this](std::function<void()> fn) { post(std::move(fn)); });
+  auto session = std::make_shared<BuildSession>(cmd.cwd.generic_string());
+  auto lines = [this, session, onLines = std::move(onLines)](std::vector<std::string> ls) {
+    if (session != buildSession_) return;  // output of a build that was replaced
+    BuildMessage m;
+    for (auto& l : ls)
+      if (session->parser.parseLine(l, &m)) addBuildMessage(std::move(m));
+    if (onLines) onLines(ls);
+  };
+  auto done = [this, session, onDone = std::move(onDone)](const BuildResult& r) {
+    BuildResult res = r;
+    if (session == buildSession_) {
+      for (auto& m : buildMessages_) {
+        if (m.severity == BuildSeverity::Error) ++res.errors;
+        else if (m.severity == BuildSeverity::Warning) ++res.warnings;
+      }
+      buildRunning_ = false;
+      lastBuild_ = res;
+    }
+    if (onDone) onDone(res);
+  };
+  // The previous build's queued output is dropped by the session check; its done callback still runs.
+  buildSession_ = session;
+  buildMessages_.clear();
+  buildDiags_.clear();
+  buildCursor_ = -1;
+  buildRunning_ = true;
+  if (!buildRunner_->start(cmd, std::move(lines), std::move(done), error)) {
+    buildRunning_ = false;
+    return false;
+  }
+  if (opt_.log) opt_.log("build: " + cmd.display);
+  return true;
+}
+
+void Editor::cancelBuild() {
+  if (buildRunner_) buildRunner_->cancel();
+}
+
+void Editor::addBuildMessage(BuildMessage m) {
+  if (m.hasLocation()) {
+    Diagnostic d;
+    d.file = fs::path(m.file);
+    d.severity = m.severity == BuildSeverity::Error ? 1 : m.severity == BuildSeverity::Warning ? 2 : 3;
+    d.message = m.text;
+    d.code = m.code;
+    const int line = m.line - 1;
+    if (m.col > 0) {
+      int c = m.col - 1, e = c + 1;
+      if (Document* doc = document(d.file); doc && line < doc->buffer().lineCount()) {
+        const std::string& text = doc->buffer().line(line);
+        auto ident = [](char ch) { return std::isalnum(static_cast<unsigned char>(ch)) || ch == '_'; };
+        e = c;
+        while (e < static_cast<int>(text.size()) && ident(text[static_cast<size_t>(e)])) ++e;
+        if (e == c) e = c + 1;
+      }
+      d.range = {{line, c}, {line, e}};
+    } else {
+      d.range = {{line, 0}, {line + 1, 0}};
+    }
+    buildDiags_[docKey(d.file)].push_back(std::move(d));
+  }
+  buildMessages_.push_back(std::move(m));
+}
+
+const std::vector<Diagnostic>& Editor::buildDiagnostics(const fs::path& file) const {
+  static const std::vector<Diagnostic> empty;
+  auto it = buildDiags_.find(docKey(file));
+  return it == buildDiags_.end() ? empty : it->second;
+}
+
+std::optional<BuildMessage> Editor::stepBuildMessage(int dir, std::string* error) {
+  const int n = static_cast<int>(buildMessages_.size());
+  int i = buildCursor_;
+  for (int k = 0; k < n; ++k) {
+    i = i < 0 ? (dir > 0 ? 0 : n - 1) : ((i + dir) % n + n) % n;
+    const BuildMessage& m = buildMessages_[static_cast<size_t>(i)];
+    if (!m.hasLocation() || m.severity == BuildSeverity::Note) continue;
+    buildCursor_ = i;
+    const std::string label = (m.severity == BuildSeverity::Error ? "error: " : "warning: ") + m.text;
+    if (gotoLocation({fs::path(m.file), {m.line - 1, std::max(m.col - 1, 0)}}, error, label)) return m;
+  }
+  return std::nullopt;
 }
 
 // ---------------------------------------------------------------------------
