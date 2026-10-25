@@ -130,6 +130,43 @@ need). Columns are UTF-8 byte offsets; `utf8ToUtf16Column` and the reverse
 exist for protocol conversion. `Document` adds path, version, dirty flag,
 undo/redo and change listeners.
 
+**Undo groups.** The undo stack holds *groups* of edits; `undo()`/`redo()`
+revert or re-apply one whole group. `Document::beginGroup()/endGroup()` nest
+(only the outermost pair delimits the step); outside a group every `replace()`
+is its own step; an empty group leaves no step. A group also carries opaque
+caret state (`std::vector<Selection>`): the caret set before the first edit
+(restored by undo) and after the last (restored by redo), read back through
+`restoredCarets()`. `beginGroup(carets, joinPrevious=true)` re-opens the most
+recent step, which is how typing is coalesced.
+
+**Carets and selections.** `src/core/Selection.h` defines
+`Selection { anchor, head }` (empty = plain caret, `head < anchor` = reversed).
+`Editor` owns `selections()`: a non-empty vector, primary first, the rest in
+document order. `cursor()` is the primary caret's head, so single-caret code
+keeps working. Invariant: no two selections overlap *or touch*; every command
+that could make them meet merges them (`normalizeCarets`). Editing commands
+(`insertText`, `backspace`, `del`) compute one edit per caret, apply them
+bottom-to-top through `Document::replace` inside one undo group (so LSP
+incremental sync, navigation-history line tracking and diagnostics see
+ordinary edits), then remap every caret through the returned
+`TextBuffer::EditResult`s. Vertical moves keep a per-caret preferred column
+(counted in code points, so it never lands inside a multibyte sequence);
+word motion uses CppLexer identifier characters. Caret moves feed
+`NavigationHistory::onCaretMoved` with the primary caret only.
+
+**Typing coalescer.** `Editor::insertText` with exactly one code point joins
+the previous typing step while nothing else happened since: same document and
+version, caret set unchanged, no selection being replaced, and no longer
+than `undoGroupPauseMs` since the last keystroke. A typed whitespace
+character joins the step and then closes it (so `hello world` is two steps:
+`hello ` and `world`). Any caret command, undo/redo, backspace/delete,
+multi-character insert (paste) or edit made behind the editor's back ends
+the step. Policy is the setting `undoGrouping` (`"word"` default, or
+`"char"` for one step per character) plus `undoGroupPauseMs` (default 1000)
+in `.tenfold/workspace.json`; time comes from an injectable clock
+(`Editor::Options::clock` / `setClock`, milliseconds). This is a default
+pending OPEN_QUESTIONS #3.
+
 The line vector is simple and plenty fast for files up to hundreds of MB;
 a piece table can replace it later behind the same interface if needed.
 
@@ -139,10 +176,15 @@ A front end needs to:
 
 1. Construct `Editor(root, options)` and call `start()`.
 2. Call `pump()` every frame.
-3. Render `currentDocument()->buffer()`, `cursor()`, `diagnostics(file)`.
+3. Render `currentDocument()->buffer()`, `selections()` (primary first;
+   `cursor()` is the primary head), `diagnostics(file)`.
 4. Map keys to `Editor` commands (`gotoDefinition`, `back`, `forward`,
-   `findSymbols`, `insertText`, ...). Multi-caret and selections are view
-   state layered on top of `Document::replace`.
+   `findSymbols`, `insertText`, `backspace`, `del`, `moveCarets`,
+   `addCaretAbove/Below`, `addCaretAtNextOccurrence`, `collapseToPrimary`,
+   `columnSelect`, `setSelections` for mouse placement, `undo`/`redo`, ...).
+   All carets live in the engine; every edit command is one undo step and
+   goes through `Document::replace`. Call `setPageLines()` with the
+   viewport height for PageUp/PageDown.
 5. Show picker UIs for multi-result callbacks and completion lists.
 
 `src/cli/main.cpp` is the reference implementation of this contract.

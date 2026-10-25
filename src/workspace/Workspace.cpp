@@ -66,6 +66,12 @@ bool Workspace::loadSettings(std::string* error) {
   settings_.msvcToolchain = j.value("msvcToolchain", settings_.msvcToolchain);
   settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
   settings_.watchFiles = j.value("watchFiles", settings_.watchFiles);
+  if (j.contains("undoGrouping") && j["undoGrouping"].is_string()) {
+    std::string g = j["undoGrouping"].get<std::string>();
+    if (g == "word" || g == "char") settings_.undoGrouping = g;
+  }
+  if (j.contains("undoGroupPauseMs") && j["undoGroupPauseMs"].is_number_integer())
+    settings_.undoGroupPauseMs = std::max(0, j["undoGroupPauseMs"].get<int>());
   return true;
 }
 
@@ -85,6 +91,8 @@ bool Workspace::saveSettings(std::string* error) const {
   j["msvcToolchain"] = settings_.msvcToolchain;
   j["followSymlinks"] = settings_.followSymlinks;
   j["watchFiles"] = settings_.watchFiles;
+  j["undoGrouping"] = settings_.undoGrouping;
+  j["undoGroupPauseMs"] = settings_.undoGroupPauseMs;
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
   std::ofstream out(cacheDir() / "workspace.json");
