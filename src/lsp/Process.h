@@ -17,9 +17,8 @@ class Process {
   Process& operator=(const Process&) = delete;
 
   using Env = std::vector<std::pair<std::string, std::string>>;
-  bool start(const std::string& exe, const std::vector<std::string>& args,
-             const std::filesystem::path& cwd, const std::filesystem::path& stderrLog, std::string* error,
-             const Env& extraEnv = {});
+  bool start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
+             const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv = {});
 
   // Blocking write of the whole buffer. Returns false on broken pipe.
   bool write(const char* data, size_t n);
@@ -27,17 +26,17 @@ class Process {
   long read(char* buf, size_t n);
 
   bool running() const;
-  void terminate();                 // SIGTERM / TerminateProcess
-  void kill();                      // SIGKILL / TerminateProcess
-  int wait(int timeoutMs = -1);     // exit code, -1 if still running after timeout
+  void terminate();              // SIGTERM / TerminateProcess
+  void kill();                   // SIGKILL / TerminateProcess
+  int wait(int timeoutMs = -1);  // exit code, -1 if still running after timeout
   void closeStdin();
 
  private:
 #ifdef _WIN32
-  void* process_ = nullptr;   // HANDLE
-  void* job_ = nullptr;       // HANDLE, kill-on-close job object
-  void* stdinH_ = nullptr;    // HANDLE
-  void* stdoutH_ = nullptr;   // HANDLE
+  void* process_ = nullptr;  // HANDLE
+  void* job_ = nullptr;      // HANDLE, kill-on-close job object
+  void* stdinH_ = nullptr;   // HANDLE
+  void* stdoutH_ = nullptr;  // HANDLE
 #else
   int pid_ = -1;
   int stdinFd_ = -1;

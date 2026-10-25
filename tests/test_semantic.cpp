@@ -4,8 +4,8 @@
 #include <map>
 
 #include "app/Editor.h"
-#include "test_main.h"
 #include "core/PathUtil.h"
+#include "test_main.h"
 #include "workspace/Workspace.h"
 
 using namespace tf;
@@ -46,14 +46,23 @@ int columnOf(const fs::path& file, int line, const std::string& tokenSpec) {
   std::string token = tokenSpec;
   size_t bar = token.find('|');
   size_t offset = 0;
-  if (bar != std::string::npos) { token.erase(bar, 1); offset = bar; }
+  if (bar != std::string::npos) {
+    token.erase(bar, 1);
+    offset = bar;
+  }
   size_t p = s.find(token);
   return p == std::string::npos ? -1 : static_cast<int>(p + offset);
 }
 
 bool clangdAvailable() { return !findExecutable("clangd").empty(); }
 
-#define REQUIRE_RET(ret, ...) do { if (!(__VA_ARGS__)) { tftest::fail(__FILE__, __LINE__, "REQUIRE failed: " #__VA_ARGS__); return ret; } } while (0)
+#define REQUIRE_RET(ret, ...)                                            \
+  do {                                                                   \
+    if (!(__VA_ARGS__)) {                                                \
+      tftest::fail(__FILE__, __LINE__, "REQUIRE failed: " #__VA_ARGS__); \
+      return ret;                                                        \
+    }                                                                    \
+  } while (0)
 
 struct Fixture {
   Editor ed;
@@ -67,13 +76,18 @@ struct Fixture {
     Editor::Options o;
     o.semantic.useClangd = useClangd;
     o.semantic.clangdBudgetMs = 150;
-    o.log = [](const std::string& m) { if (std::getenv("TENFOLD_TEST_VERBOSE")) std::cerr << "    [engine] " << m << "\n"; };
+    o.log = [](const std::string& m) {
+      if (std::getenv("TENFOLD_TEST_VERBOSE")) std::cerr << "    [engine] " << m << "\n";
+    };
     return o;
   }
 
   // Run go-to-definition at (file, markerLine, token) and wait for the
   // authoritative answer. Returns all callbacks received.
-  struct Outcome { std::vector<std::pair<Confidence, std::vector<SymbolLocation>>> calls; std::string error; };
+  struct Outcome {
+    std::vector<std::pair<Confidence, std::vector<SymbolLocation>>> calls;
+    std::string error;
+  };
   Outcome gotoDef(const fs::path& file, const std::string& useMark, const std::string& token) {
     Outcome out;
     int line = markLine(file, useMark);
@@ -133,14 +147,20 @@ TEST(semantic_fast_only_navigation_and_back) {
   // Approximate completion / symbol search work without clangd.
   bool done = false;
   std::vector<SymbolLocation> syms;
-  f.ed.findSymbols("Vec2", [&](Confidence, const std::vector<SymbolLocation>& l, const std::string&) { syms = l; done = true; });
+  f.ed.findSymbols("Vec2", [&](Confidence, const std::vector<SymbolLocation>& l, const std::string&) {
+    syms = l;
+    done = true;
+  });
   f.ed.waitFor([&] { return done; }, 5000);
   REQUIRE(!syms.empty());
   CHECK_EQ(syms[0].name, "Vec2");
 }
 
 TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
-  if (!clangdAvailable()) { std::cerr << "    (clangd not found: skipping)\n"; return; }
+  if (!clangdAvailable()) {
+    std::cerr << "    (clangd not found: skipping)\n";
+    return;
+  }
   Fixture f(true);
   REQUIRE(f.ok);
   fs::path main = kRoot / "src/main.cpp", hdr = kRoot / "include/geometry.h", geo = kRoot / "src/geometry.cpp";
@@ -150,12 +170,17 @@ TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
   CHECK(f.ed.semantic().waitForFile(main, 90000));
   CHECK(f.ed.semantic().waitForClangdIndex(90000));
 
-  struct Case { const char* useMark; const char* token; fs::path file; const char* defMark; };
+  struct Case {
+    const char* useMark;
+    const char* token;
+    fs::path file;
+    const char* defMark;
+  };
   std::vector<Case> cases = {
-      {"use_length_sq", "length_sq", hdr, "Vec2_length_sq_def"},            // via alias Vec2f -> Vec2<float>
+      {"use_length_sq", "length_sq", hdr, "Vec2_length_sq_def"},  // via alias Vec2f -> Vec2<float>
       {"decl_v", "Vec2f", hdr, "Vec2f"},
-      {"use_wx", "w.|x", hdr, "Vec2"},                                       // member via typedef; x is on the line after Vec2 (see below)
-      {"use_area", "area", hdr, "Shape_area"},                               // through auto-deduced unique_ptr<Shape>
+      {"use_wx", "w.|x", hdr, "Vec2"},          // member via typedef; x is on the line after Vec2 (see below)
+      {"use_area", "area", hdr, "Shape_area"},  // through auto-deduced unique_ptr<Shape>
       {"use_traits_double", "value_type", hdr, "Traits_double_value_type"},  // explicit specialisation
       {"use_traits_int", "value_type", hdr, "Traits_value_type"},            // primary template
       {"use_get_w", "get_w", hdr, "Box_get_w"},                              // macro-generated member
@@ -179,7 +204,8 @@ TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
     int want = markLine(c.file, c.defMark);
     if (std::string(c.useMark) == "use_wx") want += 1;  // "T x, y;" is the line after the struct marker
     if (locs[0].loc.file != c.file || locs[0].loc.pos.line != want) {
-      std::cerr << "    " << c.useMark << "/" << c.token << ": got " << toString(locs[0].loc) << " want " << c.file << ":" << want + 1 << "\n";
+      std::cerr << "    " << c.useMark << "/" << c.token << ": got " << toString(locs[0].loc) << " want " << c.file
+                << ":" << want + 1 << "\n";
     }
     CHECK(locs[0].loc.file == c.file);
     CHECK_EQ(locs[0].loc.pos.line, want);
@@ -207,7 +233,10 @@ TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
 }
 
 TEST(semantic_clangd_hover_references_symbols_and_edits) {
-  if (!clangdAvailable()) { std::cerr << "    (clangd not found: skipping)\n"; return; }
+  if (!clangdAvailable()) {
+    std::cerr << "    (clangd not found: skipping)\n";
+    return;
+  }
   Fixture f(true);
   REQUIRE(f.ok);
   fs::path main = kRoot / "src/main.cpp", hdr = kRoot / "include/geometry.h";
@@ -220,7 +249,10 @@ TEST(semantic_clangd_hover_references_symbols_and_edits) {
   f.ed.gotoLocation({main, {line, columnOf(main, line, "s->")}});
   std::string hoverText;
   bool done = false;
-  f.ed.hover([&](const std::string& t, const std::string&) { hoverText = t; done = true; });
+  f.ed.hover([&](const std::string& t, const std::string&) {
+    hoverText = t;
+    done = true;
+  });
   f.ed.waitFor([&] { return done; }, 30000);
   CHECK(hoverText.find("unique_ptr") != std::string::npos);
 
@@ -230,11 +262,15 @@ TEST(semantic_clangd_hover_references_symbols_and_edits) {
   CHECK(f.ed.semantic().waitForFile(hdr, 90000));
   std::vector<SymbolLocation> refs;
   done = false;
-  f.ed.findReferences([&](Confidence, const std::vector<SymbolLocation>& l, const std::string&) { refs = l; done = true; });
+  f.ed.findReferences([&](Confidence, const std::vector<SymbolLocation>& l, const std::string&) {
+    refs = l;
+    done = true;
+  });
   f.ed.waitFor([&] { return done; }, 30000);
   CHECK(refs.size() >= 3u);
   bool sawUse = false;
-  for (auto& r : refs) if (r.loc.file == main && r.loc.pos.line == markLine(main, "use_area")) sawUse = true;
+  for (auto& r : refs)
+    if (r.loc.file == main && r.loc.pos.line == markLine(main, "use_area")) sawUse = true;
   CHECK(sawUse);
 
   // Workspace symbol search: approximate results arrive first (instantly), authoritative later.
@@ -251,7 +287,8 @@ TEST(semantic_clangd_hover_references_symbols_and_edits) {
   REQUIRE(!order.empty());
   CHECK(order.back() == Confidence::Authoritative);
   bool foundCircle = false;
-  for (auto& s : lastSyms) if (s.name == "Circle" && s.loc.file == hdr) foundCircle = true;
+  for (auto& s : lastSyms)
+    if (s.name == "Circle" && s.loc.file == hdr) foundCircle = true;
   CHECK(foundCircle);
 
   // Editing keeps clangd and the navigation history in sync: insert two
@@ -272,7 +309,10 @@ TEST(semantic_clangd_hover_references_symbols_and_edits) {
   done = false;
   std::vector<SymbolLocation> locs;
   f.ed.gotoDefinition([&](Confidence c, const std::vector<SymbolLocation>& l, const std::string&) {
-    if (c == Confidence::Authoritative) { locs = l; done = true; }
+    if (c == Confidence::Authoritative) {
+      locs = l;
+      done = true;
+    }
   });
   f.ed.waitFor([&] { return done; }, 60000);
   REQUIRE(locs.size() == 1u);

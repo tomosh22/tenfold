@@ -25,13 +25,33 @@ namespace {
 
 const char* lspSymbolKindName(int k) {
   switch (k) {
-    case 1: return "file"; case 2: return "module"; case 3: return "namespace"; case 4: return "package";
-    case 5: return "class"; case 6: return "method"; case 7: return "property"; case 8: return "field";
-    case 9: return "constructor"; case 10: return "enum"; case 11: return "interface"; case 12: return "function";
-    case 13: return "variable"; case 14: return "constant"; case 15: return "string"; case 16: return "number";
-    case 17: return "boolean"; case 18: return "array"; case 19: return "object"; case 20: return "key";
-    case 21: return "null"; case 22: return "enumerator"; case 23: return "struct"; case 24: return "event";
-    case 25: return "operator"; case 26: return "type parameter"; default: return "symbol";
+    case 1: return "file";
+    case 2: return "module";
+    case 3: return "namespace";
+    case 4: return "package";
+    case 5: return "class";
+    case 6: return "method";
+    case 7: return "property";
+    case 8: return "field";
+    case 9: return "constructor";
+    case 10: return "enum";
+    case 11: return "interface";
+    case 12: return "function";
+    case 13: return "variable";
+    case 14: return "constant";
+    case 15: return "string";
+    case 16: return "number";
+    case 17: return "boolean";
+    case 18: return "array";
+    case 19: return "object";
+    case 20: return "key";
+    case 21: return "null";
+    case 22: return "enumerator";
+    case 23: return "struct";
+    case 24: return "event";
+    case 25: return "operator";
+    case 26: return "type parameter";
+    default: return "symbol";
   }
 }
 
@@ -175,7 +195,8 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
 bool SemanticEngine::startClangd(std::string* error) {
   std::string exe = opt_.clangdPath.empty() ? ws_.settings().clangdPath : opt_.clangdPath;
   if (exe.empty()) exe = "clangd";
-  std::string resolved = findExecutable(exe, /*preferBundled=*/opt_.clangdPath.empty() && ws_.settings().clangdPath.empty());
+  std::string resolved =
+      findExecutable(exe, /*preferBundled=*/opt_.clangdPath.empty() && ws_.settings().clangdPath.empty());
   if (resolved.empty()) {
     if (error) *error = "clangd not found: " + exe;
     return false;
@@ -236,7 +257,9 @@ bool SemanticEngine::startClangd(std::string* error) {
     for (auto& d : ds) {
       Diagnostic x;
       x.file = file;
-      x.range = fromServer(LspLocation{uri, d.range}).pos == d.range.start ? d.range : Range{fromServer({uri, d.range}).pos, fromServer({uri, {d.range.end, d.range.end}}).pos};
+      x.range = fromServer(LspLocation{uri, d.range}).pos == d.range.start
+                    ? d.range
+                    : Range{fromServer({uri, d.range}).pos, fromServer({uri, {d.range.end, d.range.end}}).pos};
       x.severity = d.severity;
       x.message = d.message;
       x.code = d.code;
@@ -245,7 +268,10 @@ bool SemanticEngine::startClangd(std::string* error) {
     h(file, std::move(out));
   });
   clangd_->onLogMessage([this](int, const std::string& m) { log("clangd: " + m); });
-  clangd_->onDisconnect([this] { log("clangd exited"); cv_.notify_all(); });
+  clangd_->onDisconnect([this] {
+    log("clangd exited");
+    cv_.notify_all();
+  });
 
   std::string err;
   if (!clangd_->start(lo, &err)) {
@@ -263,10 +289,8 @@ void SemanticEngine::saveFastIndex() {
   uint64_t gen = fast_.generation();
   if (gen == savedGen_) return;
   std::string err;
-  if (FastIndexStore::save(ws_.cacheDir() / "fastindex.bin", fast_.exportFiles(), &err))
-    savedGen_ = gen;
-  else
-    log("fast index save failed: " + err);
+  if (FastIndexStore::save(ws_.cacheDir() / "fastindex.bin", fast_.exportFiles(), &err)) savedGen_ = gen;
+  else log("fast index save failed: " + err);
 }
 
 void SemanticEngine::startFastIndex() {
@@ -279,10 +303,8 @@ void SemanticEngine::startFastIndex() {
     FastIndexStore::Entries cached;
     if (opt_.persistFastIndex) {
       std::string err;
-      if (auto loaded = FastIndexStore::load(ws_.cacheDir() / "fastindex.bin", &err))
-        cached = std::move(*loaded);
-      else
-        log("fast index store not used: " + err);
+      if (auto loaded = FastIndexStore::load(ws_.cacheDir() / "fastindex.bin", &err)) cached = std::move(*loaded);
+      else log("fast index store not used: " + err);
     }
     fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
     {
@@ -597,8 +619,11 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     while (i >= 2 && line[static_cast<size_t>(i) - 1] == ':' && line[static_cast<size_t>(i) - 2] == ':') {
       i -= 2;
       int e = i;
-      while (i > 0 && (std::isalnum(static_cast<unsigned char>(line[static_cast<size_t>(i) - 1])) || line[static_cast<size_t>(i) - 1] == '_')) --i;
-      qualifier = line.substr(static_cast<size_t>(i), static_cast<size_t>(e - i)) + (qualifier.empty() ? "" : "::" + qualifier);
+      while (i > 0 && (std::isalnum(static_cast<unsigned char>(line[static_cast<size_t>(i) - 1])) ||
+                       line[static_cast<size_t>(i) - 1] == '_'))
+        --i;
+      qualifier =
+          line.substr(static_cast<size_t>(i), static_cast<size_t>(e - i)) + (qualifier.empty() ? "" : "::" + qualifier);
     }
   }
   auto matches = fast_.lookup(word.text);
@@ -684,7 +709,10 @@ void SemanticEngine::deliverWithBudget(
       st->cb(Confidence::Approximate, st->approx, err);
       return;
     }
-    if (!err.empty()) { st->cb(Confidence::Authoritative, {}, err); return; }
+    if (!err.empty()) {
+      st->cb(Confidence::Authoritative, {}, err);
+      return;
+    }
     st->cb(Confidence::Authoritative, std::move(result), {});
   });
 }
@@ -732,7 +760,8 @@ void SemanticEngine::augmentWithFastDefinitions(const std::string& name, std::ve
 
 void SemanticEngine::gotoDefinition(const Document& doc, Position pos, LocationsCallback cb) {
   std::string word = doc.buffer().wordAt(pos).text;
-  LocationsCallback wrapped = [this, word, cb = std::move(cb)](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+  LocationsCallback wrapped = [this, word, cb = std::move(cb)](Confidence c, std::vector<SymbolLocation> locs,
+                                                               const std::string& err) {
     if (c == Confidence::Authoritative && err.empty()) augmentWithFastDefinitions(word, locs);
     cb(c, std::move(locs), err);
   };
@@ -803,7 +832,8 @@ void SemanticEngine::documentSymbols(const Document& doc, LocationsCallback cb) 
     if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
     c->documentSymbols(uri, [this, uri, done](std::vector<LspDocumentSymbol> syms, const std::string& err) {
       std::vector<SymbolLocation> out;
-      std::function<void(const LspDocumentSymbol&, const std::string&)> walk = [&](const LspDocumentSymbol& s, const std::string& container) {
+      std::function<void(const LspDocumentSymbol&, const std::string&)> walk = [&](const LspDocumentSymbol& s,
+                                                                                   const std::string& container) {
         SymbolLocation x;
         x.loc = fromServer(LspLocation{uri, s.selectionRange});
         x.name = s.name;
@@ -841,17 +871,24 @@ void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> 
 // ---------------------------------------------------------------------------
 
 void SemanticEngine::hover(const Document& doc, Position pos, Callback<std::string> cb) {
-  if (auto* c = clangd()) { c->hover(doc.uri(), toServer(doc, pos), std::move(cb)); return; }
+  if (auto* c = clangd()) {
+    c->hover(doc.uri(), toServer(doc, pos), std::move(cb));
+    return;
+  }
   // Approximate hover: show what the fast index knows about the word.
   auto defs = approximateDefinitions(doc, pos);
   if (defs.empty()) return cb("", "clangd not running");
   std::string s;
-  for (auto& d : defs) s += d.kind + " " + (d.container.empty() ? d.name : d.container + "::" + d.name) + "  (" + toString(d.loc) + ")\n";
+  for (auto& d : defs)
+    s += d.kind + " " + (d.container.empty() ? d.name : d.container + "::" + d.name) + "  (" + toString(d.loc) + ")\n";
   cb(s, {});
 }
 
 void SemanticEngine::completion(const Document& doc, Position pos, Callback<std::vector<LspCompletionItem>> cb) {
-  if (auto* c = clangd()) { c->completion(doc.uri(), toServer(doc, pos), std::move(cb)); return; }
+  if (auto* c = clangd()) {
+    c->completion(doc.uri(), toServer(doc, pos), std::move(cb));
+    return;
+  }
   // Approximate completion: fuzzy-match the prefix against the fast index.
   auto word = doc.buffer().wordAt({pos.line, std::max(0, pos.column - 1)});
   std::vector<LspCompletionItem> out;
@@ -868,7 +905,10 @@ void SemanticEngine::completion(const Document& doc, Position pos, Callback<std:
 }
 
 void SemanticEngine::signatureHelp(const Document& doc, Position pos, Callback<LspSignatureHelp> cb) {
-  if (auto* c = clangd()) { c->signatureHelp(doc.uri(), toServer(doc, pos), std::move(cb)); return; }
+  if (auto* c = clangd()) {
+    c->signatureHelp(doc.uri(), toServer(doc, pos), std::move(cb));
+    return;
+  }
   cb({}, "clangd not running");
 }
 
@@ -893,7 +933,8 @@ void SemanticEngine::rename(const Document& doc, Position pos, const std::string
     }
     if (edit.contains("documentChanges")) {
       for (auto& dc : edit["documentChanges"]) {
-        if (dc.contains("textDocument")) addEdits(dc["textDocument"].value("uri", ""), dc.value("edits", Json::array()));
+        if (dc.contains("textDocument"))
+          addEdits(dc["textDocument"].value("uri", ""), dc.value("edits", Json::array()));
       }
     }
     cb(out, {});

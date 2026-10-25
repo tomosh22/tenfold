@@ -27,8 +27,8 @@ class FileWatcher {
       Created,
       Modified,
       Deleted,
-      Renamed,   // path = new name, oldPath = previous name
-      Rescan,    // events were lost (queue overflow / limit reached): resynchronise from disk
+      Renamed,  // path = new name, oldPath = previous name
+      Rescan,   // events were lost (queue overflow / limit reached): resynchronise from disk
     } kind = Modified;
     std::filesystem::path path, oldPath;
     bool isDirectory = false;  // Deleted/Renamed/Created of a directory (children are not enumerated)
@@ -38,8 +38,8 @@ class FileWatcher {
 
   struct Options {
     int debounceMs = 200;
-    int pollMs = 2000;                          // polling mode scan interval
-    size_t maxWatches = 0;                      // inotify: act as if the watch limit were this (0 = system limit); for tests
+    int pollMs = 2000;      // polling mode scan interval
+    size_t maxWatches = 0;  // inotify: act as if the watch limit were this (0 = system limit); for tests
     std::function<void(const std::string&)> log;
   };
 

@@ -4,8 +4,14 @@
 #include <cstring>
 
 namespace tftest {
-std::vector<Case>& cases() { static std::vector<Case> c; return c; }
-int& failures() { static int f = 0; return f; }
+std::vector<Case>& cases() {
+  static std::vector<Case> c;
+  return c;
+}
+int& failures() {
+  static int f = 0;
+  return f;
+}
 void fail(const char* file, int line, const std::string& msg) {
   std::cerr << "    " << file << ":" << line << ": " << msg << "\n";
   ++failures();

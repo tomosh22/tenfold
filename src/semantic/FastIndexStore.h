@@ -26,8 +26,8 @@ namespace tf {
 //     u32 lengths[stringCount]    then the concatenated string bytes (one interned blob; every path, name,
 //                                 scope and include string is stored once and referenced by index)
 //     per file: u32 path, i64 mtime, u64 size, u32 nSymbols, u32 nIncludes,
-//               nSymbols * { u32 name, u32 scope, i32 line, i32 col, u8 kind, u8 flags(bit0 definition, bit1 template) },
-//               nIncludes * u32
+//               nSymbols * { u32 name, u32 scope, i32 line, i32 col, u8 kind, u8 flags(bit0 definition, bit1 template)
+//               }, nIncludes * u32
 //
 // Every read is bounds-checked; any inconsistency (bad magic/version, size or hash mismatch, index out of range,
 // trailing bytes) makes load() fail so the caller falls back to a full re-index. Paths are stored as given

@@ -42,8 +42,13 @@ bool Workspace::loadSettings(std::string* error) {
   std::ifstream in(cacheDir() / "workspace.json");
   if (!in) return false;
   Json j = Json::parse(in, nullptr, false);
-  if (!j.is_object()) { if (error) *error = "workspace.json is not an object"; return false; }
-  auto getv = [&](const char* k, std::vector<std::string>& out) { if (j.contains(k) && j[k].is_array()) out = j[k].get<std::vector<std::string>>(); };
+  if (!j.is_object()) {
+    if (error) *error = "workspace.json is not an object";
+    return false;
+  }
+  auto getv = [&](const char* k, std::vector<std::string>& out) {
+    if (j.contains(k) && j[k].is_array()) out = j[k].get<std::vector<std::string>>();
+  };
   getv("sourceExtensions", settings_.sourceExtensions);
   getv("headerExtensions", settings_.headerExtensions);
   getv("otherExtensions", settings_.otherExtensions);
@@ -91,7 +96,10 @@ bool Workspace::saveSettings(std::string* error) const {
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
   std::ofstream out(cacheDir() / "workspace.json");
-  if (!out) { if (error) *error = "cannot write workspace.json"; return false; }
+  if (!out) {
+    if (error) *error = "cannot write workspace.json";
+    return false;
+  }
   out << j.dump(2);
   return true;
 }
@@ -216,7 +224,8 @@ std::vector<std::string> splitPathList(const std::string& pathList, char sep) {
   return out;
 }
 
-std::vector<std::string> executableCandidates(const std::string& name, bool windows, const std::vector<std::string>& exts) {
+std::vector<std::string> executableCandidates(const std::string& name, bool windows,
+                                              const std::vector<std::string>& exts) {
   if (!windows) return {name};
   std::string ln = lower(name);
   for (auto& e : exts)

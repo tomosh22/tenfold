@@ -17,8 +17,8 @@ class TextBuffer {
   explicit TextBuffer(std::string_view text) { setText(text); }
 
   void setText(std::string_view text);
-  std::string text() const;                 // joined with '\n'
-  std::string textForDisk() const;          // joined with the detected line ending
+  std::string text() const;         // joined with '\n'
+  std::string textForDisk() const;  // joined with the detected line ending
 
   int lineCount() const { return static_cast<int>(lines_.size()); }
   const std::string& line(int i) const { return lines_[static_cast<size_t>(i)]; }
@@ -44,7 +44,7 @@ class TextBuffer {
 
   Position clamp(Position p) const;
   Position endPosition() const;
-  size_t offsetOf(Position p) const;   // byte offset in text()
+  size_t offsetOf(Position p) const;  // byte offset in text()
   Position positionAt(size_t offset) const;
 
   // Column conversions between UTF-8 byte offsets and UTF-16 code units.
@@ -52,7 +52,10 @@ class TextBuffer {
   static int utf16ToUtf8Column(std::string_view line, int utf16Col);
 
   // Identifier under/adjacent to position (C/C++ identifier characters).
-  struct Word { std::string text; Range range; };
+  struct Word {
+    std::string text;
+    Range range;
+  };
   Word wordAt(Position p) const;
 
  private:

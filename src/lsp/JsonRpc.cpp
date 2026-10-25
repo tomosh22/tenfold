@@ -137,9 +137,7 @@ void JsonRpcConnection::dispatch(Json msg) {
           reply["result"] = h(params);
         } catch (const RpcError& e) {
           reply["error"] = Json{{"code", e.code}, {"message", e.message}};
-        } catch (const std::exception& e) {
-          reply["error"] = Json{{"code", -32603}, {"message", e.what()}};
-        }
+        } catch (const std::exception& e) { reply["error"] = Json{{"code", -32603}, {"message", e.what()}}; }
       }
       send(reply);
     } else {

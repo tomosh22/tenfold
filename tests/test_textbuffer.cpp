@@ -71,7 +71,9 @@ TEST(textbuffer_offsets) {
 
 TEST(textbuffer_utf16_columns) {
   // "aé😀b": a(1 byte) é(2 bytes) 😀(4 bytes, 2 utf16 units) b
-  std::string line = "a\xC3\xA9\xF0\x9F\x98\x80" "b";
+  std::string line =
+      "a\xC3\xA9\xF0\x9F\x98\x80"
+      "b";
   CHECK_EQ(TextBuffer::utf8ToUtf16Column(line, 0), 0);
   CHECK_EQ(TextBuffer::utf8ToUtf16Column(line, 1), 1);
   CHECK_EQ(TextBuffer::utf8ToUtf16Column(line, 3), 2);
@@ -96,7 +98,10 @@ TEST(document_undo_redo_and_listeners) {
   Document d = Document::fromText("/tmp/x.cpp", "int a;\nint b;\n");
   int calls = 0;
   Document::Change last;
-  d.addListener([&](Document&, const Document::Change& c) { ++calls; last = c; });
+  d.addListener([&](Document&, const Document::Change& c) {
+    ++calls;
+    last = c;
+  });
   d.replace({{0, 4}, {0, 5}}, "alpha");
   CHECK_EQ(d.buffer().line(0), "int alpha;");
   CHECK_EQ(calls, 1);

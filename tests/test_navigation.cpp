@@ -57,7 +57,7 @@ TEST(nav_new_jump_truncates_forward_stack) {
   auto p = h.back(L("c", 1));  // at b
   p = h.back(*p);              // at a
   CHECK(h.canGoForward());
-  h.record(L("z", 1));         // jump somewhere new
+  h.record(L("z", 1));  // jump somewhere new
   CHECK(!h.canGoForward());
   p = h.back(L("z", 1));
   CHECK(*p == L("a", 1));
@@ -76,7 +76,7 @@ TEST(nav_coalesces_nearby_entries) {
 
 TEST(nav_caret_moves_record_far_moves_only) {
   NavigationHistory h(NavigationHistory::Options{200, 10});
-  h.onCaretMoved(L("a", 0), L("a", 3));    // small: ignored
+  h.onCaretMoved(L("a", 0), L("a", 3));  // small: ignored
   CHECK(h.entries().empty());
   h.onCaretMoved(L("a", 3), L("a", 300));  // far: remembers where we were
   CHECK_EQ(h.entries().size(), 1u);

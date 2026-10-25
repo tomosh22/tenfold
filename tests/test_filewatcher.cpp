@@ -399,7 +399,9 @@ TEST(watch_reload_from_disk_keeps_history_lines) {
   std::string err;
   REQUIRE(f.ed->gotoLocation({file, {18, 0}}, &err));
   // Disk gains two lines at the top; the tail is unchanged.
-  writeFile(file, "new0\nnew1\nl0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\n");
+  writeFile(
+      file,
+      "new0\nnew1\nl0\nl1\nl2\nl3\nl4\nl5\nl6\nl7\nl8\nl9\nl10\nl11\nl12\nl13\nl14\nl15\nl16\nl17\nl18\nl19\nl20\n");
   REQUIRE(f.ed->reloadFromDisk(*doc));
   CHECK_EQ(doc->buffer().lineCount(), 24);
   CHECK_EQ(doc->buffer().line(0), std::string("new0"));
@@ -483,22 +485,26 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
   CHECK_EQ(before.parent_path().string(), (f.dir.path / ".tenfold").string());
 
   // A real compile_commands.json appears at the root: the location changes.
-  writeFile(f.dir.path / "compile_commands.json",
-            "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" + (f.dir.path / "src/a.cpp").string() +
-                "\",\"arguments\":[\"clang++\",\"-std=c++20\",\"-c\",\"" + (f.dir.path / "src/a.cpp").string() +
-                "\"]}]");
+  writeFile(f.dir.path / "compile_commands.json", "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" +
+                                                      (f.dir.path / "src/a.cpp").string() +
+                                                      "\",\"arguments\":[\"clang++\",\"-std=c++20\",\"-c\",\"" +
+                                                      (f.dir.path / "src/a.cpp").string() + "\"]}]");
   CHECK(f.ed->waitFor([&] { return startCount() == 2; }, 20000));
   CHECK_EQ(f.ed->semantic().status().compdbPath.parent_path().string(), f.dir.path.string());
   CHECK(f.ed->semantic().status().clangdInitialized);
 
   // Editing the database in place: clangd re-reads it itself, no restart.
-  writeFile(f.dir.path / "compile_commands.json",
-            "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" + (f.dir.path / "src/a.cpp").string() +
-                "\",\"arguments\":[\"clang++\",\"-std=c++17\",\"-c\",\"" + (f.dir.path / "src/a.cpp").string() +
-                "\"]}]");
-  CHECK(f.ed->waitFor([&] { return f.ed->semantic().compileCommands().size() == 1 &&
-                                   f.ed->semantic().compileCommands()[0].arguments.size() > 1 &&
-                                   f.ed->semantic().compileCommands()[0].arguments[1] == "-std=c++17"; }, 5000));
+  writeFile(f.dir.path / "compile_commands.json", "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" +
+                                                      (f.dir.path / "src/a.cpp").string() +
+                                                      "\",\"arguments\":[\"clang++\",\"-std=c++17\",\"-c\",\"" +
+                                                      (f.dir.path / "src/a.cpp").string() + "\"]}]");
+  CHECK(f.ed->waitFor(
+      [&] {
+        return f.ed->semantic().compileCommands().size() == 1 &&
+               f.ed->semantic().compileCommands()[0].arguments.size() > 1 &&
+               f.ed->semantic().compileCommands()[0].arguments[1] == "-std=c++17";
+      },
+      5000));
   f.ed->waitFor([] { return false; }, 600);
   CHECK_EQ(startCount(), 2);
 }

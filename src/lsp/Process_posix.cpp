@@ -1,15 +1,15 @@
-#include "lsp/Process.h"
-
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
-#include <chrono>
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <thread>
+
+#include "lsp/Process.h"
 
 namespace tf {
 
@@ -20,9 +20,8 @@ Process::~Process() {
   if (pid_ > 0 && !exited_) wait(100);
 }
 
-bool Process::start(const std::string& exe, const std::vector<std::string>& args,
-                    const std::filesystem::path& cwd, const std::filesystem::path& stderrLog, std::string* error,
-                    const Env& extraEnv) {
+bool Process::start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
+                    const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv) {
   int inPipe[2], outPipe[2];
   if (::pipe(inPipe) != 0 || ::pipe(outPipe) != 0) {
     if (error) *error = std::strerror(errno);
@@ -48,9 +47,15 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
     ::dup2(inPipe[0], STDIN_FILENO);
     ::dup2(outPipe[1], STDOUT_FILENO);
     ::dup2(errFd, STDERR_FILENO);
-    ::close(inPipe[0]); ::close(inPipe[1]); ::close(outPipe[0]); ::close(outPipe[1]);
+    ::close(inPipe[0]);
+    ::close(inPipe[1]);
+    ::close(outPipe[0]);
+    ::close(outPipe[1]);
     if (errFd > 2) ::close(errFd);
-    if (!cwd.empty()) { if (::chdir(cwd.c_str()) != 0) { /* ignore */ } }
+    if (!cwd.empty()) {
+      if (::chdir(cwd.c_str()) != 0) { /* ignore */
+      }
+    }
     for (auto& [k, v] : extraEnv) ::setenv(k.c_str(), v.c_str(), 1);
     ::execvp(exe.c_str(), argv.data());
     _exit(127);
@@ -99,11 +104,18 @@ bool Process::running() const {
   return r == 0;
 }
 
-void Process::terminate() { if (pid_ > 0 && !exited_) ::kill(pid_, SIGTERM); }
-void Process::kill() { if (pid_ > 0 && !exited_) ::kill(pid_, SIGKILL); }
+void Process::terminate() {
+  if (pid_ > 0 && !exited_) ::kill(pid_, SIGTERM);
+}
+void Process::kill() {
+  if (pid_ > 0 && !exited_) ::kill(pid_, SIGKILL);
+}
 
 void Process::closeStdin() {
-  if (stdinFd_ >= 0) { ::close(stdinFd_); stdinFd_ = -1; }
+  if (stdinFd_ >= 0) {
+    ::close(stdinFd_);
+    stdinFd_ = -1;
+  }
 }
 
 int Process::wait(int timeoutMs) {
@@ -118,7 +130,10 @@ int Process::wait(int timeoutMs) {
       exitCode_ = WIFEXITED(status) ? WEXITSTATUS(status) : -1;
       return exitCode_;
     }
-    if (r < 0) { exited_ = true; return -1; }
+    if (r < 0) {
+      exited_ = true;
+      return -1;
+    }
     if (std::chrono::steady_clock::now() >= deadline) return -1;
     std::this_thread::sleep_for(std::chrono::milliseconds(5));
   }

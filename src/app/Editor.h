@@ -145,8 +145,8 @@ class Editor {
 
   // --- main-thread queue ---
   void post(std::function<void()> fn);
-  size_t pump();                                                       // run queued callbacks; returns count
-  bool waitFor(std::function<bool()> pred, int timeoutMs);             // pump until pred() or timeout
+  size_t pump();                                            // run queued callbacks; returns count
+  bool waitFor(std::function<bool()> pred, int timeoutMs);  // pump until pred() or timeout
 
   const std::vector<Diagnostic>& diagnostics(const std::filesystem::path& file) const;
 
@@ -165,7 +165,7 @@ class Editor {
   int64_t nowMs() const;
   void breakTyping() { typingOpen_ = false; }
   void startWatching();
-  void handleFileEvent(const FileWatcher::Event& ev);   // pump thread
+  void handleFileEvent(const FileWatcher::Event& ev);  // pump thread
   void checkExternalChange(Document& doc);
   void rescanWorkspace();
   void refreshBuildSystem();

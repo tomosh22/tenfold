@@ -27,7 +27,9 @@ struct SearchHandle::State {
 };
 
 SearchHandle SearchHandle::create() { return SearchHandle(std::make_shared<State>()); }
-void SearchHandle::cancel() { if (s_) s_->cancel = true; }
+void SearchHandle::cancel() {
+  if (s_) s_->cancel = true;
+}
 bool SearchHandle::cancelled() const { return s_ && s_->cancel.load(); }
 bool SearchHandle::finished() const {
   if (!s_) return true;
@@ -130,7 +132,9 @@ const FoldTable kFold;
 #ifdef TENFOLD_HAVE_PCRE2
 struct Regex {
   pcre2_code* code = nullptr;
-  ~Regex() { if (code) pcre2_code_free(code); }
+  ~Regex() {
+    if (code) pcre2_code_free(code);
+  }
 };
 #endif
 
@@ -158,7 +162,10 @@ struct Run {
       : in(i), opt(o), onBatch(b), cancel(c) {}
 
   bool stopped() {
-    if (cancel.load(std::memory_order_relaxed)) { sawCancel = true; return true; }
+    if (cancel.load(std::memory_order_relaxed)) {
+      sawCancel = true;
+      return true;
+    }
     return stop.load(std::memory_order_relaxed);
   }
 
@@ -176,7 +183,11 @@ struct Run {
     while (pending.size() - pos >= bs || (flushPartial && pending.size() > pos)) {
       lastFlush = now;
       size_t n = std::min(bs, pending.size() - pos);
-      if (cancel.load()) { sawCancel = true; pending.clear(); return; }
+      if (cancel.load()) {
+        sawCancel = true;
+        pending.clear();
+        return;
+      }
       std::vector<SearchMatch> batch(std::make_move_iterator(pending.begin() + static_cast<long>(pos)),
                                      std::make_move_iterator(pending.begin() + static_cast<long>(pos + n)));
       pos += n;
@@ -310,7 +321,10 @@ struct Worker {
       } else {
         ok = true;
         for (size_t i = 1; i < nl; ++i)
-          if (kFold.t[static_cast<unsigned char>(q[i])] != static_cast<unsigned char>(nd[i])) { ok = false; break; }
+          if (kFold.t[static_cast<unsigned char>(q[i])] != static_cast<unsigned char>(nd[i])) {
+            ok = false;
+            break;
+          }
       }
       if (ok && wwL && q > d && isWordByte(static_cast<unsigned char>(q[-1]))) ok = false;
       if (ok && wwR && q + nl < d + n && isWordByte(static_cast<unsigned char>(q[nl]))) ok = false;
@@ -375,9 +389,10 @@ struct Worker {
     if (n == 0 || memchr(d, 0, std::min(n, kBinaryProbe))) return;
     size_t before = found;
 #ifdef TENFOLD_HAVE_PCRE2
-    if (run.re.code) regex(d, n); else
+    if (run.re.code) regex(d, n);
+    else
 #endif
-    literal(d, n);
+      literal(d, n);
     if (found != before) run.matchedFiles++;
   }
 
@@ -409,7 +424,10 @@ bool passesGlobs(const SearchOptions& o, const std::string& rel) {
   if (!o.includeGlobs.empty()) {
     bool any = false;
     for (auto& g : o.includeGlobs)
-      if (TextSearch::pathMatchesGlob(g, rel)) { any = true; break; }
+      if (TextSearch::pathMatchesGlob(g, rel)) {
+        any = true;
+        break;
+      }
     if (!any) return false;
   }
   for (auto& g : o.excludeGlobs)
@@ -425,7 +443,10 @@ SearchSummary execute(const SearchInput& in, const SearchOptions& opt, const Sea
     s.elapsedMs = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
     return s;
   };
-  if (opt.query.empty()) { sum.error = "empty query"; return finish(sum); }
+  if (opt.query.empty()) {
+    sum.error = "empty query";
+    return finish(sum);
+  }
 
   Run run(in, opt, onBatch, cancel);
   if (opt.regex) {
@@ -472,10 +493,20 @@ SearchSummary execute(const SearchInput& in, const SearchOptions& opt, const Sea
   unsigned nt = opt.threads ? opt.threads : std::max(1u, std::thread::hardware_concurrency());
   nt = static_cast<unsigned>(std::min<size_t>(nt, std::max<size_t>(1, run.order.size())));
   std::vector<std::thread> pool;
-  for (unsigned t = 1; t < nt; ++t) pool.emplace_back([&run] { Worker w(run); w(); });
-  { Worker w(run); w(); }
+  for (unsigned t = 1; t < nt; ++t)
+    pool.emplace_back([&run] {
+      Worker w(run);
+      w();
+    });
+  {
+    Worker w(run);
+    w();
+  }
   for (auto& t : pool) t.join();
-  { std::vector<SearchMatch> none; run.emit(none, true); }
+  {
+    std::vector<SearchMatch> none;
+    run.emit(none, true);
+  }
 
   sum.matches = std::min(run.total.load(), opt.maxResults);
   sum.filesSearched = run.searched;
@@ -520,11 +551,13 @@ SearchHandle TextSearch::start(SearchInput in, SearchOptions opt, SearchBatchFn 
 
 SearchSummary TextSearch::run(SearchInput in, SearchOptions opt, std::vector<SearchMatch>* out) {
   SearchSummary result;
-  auto h = start(std::move(in), std::move(opt),
-                 [out](std::vector<SearchMatch>&& b) {
-                   if (out) for (auto& m : b) out->push_back(std::move(m));
-                 },
-                 [&result](const SearchSummary& s) { result = s; });
+  auto h = start(
+      std::move(in), std::move(opt),
+      [out](std::vector<SearchMatch>&& b) {
+        if (out)
+          for (auto& m : b) out->push_back(std::move(m));
+      },
+      [&result](const SearchSummary& s) { result = s; });
   h.wait();
   return result;
 }

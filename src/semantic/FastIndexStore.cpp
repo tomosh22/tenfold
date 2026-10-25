@@ -81,14 +81,35 @@ uint32_t FastIndexStore::extractorFingerprint() {
 #include <vector>
 #include "a/b.h"
 #define MAC(x) (x)
-namespace n1::n2 { template <class T> class C : public B { public: C(); ~C(); T get() const; int f; static int g; };
-struct S { enum class E { A, B = 2 }; using U = int; typedef long L; virtual void v() = 0; };
-union Un { int a; };
-void C<int>::m(int a, char* b) { auto x = [&] { return 1; }; }
-int free_fn(int a = (1, 2)) noexcept; extern int var;
-}
-concept Cc = true; enum Old { O1, O2 }; operator bool() const;
-)cpp";
+      namespace n1::n2 {
+      template <class T>
+      class C : public B {
+       public:
+        C();
+        ~C();
+        T get() const;
+        int f;
+        static int g;
+      };
+      struct S {
+        enum class E { A, B = 2 };
+        using U = int;
+        typedef long L;
+        virtual void v() = 0;
+      };
+      union Un {
+        int a;
+      };
+      void C<int>::m(int a, char* b) {
+        auto x = [&] { return 1; };
+      }
+      int free_fn(int a = (1, 2)) noexcept;
+      extern int var;
+      }  // namespace n1::n2
+      concept Cc = true;
+      enum Old { O1, O2 };
+      operator bool() const;
+    )cpp";
     std::vector<std::string> inc;
     auto syms = extractSymbols(probe, &inc);
     std::string blob;
@@ -256,8 +277,7 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         s.col = fr.get<int32_t>();
         uint8_t kind = fr.get<uint8_t>();
         uint8_t flags = fr.get<uint8_t>();
-        if (!fr.ok || name >= stringCount || scope >= stringCount ||
-            kind > static_cast<uint8_t>(SymbolKind::Unknown)) {
+        if (!fr.ok || name >= stringCount || scope >= stringCount || kind > static_cast<uint8_t>(SymbolKind::Unknown)) {
           failed = true;
           return;
         }

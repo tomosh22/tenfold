@@ -13,17 +13,30 @@
 namespace tf {
 
 enum class SymbolKind {
-  Namespace, Class, Struct, Union, Enum, Enumerator, Function, Method, Constructor,
-  Variable, Field, Typedef, Macro, Concept, Unknown
+  Namespace,
+  Class,
+  Struct,
+  Union,
+  Enum,
+  Enumerator,
+  Function,
+  Method,
+  Constructor,
+  Variable,
+  Field,
+  Typedef,
+  Macro,
+  Concept,
+  Unknown
 };
 const char* symbolKindName(SymbolKind k);
 
 struct Symbol {
-  std::string name;      // unqualified, e.g. "length_sq"
-  std::string scope;     // qualified enclosing scope, e.g. "geo::Vec2" ("" at global scope)
+  std::string name;   // unqualified, e.g. "length_sq"
+  std::string scope;  // qualified enclosing scope, e.g. "geo::Vec2" ("" at global scope)
   SymbolKind kind = SymbolKind::Unknown;
-  int line = 0;          // 0-based
-  int col = 0;           // 0-based byte column of the name token
+  int line = 0;  // 0-based
+  int col = 0;   // 0-based byte column of the name token
   bool definition = true;
   bool isTemplate = false;
   std::string qualified() const { return scope.empty() ? name : scope + "::" + name; }
@@ -102,13 +115,16 @@ class FastIndex {
   static int fuzzyScore(std::string_view query, std::string_view candidate);
 
  private:
-  struct Ref { std::shared_ptr<const FileSymbols> file; size_t index; };
+  struct Ref {
+    std::shared_ptr<const FileSymbols> file;
+    size_t index;
+  };
   void addLocked(std::shared_ptr<const FileSymbols> fs);
   void removeLocked(const std::string& key);
 
   mutable std::shared_mutex mu_;
   std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> files_;  // key: generic path string
-  std::unordered_map<std::string, std::vector<Ref>> byName_;                    // key: exact name
+  std::unordered_map<std::string, std::vector<Ref>> byName_;                   // key: exact name
   size_t symbolCount_ = 0;
   std::atomic<uint64_t> generation_{0};
 };
