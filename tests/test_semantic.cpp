@@ -2,6 +2,8 @@
 // a real clangd. They are skipped (with a message) when clangd is unavailable.
 #include <fstream>
 #include <map>
+#include <memory>
+#include <mutex>
 
 #include "app/Editor.h"
 #include "core/PathUtil.h"
@@ -64,24 +66,77 @@ bool clangdAvailable() { return !findExecutable("clangd").empty(); }
     }                                                                    \
   } while (0)
 
+// Engine log lines of the running fixture, kept so a failing clangd test can print them.
+struct EngineLog {
+  std::mutex mu;
+  std::vector<std::string> lines;
+};
+
 struct Fixture {
   Editor ed;
   bool ok = false;
-  explicit Fixture(bool useClangd = true) : ed(kRoot, makeOptions(useClangd)) {
+  int failuresAtStart = tftest::failures();
+  std::shared_ptr<EngineLog> elog;
+  explicit Fixture(bool useClangd = true) : Fixture(useClangd, std::make_shared<EngineLog>()) {}
+  Fixture(const Fixture&) = delete;
+  Fixture& operator=(const Fixture&) = delete;
+
+  // On any failure in the test, print what is needed to diagnose a clangd that
+  // cannot see the system headers: compile database head, the engine log, clangd's
+  // own log file and the diagnostics it published for main.cpp.
+  ~Fixture() {
+    if (tftest::failures() == failuresAtStart || !ok) return;
+    std::cerr << "    ---- clangd diagnostics (test failed) ----\n";
+    auto st = ed.semantic().status();
+    std::cerr << "    compdb: " << st.compdbSource << " (" << st.compdbEntries << ") " << st.compdbPath.string()
+              << "\n";
+    auto cmds = ed.semantic().compileCommands();
+    if (!cmds.empty()) {
+      std::cerr << "    first command:";
+      for (auto& a : cmds[0].arguments) std::cerr << " " << a;
+      std::cerr << "\n";
+    }
+    {
+      std::lock_guard<std::mutex> lk(elog->mu);
+      size_t from = elog->lines.size() > 40 ? elog->lines.size() - 40 : 0;
+      for (size_t i = from; i < elog->lines.size(); ++i) std::cerr << "    [engine] " << elog->lines[i] << "\n";
+    }
+    for (auto& d : ed.diagnostics(kRoot / "src/main.cpp"))
+      std::cerr << "    diag " << d.range.start.line + 1 << ": " << d.message << "\n";
+    std::ifstream lf(kRoot / ".tenfold" / "clangd.log");
+    std::vector<std::string> tail;
+    for (std::string l; std::getline(lf, l);) {
+      tail.push_back(l);
+      if (tail.size() > 60) tail.erase(tail.begin());
+    }
+    std::cerr << "    clangd.log tail (" << tail.size() << " lines):\n";
+    for (auto& l : tail) std::cerr << "      " << l << "\n";
+    std::ifstream cfg(kRoot / ".tenfold" / "clangd-config" / "clangd" / "config.yaml");
+    std::cerr << "    clangd config.yaml:\n";
+    for (std::string l; std::getline(cfg, l);) std::cerr << "      " << l << "\n";
+  }
+
+ private:
+  Fixture(bool useClangd, std::shared_ptr<EngineLog> log) : ed(kRoot, makeOptions(useClangd, log)), elog(log) {
     std::string err;
     ok = ed.start(&err);
     if (!ok) std::cerr << "    engine start: " << err << "\n";
   }
-  static Editor::Options makeOptions(bool useClangd) {
+  static Editor::Options makeOptions(bool useClangd, std::shared_ptr<EngineLog> log) {
     Editor::Options o;
     o.semantic.useClangd = useClangd;
     o.semantic.clangdBudgetMs = 150;
-    o.log = [](const std::string& m) {
+    o.log = [log](const std::string& m) {
+      {
+        std::lock_guard<std::mutex> lk(log->mu);
+        log->lines.push_back(m.substr(0, 600));
+      }
       if (std::getenv("TENFOLD_TEST_VERBOSE")) std::cerr << "    [engine] " << m << "\n";
     };
     return o;
   }
 
+ public:
   // Run go-to-definition at (file, markerLine, token) and wait for the
   // authoritative answer. Returns all callbacks received.
   struct Outcome {

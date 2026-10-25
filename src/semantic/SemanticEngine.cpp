@@ -152,10 +152,17 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     // per entry makes the JSON enormous (hundreds of MB on big trees), so the
     // database keeps only compiler + std + file and the shared flags go into
     // a clangd config (CompileFlags.Add), which applies to headers too.
+    // That only works where clangd honours XDG_CONFIG_HOME (Linux); on macOS (~/Library/Preferences)
+    // and Windows (%LOCALAPPDATA%) the private config may not be read, so the flags stay in the commands.
+#if defined(__APPLE__) || defined(_WIN32)
+    constexpr bool kFlagsViaConfig = false;
+#else
+    constexpr bool kFlagsViaConfig = true;
+#endif
     for (auto& c : cmds) {
       std::vector<std::string> keep;
       for (auto& a : c.arguments) {
-        if (a.rfind("-I", 0) == 0) {
+        if (kFlagsViaConfig && a.rfind("-I", 0) == 0) {
           if (std::find(sharedFlags.begin(), sharedFlags.end(), a) == sharedFlags.end()) sharedFlags.push_back(a);
         } else {
           keep.push_back(a);
