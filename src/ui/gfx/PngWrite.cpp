@@ -62,10 +62,10 @@ std::vector<uint8_t> encodePngRgba(const uint8_t* rgba, int w, int h) {
   for (size_t pos = 0; pos < raw.size() || pos == 0;) {
     const size_t n = std::min<size_t>(raw.size() - pos, 65535);
     const bool last = pos + n >= raw.size();
-    z.push_back(last ? 1 : 0);  // BFINAL, BTYPE=00 (stored)
-    z.push_back(n & 0xff);
-    z.push_back(n >> 8);
-    z.push_back(~n & 0xff);
+    z.push_back(static_cast<uint8_t>(last ? 1 : 0));  // BFINAL, BTYPE=00 (stored)
+    z.push_back(static_cast<uint8_t>(n & 0xff));
+    z.push_back(static_cast<uint8_t>(n >> 8));
+    z.push_back(static_cast<uint8_t>(~n & 0xff));
     z.push_back((~n >> 8) & 0xff);
     z.insert(z.end(), raw.begin() + pos, raw.begin() + pos + n);
     pos += n;
