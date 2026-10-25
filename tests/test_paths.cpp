@@ -145,6 +145,25 @@ TEST(clangd_discovery_precedence) {
   fs::remove_all(d);
 }
 
+TEST(exe_path_canonicalisation_for_bundled_dirs) {
+  // macOS reports the executable path as launched (relative, "..", symlinked); the bundled dirs must still be the
+  // real directory next to the binary.
+  fs::path d = fs::weakly_canonical(freshDir("exe_canon"));
+  touch(d / "pkg" / "bin" / "tenfold-cli");
+  touch(d / "pkg" / "bin" / "clangd");
+  std::error_code ec;
+  fs::create_directory_symlink(d / "pkg" / "bin", d / "link", ec);
+  fs::path viaDots = d / "pkg" / "lib" / ".." / "bin" / "tenfold-cli";
+  CHECK_EQ(canonicalExecutablePath(viaDots), d / "pkg" / "bin" / "tenfold-cli");
+  if (!ec) {
+    fs::path viaLink = d / "link" / "tenfold-cli";
+    auto dirs = bundledSearchDirs(canonicalExecutablePath(viaLink).parent_path());
+    CHECK_EQ(findExecutableIn("clangd", dirs, false), (d / "pkg" / "bin" / "clangd").string());
+  }
+  CHECK(canonicalExecutablePath("").empty());
+  fs::remove_all(d);
+}
+
 TEST(msvc_cl_via_vctoolsinstalldir) {
   fs::path d = freshDir("vct");
   fs::path tools = d / "VC" / "Tools" / "MSVC" / "14.40.33807";
