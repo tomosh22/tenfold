@@ -376,7 +376,14 @@ void SemanticEngine::stop() {
   }
   workCv_.notify_all();
   if (worker_.joinable()) worker_.join();
-  if (timerRun_.exchange(false)) {
+  // Clear the flag under mu_: timerLoop checks it and then waits while holding mu_, so an unlocked store can
+  // land between its check and its wait and the notification is lost (shutdown hangs forever).
+  bool timerWasRunning;
+  {
+    std::lock_guard<std::mutex> g(mu_);
+    timerWasRunning = timerRun_.exchange(false);
+  }
+  if (timerWasRunning) {
     cv_.notify_all();
     if (timer_.joinable()) timer_.join();
   }
