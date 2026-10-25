@@ -9,7 +9,7 @@ decided by the user). Each has a default we implement until answered.
 | 2 | Which Visual Studio configuration/platform 10x uses for parsing by default | Debug / x64, overridable in `.tenfold/workspace.json` | A2 |
 | 3 | Undo grouping: does 10x undo a whole typed word or one character? And does a typed space end the word it follows (so "hello world" undoes as "world", then "hello ") or start the next one? | word-level grouping with 1 s pause boundary; whitespace joins and then closes the current step. Settings `undoGrouping` ("word"/"char") and `undoGroupPauseMs` in `.tenfold/workspace.json` | A5 |
 | 4 | Does 10x soft-wrap long lines by default? Smooth scrolling? | no wrap; smooth scroll on | B2 |
-| 5 | Tab/panel behaviours: pinned tabs, MRU Ctrl+Tab order, drag between panels | all three implemented | B3 |
+| 5 | Tab/panel behaviours: pinned tabs, MRU Ctrl+Tab order, drag between panels. Also: does closing the last tab of a panel close the panel? Does closing a dirty tab prompt to save? Does split duplicate the current tab or move it? | all three implemented; an emptied panel auto-closes after a drag but not after a manual close; no save prompt yet (dirty documents stay open in the Editor); split duplicates the active tab | B3 |
 | 6 | Does symbol search show a preview of the target line? | yes | B5 |
 | 7 | Default theme colours and font (screenshots of your 10x would be ideal) | dark theme, Consolas/JetBrains Mono 11pt | B7 |
 | 8 | Which editing conveniences you rely on (auto-close brackets, comment toggle, bookmarks, ...) | all listed in B8 | B8 |
