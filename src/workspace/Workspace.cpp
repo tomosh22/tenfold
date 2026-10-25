@@ -285,7 +285,7 @@ std::vector<std::string> executableCandidates(const std::string& name, bool wind
   return out;
 }
 
-fs::path bundledBinDir() {
+static fs::path selfExePath() {
   fs::path exe;
 #ifdef _WIN32
   wchar_t buf[MAX_PATH * 4];
@@ -296,8 +296,23 @@ fs::path bundledBinDir() {
   exe = fs::read_symlink("/proc/self/exe", ec);
   if (ec) exe.clear();
 #endif
-  if (exe.empty()) return {};
-  return exe.parent_path() / "bin";
+  return exe;
+}
+
+fs::path executableDir() {
+  fs::path exe = selfExePath();
+  return exe.empty() ? fs::path() : exe.parent_path();
+}
+
+fs::path bundledBinDir() {
+  fs::path dir = executableDir();
+  if (dir.empty()) return {};
+  return dir / "bin";
+}
+
+std::vector<std::string> bundledSearchDirs(const fs::path& exeDir) {
+  if (exeDir.empty()) return {};
+  return {exeDir.string(), (exeDir / "bin").string()};
 }
 
 std::string findExecutableIn(const std::string& name, const std::vector<std::string>& dirs, bool windows) {
@@ -328,13 +343,44 @@ std::string findExecutable(const std::string& name, bool preferBundled) {
     return "";
   }
   std::vector<std::string> dirs;
-  fs::path bin = bundledBinDir();
-  if (preferBundled && !bin.empty()) dirs.push_back(bin.string());
+  auto bundled = bundledSearchDirs(executableDir());
+  if (preferBundled) dirs.insert(dirs.end(), bundled.begin(), bundled.end());
   if (const char* path = std::getenv("PATH")) {
     for (auto& d : splitPathList(path, sep)) dirs.push_back(d);
   }
-  if (!preferBundled && !bin.empty()) dirs.push_back(bin.string());
+  if (!preferBundled) dirs.insert(dirs.end(), bundled.begin(), bundled.end());
   return findExecutableIn(name, dirs, windows);
+}
+
+ClangdChoice resolveClangd(const std::string& setting, const std::vector<std::string>& bundledDirs,
+                           const std::string& pathList, char sep, bool windows) {
+  if (!setting.empty()) {
+    if (setting.find('/') != std::string::npos || setting.find('\\') != std::string::npos) {
+      std::error_code ec;
+      for (auto& c : executableCandidates(setting, windows))
+        if (fs::is_regular_file(c, ec)) return {c, "setting"};
+      return {};
+    }
+    std::string r = findExecutableIn(setting, splitPathList(pathList, sep), windows);
+    return r.empty() ? ClangdChoice{} : ClangdChoice{r, "setting"};
+  }
+  std::string r = findExecutableIn("clangd", bundledDirs, windows);
+  if (!r.empty()) return {r, "bundled"};
+  r = findExecutableIn("clangd", splitPathList(pathList, sep), windows);
+  if (!r.empty()) return {r, "PATH"};
+  return {};
+}
+
+ClangdChoice findClangd(const std::string& setting) {
+#ifdef _WIN32
+  const bool windows = true;
+  const char sep = ';';
+#else
+  const bool windows = false;
+  const char sep = ':';
+#endif
+  const char* path = std::getenv("PATH");
+  return resolveClangd(setting, bundledSearchDirs(executableDir()), path ? path : "", sep, windows);
 }
 
 }  // namespace tf

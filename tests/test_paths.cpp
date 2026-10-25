@@ -111,6 +111,40 @@ TEST(exe_find_in_dirs_windows_and_order) {
   fs::remove_all(d);
 }
 
+TEST(clangd_discovery_precedence) {
+  fs::path d = freshDir("clangd_disc");
+  fs::path app = d / "app" / "bin";  // fake exe dir of a packaged build
+  touch(app / "clangd.exe");
+  touch(d / "path1" / "clangd.exe");
+  touch(d / "custom" / "my-clangd.exe");
+  std::vector<std::string> bundled = bundledSearchDirs(app);
+  REQUIRE(bundled.size() == 2u);
+  CHECK_EQ(bundled[0], app.string());
+  const std::string pathList = (d / "path1").string();
+
+  // Setting wins over bundled and PATH.
+  auto s = resolveClangd((d / "custom" / "my-clangd").string(), bundled, pathList, ';', true);
+  CHECK_EQ(s.source, "setting");
+  CHECK_EQ(s.path, (d / "custom" / "my-clangd.exe").string());
+  // A setting that does not resolve is an error, never a silent fallback to the bundled one.
+  CHECK_EQ(resolveClangd((d / "custom" / "missing").string(), bundled, pathList, ';', true).path, "");
+  CHECK_EQ(resolveClangd("missing-clangd", bundled, pathList, ';', true).path, "");
+  // No setting: bundled beats PATH.
+  auto b = resolveClangd("", bundled, pathList, ';', true);
+  CHECK_EQ(b.source, "bundled");
+  CHECK_EQ(b.path, (app / "clangd.exe").string());
+  // Nothing bundled: PATH.
+  auto p = resolveClangd("", bundledSearchDirs(d / "empty" / "bin"), pathList, ';', true);
+  CHECK_EQ(p.source, "PATH");
+  CHECK_EQ(p.path, (d / "path1" / "clangd.exe").string());
+  // Nothing anywhere.
+  CHECK_EQ(resolveClangd("", {}, "", ';', true).path, "");
+  // <exe dir>/bin/clangd is found too (second bundled location).
+  touch(d / "app2" / "bin" / "clangd.exe");
+  CHECK_EQ(resolveClangd("", bundledSearchDirs(d / "app2"), "", ';', true).source, "bundled");
+  fs::remove_all(d);
+}
+
 TEST(msvc_cl_via_vctoolsinstalldir) {
   fs::path d = freshDir("vct");
   fs::path tools = d / "VC" / "Tools" / "MSVC" / "14.40.33807";

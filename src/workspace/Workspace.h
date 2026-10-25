@@ -119,4 +119,21 @@ std::filesystem::path bundledBinDir();
 // Search `dirs` in order for any candidate; returns the first existing file.
 std::string findExecutableIn(const std::string& name, const std::vector<std::string>& dirs, bool windows);
 
+// Directory holding the running executable ("" if unknown).
+std::filesystem::path executableDir();
+// Where a packaged build keeps helper executables, in search order: the executable's own directory (the packaged
+// layout is <prefix>/bin/{tenfold-ui,tenfold-cli,clangd}) then <exe dir>/bin.
+std::vector<std::string> bundledSearchDirs(const std::filesystem::path& exeDir);
+
+// clangd discovery. Precedence: an explicit setting (path or name; no fallback when it does not resolve) > clangd
+// bundled with the editor (`bundledDirs`) > PATH (`pathList`, `sep`-separated). Pure; findClangd() feeds it the real
+// process environment.
+struct ClangdChoice {
+  std::string path;    // resolved executable, "" when none was found
+  std::string source;  // "setting" | "bundled" | "PATH" | ""
+};
+ClangdChoice resolveClangd(const std::string& setting, const std::vector<std::string>& bundledDirs,
+                           const std::string& pathList, char sep, bool windows);
+ClangdChoice findClangd(const std::string& setting);
+
 }  // namespace tf

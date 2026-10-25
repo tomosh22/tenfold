@@ -360,3 +360,92 @@ jobs:
             if (Test-Path $log) { Get-Content $log -Tail 150 } else { Write-Host "(no ActivityLog.xml)" }
           }
           Get-Process devenv, ServiceHub* -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime
+
+  # D1: distributable packages. Only on pushes to main and v* tags (a package is ~100 MB because of clangd), and
+  # non-blocking until it has run green once. Each job builds Release with the UI, downloads the pinned clangd
+  # (tools/package/ClangdPin.cmake, SHA-256 verified), runs cpack and smoke-tests the unpacked package with every other
+  # clangd removed from PATH (tools/package/smoke-test.sh requires the engine to log that it chose the bundled one).
+  package:
+    name: package-${{ matrix.name }}
+    if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/v'))
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    continue-on-error: true  # TODO: drop once the package jobs have run green once
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: windows-x64
+            os: windows-2022
+            msvc_env: true
+            cpack: ZIP
+          - name: linux-x64
+            os: ubuntu-24.04
+            cpack: TGZ
+          - name: macos-arm64  # best effort
+            os: macos-14
+            cpack: TGZ;DragNDrop
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ninja (pip)
+        shell: bash
+        run: |
+          python -m pip install "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: Install X11, GL and FreeType dev packages
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl-dev libx11-dev libxext-dev libxcursor-dev libxi-dev \
+            libxrandr-dev libxfixes-dev libxss-dev libxkbcommon-dev libxrender-dev libfreetype-dev
+
+      - name: MSVC developer environment
+        if: matrix.msvc_env
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: x64
+
+      - name: Configure
+        shell: bash
+        run: cmake -S . -B build-pkg -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
+
+      - name: Build
+        shell: bash
+        run: cmake --build build-pkg --parallel
+
+      - name: Fetch pinned clangd (SHA-256 verified)
+        shell: bash
+        run: cmake --build build-pkg --target fetch-clangd
+
+      - name: Package
+        shell: bash
+        working-directory: build-pkg
+        run: cpack -G "${{ matrix.cpack }}"
+
+      - name: Smoke test (bundled clangd, no other clangd on PATH)
+        shell: bash
+        run: |
+          pkg="$(ls build-pkg/tenfold-*.zip build-pkg/tenfold-*.tar.gz 2>/dev/null | head -n1)"
+          echo "package: $pkg"
+          tools/package/smoke-test.sh "$pkg" "$PWD"
+
+      - name: AppImage (best effort)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: tools/package/appimage.sh build-pkg build-pkg/appimage
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tenfold-${{ matrix.name }}
+          path: |
+            build-pkg/tenfold-*.zip
+            build-pkg/tenfold-*.tar.gz
+            build-pkg/tenfold-*.dmg
+            build-pkg/appimage/*.AppImage
+          if-no-files-found: error
