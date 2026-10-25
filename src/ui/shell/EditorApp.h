@@ -7,16 +7,23 @@
 #include "app/Editor.h"
 #include "ui/commands/CommandRegistry.h"
 #include "ui/commands/KeyMap.h"
+#include "ui/features/FileSearch.h"
+#include "ui/features/NavResultPicker.h"
+#include "ui/features/SymbolSearch.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/shell/Workbench.h"
 
 namespace tf::ui {
 
+class Settings;
+
 // Glue between the window's input events and the command system (B4): maps KeyDown / thumb-button MouseDown to a
 // KeyChord, picks the active context ("editor" when a TextView has focus, else "global"), runs KeyMap::feed and
 // CommandRegistry::run, and reports through the status bar: the pending chord ("Ctrl+K..."), key-binding file
-// diagnostics, "<command> is not available yet" for commands whose UI does not exist yet (pickers, B5) and failures.
-// Everything else (text input, mouse, keys without a binding) goes to the widget tree unchanged.
+// diagnostics, "<command> is not available yet" for commands whose UI does not exist yet (find in files, B5b) and
+// failures. It also owns the pickers (B5a): symbol search (Search.SymbolSearch), open file (File.OpenFile) and the
+// multi-result navigation list; while one is open the key context is "picker" and every key/mouse event reaches it
+// first. Everything else (text input, mouse, keys without a binding) goes to the widget tree unchanged.
 //
 // `bench` may be null (any other RootWidget with TextViews, e.g. ShellDemo or a test); then the workbench commands
 // stay unbound and messages are only available through message(). Bindings come from loadKeyBindings(workspace root,
@@ -24,6 +31,16 @@ namespace tf::ui {
 class EditorApp {
  public:
   EditorApp(RootWidget& root, Editor& editor, Workbench* bench = nullptr, const std::filesystem::path& userDir = {});
+  ~EditorApp();
+  EditorApp(const EditorApp&) = delete;
+  EditorApp& operator=(const EditorApp&) = delete;
+
+  // Reads picker.preview (and later picker settings); call again on Settings changes.
+  void applySettings(const Settings& s);
+  SymbolSearch& symbolSearch() { return *symbols_; }
+  FileSearch* fileSearch() { return files_.get(); }  // null without a Workbench
+  NavResultPicker& navResults() { return *navResults_; }
+  void closePickers();
 
   // Returns true if the event was consumed (a binding, a swallowed chord stroke, or a widget).
   bool handleEvent(const InputEvent& e, int64_t nowMs);
@@ -41,6 +58,8 @@ class EditorApp {
   void setMessage(const std::string& text, int ttlMs = 0, bool pending = false);
   void bindUiCommands();
   const char* activeContext() const;
+  void showNavResults(uint64_t token, const std::string& title, size_t minResults, Confidence c,
+                      const std::vector<SymbolLocation>& locs, const std::string& err);
 
   RootWidget& root_;
   Editor& editor_;
@@ -52,6 +71,13 @@ class EditorApp {
   int ttlMs_ = 0;       // set by setMessage, converted to expiry_ on the next call that knows the time
   int64_t expiry_ = 0;  // 0 = never
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
+  int64_t now_ = 0;
+  uint64_t navToken_ = 0;
+  std::shared_ptr<int> life_ = std::make_shared<int>(0);  // callbacks of in-flight engine requests check it
+  PickerEnv pickerEnv_;
+  std::unique_ptr<SymbolSearch> symbols_;
+  std::unique_ptr<FileSearch> files_;
+  std::unique_ptr<NavResultPicker> navResults_;
 };
 
 }  // namespace tf::ui

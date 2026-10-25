@@ -254,6 +254,41 @@ scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar
 `TextView` (below). `Theme` is a neutral dark placeholder until B7 loads it from
 files. The engine never includes any of this.
 
+### Popups: top layer, modal, `InputLine`, `ListPopup` (B5a)
+
+A widget with `setTopLayer(true)` is skipped by the base paint pass and painted afterwards with its subtree as a second
+layer: base rects, base glyphs, base overlay, then the popup's rects, the popup's glyphs (a second `flushText`) and its
+overlay (the input caret). A popup therefore covers the editor's text for one extra rect batch plus one glyph batch per
+colour (about 8 batches for an open picker). `RootWidget::showModal(w)` makes `w` a full-window top-layer child that
+owns the keyboard and mouse until `closeModal()` (previous focus restored; closing from inside the modal's own handler
+is safe, the widget is destroyed on the next dispatch/render; a second modal replaces the first). `InputLine` is a
+single-line UTF-8 field (caret, selection, Home/End, Ctrl+Left/Right, Ctrl+Backspace/Delete word edits, clipboard,
+mouse, double click = word); keys it does not own bubble to its parent. `ListPopup` = optional `InputLine` + rows
+(icon column, primary text with fuzzy-matched characters highlighted, dim secondary text, right-aligned detail and
+badge, `dim` rows for approximate results) + optional preview pane + a status label ("verifying..."). Keys: Up/Down/
+PageUp/PageDown/Ctrl+Home/Ctrl+End (Home/End too without an input), Enter accepts, Escape closes; mouse: hover, click
+accepts, click outside closes, wheel scrolls. Callbacks: `onQuery`, `onAccept`, `onSelection`, `onClosed`.
+
+### Pickers (`src/ui/features`, B5a)
+
+All pickers are owned by `EditorApp` and share a `PickerEnv` (root, editor, `LineSource` for previews, the app clock).
+While one is open the key context is `picker`, so the `editor` bindings (arrows, Enter, Escape) do not fire and the
+keys reach the popup. *Symbol search* (`Search.SymbolSearch`, Ctrl+,): typing calls `Editor::findSymbols` from a worker
+thread (the fast tier scans the whole index synchronously: 35-270 ms on Godot, never on the UI thread); the first
+keystroke after a pause goes out at once, later ones at most every 25 ms (`tick` returns the wait); every request has a
+sequence number and answers for an older one are dropped. An Approximate answer is shown greyed with "verifying..."
+(or "approximate (reason)" when no authoritative answer will follow, as without clangd); the Authoritative one replaces
+it and the selected symbol stays selected if it is still present (constraint 1.4). The right pane previews the target
+line from the open Document (unsaved text) or from disk; setting `picker.preview` (default true, OPEN_QUESTIONS #6).
+Enter -> `Editor::gotoLocation`, so it lands in navigation history, and `Workbench::sync` reveals the tab. *Open file*
+(`File.OpenFile`, Ctrl+P / Ctrl+O): `FileSearch::rank` scores every workspace file with `FastIndex::fuzzyScore` on the
+filename (weight 4) and the relative path, whitespace-separated tokens must all match, files from
+`Workbench::recentFiles()` (MRU, persisted as `recent` in `layout.json`) get a decaying bonus and lead the empty-query
+list; it opens with `Workbench::openFile`, a tab operation that is not a navigation jump. 8.7k Godot paths filter in
+2-4 ms per keystroke. *Result list* (`NavResultPicker`): GotoDefinition/Declaration with several candidates and
+FindReferences with any number show `file:line` plus the source line; the approximate list is swapped in place for the
+authoritative one with the selection kept by location; stale answers of an older command are ignored.
+
 ## Commands and key bindings (`src/ui/commands`, `src/ui/settings/KeyBindings.*`, part of `tenfold_ui`)
 
 Every user action is a named `Command` (`Editor.GotoDefinition`, `Nav.Back`, ...: id, human name, handler
@@ -334,10 +369,10 @@ input, the mouse, unbound keys) is dispatched to the widget tree. Bindings are `
 config dir)`. `tick(nowMs)` runs `Workbench::sync`, expires a stale chord (`KeyMap::tick`) and message, and ticks the
 root; it returns the wait the main loop should use. The status bar has a `message` segment: the pending chord text
 ("Ctrl+K..."), the first key-binding diagnostic (`formatDiag`, "+N more", shown for 12 s), "<command> is not available
-yet" for a bound command without a handler (File.OpenFile, Search.SymbolSearch, Search.FindInWorkspace: B5 builds the
-pickers), a failed command, or a navigation result with several candidates (picker also B5). The UI-only handlers bound
+yet" for a bound command without a handler (Search.FindInWorkspace: B5b), a failed command, or an empty navigation
+result. Symbol search, open file and the multi-result list are the B5a pickers above. The UI-only handlers bound
 here: `App.Quit` (Ctrl+Q), `Workbench.CycleMruNext/Prev` (the cycle ends when a key event arrives without Ctrl),
-`Workbench.FocusPanel N` (1-based), `Editor.Copy/Cut/Paste` and, in the engine-served set, `File.Save`. Multi-caret
+`Workbench.FocusPanel N` (1-based), `Search.SymbolSearch` (needs a started Editor), `File.OpenFile`, `Editor.Copy/Cut/Paste` and, in the engine-served set, `File.Save`. Multi-caret
 clipboard: copy joins the selections with a line break (no selection: the caret lines); paste with exactly as many lines
 as carets (a final line break does not count) inserts one line per caret in document order
 (`Editor::insertTextPerCaret`), otherwise the whole text at every caret. The clipboard has an injectable backend

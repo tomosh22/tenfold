@@ -6,6 +6,7 @@
 
 #include "ui/commands/EditorCommands.h"
 #include "ui/platform/Clipboard.h"
+#include "ui/settings/Settings.h"
 #include "ui/widgets/TextView.h"
 
 namespace tf::ui {
@@ -82,7 +83,12 @@ bool doPaste(Editor& ed) {
 }  // namespace
 
 EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const std::filesystem::path& userDir)
-    : root_(root), editor_(editor), bench_(bench) {
+    : root_(root), editor_(editor), bench_(bench), pickerEnv_(root, editor) {
+  pickerEnv_.clock = [this] { return now_; };
+  pickerEnv_.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
+  symbols_ = std::make_unique<SymbolSearch>(pickerEnv_);
+  navResults_ = std::make_unique<NavResultPicker>(pickerEnv_);
+  if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   registerEditorCommands(registry_);
   bindUiCommands();
   keys_ = loadKeyBindings(editor.workspace().root(), userDir, diags_);
@@ -92,7 +98,28 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
                kDiagMs);
 }
 
+EditorApp::~EditorApp() {
+  closePickers();  // their callbacks point into this object
+  life_.reset();
+}
+
+void EditorApp::applySettings(const Settings& s) { pickerEnv_.preview = s.getBool("picker.preview"); }
+
+void EditorApp::closePickers() {
+  symbols_->close();
+  navResults_->close();
+  if (files_) files_->close();
+}
+
 void EditorApp::bindUiCommands() {
+  registry_.bind(
+      "Search.SymbolSearch",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        symbols_->open();
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->started(); });
   registry_.bind("App.Quit", [this](const CommandContext&, std::string_view) { return quit_ = true; });
   registry_.bind(
       "Editor.Copy", [](const CommandContext& c, std::string_view) { return doCopy(*c.editor); },
@@ -104,6 +131,11 @@ void EditorApp::bindUiCommands() {
       "Editor.Paste", [](const CommandContext& c, std::string_view) { return doPaste(*c.editor); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   if (!bench_) return;
+  registry_.bind("File.OpenFile", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    files_->open();
+    return true;
+  });
   for (bool fwd : {true, false})
     registry_.bind(fwd ? "Workbench.CycleMruNext" : "Workbench.CycleMruPrev",
                    [this, fwd](const CommandContext&, std::string_view) {
@@ -121,7 +153,23 @@ void EditorApp::bindUiCommands() {
   });
 }
 
-const char* EditorApp::activeContext() const { return dynamic_cast<TextView*>(root_.focused()) ? "editor" : "global"; }
+const char* EditorApp::activeContext() const {
+  if (root_.modal()) return "picker";
+  return dynamic_cast<TextView*>(root_.focused()) ? "editor" : "global";
+}
+
+void EditorApp::showNavResults(uint64_t token, const std::string& title, size_t minResults, Confidence c,
+                               const std::vector<SymbolLocation>& locs, const std::string& err) {
+  if (token != navToken_) return;  // a newer navigation command superseded this answer
+  if (locs.size() >= minResults) {
+    if (root_.modal() && !navResults_->isOpen()) return;  // the user opened another picker meanwhile
+    navResults_->show(title, c, locs, err, minResults);
+    return;
+  }
+  navResults_->close();
+  if (!err.empty()) setMessage(err, kMessageMs);
+  else if (locs.empty() && c == Confidence::Authoritative) setMessage("No results", kMessageMs);
+}
 
 void EditorApp::setMessage(const std::string& text, int ttlMs, bool pending) {
   message_ = text;
@@ -132,6 +180,7 @@ void EditorApp::setMessage(const std::string& text, int ttlMs, bool pending) {
 }
 
 bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
+  now_ = nowMs;
   if (ttlMs_ > 0) {
     expiry_ = nowMs + ttlMs_;
     ttlMs_ = 0;
@@ -162,12 +211,20 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
   CommandContext cc;
   cc.editor = &editor_;
   cc.context = ctx;
-  cc.onNavResult = [this](Confidence, const std::vector<SymbolLocation>& locs, const std::string& err) {
-    if (!err.empty()) setMessage(err, kMessageMs);
-    else if (locs.empty()) setMessage("No results", kMessageMs);
-    else if (locs.size() > 1)
-      setMessage(std::to_string(locs.size()) + " results (result picker is not available yet)", kMessageMs);
-  };
+  const std::string& cmdId = r.binding->command;
+  if (cmdId.rfind("Editor.Goto", 0) == 0 || cmdId == "Editor.FindReferences") {
+    // The answer may arrive twice (approximate, then authoritative); both feed the same picker. The Editor jumps by
+    // itself for a single definition/declaration, so only References lists one location.
+    const uint64_t token = ++navToken_;
+    navResults_->close();
+    const Command* c = registry_.find(cmdId);
+    const std::string title = c ? c->name : cmdId;
+    const size_t minResults = cmdId == "Editor.FindReferences" ? 1 : 2;
+    cc.onNavResult = [this, life = std::weak_ptr<int>(life_), token, title, minResults](
+                         Confidence conf, const std::vector<SymbolLocation>& locs, const std::string& err) {
+      if (!life.expired()) showNavResults(token, title, minResults, conf, locs, err);
+    };
+  }
   const RunResult rr = registry_.run(r.binding->command, r.binding->arg, cc);
   const Command* cmd = registry_.find(r.binding->command);
   const std::string name = cmd ? cmd->name : r.binding->command;
@@ -184,6 +241,7 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
 }
 
 int EditorApp::tick(int64_t nowMs) {
+  now_ = nowMs;
   if (ttlMs_ > 0) {
     expiry_ = nowMs + ttlMs_;
     ttlMs_ = 0;
@@ -193,6 +251,7 @@ int EditorApp::tick(int64_t nowMs) {
   if (expiry_ && nowMs >= expiry_) setMessage("");
   int wait = root_.tick(nowMs);
   auto soonest = [&](int ms) { wait = wait < 0 ? ms : std::min(wait, ms); };
+  if (const int due = symbols_->tick(nowMs); due >= 0) soonest(due);
   if (keys_.pending()) soonest(100);
   if (expiry_) soonest(static_cast<int>(std::max<int64_t>(1, expiry_ - nowMs)));
   return wait;
