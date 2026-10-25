@@ -46,6 +46,51 @@ class Workbench::Overlay : public Widget {
   Workbench& wb_;
 };
 
+namespace {
+// Fills its bounds with its only child (the panel tree).
+class Body : public Widget {
+ protected:
+  void onLayout() override {
+    for (const auto& c : children()) c->layout(bounds());
+  }
+};
+}  // namespace
+
+// Bottom dock host: every panel fills it, only the selected one is visible.
+class Workbench::Dock : public Widget {
+ public:
+  std::map<std::string, Widget*> panels;
+  void select(const std::string& name) {
+    for (const auto& [n, w] : panels) w->setVisible(n == name);
+  }
+
+ protected:
+  void paint(PaintContext& ctx) override { ctx.fill(bounds(), ctx.theme.panelBackground); }
+  void onLayout() override {
+    for (const auto& c : children())
+      if (c->visible()) c->layout(bounds());
+  }
+};
+
+// Body above, dock below. Closed, the body takes everything and the divider neither paints nor reacts.
+class Workbench::DockSplit : public Splitter {
+ public:
+  DockSplit() : Splitter(Orientation::Vertical) {}
+  bool open = false;
+  bool onEvent(const InputEvent& e) override { return open && Splitter::onEvent(e); }
+
+ protected:
+  void paint(PaintContext& ctx) override {
+    if (open) Splitter::paint(ctx);
+  }
+  void onLayout() override {
+    if (open) return Splitter::onLayout();
+    const RectF& b = bounds();
+    if (first()) first()->layout(b);
+    if (second()) second()->layout({b.x, b.y + b.h, b.w, 0});
+  }
+};
+
 Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme)
     : RootWidget(text, theme), editor_(editor) {
   auto sb = std::make_unique<StatusBar>();
@@ -58,9 +103,20 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   status_->addSegment("pos", StatusBar::Align::Left);
   status_->addSegment("clangd", StatusBar::Align::Left);
   status_->addSegment("fastindex", StatusBar::Align::Left);
+  status_->addSegment("build", StatusBar::Align::Left);
   status_->addSegment("encoding", StatusBar::Align::Right);
   status_->addSegment("eol", StatusBar::Align::Right);
   status_->setText("workspace", editor_.workspace().root().filename().string());
+  auto ds = std::make_unique<DockSplit>();
+  split_ = ds.get();
+  auto body = std::make_unique<Body>();
+  body_ = body.get();
+  auto dock = std::make_unique<Dock>();
+  dockWidget_ = dock.get();
+  dock->setVisible(false);
+  split_->setMinSizes(80, 60);
+  split_->setChildren(std::move(body), std::move(dock));
+  addChild(std::move(ds));
   installTree(makePanel());
 }
 
@@ -97,10 +153,10 @@ std::vector<Panel*> Workbench::panels() const {
 }
 
 void Workbench::installTree(std::unique_ptr<Widget> top, bool keepTabs) {
-  if (top_) removeChild(top_);
+  if (top_) body_->removeChild(top_);
   if (!keepTabs) tabs_.clear();
   cycle_ = {};
-  top_ = addChild(std::move(top));
+  top_ = body_->addChild(std::move(top));
   addChild(removeChild(overlay_));  // the overlay stays last (on top)
   auto ps = panels();
   active_ = ps.empty() ? nullptr : ps.front();
@@ -110,9 +166,9 @@ void Workbench::installTree(std::unique_ptr<Widget> top, bool keepTabs) {
 std::unique_ptr<Widget> Workbench::replaceNode(Widget* old, std::unique_ptr<Widget> nw) {
   Widget* par = old->parent();
   if (auto* s = dynamic_cast<Splitter*>(par)) return s->replaceChild(old, std::move(nw));
-  auto out = removeChild(old);
-  top_ = addChild(std::move(nw));
-  addChild(removeChild(overlay_));
+  auto out = body_->removeChild(old);
+  top_ = body_->addChild(std::move(nw));
+  requestLayout();
   return out;
 }
 
@@ -127,13 +183,75 @@ void Workbench::onLayout() {
   const float sh = status_->preferredHeight();
   const float tb = topBar_ ? topBarH_ : 0;
   if (topBar_) topBar_->layout({b.x, b.y, b.w, tb});
-  if (top_) top_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
+  split_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
   RectF acc{0, 0, 0, 0};
   if (active_ && panels().size() > 1)
     acc = {active_->bounds().x, active_->bounds().y, active_->bounds().w, theme().accentHeight};
   overlay_->accent = acc;
   overlay_->layout(dragTab_ >= 0 ? b : acc);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Bottom dock
+// ---------------------------------------------------------------------------------------------------------------
+
+Widget* Workbench::addBottomPanel(const std::string& name, std::unique_ptr<Widget> w) {
+  if (Widget* old = bottomPanel(name)) dockWidget_->removeChild(old);
+  Widget* raw = dockWidget_->addChild(std::move(w));
+  dockWidget_->panels[name] = raw;
+  applyDock();
+  return raw;
+}
+
+Widget* Workbench::bottomPanel(const std::string& name) const {
+  const auto it = dockWidget_->panels.find(name);
+  return it == dockWidget_->panels.end() ? nullptr : it->second;
+}
+
+bool Workbench::bottomVisible() const { return split_->open; }
+
+float Workbench::bottomHeight() const { return split_->open ? 1.0f - split_->ratio() : dock_.height; }
+
+void Workbench::setBottomHeight(float fraction) {
+  dock_.height = std::clamp(fraction, 0.1f, 0.9f);
+  applyDock();
+}
+
+RectF Workbench::bottomRect() const { return split_->open ? dockWidget_->bounds() : RectF{0, 0, 0, 0}; }
+
+bool Workbench::showBottomPanel(const std::string& name) {
+  if (!bottomPanel(name)) return false;
+  dock_.height = bottomHeight();  // keep what the user dragged
+  dock_.visible = true;
+  dock_.name = name;
+  applyDock();
+  return true;
+}
+
+void Workbench::hideBottomPanel() {
+  dock_.height = bottomHeight();
+  dock_.visible = false;
+  applyDock();
+}
+
+bool Workbench::toggleBottomPanel(const std::string& name) {
+  if (bottomVisible() && dock_.name == name) {
+    hideBottomPanel();
+    return false;
+  }
+  return showBottomPanel(name);
+}
+
+// Brings the widgets in line with dock_: open only when visible is wanted and the named panel exists.
+void Workbench::applyDock() {
+  Widget* w = bottomPanel(dock_.name);
+  const bool open = dock_.visible && w;
+  split_->open = open;
+  dockWidget_->setVisible(open);
+  dockWidget_->select(open ? dock_.name : std::string());
+  split_->setRatio(1.0f - dock_.height);
+  requestLayout();
 }
 
 Panel* Workbench::splitPanel(Panel* target, Splitter::Orientation o, bool after, int moveId) {
@@ -540,6 +658,8 @@ std::string Workbench::layoutJson() const {
   };
   const auto it = std::find(ps.begin(), ps.end(), active_);
   Json out{{"version", 1}, {"activePanel", static_cast<int>(it - ps.begin())}, {"root", node(node, top_)}};
+  if (dock_.visible || !dock_.name.empty())
+    out["bottom"] = {{"visible", dock_.visible}, {"panel", dock_.name}, {"height", bottomHeight()}};
   if (!recent_.empty()) {
     out["recent"] = Json::array();
     for (const fs::path& p : recent_) out["recent"].push_back(rel(p));
@@ -621,6 +741,15 @@ bool Workbench::restoreLayoutFromJson(const std::string& text) {
         const fs::path p(r.get<std::string>());
         recent.push_back(p.is_absolute() ? p : editor_.workspace().root() / p);
       }
+  dock_ = {};  // a layout without "bottom" (written before C1-UI) keeps the dock hidden
+  if (j.contains("bottom") && j["bottom"].is_object()) {
+    const Json& b = j["bottom"];
+    dock_.visible = getBool(b, "visible", false);
+    if (b.contains("panel") && b["panel"].is_string()) dock_.name = b["panel"].get<std::string>();
+    if (b.contains("height") && b["height"].is_number())
+      dock_.height = std::clamp(b["height"].get<float>(), 0.1f, 0.9f);
+  }
+  applyDock();
   const int ap = getInt(j, "activePanel", 0);
   active_ = built.empty() ? nullptr : built[static_cast<size_t>(std::clamp(ap, 0, static_cast<int>(built.size()) - 1))];
   if (!active_) active_ = panels().front();

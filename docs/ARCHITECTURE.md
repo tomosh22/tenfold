@@ -227,6 +227,7 @@ fast editor must:
   callback still receives the raw text. `setBuildCursor(index)` moves the F4
   cursor to a message (a click on a build-panel line), so the next F4 /
   Shift+F4 continues from there.
+* **UI (C1-UI)**: see "Build panel and bottom dock" under the Workbench section.
 
 ## Navigation history
 
@@ -366,6 +367,34 @@ caret and mouse hit-testing, all derived from one cell iterator so they cannot d
 settings passed in; `discoverMonospaceFont` is only the fallback search. Layout of 120 x 150 visible cells with a warm
 atlas takes about 0.1 ms.
 
+## Renderer backends (`src/ui/gfx`, B9)
+
+`Renderer` has two implementations with identical behaviour (batching, draw order, straight alpha blended in gamma
+space, R8 coverage x colour / RGBA8 modulate, scissor stack rounding outwards, `readPixels` top-left origin,
+offscreen mode): `GlRenderer` (OpenGL 3.3 core, every platform) and `D3d11Renderer` (Direct3D 11, Windows). Both
+share the FreeType atlas: glyph rasterisation stays on FreeType, DirectWrite is not used.
+
+* **Selection.** CMake option `TENFOLD_D3D11` (default ON on Windows) builds the D3D11 files and defines
+  `TENFOLD_HAVE_D3D11`; `tenfold-ui --renderer=gl|d3d11` picks at run time (default `d3d11` on Windows, `gl`
+  elsewhere). `ui::WindowOptions::openGl = false` creates the SDL window without `SDL_WINDOW_OPENGL`;
+  `Window::nativeHandle()` returns the HWND (`SDL_PROP_WINDOW_WIN32_HWND_POINTER`).
+* **Shaders.** HLSL source is embedded in `D3d11Renderer.cpp` and compiled at start-up with `D3DCompile`
+  (`d3dcompiler_47.dll`, Windows 10+), so the build needs no fxc/dxc and CI needs no extra tool. Cost: a few ms at
+  start-up. Two pixel shaders (coverage, modulate) instead of a per-draw flag.
+* **Device.** Hardware adapter first, WARP (`D3D_DRIVER_TYPE_WARP`) as fallback; `TENFOLD_D3D11_WARP=1` forces WARP.
+  Feature level 11_0 down to 10_0, no debug layer.
+* **Swap chain** (`WindowsSwapChain`). `DXGI_SWAP_EFFECT_FLIP_DISCARD`, 2 buffers, R8G8B8A8_UNORM (non-sRGB), created
+  with `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` and `SetMaximumFrameLatency(1)`;
+  `D3d11Renderer::beginFrame` blocks on the waitable object before recording, so at most one frame is queued ahead of
+  the display. Without `IDXGISwapChain2` (Wine) it falls back to `IDXGIDevice1::SetMaximumFrameLatency(1)`.
+  `endFrame()` only draws; `present()` flips (the GL equivalent is `Window::swap()`). A size change in `beginFrame`
+  triggers `ResizeBuffers`. Offscreen mode (screenshots, tests; always on without an HWND) renders into an owned
+  texture and `readPixels` copies through a staging texture.
+* **Tests.** `RENDERER_TEST` (tests/ui/ui_test.h) registers each renderer test twice: `name` (GL) and `name_d3d11`
+  (offscreen, WARP; skipped with a message off Windows). `tenfold-ui-tests d3d11` runs only the D3D11 ones. The
+  D3D11 runs are compared against the GL goldens (b1_scene, b1_text) with per-channel <= 3 and <= 0.5 % of pixels
+  (GL: 0.2 %), since WARP and Mesa rasterise triangle edges slightly differently.
+
 ## UI widgets (`src/ui/widgets`, part of `tenfold_ui`)
 
 A small retained widget layer of our own (B3a). `Widget` has absolute-pixel bounds, parent/children, visibility,
@@ -420,7 +449,7 @@ authoritative one with the selection kept by location; stale answers of an older
 
 *Find in files* (`FindInFiles`, Ctrl+Shift+F): a large **modal `ListPopup`**, not a docked bottom panel (decision: the
 Workbench layout stays untouched, and a modal reuses the picker key context; a named bottom-panel slot for the build
-output, C1-UI, is therefore still to be built). Typing searches live: after a 150 ms pause `Editor::findInWorkspace`
+output, C1-UI, was built separately: see "Build panel and bottom dock"). Typing searches live: after a 150 ms pause `Editor::findInWorkspace`
 starts (a new query, a toggle or closing the popup cancels the running search and its queued batches are dropped by
 sequence number); batches arrive through `post()` and rows are rebuilt at most every 60 ms: a header row per file (sorted
 by path, the match count as badge) and one row per match with the trimmed context line, the match highlighted and the
@@ -442,7 +471,8 @@ fast index's: greyed and marked "approximate" (constraint 1.4). Accept replaces 
 as one undo step: at every caret when all carets are empty and share the same prefix (`setSelections` +
 `insertText`), else at the primary caret only. Measured (mock font, Release): keystroke-to-paint with 5000 items open
 about 1.1 ms (worst 1.4 ms) against the 8 ms budget. *Hover* (`HoverTooltip`): a mouse rest of 400 ms over an
-identifier or a diagnostic range; diagnostics are shown at once (error / warning / info colours), `Editor::hoverAt`
+identifier or a diagnostic range; diagnostics are shown at once (error / warning / info colours; the last build's
+message for the spot follows with a dim "build" label, C1-UI), `Editor::hoverAt`
 text is appended when it arrives (clangd markdown fences stripped); a move to another word, a key or a click dismisses
 it. *Signature help* (`SignatureHelp`): `(` / `,` ask `Editor::signatureHelp` (clangd only); the active parameter is
 counted locally from the top-level commas between the call's `(` and the caret, so it follows the caret without a
@@ -499,6 +529,37 @@ reveals the tab of the Editor's current document, refreshes dirty markers and th
 Layout is saved to `<workspace>/.tenfold/layout.json` (split orientation + ratio, panels, tab paths relative to the
 workspace, pinned flags, active tab, active panel) and restored on start; missing files are dropped and a corrupt file
 yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the workbench.
+
+#### Build panel and bottom dock (C1-UI, `Workbench`, `src/ui/features/BuildPanel.*`)
+
+* **Bottom dock** (`Workbench::addBottomPanel / showBottomPanel / hideBottomPanel / toggleBottomPanel`): the panel tree
+  lives in a `Body` widget inside a vertical `Splitter` subclass (`DockSplit`) whose second child is the `Dock`, a host
+  for named panels of which one is visible. Closed (the default: the dock is hidden until a build or a toggle), the
+  split gives the body everything and the divider neither paints nor reacts, so existing layouts and goldens are
+  unchanged. The divider is the ordinary Splitter drag (double-click resets to 50 %; minimum 80 px above, 60 px dock).
+  Panels draw their own headers; find in files and diagnostics could move in by registering a panel of their own
+  (they stay modal popups for now). `layout.json` gets an additive key
+  `"bottom": {"visible": bool, "panel": "Build", "height": 0.3}` (height = the dock's fraction of the area above the
+  status bar); a file without it loads with the dock hidden, a restored state for a panel registered later (EditorApp
+  adds "Build" after `restoreLayout`) is applied when the panel is added, wrong types in the key are ignored.
+* **`BuildPanel`**: header with the state (`Building...`, `Succeeded in 3.2 s`, `Failed: 2 errors, 5 warnings`,
+  `Failed (exit code N)`, `Failed to start: ...`, `Cancelled`) and Build / Cancel / close buttons; below it the output in
+  the editor font, ANSI escape sequences stripped (`BuildPanel::clean`: CSI, OSC, `\r` progress overwrite, tabs
+  expanded, long lines cut, 20000 lines kept). It follows the end of the output until the user scrolls up (wheel or
+  scrollbar) and resumes at the end. The panel calls `Editor::build` itself (one output callback per build) and feeds
+  the lines to its own `ErrorParser`, which finds the same messages as the Editor's: that pairs lines and messages.
+  Lines with a message are coloured by severity (`buildError` / `buildWarning`, notes dim), those with a location are
+  clickable (click or Enter on the selected line -> `Editor::gotoLocation`, so Back returns) and the scrollbar marks the
+  error / warning lines. Up/Down/PageUp/PageDown/Home/End select, Escape closes.
+* **Commands** (EditorApp): `Build.Build` (Ctrl+Shift+B; an argument is a custom shell command), `Build.Cancel`
+  (Ctrl+Break, enabled while a build runs), `Build.NextError` / `Build.PrevError` (F4 / Shift+F4:
+  `Editor::next/prevBuildMessage`, then the panel selects and scrolls to the line and the message goes to the status
+  bar), `View.ToggleBuildPanel` (Ctrl+Alt+B). Status bar segment `build` shows `build: <state>` after the first build
+  and toggles the panel on click.
+* **Squiggles**: `TextView` draws `Editor::buildDiagnostics(file)` under the clangd ones in `Theme::buildError` /
+  `buildWarning` (theme keys `color.buildError`, `color.buildWarning`, both shipped themes), with scrollbar marks in the
+  diagnostics lane (`Scrollbar::Lane::BuildError/BuildWarning`, drawn below clangd's). Notes are not drawn. A new build
+  clears them (Editor). Line numbers are those of the build time (not remapped on edits).
 
 Two small framework additions came with the editor view: an **overlay layer** (`Widget::paintOverlay`, run after the glyphs
 are emitted, so carets draw over text at the cost of one extra rect batch) and **ticks** (`RootWidget::tick(nowMs)` calls

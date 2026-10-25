@@ -3,12 +3,16 @@
 // Goldens are PNGs in tests/golden/ written by our own stored-block encoder (src/ui/gfx/PngWrite.cpp), so the
 // tests can read them back with the matching tiny decoder. Regenerate with `tenfold-ui-tests --update-goldens`.
 // Comparison tolerance: per-channel |diff| <= 3, and at most 0.2% of pixels may exceed that (different Mesa /
-// driver versions rasterise triangle edges slightly differently).
+// driver versions rasterise triangle edges slightly differently). The Direct3D 11 backend (RENDERER_TEST registers a
+// `_d3d11` twin of each test) is compared against the same GL goldens with the same per-channel limit but 0.5% of
+// pixels: WARP and Mesa differ in triangle-edge coverage on the thick diagonal lines and in texture filter rounding.
+// Only the GL run may rewrite goldens.
 #include <algorithm>
 #include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
+#include <functional>
 
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/PngWrite.h"
@@ -24,8 +28,7 @@ struct Img {
   const uint8_t* at(int x, int y) const { return &px[(static_cast<size_t>(y) * w + x) * 4]; }
 };
 
-Img render(GlRenderer& r, int w, int h, Color clear, void (*draw)(GlRenderer&)) {
-  r.setOffscreen(true);
+Img render(Renderer& r, int w, int h, Color clear, const std::function<void(Renderer&)>& draw) {
   r.beginFrame(w, h, clear);
   draw(r);
   r.endFrame();
@@ -53,9 +56,7 @@ TextureId makeAtlas(Renderer& r) {
   return t;
 }
 
-void sceneB1(GlRenderer& r) {
-  static TextureId atlas = 0;
-  if (!atlas) atlas = makeAtlas(r);
+void sceneB1(Renderer& r, TextureId atlas) {
   r.drawRect({16, 16, 100, 70}, {0.9f, 0.3f, 0.2f, 1});
   r.drawRect({70, 50, 100, 70}, {0.2f, 0.5f, 0.9f, 0.5f});
   for (int i = 0; i < 5; ++i) r.drawLine(130, 20.0f + i * 14, 240, 30.0f + i * 30, 1.0f + i, {1, 1, 0.4f, 1});
@@ -77,9 +78,8 @@ void sceneB1(GlRenderer& r) {
 
 }  // namespace
 
-TEST(renderer_rect_blend_and_orientation) {
-  SKIP_IF_NO_GL(fx);
-  Img img = render(*fx->renderer, 32, 24, {0, 0, 0, 1}, [](GlRenderer& r) {
+RENDERER_TEST(renderer_rect_blend_and_orientation) {
+  Img img = render(r, 32, 24, {0, 0, 0, 1}, [](Renderer& r) {
     r.drawRect({0, 0, 8, 8}, {1, 0, 0, 1});      // top-left, opaque red
     r.drawRect({16, 8, 8, 8}, {1, 1, 1, 0.5f});  // 50% white over black
   });
@@ -89,9 +89,8 @@ TEST(renderer_rect_blend_and_orientation) {
   CHECK(near(img.at(8, 2), 0, 0, 0, 255));  // just outside the rect
 }
 
-TEST(renderer_scissor_stack) {
-  SKIP_IF_NO_GL(fx);
-  Img img = render(*fx->renderer, 32, 32, {0, 0, 0, 1}, [](GlRenderer& r) {
+RENDERER_TEST(renderer_scissor_stack) {
+  Img img = render(r, 32, 32, {0, 0, 0, 1}, [](Renderer& r) {
     r.pushScissor({4, 4, 20, 20});
     r.pushScissor({10, 0, 100, 12});  // intersection: x 10..24, y 4..12
     r.drawRect({0, 0, 32, 32}, {0, 1, 0, 1});
@@ -107,9 +106,7 @@ TEST(renderer_scissor_stack) {
   CHECK(near(img.at(1, 30), 255, 0, 0, 255));
 }
 
-TEST(renderer_draw_glyphs_synthetic_r8) {
-  SKIP_IF_NO_GL(fx);
-  GlRenderer& r = *fx->renderer;
+RENDERER_TEST(renderer_draw_glyphs_synthetic_r8) {
   static TextureId tex;
   tex = r.createTexture(8, 8, TextureFormat::R8);
   std::vector<uint8_t> half(64, 128);
@@ -119,7 +116,7 @@ TEST(renderer_draw_glyphs_synthetic_r8) {
   for (int y = 0; y < 4; ++y)
     for (int x = 0; x < 4; ++x) src[y * 16 + x] = 255;
   r.updateTexture(tex, 4, 4, 4, 4, src.data(), 16);
-  Img img = render(r, 40, 20, {0, 0, 0, 1}, [](GlRenderer& rr) {
+  Img img = render(r, 40, 20, {0, 0, 0, 1}, [](Renderer& rr) {
     const GlyphQuad both[2] = {{2, 2, 6, 6, 0.0f, 0.0f, 0.4f, 0.4f},             // texels 0..3 => coverage 128
                                {12, 2, 16, 6, 0.625f, 0.625f, 0.875f, 0.875f}};  // texels 5..6 => coverage 255
     rr.drawGlyphs(tex, both, 2, {1, 1, 1, 1});
@@ -135,11 +132,13 @@ TEST(renderer_draw_glyphs_synthetic_r8) {
   r.drawGlyphs(tex, nullptr, 0, {1, 1, 1, 1});  // unknown texture ids are ignored, not fatal
 }
 
-TEST(renderer_golden_b1_scene) {
-  SKIP_IF_NO_GL(fx);
-  Img img = render(*fx->renderer, 256, 256, {0.10f, 0.11f, 0.13f, 1}, sceneB1);
+RENDERER_TEST(renderer_golden_b1_scene) {
+  const TextureId atlas = makeAtlas(r);
+  Img img = render(r, 256, 256, {0.10f, 0.11f, 0.13f, 1}, [&](Renderer& rr) { sceneB1(rr, atlas); });
+  r.destroyTexture(atlas);
   const std::string path = TENFOLD_SOURCE_DIR "/tests/golden/b1_scene.png";
   if (uitest::updateGoldens) {
+    if (be != uitest::Backend::Gl) return;  // goldens are defined by the GL backend
     REQUIRE(writePngFile(path, img.px.data(), img.w, img.h));
     std::cerr << "    golden updated: " << path << "\n";
     return;
@@ -159,10 +158,13 @@ TEST(renderer_golden_b1_scene) {
     if (d > 3) ++bad;
     worst = std::max(worst, d);
   }
-  const size_t allowed = golden.size() / 4 / 500;  // 0.2%
+  const size_t allowed = golden.size() / 4 / (be == uitest::Backend::Gl ? 500 : 200);  // 0.2% GL, 0.5% D3D11
+  std::cerr << "    golden diff: " << bad << " of " << golden.size() / 4 << " pixels > 3, max channel diff " << worst
+            << "\n";
   if (bad > allowed) {
-    writePngFile("b1_scene.actual.png", img.px.data(), img.w, img.h);
-    std::cerr << "    " << bad << " pixels differ (max channel diff " << worst << "); wrote b1_scene.actual.png\n";
+    const char* out = be == uitest::Backend::Gl ? "b1_scene.actual.png" : "b1_scene.d3d11.actual.png";
+    writePngFile(out, img.px.data(), img.w, img.h);
+    std::cerr << "    " << bad << " pixels differ (max channel diff " << worst << "); wrote " << out << "\n";
   }
   CHECK(bad <= allowed);
 }

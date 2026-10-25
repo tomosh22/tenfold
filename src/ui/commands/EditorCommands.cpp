@@ -145,6 +145,11 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Search.NextResult", "Next Search Result");
   addUi(r, "Search.PrevResult", "Previous Search Result");
   addUi(r, "View.ShowDiagnostics", "Show Diagnostics");
+  addUi(r, "Build.Build", "Build (argument: custom command)");
+  addUi(r, "Build.Cancel", "Cancel Build");
+  addUi(r, "Build.NextError", "Next Build Error");
+  addUi(r, "Build.PrevError", "Previous Build Error");
+  addUi(r, "View.ToggleBuildPanel", "Toggle Build Panel");
   addUi(r, "Workbench.CycleMruNext", "Next Recent Document");
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");

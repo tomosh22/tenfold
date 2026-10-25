@@ -67,7 +67,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Key bindings as a text file | 🔶 | Done (B4 + B-INT): named commands, chords, contexts, `.tenfold/keybindings.txt` overlay, diagnostics in status bar. Defaults are placeholders: **verify** with the user's `KeyMappings.10x_settings` (OPEN_QUESTIONS #1). |
 | Colour schemes as text files | 🔶 | Mechanism done (B7): theme files with lexical + semantic token colours and fallbacks, hot reload. Shipped palettes are neutral placeholders: **verify** with 10x screenshots (OPEN_QUESTIONS #7). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
-| Build integration (run command, parse errors, jump) | 🔶 | Engine done (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`; error jumps go through `gotoLocation`. Output panel, F4 binding and squiggle colour are UI work. See ARCHITECTURE "Build integration". |
+| Build integration (run command, parse errors, jump) | ✅ | Engine (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`. UI (C1-UI): resizable bottom dock with a streaming Build panel (clickable, severity-coloured lines, Build/Cancel, status), Ctrl+Shift+B / Ctrl+Break / F4 / Shift+F4, build squiggles + scrollbar marks + hover, status bar segment. All jumps go through `gotoLocation`. See ARCHITECTURE "Build panel and bottom dock". |
 | Debugger integration | ⬜ | **verify** what 10x does (external debugger launch vs. integrated). |
 | Version control (Perforce / Git) | ⬜ | **verify** exact operations 10x exposes. |
 | Python scripting API | ⬜ | **verify** 10x's `N10X` module surface before designing ours. |
@@ -79,4 +79,6 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 |---|---|---|
 | Process spawning | ✅ | `Process_win32.cpp` (A1): CreateProcessW, inherited pipes, kill-on-close job object. Verified via mingw + Wine and native MSVC 2022 / clang-cl CI (blocking). |
 | MSVC headers for clangd | 🔶 | `cl.exe` discovery (VCToolsInstallDir / vswhere / `msvcToolchain` setting) and `--query-driver` done (A2). Shipping `clangd.exe` + bundled `bin/` lookup is D1. |
+| Direct3D 11 renderer | 🔶 | `D3d11Renderer` + `WindowsSwapChain` (B9): flip-model swap chain with frame-latency waitable object, hardware then WARP, runtime-compiled HLSL; default backend of `tenfold-ui` on Windows (`--renderer=gl` for OpenGL). Compiles with mingw-w64 and passes the renderer tests + GL goldens under Wine; native Windows CI job `windows-ui` is non-blocking until it has run green. |
+| SDL3 window / input on Windows | 🔶 | Same `Window` / `translateSdlEvent` code as Linux (SDL3 Win32 backend); window created without `SDL_WINDOW_OPENGL` for D3D11. Untested natively. |
 | Paths / URIs | ✅ | `pathToUri`/`uriToPath` handle drive letters and UNC; case/separator-insensitive `pathKey`/`pathsEqual` on Windows (A2). |

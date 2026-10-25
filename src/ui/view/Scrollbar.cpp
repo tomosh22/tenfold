@@ -46,8 +46,9 @@ RectF Scrollbar::markerRect(Lane lane, int line) const {
 void Scrollbar::paint(PaintContext& ctx) {
   const Theme& th = ctx.theme;
   ctx.fill(bounds(), th.scrollbarTrack);
-  const Color colors[5] = {th.matchMarker, th.textDim, th.diagnosticError, th.diagnosticWarning, th.diagnosticInfo};
-  for (int lane : {0, 4, 3, 2, 1}) {  // later ones on top: errors over warnings over info
+  const Color colors[7] = {th.matchMarker,    th.textDim,    th.diagnosticError, th.diagnosticWarning,
+                           th.diagnosticInfo, th.buildError, th.buildWarning};
+  for (int lane : {0, 6, 5, 4, 3, 2, 1}) {  // later ones on top: clangd errors over warnings over info over build
     float lastY = -1e9f;
     for (int line : marks_[lane]) {
       const RectF r = markerRect(static_cast<Lane>(lane), line);

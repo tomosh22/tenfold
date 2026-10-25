@@ -115,6 +115,12 @@ add_test(NAME unit COMMAND tenfold-tests)
 
 # ---- UI (experimental): SDL3 window + OpenGL 3.3 renderer. Off by default; the engine never depends on it. ----
 option(TENFOLD_BUILD_UI "Build the SDL3/OpenGL UI (tenfold-ui, tenfold-ui-tests)" OFF)
+# Direct3D 11 backend (Windows only): the default renderer of tenfold-ui there; --renderer=gl still selects OpenGL.
+if(WIN32)
+  option(TENFOLD_D3D11 "Build the Direct3D 11 renderer backend (Windows)" ON)
+else()
+  set(TENFOLD_D3D11 OFF)
+endif()
 if(TENFOLD_BUILD_UI)
   # FreeType 2.13: system library when available, else fetched (only the rasterizer, no optional codecs).
   find_package(Freetype QUIET)
@@ -190,6 +196,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/FindInFiles.cpp
     src/ui/features/CompletionPopup.cpp
     src/ui/features/HoverTooltip.cpp
+    src/ui/features/BuildPanel.cpp
     src/ui/features/SignatureHelp.cpp
     src/ui/features/DiagnosticsPanel.cpp
     src/ui/view/Viewport.cpp
@@ -226,6 +233,13 @@ if(TENFOLD_BUILD_UI)
     file(READ "${CMAKE_SOURCE_DIR}/assets/${_tf_src}" _tf_text)
     file(WRITE "${CMAKE_BINARY_DIR}/generated/${_tf_dst}" "R\"${_tf_tag}(${_tf_text})${_tf_tag}\"\n")
   endforeach()
+  if(TENFOLD_D3D11)
+    # HLSL is embedded and compiled at start-up with D3DCompile (d3dcompiler_47.dll ships with Windows 10+), so no
+    # fxc/dxc is needed at build time.
+    target_sources(tenfold_ui PRIVATE src/ui/gfx/D3d11Renderer.cpp src/ui/gfx/WindowsSwapChain.cpp)
+    target_compile_definitions(tenfold_ui PUBLIC TENFOLD_HAVE_D3D11=1)
+    target_link_libraries(tenfold_ui PUBLIC d3d11 dxgi d3dcompiler)
+  endif()
   target_include_directories(tenfold_ui PRIVATE "${CMAKE_BINARY_DIR}/generated")
   target_include_directories(tenfold_ui PUBLIC src)
   target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text tenfold_core)
@@ -252,6 +266,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_view_colouring.cpp
     tests/ui/test_pickers.cpp
     tests/ui/test_b5b.cpp
+    tests/ui/test_build_ui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

@@ -9,6 +9,7 @@
 #include "app/Editor.h"
 #include "ui/commands/CommandRegistry.h"
 #include "ui/commands/KeyMap.h"
+#include "ui/features/BuildPanel.h"
 #include "ui/features/CompletionPopup.h"
 #include "ui/features/DiagnosticsPanel.h"
 #include "ui/features/FileSearch.h"
@@ -37,7 +38,9 @@ class Settings;
 // over the editor: completion, hover and signature help. Those get the key first (Tab/Enter/Escape/arrows while the
 // completion list is open, Escape for signature help), are told about typed text and see every other event afterwards
 // (they close themselves when the caret leaves); no picker is open while they are. Everything else (text input,
-// mouse, keys without a binding) goes to the widget tree unchanged.
+// mouse, keys without a binding) goes to the widget tree unchanged. With a Workbench the Build commands (C1-UI:
+// Build.Build [custom command], Build.Cancel, Build.NextError / PrevError, View.ToggleBuildPanel) drive a BuildPanel
+// in the bottom dock and the status bar "build" segment shows the last result.
 //
 // `bench` may be null (any other RootWidget with TextViews, e.g. ShellDemo or a test); then the workbench commands
 // stay unbound and messages are only available through message(). Bindings come from loadKeyBindings(workspace root,
@@ -59,6 +62,7 @@ class EditorApp {
   CompletionPopup& completion() { return *completion_; }
   HoverTooltip& hover() { return *hover_; }
   SignatureHelp& signatureHelp() { return *sigHelp_; }
+  BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
   void closePickers();
 
   // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a
@@ -125,6 +129,7 @@ class EditorApp {
   std::unique_ptr<CompletionPopup> completion_;
   std::unique_ptr<HoverTooltip> hover_;
   std::unique_ptr<SignatureHelp> sigHelp_;
+  BuildPanel* build_ = nullptr;  // owned by the Workbench's bottom dock
 };
 
 }  // namespace tf::ui

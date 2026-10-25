@@ -13,9 +13,12 @@ struct WindowOptions {
   bool hidden = false;             // for headless rendering
   bool resizable = true;
   bool vsync = true;
+  // true: an OpenGL 3.3 core window + context (default). false: a plain window with no GL context for another
+  // backend (D3D11); makeCurrent/swap/setVsync are then no-ops and nativeHandle() gives the HWND.
+  bool openGl = true;
 };
 
-// An OpenGL 3.3 core window. Create and use it from the main thread only.
+// A window (OpenGL 3.3 core by default, see WindowOptions::openGl). Create and use it from the main thread only.
 class Window {
  public:
   // Returns null (and fills *err) when no display / GL context is available.
@@ -26,6 +29,9 @@ class Window {
 
   // Loader hook for gfx::gl::load(). The window's context must be current.
   static void* glProc(const char* name);
+
+  // The native window handle: an HWND on Windows, null elsewhere.
+  void* nativeHandle() const;
 
   void makeCurrent();
   void swap();

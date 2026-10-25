@@ -1,6 +1,7 @@
 #include "ui/platform/Window.h"
 
 #include <SDL3/SDL.h>
+#include <SDL3/SDL_properties.h>
 
 #include "ui/platform/InputSdl.h"
 
@@ -31,27 +32,46 @@ std::unique_ptr<Window> Window::create(const WindowOptions& opt, std::string* er
   if (g_sdlRefs == 0 && !SDL_Init(SDL_INIT_VIDEO)) return fail("SDL_Init");
   std::unique_ptr<Window> w(new Window);
   ++g_sdlRefs;  // from here on the destructor balances it
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
-  SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
-  SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
-  SDL_WindowFlags flags = SDL_WINDOW_OPENGL | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+  SDL_WindowFlags flags = SDL_WINDOW_HIGH_PIXEL_DENSITY;
+  if (opt.openGl) {
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_CORE);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    flags |= SDL_WINDOW_OPENGL;
+  }
   if (opt.resizable) flags |= SDL_WINDOW_RESIZABLE;
   if (opt.hidden) flags |= SDL_WINDOW_HIDDEN;
   w->impl_->win = SDL_CreateWindow(opt.title.c_str(), opt.width, opt.height, flags);
   if (!w->impl_->win) return fail("SDL_CreateWindow");
-  w->impl_->ctx = SDL_GL_CreateContext(w->impl_->win);
-  if (!w->impl_->ctx) return fail("SDL_GL_CreateContext (OpenGL 3.3 core)");
-  w->makeCurrent();
-  w->setVsync(opt.vsync);
+  if (opt.openGl) {
+    w->impl_->ctx = SDL_GL_CreateContext(w->impl_->win);
+    if (!w->impl_->ctx) return fail("SDL_GL_CreateContext (OpenGL 3.3 core)");
+    w->makeCurrent();
+    w->setVsync(opt.vsync);
+  }
   SDL_StartTextInput(w->impl_->win);
   return w;
 }
 
 void* Window::glProc(const char* name) { return reinterpret_cast<void*>(SDL_GL_GetProcAddress(name)); }
-void Window::makeCurrent() { SDL_GL_MakeCurrent(impl_->win, impl_->ctx); }
-void Window::swap() { SDL_GL_SwapWindow(impl_->win); }
-void Window::setVsync(bool on) { SDL_GL_SetSwapInterval(on ? 1 : 0); }
+void Window::makeCurrent() {
+  if (impl_->ctx) SDL_GL_MakeCurrent(impl_->win, impl_->ctx);
+}
+void Window::swap() {
+  if (impl_->ctx) SDL_GL_SwapWindow(impl_->win);
+}
+void Window::setVsync(bool on) {
+  if (impl_->ctx) SDL_GL_SetSwapInterval(on ? 1 : 0);
+}
+
+void* Window::nativeHandle() const {
+#ifdef _WIN32
+  return SDL_GetPointerProperty(SDL_GetWindowProperties(impl_->win), SDL_PROP_WINDOW_WIN32_HWND_POINTER, nullptr);
+#else
+  return nullptr;
+#endif
+}
 void Window::show() { SDL_ShowWindow(impl_->win); }
 void Window::hide() { SDL_HideWindow(impl_->win); }
 void Window::setTitle(const std::string& t) { SDL_SetWindowTitle(impl_->win, t.c_str()); }
