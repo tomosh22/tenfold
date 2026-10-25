@@ -212,6 +212,7 @@ fast editor must:
   `diagnostics(file)`), so a UI can colour them differently. Message line
   numbers are those of the build time; they are not remapped when the buffer is
   edited afterwards.
+* **UI (C1-UI)**: see "Build panel and bottom dock" under the Workbench section.
 
 ## Navigation history
 
@@ -433,7 +434,7 @@ authoritative one with the selection kept by location; stale answers of an older
 
 *Find in files* (`FindInFiles`, Ctrl+Shift+F): a large **modal `ListPopup`**, not a docked bottom panel (decision: the
 Workbench layout stays untouched, and a modal reuses the picker key context; a named bottom-panel slot for the build
-output, C1-UI, is therefore still to be built). Typing searches live: after a 150 ms pause `Editor::findInWorkspace`
+output, C1-UI, was built separately: see "Build panel and bottom dock"). Typing searches live: after a 150 ms pause `Editor::findInWorkspace`
 starts (a new query, a toggle or closing the popup cancels the running search and its queued batches are dropped by
 sequence number); batches arrive through `post()` and rows are rebuilt at most every 60 ms: a header row per file (sorted
 by path, the match count as badge) and one row per match with the trimmed context line, the match highlighted and the
@@ -455,7 +456,8 @@ fast index's: greyed and marked "approximate" (constraint 1.4). Accept replaces 
 as one undo step: at every caret when all carets are empty and share the same prefix (`setSelections` +
 `insertText`), else at the primary caret only. Measured (mock font, Release): keystroke-to-paint with 5000 items open
 about 1.1 ms (worst 1.4 ms) against the 8 ms budget. *Hover* (`HoverTooltip`): a mouse rest of 400 ms over an
-identifier or a diagnostic range; diagnostics are shown at once (error / warning / info colours), `Editor::hoverAt`
+identifier or a diagnostic range; diagnostics are shown at once (error / warning / info colours; the last build's
+message for the spot follows with a dim "build" label, C1-UI), `Editor::hoverAt`
 text is appended when it arrives (clangd markdown fences stripped); a move to another word, a key or a click dismisses
 it. *Signature help* (`SignatureHelp`): `(` / `,` ask `Editor::signatureHelp` (clangd only); the active parameter is
 counted locally from the top-level commas between the call's `(` and the caret, so it follows the caret without a
@@ -512,6 +514,37 @@ reveals the tab of the Editor's current document, refreshes dirty markers and th
 Layout is saved to `<workspace>/.tenfold/layout.json` (split orientation + ratio, panels, tab paths relative to the
 workspace, pinned flags, active tab, active panel) and restored on start; missing files are dropped and a corrupt file
 yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the workbench.
+
+#### Build panel and bottom dock (C1-UI, `Workbench`, `src/ui/features/BuildPanel.*`)
+
+* **Bottom dock** (`Workbench::addBottomPanel / showBottomPanel / hideBottomPanel / toggleBottomPanel`): the panel tree
+  lives in a `Body` widget inside a vertical `Splitter` subclass (`DockSplit`) whose second child is the `Dock`, a host
+  for named panels of which one is visible. Closed (the default: the dock is hidden until a build or a toggle), the
+  split gives the body everything and the divider neither paints nor reacts, so existing layouts and goldens are
+  unchanged. The divider is the ordinary Splitter drag (double-click resets to 50 %; minimum 80 px above, 60 px dock).
+  Panels draw their own headers; find in files and diagnostics could move in by registering a panel of their own
+  (they stay modal popups for now). `layout.json` gets an additive key
+  `"bottom": {"visible": bool, "panel": "Build", "height": 0.3}` (height = the dock's fraction of the area above the
+  status bar); a file without it loads with the dock hidden, a restored state for a panel registered later (EditorApp
+  adds "Build" after `restoreLayout`) is applied when the panel is added, wrong types in the key are ignored.
+* **`BuildPanel`**: header with the state (`Building...`, `Succeeded in 3.2 s`, `Failed: 2 errors, 5 warnings`,
+  `Failed (exit code N)`, `Failed to start: ...`, `Cancelled`) and Build / Cancel / close buttons; below it the output in
+  the editor font, ANSI escape sequences stripped (`BuildPanel::clean`: CSI, OSC, `\r` progress overwrite, tabs
+  expanded, long lines cut, 20000 lines kept). It follows the end of the output until the user scrolls up (wheel or
+  scrollbar) and resumes at the end. The panel calls `Editor::build` itself (one output callback per build) and feeds
+  the lines to its own `ErrorParser`, which finds the same messages as the Editor's: that pairs lines and messages.
+  Lines with a message are coloured by severity (`buildError` / `buildWarning`, notes dim), those with a location are
+  clickable (click or Enter on the selected line -> `Editor::gotoLocation`, so Back returns) and the scrollbar marks the
+  error / warning lines. Up/Down/PageUp/PageDown/Home/End select, Escape closes.
+* **Commands** (EditorApp): `Build.Build` (Ctrl+Shift+B; an argument is a custom shell command), `Build.Cancel`
+  (Ctrl+Break, enabled while a build runs), `Build.NextError` / `Build.PrevError` (F4 / Shift+F4:
+  `Editor::next/prevBuildMessage`, then the panel selects and scrolls to the line and the message goes to the status
+  bar), `View.ToggleBuildPanel` (Ctrl+Alt+B). Status bar segment `build` shows `build: <state>` after the first build
+  and toggles the panel on click.
+* **Squiggles**: `TextView` draws `Editor::buildDiagnostics(file)` under the clangd ones in `Theme::buildError` /
+  `buildWarning` (theme keys `color.buildError`, `color.buildWarning`, both shipped themes), with scrollbar marks in the
+  diagnostics lane (`Scrollbar::Lane::BuildError/BuildWarning`, drawn below clangd's). Notes are not drawn. A new build
+  clears them (Editor). Line numbers are those of the build time (not remapped on edits).
 
 Two small framework additions came with the editor view: an **overlay layer** (`Widget::paintOverlay`, run after the glyphs
 are emitted, so carets draw over text at the cost of one extra rect batch) and **ticks** (`RootWidget::tick(nowMs)` calls

@@ -78,6 +78,23 @@ class Workbench : public RootWidget {
   // `height` pixels; pass nullptr to remove the reservation. Not owned here.
   void setTopBar(Widget* bar, float height);
 
+  // ---- bottom dock (C1-UI) ----
+  // A resizable (Splitter) dock under the panel tree hosting one of several named panels; hidden until shown. The
+  // panel widgets are owned by the dock and draw their own headers. Visibility, the shown panel's name and the
+  // dock's height (a fraction of the area above the status bar) are saved in layout.json under "bottom"; a
+  // restored state for a panel that is added later takes effect when it is added.
+  Widget* addBottomPanel(const std::string& name,
+                         std::unique_ptr<Widget> w);  // not shown yet; replaces a same-named one
+  Widget* bottomPanel(const std::string& name) const;
+  bool showBottomPanel(const std::string& name);  // false for an unknown name
+  void hideBottomPanel();
+  bool toggleBottomPanel(const std::string& name);  // hides if that panel is shown, else shows it; true = now visible
+  bool bottomVisible() const;
+  const std::string& bottomPanelName() const { return dock_.name; }  // last shown (or restored) panel
+  float bottomHeight() const;                                        // 0..1 of the dock area, kept while hidden
+  void setBottomHeight(float fraction);
+  RectF bottomRect() const;  // window coordinates, empty when hidden
+
   // ---- persistence (<workspace>/.tenfold/layout.json) ----
   std::filesystem::path layoutPath() const;
   std::string layoutJson() const;
@@ -94,6 +111,8 @@ class Workbench : public RootWidget {
 
  private:
   class Overlay;
+  class DockSplit;
+  class Dock;
   struct TabInfo {
     std::filesystem::path path;
   };
@@ -120,8 +139,17 @@ class Workbench : public RootWidget {
   void cancelDrag();
   void collect(Widget* w, std::vector<Panel*>& out) const;
   void refreshStatus();
+  void applyDock();
 
   Editor& editor_;
+  DockSplit* split_ = nullptr;  // body_ above, dock_ below
+  Widget* body_ = nullptr;      // holds top_
+  Dock* dockWidget_ = nullptr;
+  struct DockState {
+    bool visible = false;
+    std::string name;
+    float height = 0.3f;
+  } dock_;
   Widget* top_ = nullptr;
   StatusBar* status_ = nullptr;
   Widget* topBar_ = nullptr;

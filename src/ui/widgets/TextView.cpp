@@ -86,20 +86,26 @@ uint64_t TextView::diagnosticSignature() const {
   const Document* d = document();
   uint64_t h = 1469598103934665603ull;
   if (!d) return h;
-  for (const Diagnostic& g : editor_.diagnostics(d->path()))
-    for (int v : {g.range.start.line, g.range.start.column, g.range.end.line, g.range.end.column, g.severity})
-      h = (h ^ static_cast<uint64_t>(static_cast<uint32_t>(v))) * 1099511628211ull;
+  for (const auto* ds : {&editor_.diagnostics(d->path()), &editor_.buildDiagnostics(d->path())})
+    for (const Diagnostic& g : *ds)
+      for (int v : {g.range.start.line, g.range.start.column, g.range.end.line, g.range.end.column, g.severity})
+        h = (h ^ static_cast<uint64_t>(static_cast<uint32_t>(v))) * 1099511628211ull;
   return h;
 }
 
 void TextView::updateDiagMarkers() {
-  std::vector<int> lanes[3];
-  if (const Document* d = document())
+  std::vector<int> lanes[5];
+  if (const Document* d = document()) {
     for (const Diagnostic& g : editor_.diagnostics(d->path()))
       lanes[g.severity <= 1 ? 0 : g.severity == 2 ? 1 : 2].push_back(g.range.start.line);
+    for (const Diagnostic& g : editor_.buildDiagnostics(d->path()))  // notes get no mark, like no squiggle
+      if (g.severity <= 2) lanes[g.severity <= 1 ? 3 : 4].push_back(g.range.start.line);
+  }
   sb_->setMarkers(Scrollbar::Lane::Error, std::move(lanes[0]));
   sb_->setMarkers(Scrollbar::Lane::Warning, std::move(lanes[1]));
   sb_->setMarkers(Scrollbar::Lane::Info, std::move(lanes[2]));
+  sb_->setMarkers(Scrollbar::Lane::BuildError, std::move(lanes[3]));
+  sb_->setMarkers(Scrollbar::Lane::BuildWarning, std::move(lanes[4]));
 }
 
 Layout TextView::geometry() const { return Layout(root()->text().textLayout()); }
@@ -431,26 +437,29 @@ void TextView::paintSquiggles(PaintContext& ctx, const Layout& L, float sx, floa
   const float x0 = bounds().x + L.textOffset(buf.lineCount()) - sx, cw = L.cellWidth(),
               amp = std::max(1.0f, std::round(L.lineHeight() / 8));
   const float step = std::max(2.0f, std::round(cw / 2));
-  for (const Diagnostic& g : editor_.diagnostics(d->path())) {
-    const Range r = g.range;
-    if (r.end.line < first || r.start.line >= last) continue;
-    const Color col = g.severity <= 1   ? ctx.theme.diagnosticError
-                      : g.severity == 2 ? ctx.theme.diagnosticWarning
-                                        : ctx.theme.diagnosticInfo;
-    for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); ++l) {
-      const std::string& text = buf.line(l);
-      const float a = L.xForByte(text, l == r.start.line ? static_cast<size_t>(r.start.column) : 0);
-      float e = L.xForByte(text, l == r.end.line ? static_cast<size_t>(r.end.column) : text.size());
-      if (e < a + cw) e = a + cw;  // empty range: one cell
-      const float yb = bounds().y + L.lineTop(l, sy) + L.lineHeight() - amp - 1;
-      bool up = false;
-      for (float x = a; x < e; x += step, up = !up) {
-        const float xe = std::min(x + step, e);
-        if (x0 + xe < clip.x || x0 + x > clip.x + clip.w) continue;
-        ctx.line(x0 + x, up ? yb : yb + amp, x0 + xe, up ? yb + amp : yb, 1, col);
+  // Build diagnostics (C1) first so that clangd's squiggle wins where both mark the same text; notes are not drawn.
+  for (const bool build : {true, false})
+    for (const Diagnostic& g : build ? editor_.buildDiagnostics(d->path()) : editor_.diagnostics(d->path())) {
+      const Range r = g.range;
+      if (r.end.line < first || r.start.line >= last || (build && g.severity > 2)) continue;
+      const Color col = build             ? (g.severity <= 1 ? ctx.theme.buildError : ctx.theme.buildWarning)
+                        : g.severity <= 1 ? ctx.theme.diagnosticError
+                        : g.severity == 2 ? ctx.theme.diagnosticWarning
+                                          : ctx.theme.diagnosticInfo;
+      for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); ++l) {
+        const std::string& text = buf.line(l);
+        const float a = L.xForByte(text, l == r.start.line ? static_cast<size_t>(r.start.column) : 0);
+        float e = L.xForByte(text, l == r.end.line ? static_cast<size_t>(r.end.column) : text.size());
+        if (e < a + cw) e = a + cw;  // empty range: one cell
+        const float yb = bounds().y + L.lineTop(l, sy) + L.lineHeight() - amp - 1;
+        bool up = false;
+        for (float x = a; x < e; x += step, up = !up) {
+          const float xe = std::min(x + step, e);
+          if (x0 + xe < clip.x || x0 + x > clip.x + clip.w) continue;
+          ctx.line(x0 + x, up ? yb : yb + amp, x0 + xe, up ? yb + amp : yb, 1, col);
+        }
       }
     }
-  }
 }
 
 // Carets go in the overlay layer: all text is emitted after all rects, so they would otherwise be hidden by it.

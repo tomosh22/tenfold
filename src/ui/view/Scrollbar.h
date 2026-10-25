@@ -14,7 +14,8 @@ namespace tf::ui {
 // pixel row and lane.
 class Scrollbar : public Widget {
  public:
-  enum class Lane { Search, Caret, Error, Warning, Info };
+  // BuildError / BuildWarning (C1) share the diagnostics lane and are drawn under the clangd marks.
+  enum class Lane { Search, Caret, Error, Warning, Info, BuildError, BuildWarning };
 
   // scrollRange = maximum scroll offset, viewH = visible height, both in pixels; lines = document line count.
   void setMetrics(float scrollRange, float viewH, float scrollY, int lines);
@@ -36,7 +37,7 @@ class Scrollbar : public Widget {
   float range_ = 0, viewH_ = 0, scrollY_ = 0, dragOff_ = 0;
   int lines_ = 1;
   bool drag_ = false;
-  std::vector<int> marks_[5];
+  std::vector<int> marks_[7];
 };
 
 }  // namespace tf::ui

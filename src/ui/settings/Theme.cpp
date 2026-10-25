@@ -49,6 +49,8 @@ const std::vector<ColorMember>& colorMembers() {
       {"diagnosticError", &Theme::diagnosticError},
       {"diagnosticWarning", &Theme::diagnosticWarning},
       {"diagnosticInfo", &Theme::diagnosticInfo},
+      {"buildError", &Theme::buildError},
+      {"buildWarning", &Theme::buildWarning},
       {"matchMarker", &Theme::matchMarker},
       {"scrollbarTrack", &Theme::scrollbarTrack},
       {"scrollbarThumb", &Theme::scrollbarThumb},

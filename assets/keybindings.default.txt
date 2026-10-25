@@ -37,6 +37,14 @@ Ctrl+Shift+F = Search.FindInWorkspace
 F8 = Search.NextResult
 Shift+F8 = Search.PrevResult
 Ctrl+Shift+M = View.ShowDiagnostics
+
+# --- Build (C1) ---
+Ctrl+Shift+B = Build.Build
+Ctrl+Break = Build.Cancel
+F4 = Build.NextError
+Shift+F4 = Build.PrevError
+Ctrl+Alt+B = View.ToggleBuildPanel
+
 Alt+1 = Workbench.FocusPanel 1
 Alt+2 = Workbench.FocusPanel 2
 Alt+3 = Workbench.FocusPanel 3
