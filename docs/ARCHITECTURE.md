@@ -253,3 +253,18 @@ repaints once. Widgets: `TabStrip` (pinned, dirty marker, close, MRU order, drag
 scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar` (keyed, clickable segments), plus
 `LinesView` (placeholder content until B2's TextView). `Theme` is a neutral dark placeholder until B7 loads it from
 files. The engine never includes any of this.
+
+### Workbench (`src/ui/shell`, B3b)
+
+`Workbench` (a `RootWidget`) owns the editor layout: a tree of `Splitter`s and `Panel`s above a `StatusBar`, and the
+map tab id -> file. A tab is a view onto an `Editor` `Document` (several tabs may show one document); the view widget
+comes from `makeDocumentView(Editor&, Document&)` in `DocumentView.cpp`, the single seam B2's TextView plugs into.
+Split duplicates the active tab into the new panel; dragging a tab (TabStrip drag-out, the mouse is then captured by the
+workbench) onto a strip moves it, onto a content edge splits; closing a panel moves its tabs to the nearest neighbour.
+Tab switches go through `Editor::activateDocument`, which does not touch navigation history; navigation through the
+Editor (`gotoLocation`/`back`/`forward`) is picked up by `Workbench::sync()` (call once per frame / event batch), which
+reveals the tab of the Editor's current document, refreshes dirty markers and the status bar (`pos`, `eol`,
+`encoding`, `clangd`, `fastindex`, `workspace`). Ctrl+Tab is `cycleMru`/`endMruCycle`; key bindings are B4's.
+Layout is saved to `<workspace>/.tenfold/layout.json` (split orientation + ratio, panels, tab paths relative to the
+workspace, pinned flags, active tab, active panel) and restored on start; missing files are dropped and a corrupt file
+yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the workbench.

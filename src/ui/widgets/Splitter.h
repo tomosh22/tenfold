@@ -14,6 +14,8 @@ class Splitter : public Widget {
 
   // Takes ownership; may be called once. Either child may be a Panel, another Splitter, ...
   void setChildren(std::unique_ptr<Widget> first, std::unique_ptr<Widget> second);
+  // Swaps one child for `nw` keeping its position; returns the old child (null if `old` is not a child).
+  std::unique_ptr<Widget> replaceChild(Widget* old, std::unique_ptr<Widget> nw);
   Widget* first() const { return children().size() > 0 ? children()[0].get() : nullptr; }
   Widget* second() const { return children().size() > 1 ? children()[1].get() : nullptr; }
 
