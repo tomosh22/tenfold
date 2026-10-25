@@ -43,7 +43,25 @@ Ctrl+Shift+B = Build.Build
 Ctrl+Break = Build.Cancel
 F4 = Build.NextError
 Shift+F4 = Build.PrevError
-Ctrl+Alt+B = View.ToggleBuildPanel
+Ctrl+Alt+O = View.ToggleBuildPanel
+
+# --- Debugger (Visual Studio keys, C2c) ---
+# VS's default debugging keys; they drive the debugger session (Visual Studio via the C2b backend). Ctrl+Alt+B was
+# View.ToggleBuildPanel (a placeholder); that command moved to Ctrl+Alt+O (VS's Output window key).
+F5 = Debug.Start
+Ctrl+F5 = Debug.StartWithoutDebugging
+Shift+F5 = Debug.Stop
+Ctrl+Shift+F5 = Debug.Restart
+F9 = Debug.ToggleBreakpoint
+Ctrl+F9 = Debug.ToggleBreakpointEnabled
+Ctrl+Shift+F9 = Debug.DeleteAllBreakpoints
+F10 = Debug.StepOver
+F11 = Debug.StepInto
+Shift+F11 = Debug.StepOut
+Ctrl+F10 = Debug.RunToCursor
+Ctrl+Alt+Break = Debug.BreakAll
+Ctrl+Alt+B = Debug.ShowBreakpoints
+# Debug.EditCondition has no default key; run it from the command list.
 
 # --- View ---
 Alt+Z = View.ToggleWordWrap

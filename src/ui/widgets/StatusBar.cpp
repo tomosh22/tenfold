@@ -84,6 +84,12 @@ StatusBar::Segment* StatusBar::segmentAt(float x, float y) {
   return nullptr;
 }
 
+void StatusBar::setDebugging(bool on) {
+  if (debugging_ == on) return;
+  debugging_ = on;
+  markDirty();
+}
+
 void StatusBar::onHover(bool entered) {
   if (!entered && hot_) {
     hot_ = nullptr;
@@ -115,12 +121,14 @@ bool StatusBar::onEvent(const InputEvent& e) {
 void StatusBar::paint(PaintContext& ctx) {
   if (stale_) place();
   const Theme& th = ctx.theme;
-  ctx.fill(bounds(), th.statusBackground);
+  const Color bg = debugging_ ? Theme::orElse(th.statusBackgroundDebugging, th.statusBackground) : th.statusBackground;
+  const Color fg = debugging_ ? Theme::orElse(th.statusTextDebugging, th.statusText) : th.statusText;
+  ctx.fill(bounds(), bg);
   const float y = bounds().y + (bounds().h - ctx.lineHeight()) / 2;
   for (const Segment& s : segs_) {
     if (s.rect.w <= 0) continue;
     if (&s == hot_) ctx.fill(s.rect, th.statusHover);
-    ctx.text(s.rect.x + th.padding, y, s.text, th.statusText, intersect(s.rect, bounds()));
+    ctx.text(s.rect.x + th.padding, y, s.text, fg, intersect(s.rect, bounds()));
   }
 }
 

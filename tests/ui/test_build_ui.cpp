@@ -217,12 +217,12 @@ TEST(build_ui_dock_hidden_by_default_and_shown_by_build_and_toggle) {
   CHECK(env.app->buildPanel() != nullptr);
   CHECK(env.bench->bottomRect().w == 0);
   const RectF treeBefore = env.bench->panels()[0]->bounds();
-  CHECK(env.key(Key('B'), ModCtrl | ModAlt));  // View.ToggleBuildPanel
+  CHECK(env.key(Key('O'), ModCtrl | ModAlt));  // View.ToggleBuildPanel
   CHECK(env.bench->bottomVisible());
   CHECK_EQ(env.bench->bottomPanelName(), std::string("Build"));
   CHECK(env.bench->panels()[0]->bounds().h < treeBefore.h);
   CHECK(env.bench->bottomRect().h > 100);
-  CHECK(env.key(Key('B'), ModCtrl | ModAlt));
+  CHECK(env.key(Key('O'), ModCtrl | ModAlt));
   CHECK(!env.bench->bottomVisible());
   CHECK(env.bench->panels()[0]->bounds().h == treeBefore.h);
   // Clicking the status bar segment toggles too (once there is text on it).

@@ -5,6 +5,8 @@
 #include <cmath>
 #include <cstring>
 
+#include "core/PathUtil.h"
+
 namespace tf::ui {
 
 namespace {
@@ -132,7 +134,93 @@ void TextView::updateDiagMarkers() {
   setMarkLines(Scrollbar::Lane::BuildWarning, std::move(lanes[4]));
 }
 
-Layout TextView::geometry() const { return Layout(root()->text().textLayout()); }
+Layout TextView::geometry() const {
+  Layout L(root()->text().textLayout());
+  L.setGlyphLane(glyphLaneWidth());
+  return L;
+}
+
+// ---- glyph margin (C2c) ----
+
+bool TextView::glyphMarginActive() const {
+  return root() && (editor_.debug().hasBackend() || !editor_.breakpoints().empty());
+}
+
+float TextView::glyphLaneWidth() const {
+  return glyphMarginActive() ? std::max(8.0f, std::floor(root()->text().lineHeight())) : 0.0f;
+}
+
+RectF TextView::glyphLaneRect() const { return {bounds().x, bounds().y, glyphLaneWidth(), bounds().h}; }
+
+std::optional<int> TextView::statementLine() const {
+  const Document* d = document();
+  const DebugSession& s = editor_.debug();
+  if (!d || s.mode() != DebugMode::Break || !s.currentStatement()) return std::nullopt;
+  if (!pathsEqual(s.currentStatement()->file, d->path())) return std::nullopt;
+  return std::clamp(s.currentStatement()->line, 0, d->buffer().lineCount() - 1);
+}
+
+void TextView::toggleBreakpointAt(int line) {
+  const Document* d = document();
+  if (!d) return;
+  editor_.breakpoints().toggle(d->path(), line);
+  editor_.saveBreakpoints();
+  markDirty();
+}
+
+namespace {
+// Pixel-exact discs and rings from 1px-high rects (the renderer has rects and lines only).
+void discRows(PaintContext& ctx, float x, float y, int d, int ring, Color c) {
+  const float r = static_cast<float>(d) / 2, r2 = r - static_cast<float>(ring);
+  for (int i = 0; i < d; ++i) {
+    const float yc = static_cast<float>(i) + 0.5f - r;
+    const float hw = std::sqrt(std::max(0.0f, r * r - yc * yc));
+    const float ol = std::round(r - hw), orr = std::round(r + hw);
+    const float yy = y + static_cast<float>(i);
+    if (ring > 0 && std::fabs(yc) < r2) {
+      const float hw2 = std::sqrt(std::max(0.0f, r2 * r2 - yc * yc));
+      const float il = std::round(r - hw2), ir = std::round(r + hw2);
+      if (il > ol) ctx.fill({x + ol, yy, il - ol, 1}, c);
+      if (orr > ir) ctx.fill({x + ir, yy, orr - ir, 1}, c);
+    } else if (orr > ol) {
+      ctx.fill({x + ol, yy, orr - ol, 1}, c);
+    }
+  }
+}
+}  // namespace
+
+// The lane cell of one line (first visual row): breakpoint glyph, then the current-statement arrow over it.
+void TextView::paintGlyphMargin(PaintContext& ctx, const Layout& L, const RowRef& r, float y, bool arrow) {
+  const float lane = L.glyphLane();
+  if (lane <= 0) return;
+  const Theme& th = ctx.theme;
+  const float lh = L.lineHeight(), x = bounds().x;
+  const int d = std::max(6, static_cast<int>(std::floor(std::min(lane, lh) * 0.72f)));
+  const float fd = static_cast<float>(d);
+  const float dx = x + std::floor((lane - fd) / 2), dy = y + std::floor((lh - fd) / 2);
+  if (const auto bp = editor_.breakpoints().get(document()->path(), r.line)) {
+    const Color red = Theme::orElse(th.debugBreakpoint, Color{0.898f, 0.078f, 0.0f, 1});  // #E51400
+    discRows(ctx, dx, dy, d, bp->enabled ? 0 : std::max(1, d / 7), red);
+    if (!bp->condition.empty()) {  // plus mark: white on the disc, red inside the ring
+      const Color mark = bp->enabled ? Color{1, 1, 1, 1} : red;
+      const float len = std::max(3.0f, std::floor(fd * 0.5f)), t = std::max(1.0f, std::floor(fd / 8));
+      const float cx = dx + std::floor(fd / 2), cy = dy + std::floor(fd / 2);
+      ctx.fill({cx - std::floor(len / 2), cy - std::floor(t / 2), len, t}, mark);
+      ctx.fill({cx - std::floor(t / 2), cy - std::floor(len / 2), t, len}, mark);
+    }
+  }
+  if (arrow) {
+    const Color yel = Theme::orElse(th.debugCurrentArrow, th.dirtyMarker);
+    const float w = std::max(6.0f, lane - 4), ax = x + std::floor((lane - w) / 2);
+    const float shaftW = std::floor(w * 0.5f), shaftH = std::max(2.0f, std::floor(w * 0.36f));
+    const float cy = y + std::floor(lh / 2), headH = std::min(lh - 2, std::floor(w * 0.95f)), headLen = w - shaftW;
+    ctx.fill({ax, cy - std::floor(shaftH / 2), shaftW, shaftH}, yel);
+    for (int k = 0; k < static_cast<int>(headLen); ++k) {
+      const float h = std::max(1.0f, std::round(headH * (1.0f - static_cast<float>(k) / headLen)));
+      ctx.fill({ax + shaftW + static_cast<float>(k), cy - std::floor(h / 2), 1, h}, yel);
+    }
+  }
+}
 
 // ---- soft wrap (B2c) ----
 
@@ -399,6 +487,11 @@ bool TextView::syncState() {
     bookmarkGen_ = editor_.bookmarks().generation();
     markDirty();
   }
+  if (editor_.breakpoints().generation() != breakpointGen_ || editor_.debug().generation() != debugGen_) {
+    breakpointGen_ = editor_.breakpoints().generation();
+    debugGen_ = editor_.debug().generation();
+    markDirty();
+  }
   const uint64_t sig = diagnosticSignature();
   if (sig != diagSig_ || docChanged) {  // clangd published new diagnostics (or another document)
     diagSig_ = sig;
@@ -564,6 +657,14 @@ void TextView::paint(PaintContext& ctx) {
       }
     }
   }
+  const std::optional<int> stmt = statementLine();
+  if (stmt) {  // the debugger's current statement: a band over every row of the line, behind selection and text
+    Color band = th.dirtyMarker;
+    band.a = 0.25f;
+    band = Theme::orElse(th.debugCurrentLine, band);
+    for (const RowRef& r : vis_)
+      if (r.line == *stmt) ctx.fill(intersect({clip.x, rowY(r), clip.w, lh}, clip), band);
+  }
   if (cur || th.selectionInactive.a > 0) {
     const std::vector<Selection>& sels = editor_.selections();
     Color selColor = th.tabAccent;
@@ -601,9 +702,10 @@ void TextView::paint(PaintContext& ctx) {
   for (const RowRef& r : vis_) {
     const float y = rowY(r);
     if (r.row == 0) {
+      paintGlyphMargin(ctx, L, r, y, stmt && *stmt == r.line);
       if (std::binary_search(bookmarkLines_.begin(), bookmarkLines_.end(), r.line)) {  // bookmark: a flag in the gutter
         const float m = std::max(4.0f, std::floor(cw * 0.7f));
-        ctx.fill({b.x + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
+        ctx.fill({b.x + L.glyphLane() + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
       }
       number_ = std::to_string(r.line + 1);
       ctx.text(b.x + gw - cw - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText, gutterClip);
@@ -841,6 +943,13 @@ bool TextView::onEvent(const InputEvent& e) {
 }
 
 void TextView::mouseDown(const InputEvent& e) {
+  if (const float lane = glyphLaneWidth(); lane > 0 && e.x >= bounds().x && e.x < bounds().x + lane) {
+    const float lh = root()->text().lineHeight();
+    const int vrow = static_cast<int>(std::floor((e.y - bounds().y + std::floor(vp_.y())) / lh));
+    if (vrow >= 0 && vrow < wrapLayout().totalRows())
+      toggleBreakpointAt(document()->buffer().clamp(positionAt(e.x, e.y)).line);
+    return;
+  }
   if (!isCurrent()) activate();
   const TextBuffer& b = document()->buffer();
   const Position pos = b.clamp(positionAt(e.x, e.y));

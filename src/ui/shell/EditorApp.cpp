@@ -106,6 +106,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   });
   goToLine_ = std::make_unique<GoToLine>(pickerEnv_);
   bookmarkList_ = std::make_unique<BookmarkList>(pickerEnv_);
+  breakpointList_ = std::make_unique<BreakpointList>(pickerEnv_);
   completion_ = std::make_unique<CompletionPopup>(pickerEnv_);
   hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
@@ -245,6 +246,7 @@ void EditorApp::closePickers() {
   diagPanel_->close();
   goToLine_->close();
   bookmarkList_->close();
+  breakpointList_->close();
   if (files_) files_->close();
 }
 
@@ -301,6 +303,19 @@ void EditorApp::bindUiCommands() {
     bookmarkList_->open();
     return true;
   });
+  registry_.bind("Debug.ShowBreakpoints", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    breakpointList_->open();
+    return true;
+  });
+  registry_.bind(
+      "Debug.EditCondition",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        breakpointList_->openCondition();
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   for (bool replace : {false, true})
     registry_.bind(
         replace ? "Editor.Replace" : "Editor.Find",
@@ -536,6 +551,12 @@ int EditorApp::tick(int64_t nowMs) {
   findReplace_->tick(nowMs);
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
+  breakpointList_->refresh();
+  if (const DebugSession& dbg = editor_.debug(); dbg.generation() != debugErrorGen_) {  // C2c: session errors
+    debugErrorGen_ = dbg.generation();
+    if (!dbg.lastError().empty() && dbg.lastError() != debugErrorShown_) setMessage(dbg.lastError(), kMessageMs);
+    debugErrorShown_ = dbg.lastError();
+  }
   if (build_)
     bench_->status().setText(
         "build", build_->state() == BuildPanel::State::Idle ? std::string() : "build: " + build_->statusText());

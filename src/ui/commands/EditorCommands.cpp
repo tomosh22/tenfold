@@ -180,7 +180,53 @@ void registerEditorCommands(CommandRegistry& r) {
             return true;
           });
 
+  // --- debugger (C2c): Visual Studio's commands; they queue work on the DebugSession (asynchronous, errors reach
+  // lastError and the status bar) and edit the breakpoint store, which the session syncs to the backend ---
+  struct DebugCmd {
+    const char* id;
+    const char* name;
+    bool (DebugSession::*fn)(DebugSession::Done);
+  };
+  static const DebugCmd debugCmds[] = {
+      {"Debug.Start", "Start Debugging / Continue", &DebugSession::start},
+      {"Debug.StartWithoutDebugging", "Start Without Debugging", &DebugSession::startWithoutDebugging},
+      {"Debug.Stop", "Stop Debugging", &DebugSession::stop},
+      {"Debug.Restart", "Restart Debugging", &DebugSession::restart},
+      {"Debug.BreakAll", "Break All", &DebugSession::breakAll},
+      {"Debug.StepOver", "Step Over", &DebugSession::stepOver},
+      {"Debug.StepInto", "Step Into", &DebugSession::stepInto},
+      {"Debug.StepOut", "Step Out", &DebugSession::stepOut},
+  };
+  for (const DebugCmd& dc : debugCmds)
+    r.add({dc.id, dc.name,
+           [fn = dc.fn](const CommandContext& c, std::string_view) { return (c.editor->debug().*fn)({}); }, hasEditor});
+  addEd(r, "Debug.RunToCursor", "Run to Cursor", [](const CommandContext& c, std::string_view) {
+    return c.editor->debug().runToCursor(c.editor->currentDocument()->path(), c.editor->selections()[0].head.line);
+  });
+  addEd(r, "Debug.ToggleBreakpoint", "Toggle Breakpoint", [](const CommandContext& c, std::string_view) {
+    c.editor->toggleBreakpoint();
+    return true;
+  });
+  addEd(r, "Debug.ToggleBreakpointEnabled", "Enable / Disable Breakpoint",
+        [](const CommandContext& c, std::string_view) {
+          const auto bp =
+              c.editor->breakpoints().get(c.editor->currentDocument()->path(), c.editor->selections()[0].head.line);
+          if (!bp) return false;
+          c.editor->breakpoints().setEnabled(bp->file, bp->line, !bp->enabled);
+          c.editor->saveBreakpoints();
+          return true;
+        });
+  r.add({"Debug.DeleteAllBreakpoints", "Delete All Breakpoints",
+         [](const CommandContext& c, std::string_view) {
+           c.editor->breakpoints().clear();
+           c.editor->saveBreakpoints();
+           return true;
+         },
+         [](const CommandContext& c) { return hasEditor(c) && !c.editor->breakpoints().empty(); }});
+
   // --- UI-only: the front end binds these (B3b / B5 / B8) ---
+  addUi(r, "Debug.ShowBreakpoints", "Show Breakpoints...");
+  addUi(r, "Debug.EditCondition", "Edit Breakpoint Condition...");
   addUi(r, "Editor.GotoLine", "Go to Line...");
   addUi(r, "Editor.Find", "Find in File...");
   addUi(r, "Editor.Replace", "Replace in File...");

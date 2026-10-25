@@ -13,8 +13,9 @@
 #   * Tokens: function / method #DCDCAA, field / property / variable / parameter #C8C8C8, enum #B8D7A3, template
 #     parameter and concept #4EC9B0, string #D69D85, punctuation #DCDCDC, macro #BD63C5, comment #57A64A.
 # Not expressible yet (no lexer / widget support, so no key): control-flow keywords (VS #D8A0DF, e.g. if / for /
-# return are coloured like every keyword here), string escape sequences (VS #FFD68F), per-state status bar colours
-# (VS turns the bar orange while debugging; there is no debugger state yet), user-defined literals, XML doc tags.
+# return are coloured like every keyword here), string escape sequences (VS #FFD68F), user-defined literals, XML doc
+# tags. Debugger colours (breakpoint #E51400, current statement #FFEE62, status bar #CA5100 while Running / Break) are
+# from memory as well.
 
 # --- IDE chrome ---------------------------------------------------------------------------------------------------
 color.background = #1F1F1F
@@ -68,6 +69,15 @@ color.matchMarker = #D7BA7D
 color.bracketMatch = #8C8C8C59
 color.findHighlight = #613315
 color.findHighlightCurrent = #8A4B1E
+
+# --- Debugger (C2c) ---------------------------------------------------------------------------------------------------
+# Breakpoint disc #E51400, current statement arrow #FFEE62 on an amber band, and VS's orange status bar (#CA5100)
+# while the session is Running or Break.
+color.debugBreakpoint = #E51400
+color.debugCurrentLine = #FFEE6240
+color.debugCurrentArrow = #FFEE62
+color.statusBackgroundDebugging = #CA5100
+color.statusTextDebugging = #FFFFFF
 
 # --- Token colours (lexical kinds, then clangd semantic types / modifiers) -------------------------------------------
 token.keyword = #569CD6

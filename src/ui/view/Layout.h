@@ -17,6 +17,9 @@ class Layout {
   float cellWidth() const { return tl_->cellWidth(); }
 
   // Line-number gutter: at least three digits plus a cell of padding on both sides; text starts half a cell later.
+  // A glyph lane (C2c: breakpoints, current statement) left of the numbers adds its width to the gutter; 0 = none.
+  void setGlyphLane(float width) { lane_ = width; }
+  float glyphLane() const { return lane_; }
   float gutterWidth(int lineCount) const;
   float textOffset(int lineCount) const { return gutterWidth(lineCount) + cellWidth() / 2; }
 
@@ -34,6 +37,7 @@ class Layout {
 
  private:
   const gfx::TextLayout* tl_;
+  float lane_ = 0;
 };
 
 }  // namespace tf::ui
