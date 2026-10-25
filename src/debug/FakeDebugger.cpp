@@ -219,11 +219,15 @@ DebugResult FakeDebugger::go(const char* method, DebugMode to, bool breakAtState
 }
 
 DebugResult FakeDebugger::connect(const DebugWorkspaceInfo& workspace) {
+  {
+    // Before enter() logs the call: whoever sees count("connect") == n can rely on n flags being recorded.
+    Lock lk(st_->mu);
+    st_->connectFlags_.push_back(workspace.launchIfMissing);
+  }
   DebugResult r = st_->enter("connect", workspace.solution.generic_string());
   if (!r.ok) return r;
   {
     Lock lk(st_->mu);
-    st_->connectFlags_.push_back(workspace.launchIfMissing);
     if (st_->noInstance_) {
       if (!workspace.launchIfMissing) return DebugResult::noInstance("no debugger instance has the solution open");
       st_->noInstance_ = false;  // launched
