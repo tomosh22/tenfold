@@ -13,8 +13,10 @@ find_package(Threads REQUIRED)
 
 if(WIN32)
   set(TENFOLD_PROCESS_SRC src/lsp/Process_win32.cpp)
+  set(TENFOLD_VS_DEBUGGER_SRC src/debug/VsDebugger_win32.cpp src/debug/ComDispatch_win32.cpp)
 else()
   set(TENFOLD_PROCESS_SRC src/lsp/Process_posix.cpp)
+  set(TENFOLD_VS_DEBUGGER_SRC "")
 endif()
 if(MSVC)
   set(TENFOLD_WARN /W4)
@@ -51,6 +53,8 @@ add_library(tenfold_core STATIC
   src/app/Bookmarks.cpp
   src/debug/Breakpoints.cpp
   src/debug/DebugSession.cpp
+  src/debug/VsDteUtil.cpp
+  ${TENFOLD_VS_DEBUGGER_SRC}
   src/build/AnsiStrip.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
@@ -62,6 +66,9 @@ add_library(tenfold_core STATIC
 )
 target_include_directories(tenfold_core PUBLIC src third_party)
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
+if(WIN32)
+  target_link_libraries(tenfold_core PUBLIC ole32 oleaut32 uuid)
+endif()
 target_compile_options(tenfold_core PRIVATE ${TENFOLD_WARN_CORE})
 
 # Regex find-in-files. The literal search path never needs PCRE2; without it a
@@ -125,6 +132,7 @@ add_executable(tenfold-tests
   tests/test_crash.cpp
   tests/test_debug_breakpoints.cpp
   tests/test_debug_session.cpp
+  tests/test_vs_debugger.cpp
   src/debug/FakeDebugger.cpp  # test support
   tests/test_vcs_diff.cpp
   tests/test_vcs_git.cpp

@@ -94,6 +94,13 @@ class Debugger {
   // Current state. On failure `out` is untouched and the session reports the error (it keeps the last mode).
   virtual DebugResult poll(DebugSnapshot& out) = 0;
 
+  // Optional extra: shows the file in the debugger's own editor with the caret at (line, column), both 0-based (the
+  // Visual Studio backend: "Open in Visual Studio at the caret"). Same threading as every other call. Default: not
+  // supported.
+  virtual DebugResult openInEditor(const std::filesystem::path& /*file*/, int /*line*/, int /*column*/) {
+    return DebugResult::failure("not supported by this debugger backend");
+  }
+
   // Optional, THE ONLY call allowed from another thread, concurrently with any other call: asks the call that is
   // currently blocked to return soon (a failure result is fine). Called when the session shuts down; the backend
   // must tolerate it with nothing blocked.
