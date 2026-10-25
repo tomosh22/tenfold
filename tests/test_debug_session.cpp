@@ -31,7 +31,8 @@ struct Fx {
 
   explicit Fx(bool install = true) {
     static int counter = 0;
-    dir = fs::temp_directory_path() /
+    std::error_code cec;
+    dir = fs::weakly_canonical(fs::temp_directory_path(), cec) /
           ("tenfold_dbg_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
            std::to_string(counter++));
     fs::create_directories(dir);
@@ -544,4 +545,55 @@ TEST(dbg_session_destroyed_with_pending_posts_is_safe) {
   f.ed->debug().shutdown();  // posts already queued on the editor refer to the dead worker: they must be ignored
   f.ed->pump();
   CHECK(f.ed->debug().mode() != DebugMode::Running);
+}
+
+// Regression: the same file spelled differently (macOS /var -> /private/var, Windows 8.3 names) is one file.
+TEST(dbg_breakpoint_paths_are_canonical_across_spellings) {
+  Fx f;
+  const fs::path link = f.dir.parent_path() / (f.dir.filename().string() + "_link");
+  std::error_code ec;
+  fs::create_directory_symlink(f.dir, link, ec);
+  if (ec) return;  // no symlink privilege (Windows without developer mode)
+  struct Cleanup {
+    fs::path p;
+    ~Cleanup() {
+      std::error_code e;
+      fs::remove(p, e);
+    }
+  } cleanup{link};
+  const fs::path viaLink = link / "a.cpp";
+  CHECK(f.connectAndWait());
+  CHECK(f.ed->debug().connect());
+  f.ed->breakpoints().add({viaLink, 5, true, {}});
+  CHECK(f.ed->breakpoints().has(f.file(), 5));  // either spelling finds it
+  CHECK(f.ed->breakpoints().has(viaLink, 5));
+  f.ed->breakpoints().add({f.file(), 5, true, "c"});  // updates, does not duplicate
+  CHECK_EQ(f.ed->breakpoints().count(), static_cast<size_t>(1));
+  CHECK(f.fake->waitUntil(
+      [](const FakeDebugger::State& s) {
+        auto v = s.breakpoints();
+        return v.size() == 1 && v[0].condition == "c";
+      },
+      3000));
+  const size_t setsBefore = f.fake->count("setBreakpoint");
+  // The backend reports it under the other spelling: still the same breakpoint, nothing is added or pushed back.
+  f.fake->injectBreakpoint({viaLink, 5, true, "d"});
+  CHECK(f.until([&] {
+    auto b = f.ed->breakpoints().get(f.file(), 5);
+    return b && b->condition == "d";
+  }));
+  CHECK_EQ(f.ed->breakpoints().count(), static_cast<size_t>(1));
+  CHECK_EQ(f.fake->breakpoints().size(), static_cast<size_t>(1));
+  f.settle(40);
+  CHECK_EQ(f.fake->count("setBreakpoint"), setsBefore);
+  CHECK_EQ(f.fake->count("removeBreakpoint"), static_cast<size_t>(0));
+  // Removing via the other spelling works and reaches the backend.
+  CHECK(f.ed->breakpoints().remove(viaLink, 5));
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.breakpoints().empty(); }, 3000));
+  // Edits to the document (opened under the canonical spelling) move a breakpoint added via the link.
+  f.ed->breakpoints().add({viaLink, 9, true, {}});
+  f.ed->gotoLocation({f.file(), {0, 0}});
+  f.ed->insertText("x\n");
+  CHECK((f.ed->breakpoints().lines(viaLink) == std::vector<int>{10}));
+  CHECK(f.fake->waitUntil([&](const FakeDebugger::State&) { return Fx::fakeLines(f) == std::vector<int>{10}; }, 3000));
 }

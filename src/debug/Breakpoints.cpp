@@ -10,6 +10,19 @@ namespace tf {
 
 namespace fs = std::filesystem;
 
+std::string breakpointFileKey(const fs::path& file) {
+  std::error_code ec;
+  return pathKey(fs::weakly_canonical(file, ec));
+}
+
+const std::string& Breakpoints::fileKey(const fs::path& file) const {
+  if (keyCache_.size() > 4096) keyCache_.clear();
+  std::string spelling = file.generic_string();
+  auto it = keyCache_.find(spelling);
+  if (it == keyCache_.end()) it = keyCache_.emplace(std::move(spelling), breakpointFileKey(file)).first;
+  return it->second;
+}
+
 void Breakpoints::changed() {
   dirty_ = true;
   ++gen_;
@@ -26,7 +39,7 @@ bool Breakpoints::toggle(const fs::path& file, int line) {
 }
 
 void Breakpoints::add(const Breakpoint& bp) {
-  Entry& e = files_[pathKey(bp.file)];
+  Entry& e = files_[fileKey(bp.file)];
   if (e.bps.empty()) e.file = bp.file;
   auto it = e.bps.find(bp.line);
   if (it != e.bps.end() && it->second.enabled == bp.enabled && it->second.condition == bp.condition) return;
@@ -37,7 +50,7 @@ void Breakpoints::add(const Breakpoint& bp) {
 }
 
 bool Breakpoints::remove(const fs::path& file, int line) {
-  auto it = files_.find(pathKey(file));
+  auto it = files_.find(fileKey(file));
   if (it == files_.end() || it->second.bps.erase(line) == 0) return false;
   if (it->second.bps.empty()) files_.erase(it);
   changed();
@@ -45,7 +58,7 @@ bool Breakpoints::remove(const fs::path& file, int line) {
 }
 
 bool Breakpoints::setEnabled(const fs::path& file, int line, bool enabled) {
-  auto it = files_.find(pathKey(file));
+  auto it = files_.find(fileKey(file));
   if (it == files_.end()) return false;
   auto b = it->second.bps.find(line);
   if (b == it->second.bps.end()) return false;
@@ -57,7 +70,7 @@ bool Breakpoints::setEnabled(const fs::path& file, int line, bool enabled) {
 }
 
 bool Breakpoints::setCondition(const fs::path& file, int line, const std::string& condition) {
-  auto it = files_.find(pathKey(file));
+  auto it = files_.find(fileKey(file));
   if (it == files_.end()) return false;
   auto b = it->second.bps.find(line);
   if (b == it->second.bps.end()) return false;
@@ -69,7 +82,7 @@ bool Breakpoints::setCondition(const fs::path& file, int line, const std::string
 }
 
 std::optional<Breakpoint> Breakpoints::get(const fs::path& file, int line) const {
-  auto it = files_.find(pathKey(file));
+  auto it = files_.find(fileKey(file));
   if (it == files_.end()) return std::nullopt;
   auto b = it->second.bps.find(line);
   if (b == it->second.bps.end()) return std::nullopt;
@@ -78,7 +91,7 @@ std::optional<Breakpoint> Breakpoints::get(const fs::path& file, int line) const
 
 std::vector<int> Breakpoints::lines(const fs::path& file) const {
   std::vector<int> out;
-  auto it = files_.find(pathKey(file));
+  auto it = files_.find(fileKey(file));
   if (it != files_.end())
     for (const auto& [ln, bp] : it->second.bps) out.push_back(ln);
   return out;
@@ -104,7 +117,8 @@ void Breakpoints::clear() {
 }
 
 void Breakpoints::onLinesReplaced(const fs::path& file, int startLine, int endLine, int newLineCount) {
-  auto it = files_.find(pathKey(file));
+  if (files_.empty()) return;  // the common case: no canonicalisation on every keystroke
+  auto it = files_.find(fileKey(file));
   if (it == files_.end()) return;
   const int delta = newLineCount - (endLine - startLine + 1);
   if (delta == 0 && startLine == endLine) return;  // a single-line edit moves nothing
@@ -125,11 +139,11 @@ void Breakpoints::onLinesReplaced(const fs::path& file, int startLine, int endLi
 }
 
 void Breakpoints::onFileRenamed(const fs::path& from, const fs::path& to) {
-  auto it = files_.find(pathKey(from));
+  auto it = files_.find(fileKey(from));
   if (it == files_.end()) return;
   Entry e = std::move(it->second);
   files_.erase(it);
-  Entry& dst = files_[pathKey(to)];
+  Entry& dst = files_[fileKey(to)];
   dst.file = to;
   for (auto& [ln, bp] : e.bps) {
     bp.file = to;
@@ -140,8 +154,12 @@ void Breakpoints::onFileRenamed(const fs::path& from, const fs::path& to) {
 
 bool Breakpoints::save(const fs::path& jsonFile, const fs::path& root, std::string* error) {
   nlohmann::json files = nlohmann::json::object();
+  std::error_code cec;
+  const fs::path canonRoot = fs::weakly_canonical(root, cec);
   for (const auto& [key, e] : files_) {
-    const fs::path rel = e.file.lexically_relative(root);
+    // Canonical on both sides, so a spelling that differs from the workspace root's still ends up relative.
+    fs::path rel = fs::weakly_canonical(e.file, cec).lexically_relative(canonRoot);
+    if (rel.empty() || *rel.begin() == "..") rel = e.file.lexically_relative(root);
     const bool inside = !rel.empty() && *rel.begin() != "..";
     nlohmann::json arr = nlohmann::json::array();
     for (const auto& [ln, bp] : e.bps) {
@@ -199,7 +217,7 @@ bool Breakpoints::load(const fs::path& jsonFile, const fs::path& root, std::stri
       if (v.contains("condition") && v["condition"].is_string()) bp.condition = v["condition"].get<std::string>();
       e.bps.emplace(bp.line, std::move(bp));
     }
-    if (!e.bps.empty()) next[pathKey(p)] = std::move(e);
+    if (!e.bps.empty()) next[fileKey(p)] = std::move(e);
   }
   files_ = std::move(next);
   dirty_ = false;

@@ -36,7 +36,7 @@ void FakeDebugger::State::injectBreakpoint(const Breakpoint& bp) {
   {
     Lock lk(mu);
     for (Breakpoint& b : bps_)
-      if (b.line == bp.line && pathsEqual(b.file, bp.file)) {
+      if (b.line == bp.line && breakpointFileKey(b.file) == breakpointFileKey(bp.file)) {
         b = bp;
         cv.notify_all();
         return;
@@ -50,7 +50,7 @@ void FakeDebugger::State::injectRemoveBreakpoint(const std::filesystem::path& fi
   {
     Lock lk(mu);
     for (size_t i = 0; i < bps_.size(); ++i)
-      if (bps_[i].line == line && pathsEqual(bps_[i].file, file)) {
+      if (bps_[i].line == line && breakpointFileKey(bps_[i].file) == breakpointFileKey(file)) {
         bps_.erase(bps_.begin() + static_cast<std::ptrdiff_t>(i));
         break;
       }
