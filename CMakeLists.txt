@@ -19,6 +19,8 @@ endif()
 if(MSVC)
   set(TENFOLD_WARN /W4)
   set(TENFOLD_WARN_CORE /W4 /wd4100)
+  # getenv/fopen etc. are used portably on purpose; silence the _s-variant deprecations.
+  add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
 else()
   set(TENFOLD_WARN -Wall -Wextra)
   set(TENFOLD_WARN_CORE -Wall -Wextra -Wno-unused-parameter)

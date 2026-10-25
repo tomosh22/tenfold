@@ -12,6 +12,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/Platform.h"
 #include "semantic/XmlLite.h"
 
 namespace tf {
@@ -135,10 +136,10 @@ std::optional<fs::path> fromCMake(const fs::path& root, const fs::path& buildDir
   std::string cmd = "cmake -S " + quoteArg(root.string()) + " -B " + quoteArg(buildDir.string()) +
                     " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON 2>&1";
   std::string output;
-  if (FILE* p = ::popen(cmd.c_str(), "r")) {
+  if (FILE* p = openShellPipe(cmd, "r")) {
     char buf[4096];
     while (size_t n = std::fread(buf, 1, sizeof buf, p)) output.append(buf, n);
-    ::pclose(p);
+    closeShellPipe(p);
   }
   if (log) *log = output;
   fs::path cc = buildDir / "compile_commands.json";

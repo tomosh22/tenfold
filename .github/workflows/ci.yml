@@ -98,7 +98,7 @@ jobs:
 
       - name: Build
         shell: bash
-        run: cmake --build --preset "${{ matrix.preset }}" --parallel
+        run: cmake --build --preset "${{ matrix.preset }}" --parallel -- -k 0  # report every failing TU
 
       - name: Test
         shell: bash
@@ -107,6 +107,8 @@ jobs:
   format:
     name: clang-format (changed files)
     runs-on: ubuntu-24.04
+    # Advisory until the house style and .clang-format are reconciled (docs/OPEN_QUESTIONS.md #14).
+    continue-on-error: true
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
