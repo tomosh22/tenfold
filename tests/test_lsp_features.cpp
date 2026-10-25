@@ -401,6 +401,15 @@ static void quickFixCase(const std::string& src, int diagLine, const std::string
   if (!inc) {
     std::cerr << "    diagnostic: " << diag->message << "\n";
     for (auto& a : actions) std::cerr << "    action: " << a.title << "\n";
+      // clangd's include fixer needs its standard-library symbol index, which it builds for libstdc++ / libc++ but
+      // not for the MSVC STL: the diagnostic is there, the include fix is not (windows-msvc and windows-clang-cl CI:
+      // no action of any kind was offered). A platform limitation of clangd, not a failure of ours.
+#ifdef _WIN32
+    if (skipIfDiagMissing && actions.empty()) {
+      std::cerr << "    SKIPPED: clangd offers no include fix with the MSVC standard library\n";
+      return;
+    }
+#endif
   }
   REQUIRE(inc != nullptr);
   CHECK(inc->hasEdit);
@@ -510,7 +519,7 @@ TEST(lsp_did_change_watched_files_for_unopened_files) {
   Fx f(dir.path, true, /*polling=*/true);
   REQUIRE(f.ok);
   REQUIRE(f.openReady(dir.path / "src/main.cpp") != nullptr);
-  LspClient* c = f.ed.semantic().clangd();
+  auto c = f.ed.semantic().clangd();
   REQUIRE(c != nullptr);
   auto has = [&](const fs::path& p, int type) {
     for (auto& e : c->sentFileEvents())

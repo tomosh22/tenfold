@@ -1188,8 +1188,8 @@ bool Editor::build(const BuildOverrides& overrides, BuildLines onLines, BuildDon
   auto lines = [this, session, onLines = std::move(onLines)](std::vector<std::string> ls) {
     if (session != buildSession_) return;  // output of a build that was replaced
     BuildMessage m;
-    for (auto& l : ls)
-      if (session->parser.parseLine(l, &m)) addBuildMessage(std::move(m));
+    for (auto& l : ls)  // -fdiagnostics-color / -fdiagnostics-urls output carries CSI / OSC sequences
+      if (session->parser.parseLine(stripAnsiEscapes(l), &m)) addBuildMessage(std::move(m));
     if (onLines) onLines(ls);
   };
   auto done = [this, session, onDone = std::move(onDone)](const BuildResult& r) {
@@ -1252,6 +1252,10 @@ const std::vector<Diagnostic>& Editor::buildDiagnostics(const fs::path& file) co
   static const std::vector<Diagnostic> empty;
   auto it = buildDiags_.find(docKey(file));
   return it == buildDiags_.end() ? empty : it->second;
+}
+
+void Editor::setBuildCursor(size_t messageIndex) {
+  if (messageIndex < buildMessages_.size()) buildCursor_ = static_cast<int>(messageIndex);
 }
 
 std::optional<BuildMessage> Editor::stepBuildMessage(int dir, std::string* error) {

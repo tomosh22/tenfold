@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <mutex>
 #include <thread>
 
 #include "semantic/CompileCommands.h"
@@ -104,6 +105,14 @@ struct Callbacks {
 struct BuildRunner::Job {
   Process proc;
   std::thread reader;
+  // After cancel() a second thread keeps re-sending the kill until the output pipe reaches EOF. A single
+  // kill(-pgid) can miss a child the shell was in the middle of forking (fork is slow on macOS: the build
+  // "started" line is seen, the cancel lands during `sleep 120 &`'s fork, the new child escapes the signal and
+  // keeps the pipe open for its whole life). killMu orders the final kill against the leader being reaped, so
+  // a recycled process-group id is never signalled.
+  std::thread killer;
+  std::mutex killMu;
+  bool eof = false;  // guarded by killMu
   std::atomic<bool> cancelled{false};
   std::atomic<bool> finished{false};
 };
@@ -132,8 +141,10 @@ void BuildRunner::reap(bool all) {
       }
     }
   }
-  for (auto& j : take)
+  for (auto& j : take) {
     if (j->reader.joinable()) j->reader.join();
+    if (j->killer.joinable()) j->killer.join();
+  }
 }
 
 void BuildRunner::cancel() {
@@ -141,6 +152,17 @@ void BuildRunner::cancel() {
   if (!current_) return;
   current_->cancelled = true;
   current_->proc.kill();  // the whole tree: process group / job object
+  if (!current_->killer.joinable()) {
+    Job* j = current_.get();
+    j->killer = std::thread([j] {
+      while (true) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        std::lock_guard<std::mutex> lk(j->killMu);
+        if (j->eof) return;
+        j->proc.kill();
+      }
+    });
+  }
 }
 
 bool BuildRunner::running() const {
@@ -214,6 +236,10 @@ bool BuildRunner::start(const BuildCommand& cmd, Lines onLines, Done onDone, std
     if (!pending.empty()) {
       if (pending.back() == '\r') pending.pop_back();
       flush({std::move(pending)});
+    }
+    {
+      std::lock_guard<std::mutex> lk(j->killMu);
+      j->eof = true;  // before the leader is reaped (and its process-group id becomes reusable)
     }
     BuildResult r;
     r.exitCode = j->proc.wait(-1);

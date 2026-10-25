@@ -33,6 +33,18 @@
       }
     },
     {
+      "name": "tsan",
+      "displayName": "Debug + ThreadSanitizer (gcc, -O1)",
+      "inherits": "base",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+        "CMAKE_C_COMPILER": "gcc",
+        "CMAKE_CXX_COMPILER": "g++",
+        "CMAKE_CXX_FLAGS": "-fsanitize=thread -O1",
+        "CMAKE_EXE_LINKER_FLAGS": "-fsanitize=thread"
+      }
+    },
+    {
       "name": "msvc",
       "displayName": "Release (MSVC cl.exe; run from a VS developer prompt)",
       "inherits": "base",
@@ -59,6 +71,7 @@
     { "name": "release", "configurePreset": "release" },
     { "name": "debug", "configurePreset": "debug" },
     { "name": "asan", "configurePreset": "asan" },
+    { "name": "tsan", "configurePreset": "tsan" },
     { "name": "msvc", "configurePreset": "msvc" },
     { "name": "clang-cl", "configurePreset": "clang-cl" }
   ],
@@ -70,6 +83,14 @@
       "configurePreset": "asan",
       "output": { "outputOnFailure": true },
       "environment": { "ASAN_OPTIONS": "detect_leaks=1:strict_string_checks=1", "UBSAN_OPTIONS": "print_stacktrace=1" }
+    },
+    {
+      "name": "tsan",
+      "configurePreset": "tsan",
+      "output": { "outputOnFailure": true },
+      "environment": {
+        "TSAN_OPTIONS": "halt_on_error=1 second_deadlock_stack=1 suppressions=${sourceDir}/tsan.supp"
+      }
     },
     { "name": "msvc", "configurePreset": "msvc", "output": { "outputOnFailure": true } },
     { "name": "clang-cl", "configurePreset": "clang-cl", "output": { "outputOnFailure": true } }

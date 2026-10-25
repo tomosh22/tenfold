@@ -46,6 +46,7 @@ add_library(tenfold_core STATIC
   src/app/Editor.cpp
   src/app/EditorEditing.cpp
   src/app/Bookmarks.cpp
+  src/build/AnsiStrip.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
 )

@@ -3,10 +3,12 @@
 #include <filesystem>
 #include <fstream>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <vector>
 
 #include "app/Editor.h"
+#include "build/AnsiStrip.h"
 #include "build/BuildRunner.h"
 #include "build/ErrorParser.h"
 #include "core/PathUtil.h"
@@ -384,7 +386,11 @@ TEST(build_runner_restart_cancels_previous) {
         bDone = true;
       },
       &err));
-  REQUIRE(pump.until([&] { return aDone && bDone; }, 20000));
+  const bool both = pump.until([&] { return aDone && bDone; }, 20000);
+  if (!both)  // diagnostics for platforms where the cancel of A did not take effect (macOS CI hang)
+    std::cerr << "    aDone=" << aDone << " bDone=" << bDone << " aLines=" << aLines.size()
+              << " bLines=" << bLines.size() << " running=" << runner.running() << "\n";
+  REQUIRE(both);
   CHECK(aRes.cancelled);
   CHECK(!bRes.cancelled);
   CHECK_EQ(bRes.exitCode, 0);
@@ -566,27 +572,108 @@ TEST(build_editor_cancel_and_restart) {
   REQUIRE(ed.start());
   BuildOverrides slow;
   slow.command = sleeperCmd("a.cpp:1:1: error: slow").shell;
-  std::vector<BuildResult> results;
+  // One slot per build: the done callbacks of a cancelled and its replacement build may arrive in either order
+  // (killing the process tree takes as long as the machine is busy), so never index a shared results vector.
+  std::optional<BuildResult> first, second, third;
   std::string err;
-  REQUIRE(ed.build(slow, {}, [&](const BuildResult& r) { results.push_back(r); }, &err));
-  REQUIRE(ed.waitFor([&] { return !ed.buildMessages().empty(); }, 20000));
+  REQUIRE(ed.build(slow, {}, [&](const BuildResult& r) { first = r; }, &err));
+  REQUIRE(ed.waitFor([&] { return !ed.buildMessages().empty(); }, 60000));
   ed.cancelBuild();
-  REQUIRE(ed.waitFor([&] { return results.size() == 1; }, 20000));
-  CHECK(results[0].cancelled);
+  REQUIRE(ed.waitFor([&] { return first.has_value(); }, 60000));
+  CHECK(first->cancelled);
   CHECK(!ed.buildRunning());
 
-  // Restart while running: the first build ends cancelled, the second delivers its own messages only.
-  REQUIRE(ed.build(slow, {}, [&](const BuildResult& r) { results.push_back(r); }, &err));
-  REQUIRE(ed.waitFor([&] { return !ed.buildMessages().empty(); }, 20000));
+  // Restart while running: the second build ends cancelled, the third delivers its own messages only.
+  REQUIRE(ed.build(slow, {}, [&](const BuildResult& r) { second = r; }, &err));
+  REQUIRE(ed.waitFor([&] { return !ed.buildMessages().empty(); }, 60000));
   BuildOverrides quick;
   quick.command = shellCmd("echo a.cpp:1:3: warning: second", "echo a.cpp:1:3: warning: second").shell;
-  REQUIRE(ed.build(quick, {}, [&](const BuildResult& r) { results.push_back(r); }, &err));
-  REQUIRE(ed.waitFor([&] { return results.size() == 3; }, 20000));
-  CHECK(results[1].cancelled);
-  CHECK(results[2].ok());
+  REQUIRE(ed.build(quick, {}, [&](const BuildResult& r) { third = r; }, &err));
+  REQUIRE(ed.waitFor([&] { return second.has_value() && third.has_value(); }, 60000));
+  CHECK(second->cancelled);
+  CHECK(third->ok());
   REQUIRE(ed.buildMessages().size() == 1);
   CHECK_EQ(ed.buildMessages()[0].text, "second");
-  CHECK_EQ(results[2].warnings, size_t(1));
+  CHECK_EQ(third->warnings, size_t(1));
+}
+
+TEST(build_ansi_strip_csi_osc) {
+  CHECK_EQ(stripAnsiEscapes("plain text"), "plain text");
+  CHECK_EQ(stripAnsiEscapes("\x1b[01m\x1b[Ka.cpp:1:2:\x1b[m\x1b[K \x1b[01;31m\x1b[Kerror: \x1b[m\x1b[Kboom"),
+           "a.cpp:1:2: error: boom");
+  // OSC 8 hyperlink (gcc -fdiagnostics-urls), ST and BEL terminators.
+  CHECK_EQ(stripAnsiEscapes("x \x1b]8;;https://gcc.gnu.org/w\x1b\\[-Wfoo]\x1b]8;;\x1b\\ y"), "x [-Wfoo] y");
+  CHECK_EQ(stripAnsiEscapes("\x1b]0;title\a"
+                            "ok"),
+           "ok");
+  CHECK_EQ(stripAnsiEscapes("tail\x1b[31"), "tail");  // truncated sequence is dropped
+  CHECK_EQ(stripAnsiEscapes("tail\x1b"), "tail");
+}
+
+TEST(build_editor_ansi_coloured_gcc_output_yields_messages) {
+#ifdef _WIN32
+  return;  // the fake compiler output is produced with a POSIX printf
+#else
+  TempDir td;
+  writeFile(td.path / "a.cpp", "int a;\nint bad_name;\nint c;\n");
+  Editor ed(td.path, quietOptions());
+  REQUIRE(ed.start());
+  // What `gcc -fdiagnostics-color=always -fdiagnostics-urls=always` prints (printf escapes).
+  const std::string out =
+      "\\033[01m\\033[Ka.cpp:2:5:\\033[m\\033[K \\033[01;31m\\033[Kerror: \\033[m\\033[Kbad thing\\033[m\\033[K\\n"
+      "\\033[01m\\033[Ka.cpp:3:1:\\033[m\\033[K \\033[01;35m\\033[Kwarning: \\033[m\\033[Kmeh "
+      "\\033[01;35m\\033[K[\\033]8;;https://gcc.gnu.org/w\\033\\\\-Wunused\\033]8;;\\033\\\\]\\033[m\\033[K\\n";
+  BuildOverrides o;
+  o.command = "printf '" + out + "'";
+  bool done = false;
+  std::string err;
+  REQUIRE(ed.build(o, {}, [&](const BuildResult&) { done = true; }, &err));
+  REQUIRE(ed.waitFor([&] { return done; }, 60000));
+  const auto& msgs = ed.buildMessages();
+  REQUIRE(msgs.size() == 2);
+  CHECK_EQ(msgs[0].line, 2);
+  CHECK_EQ(msgs[0].col, 5);
+  CHECK(msgs[0].severity == BuildSeverity::Error);
+  CHECK_EQ(msgs[0].text, "bad thing");
+  CHECK(msgs[1].severity == BuildSeverity::Warning);
+  CHECK_EQ(msgs[1].code, "-Wunused");
+  CHECK_EQ(ed.buildDiagnostics(td.path / "a.cpp").size(), size_t(2));
+  auto m = ed.nextBuildMessage();  // F4
+  REQUIRE(m.has_value());
+  CHECK_EQ(m->line, 2);
+#endif
+}
+
+TEST(build_editor_set_build_cursor_moves_f4) {
+  TempDir td;
+  writeFile(td.path / "a.cpp", "int a;\nint b;\nint c;\nint d;\n");
+  Editor ed(td.path, quietOptions());
+  REQUIRE(ed.start());
+  BuildOverrides o;
+  o.command = shellCmd("printf 'a.cpp:1:1: error: one\\nnoise\\na.cpp:2:1: error: two\\na.cpp:3:1: error: three\\n'",
+                       "echo a.cpp:1:1: error: one& echo a.cpp:2:1: error: two& echo a.cpp:3:1: error: three")
+                  .shell;
+  bool done = false;
+  std::string err;
+  REQUIRE(ed.build(o, {}, [&](const BuildResult&) { done = true; }, &err));
+  REQUIRE(ed.waitFor([&] { return done; }, 60000));
+  REQUIRE(ed.buildMessages().size() == 3);
+
+  ed.setBuildCursor(1);            // as if the user clicked the second message in the build panel
+  auto m = ed.nextBuildMessage();  // F4 continues after it
+  REQUIRE(m.has_value());
+  CHECK_EQ(m->text, "three");
+  m = ed.prevBuildMessage();
+  REQUIRE(m.has_value());
+  CHECK_EQ(m->text, "two");
+  ed.setBuildCursor(2);
+  m = ed.prevBuildMessage();
+  REQUIRE(m.has_value());
+  CHECK_EQ(m->text, "two");
+  ed.setBuildCursor(99);  // out of range: ignored
+  m = ed.nextBuildMessage();
+  REQUIRE(m.has_value());
+  CHECK_EQ(m->text, "three");
 }
 
 TEST(build_editor_no_command_fails) {

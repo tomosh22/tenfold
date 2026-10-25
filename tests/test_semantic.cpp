@@ -90,7 +90,7 @@ struct Fixture {
     auto st = ed.semantic().status();
     std::cerr << "    compdb: " << st.compdbSource << " (" << st.compdbEntries << ") " << st.compdbPath.string()
               << "\n";
-    auto cmds = ed.semantic().compileCommands();
+    auto cmds = *ed.semantic().compileCommands();
     if (!cmds.empty()) {
       std::cerr << "    first command:";
       for (auto& a : cmds[0].arguments) std::cerr << " " << a;

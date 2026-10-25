@@ -232,8 +232,12 @@ class SemanticEngine {
   void watchedFileChanged(const std::filesystem::path& file, int type);
 
   FastIndex& fastIndex() { return fast_; }
-  const std::vector<CompileCommand>& compileCommands() const { return compileCommands_; }
-  LspClient* clangd() { return clangd_ && clangd_->initialized() ? clangd_.get() : nullptr; }
+  // Thread-safe snapshots. The compile database is published as an immutable vector swapped under mu_, so a
+  // reader keeps a consistent view while the worker re-prepares it. clangd() returns the running, initialised
+  // client (or null); the shared_ptr keeps it alive for the duration of a request even if restartClangd()
+  // replaces it concurrently (the old client is stopped, so its callbacks fail fast).
+  std::shared_ptr<const std::vector<CompileCommand>> compileCommands() const;
+  std::shared_ptr<LspClient> clangd() const;
 
   // Approximate lookups (also used by the UI for instant "peek" popups).
   std::vector<SymbolLocation> approximateDefinitions(const Document& doc, Position pos) const;
@@ -273,7 +277,7 @@ class SemanticEngine {
   void requestTokens(const std::string& uri, Callback<std::vector<TokenSpan>> cb);
   void runLater(int delayMs, std::function<void()> fn);
   template <class T>
-  LspClient* requireClangd(const Callback<T>& cb);
+  std::shared_ptr<LspClient> requireClangd(const Callback<T>& cb);
   Location fromServer(const LspLocation& l) const;
   std::vector<SymbolLocation> fromServer(const std::vector<LspLocation>& ls, Confidence c) const;
   void locationQuery(
@@ -286,8 +290,13 @@ class SemanticEngine {
   Workspace& ws_;
   Options opt_;
   FastIndex fast_;
-  std::unique_ptr<LspClient> clangd_;
-  std::vector<CompileCommand> compileCommands_;
+  // clangd_ and compileCommands_ are replaced from other threads than the ones reading them; both are only
+  // touched through the snapshot accessors. clientMu_ is a leaf lock (never held across a call out).
+  mutable std::mutex clientMu_;
+  std::shared_ptr<LspClient> clangd_;                                   // guarded by clientMu_
+  std::shared_ptr<const std::vector<CompileCommand>> compileCommands_;  // guarded by mu_
+  std::shared_ptr<LspClient> client() const;  // current client regardless of initialisation state
+  std::shared_ptr<LspClient> takeClient();    // detach the current client (caller stops it)
   std::string compdbSource_ = "none";
   std::filesystem::path compdbPath_;
   std::vector<std::string> sharedFlags_;  // flags applied to every file via clangd config

@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "app/Bookmarks.h"
+#include "build/AnsiStrip.h"
 #include "build/BuildRunner.h"
 #include "build/ErrorParser.h"
 #include "core/Document.h"
@@ -277,6 +278,9 @@ class Editor {
   // build starts at the first (next) / last (prev) message. Nullopt when there is nothing to jump to.
   std::optional<BuildMessage> nextBuildMessage(std::string* error = nullptr) { return stepBuildMessage(1, error); }
   std::optional<BuildMessage> prevBuildMessage(std::string* error = nullptr) { return stepBuildMessage(-1, error); }
+  // Moves the F4 / Shift+F4 cursor to `messageIndex` (an index into buildMessages(), e.g. the build-panel line that
+  // was clicked) so the next nextBuildMessage() continues after it. Out-of-range indexes are ignored.
+  void setBuildCursor(size_t messageIndex);
   // Build messages of one file as diagnostics (severity 1 error, 2 warning, 3 note), kept apart from the clangd
   // ones so a UI can colour them differently. A message without a column covers its whole line
   // (end = start of the next line).

@@ -4,6 +4,8 @@
 #include <cmath>
 #include <cstdio>
 
+#include "build/AnsiStrip.h"
+
 namespace tf::ui {
 
 namespace {
@@ -30,24 +32,13 @@ BuildPanel::~BuildPanel() = default;
 // Text
 // ---------------------------------------------------------------------------------------------------------------
 
-std::string BuildPanel::clean(std::string_view raw) {
+std::string BuildPanel::clean(std::string_view rawIn) {
+  const std::string stripped = stripAnsiEscapes(rawIn);  // CSI colours / OSC links: one shared implementation
+  const std::string_view raw = stripped;
   std::string out;
   out.reserve(raw.size());
   for (size_t i = 0; i < raw.size();) {
     const unsigned char c = static_cast<unsigned char>(raw[i]);
-    if (c == 0x1b) {  // ESC: CSI (colours, cursor), OSC (titles, links) or a two-character sequence
-      ++i;
-      if (i < raw.size() && raw[i] == '[') {
-        while (++i < raw.size() && (raw[i] < 0x40 || raw[i] > 0x7e)) {}
-        ++i;
-      } else if (i < raw.size() && raw[i] == ']') {
-        while (++i < raw.size() && raw[i] != 0x07 && !(raw[i] == 0x1b && i + 1 < raw.size() && raw[i + 1] == '\\')) {}
-        i += i < raw.size() && raw[i] == 0x1b ? 2 : 1;
-      } else {
-        ++i;
-      }
-      continue;
-    }
     ++i;
     if (c == '\r') {
       if (i < raw.size()) out.clear();  // progress output: what follows overwrites the line
@@ -191,6 +182,7 @@ bool BuildPanel::clickable(int i) const {
 bool BuildPanel::activate(int i) {
   if (!clickable(i)) return false;
   const BuildMessage& m = messages_[static_cast<size_t>(lines_[static_cast<size_t>(i)].message)];
+  editor_.setBuildCursor(static_cast<size_t>(lines_[static_cast<size_t>(i)].message));  // next F4 continues from here
   std::string err;
   const Location loc{std::filesystem::path(m.file), {std::max(m.line - 1, 0), std::max(m.col - 1, 0)}};
   if (!editor_.gotoLocation(loc, &err, std::string(severityName(m.severity)) + ": " + m.text)) {
