@@ -49,12 +49,12 @@ jobs:
             os: windows-2022
             preset: msvc
             msvc_env: true
-            experimental: true # TODO(A1): remove once Windows Process lands
+            experimental: false
           - name: windows-clang-cl
             os: windows-2022
             preset: clang-cl
             msvc_env: true
-            experimental: true # TODO(A1): remove once Windows Process lands
+            experimental: false
           - name: macos-appleclang
             os: macos-14
             preset: release
