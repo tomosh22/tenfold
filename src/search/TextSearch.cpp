@@ -6,6 +6,8 @@
 #include <cstring>
 #include <thread>
 
+#include "core/PathUtil.h"
+
 #ifdef TENFOLD_HAVE_PCRE2
 #define PCRE2_CODE_UNIT_WIDTH 8
 #include <pcre2.h>
@@ -390,7 +392,7 @@ struct Worker {
       run.searched++;
       const std::string* over = nullptr;
       if (needRel) {
-        auto it = run.in.overrides.find(file->lexically_relative(run.in.root).generic_string());
+        auto it = run.in.overrides.find(pathKey(file->lexically_relative(run.in.root).generic_string(), nativePathStyle()));
         if (it != run.in.overrides.end()) over = &it->second;
       }
       if (over) {

@@ -557,7 +557,7 @@ std::vector<fs::path> inferIncludeDirs(const std::vector<fs::path>& headers, con
 
 std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs::path>& sources,
                                       const std::vector<fs::path>& headers, const std::string& stdVersion,
-                                      const std::vector<std::string>& includePaths) {
+                                      const std::vector<std::string>& includePaths, bool clDriver) {
   std::vector<std::string> incs;
   if (!includePaths.empty()) {
     for (auto& d : inferIncludeDirs(headers, includePaths)) incs.push_back(d.generic_string());
@@ -585,10 +585,16 @@ std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs
     c.directory = root;
     c.file = s;
     bool isC = lower(s.extension().string()) == ".c";
-    c.arguments.push_back(isC ? "clang" : "clang++");
-    c.arguments.push_back(isC ? "-std=c11" : "-std=" + stdVersion);
+    if (clDriver) {
+      c.arguments.push_back("clang-cl");
+      c.arguments.push_back(isC ? "/std:c11" : "/std:" + stdVersion);
+      if (!isC) c.arguments.push_back("/EHsc");
+    } else {
+      c.arguments.push_back(isC ? "clang" : "clang++");
+      c.arguments.push_back(isC ? "-std=c11" : "-std=" + stdVersion);
+    }
     for (auto& d : incs) c.arguments.push_back("-I" + d);
-    c.arguments.push_back("-c");
+    c.arguments.push_back(clDriver ? "/c" : "-c");
     c.arguments.push_back(s.generic_string());
     out.push_back(std::move(c));
   }
@@ -683,6 +689,23 @@ MsvcProbe systemMsvcProbe() {
   };
 #endif
   return p;
+}
+
+std::vector<std::string> platformSystemFlags() {
+#ifdef __APPLE__
+  std::string sdk;
+  if (const char* e = std::getenv("SDKROOT")) sdk = e;
+  if (sdk.empty()) {
+    if (FILE* f = popen("xcrun --show-sdk-path 2>/dev/null", "r")) {
+      char buf[1024];
+      while (fgets(buf, sizeof buf, f)) sdk += buf;
+      pclose(f);
+    }
+    sdk = trimLine(sdk);
+  }
+  if (!sdk.empty()) return {"-isysroot", sdk};
+#endif
+  return {};
 }
 
 std::string queryDriverArg(const fs::path& clExe) { return "--query-driver=" + clExe.parent_path().generic_string() + "/**"; }

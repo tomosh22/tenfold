@@ -113,6 +113,17 @@ TEST(heuristic_compile_commands) {
   CHECK_EQ(cmds[0].arguments[0], "clang++");
 }
 
+TEST(heuristic_compile_commands_clang_cl_driver) {
+  fs::path root = fs::path(TENFOLD_SOURCE_DIR) / "examples/sample_project";
+  auto cmds = compdb::heuristic(root, {root / "src/main.cpp"}, {root / "include/geometry.h"}, "c++20", {}, true);
+  REQUIRE(cmds.size() == 1u);
+  CHECK_EQ(cmds[0].arguments[0], "clang-cl");
+  CHECK(hasArg(cmds[0], "/std:c++20"));
+  CHECK(hasArg(cmds[0], "/EHsc"));
+  CHECK(hasArg(cmds[0], "/c"));
+  CHECK(hasArg(cmds[0], "-I" + (root / "include").generic_string()));
+}
+
 TEST(infer_include_dirs) {
   std::vector<fs::path> headers = {"/w/engine/include/engine/core.h", "/w/engine/include/engine/math/vec.h",
                                    "/w/third/foo/foo.h", "/w/src/local.h", "/w/other/engine/core.h"};

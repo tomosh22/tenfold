@@ -70,7 +70,8 @@ struct SearchInput {
   std::filesystem::path root;                   // globs are matched against paths relative to this
   std::vector<std::filesystem::path> files;
   // Text to search instead of the disk version, keyed by path relative to
-  // `root` (generic '/' form). Take the snapshot before starting.
+  // `root` (generic '/' form, passed through tf::pathKey so Windows lookups
+  // are case-insensitive). Take the snapshot before starting.
   std::map<std::string, std::string> overrides;
 };
 

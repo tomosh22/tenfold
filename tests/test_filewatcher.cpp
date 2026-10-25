@@ -589,8 +589,8 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
 
   // A real compile_commands.json appears at the root: the location changes.
   writeFile(f.dir.path / "compile_commands.json",
-            "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" + (f.dir.path / "src/a.cpp").string() +
-                "\",\"arguments\":[\"clang++\",\"-std=c++20\",\"-c\",\"" + (f.dir.path / "src/a.cpp").string() +
+            "[{\"directory\":\"" + f.dir.path.generic_string() + "\",\"file\":\"" + (f.dir.path / "src/a.cpp").generic_string() +
+                "\",\"arguments\":[\"clang++\",\"-std=c++20\",\"-c\",\"" + (f.dir.path / "src/a.cpp").generic_string() +
                 "\"]}]");
   CHECK(f.ed->waitFor([&] { return startCount() == 2; }, 20000));
   CHECK_EQ(f.ed->semantic().status().compdbPath.parent_path().string(), f.dir.path.string());
@@ -598,8 +598,8 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
 
   // Editing the database in place: clangd re-reads it itself, no restart.
   writeFile(f.dir.path / "compile_commands.json",
-            "[{\"directory\":\"" + f.dir.path.string() + "\",\"file\":\"" + (f.dir.path / "src/a.cpp").string() +
-                "\",\"arguments\":[\"clang++\",\"-std=c++17\",\"-c\",\"" + (f.dir.path / "src/a.cpp").string() +
+            "[{\"directory\":\"" + f.dir.path.generic_string() + "\",\"file\":\"" + (f.dir.path / "src/a.cpp").generic_string() +
+                "\",\"arguments\":[\"clang++\",\"-std=c++17\",\"-c\",\"" + (f.dir.path / "src/a.cpp").generic_string() +
                 "\"]}]");
   CHECK(f.ed->waitFor([&] { return f.ed->semantic().compileCommands().size() == 1 &&
                                    f.ed->semantic().compileCommands()[0].arguments.size() > 1 &&
