@@ -85,9 +85,8 @@ std::wstring buildEnvBlock(const Process::Env& extra) {
     std::erase_if(entries, [&](const std::wstring& e) { return upper(envKey(e)) == ukey; });
     entries.push_back(key + L'=' + utf8ToWide(v));
   }
-  std::sort(entries.begin(), entries.end(), [](const std::wstring& a, const std::wstring& b) {
-    return upper(envKey(a)) < upper(envKey(b));
-  });
+  std::sort(entries.begin(), entries.end(),
+            [](const std::wstring& a, const std::wstring& b) { return upper(envKey(a)) < upper(envKey(b)); });
   std::wstring out;
   for (auto& e : entries) {
     out += e;
@@ -116,9 +115,8 @@ Process::~Process() {
   closeHandle(job_);  // KILL_ON_JOB_CLOSE reaps anything the child left behind
 }
 
-bool Process::start(const std::string& exe, const std::vector<std::string>& args,
-                    const std::filesystem::path& cwd, const std::filesystem::path& stderrLog, std::string* error,
-                    const Env& extraEnv) {
+bool Process::start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
+                    const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv) {
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof sa;
   sa.bInheritHandle = TRUE;
@@ -126,7 +124,10 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
   HANDLE inRead = nullptr, inWrite = nullptr, outRead = nullptr, outWrite = nullptr, errH = nullptr;
   auto cleanup = [&]() {
     for (HANDLE* h : {&inRead, &inWrite, &outRead, &outWrite, &errH})
-      if (*h) { ::CloseHandle(*h); *h = nullptr; }
+      if (*h) {
+        ::CloseHandle(*h);
+        *h = nullptr;
+      }
   };
   auto fail = [&](const char* what) {
     if (error) *error = lastErrorText(what);
@@ -142,12 +143,15 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
     return fail("SetHandleInformation");
 
   if (!stderrLog.empty())
-    errH = ::CreateFileW(stderrLog.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa,
-                         CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    errH = ::CreateFileW(stderrLog.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, CREATE_ALWAYS,
+                         FILE_ATTRIBUTE_NORMAL, nullptr);
   if (!errH || errH == INVALID_HANDLE_VALUE)
     errH = ::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING,
                          FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (errH == INVALID_HANDLE_VALUE) { errH = nullptr; return fail("open stderr"); }
+  if (errH == INVALID_HANDLE_VALUE) {
+    errH = nullptr;
+    return fail("open stderr");
+  }
 
   std::wstring cmd;
   appendQuoted(cmd, utf8ToWide(exe));
@@ -179,8 +183,8 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
   std::wstring wcwd = cwd.empty() ? std::wstring() : cwd.wstring();
   // Suspended so the child is in the job before it can spawn anything.
   BOOL ok = ::CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
-                             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED,
-                             env.data(), wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi);
+                             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, env.data(),
+                             wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi);
   if (!ok) {
     DWORD e = ::GetLastError();
     ::CloseHandle(job);
@@ -234,8 +238,12 @@ bool Process::running() const {
   return false;
 }
 
-void Process::terminate() { if (process_ && !exited_) ::TerminateProcess(process_, 1); }
-void Process::kill() { if (process_ && !exited_) ::TerminateProcess(process_, 1); }
+void Process::terminate() {
+  if (process_ && !exited_) ::TerminateProcess(process_, 1);
+}
+void Process::kill() {
+  if (process_ && !exited_) ::TerminateProcess(process_, 1);
+}
 
 void Process::closeStdin() { closeHandle(stdinH_); }
 

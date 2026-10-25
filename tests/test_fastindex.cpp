@@ -19,7 +19,9 @@ TEST(lexer_basic_tokens) {
   auto t = lx.all();
   std::vector<std::string> texts;
   for (auto& x : t) texts.emplace_back(x.text);
-  std::vector<std::string> want = {"int", "a", "=", "0x1F", ";", "auto", "s", "=", "R\"x(raw)\")x\"", ";", "p", "->", "q", "::", "r", "<<=", "2", ";", "#define X(y) \\\n  y", "foo", ""};
+  std::vector<std::string> want = {"int", "a",  "=", "0x1F", ";", "auto", "s", "=", "R\"x(raw)\")x\"",      ";",
+                                   "p",   "->", "q", "::",   "r", "<<=",  "2", ";", "#define X(y) \\\n  y", "foo",
+                                   ""};
   CHECK_EQ(texts.size(), want.size());
   for (size_t i = 0; i < std::min(texts.size(), want.size()); ++i) CHECK_EQ(texts[i], want[i]);
   CHECK(t[0].kind == Tok::Keyword);
@@ -34,38 +36,48 @@ TEST(extract_namespaces_classes_functions) {
   const char* src = R"cpp(
 #include <x>
 #define MAX(a, b) ((a) > (b) ? (a) : (b))
-namespace outer::inner {
-class Widget : public Base, private Other {
- public:
-  Widget();
-  ~Widget();
-  explicit Widget(int x) : x_(x) {}
-  int size() const;
-  virtual void draw() = 0;
-  static Widget* create(const char* name) { return nullptr; }
-  template <typename T> T as() const { return T(); }
-  int x_ = 0;
-  std::vector<int> items, extra;
- private:
-  struct Impl;
-};
-int Widget::size() const { return x_; }
-Widget::Widget() = default;
-inline int helper(int a, int b) noexcept { return MAX(a, b); }
-int counter = 0;
-extern int externCounter;
-typedef unsigned long ulong_t;
-typedef void (*Callback)(int);
-using Alias = std::vector<Widget>;
-enum Color { Red, Green = 5, Blue };
-enum class Mode : int { Fast, Slow };
-template <class T> concept Numeric = std::is_arithmetic_v<T>;
-}  // namespace
-namespace { static int hidden = 1; }
-auto lambda = [](int x) { return x; };
-DECLARE_SOMETHING(Foo)
-struct Pod { int a; float b; };
-)cpp";
+    namespace outer::inner {
+    class Widget : public Base, private Other {
+     public:
+      Widget();
+      ~Widget();
+      explicit Widget(int x) : x_(x) {}
+      int size() const;
+      virtual void draw() = 0;
+      static Widget* create(const char* name) { return nullptr; }
+      template <typename T>
+      T as() const {
+        return T();
+      }
+      int x_ = 0;
+      std::vector<int> items, extra;
+
+     private:
+      struct Impl;
+    };
+    int Widget::size() const { return x_; }
+    Widget::Widget() = default;
+    inline int helper(int a, int b) noexcept { return MAX(a, b); }
+    int counter = 0;
+    extern int externCounter;
+    typedef unsigned long ulong_t;
+    typedef void (*Callback)(int);
+    using Alias = std::vector<Widget>;
+    enum Color { Red, Green = 5, Blue };
+    enum class Mode : int { Fast, Slow };
+    template <class T>
+    concept Numeric = std::is_arithmetic_v<T>;
+    }  // namespace outer::inner
+    namespace {
+    static int hidden = 1;
+    }
+    auto lambda = [](int x) { return x; };
+    DECLARE_SOMETHING(Foo)
+    struct Pod {
+      int a;
+      float b;
+    };
+  )cpp";
   auto syms = extractSymbols(src);
   auto* ns = find(syms, "inner", SymbolKind::Namespace);
   REQUIRE(ns != nullptr);
@@ -76,14 +88,16 @@ struct Pod { int a; float b; };
   CHECK_EQ(w->line, 4);
   // Constructors / destructor
   int ctors = 0;
-  for (auto& s : syms) if (s.kind == SymbolKind::Constructor && s.scope == "outer::inner::Widget") ++ctors;
+  for (auto& s : syms)
+    if (s.kind == SymbolKind::Constructor && s.scope == "outer::inner::Widget") ++ctors;
   CHECK_EQ(ctors, 4);  // Widget(), ~Widget(), Widget(int), out-of-line Widget::Widget()
   auto* size = find(syms, "size", SymbolKind::Method);
   REQUIRE(size != nullptr);
   CHECK_EQ(size->scope, "outer::inner::Widget");
   // Out-of-line definition should be recorded as a definition in the same scope.
   int sizeDefs = 0;
-  for (auto& s : syms) if (s.name == "size" && s.definition && s.scope == "outer::inner::Widget") ++sizeDefs;
+  for (auto& s : syms)
+    if (s.name == "size" && s.definition && s.scope == "outer::inner::Widget") ++sizeDefs;
   CHECK_EQ(sizeDefs, 1);
   auto* draw = find(syms, "draw");
   REQUIRE(draw != nullptr);
@@ -148,13 +162,15 @@ TEST(extract_sample_project_header) {
   CHECK(vec2->isTemplate);
   CHECK_EQ(vec2->scope, "geo");
   int lengthSq = 0;
-  for (auto& s : syms) if (s.name == "length_sq") ++lengthSq;
+  for (auto& s : syms)
+    if (s.name == "length_sq") ++lengthSq;
   CHECK_EQ(lengthSq, 2);  // declaration + out-of-line template definition
   CHECK(find(syms, "operator+") != nullptr);
   CHECK(find(syms, "Vec2f", SymbolKind::Typedef) != nullptr);
   CHECK(find(syms, "Vec2i", SymbolKind::Typedef) != nullptr);
   int traits = 0;
-  for (auto& s : syms) if (s.name == "Traits") ++traits;
+  for (auto& s : syms)
+    if (s.name == "Traits") ++traits;
   CHECK_EQ(traits, 2);  // primary + specialisation
   CHECK(find(syms, "value_type", SymbolKind::Typedef) != nullptr);
   CHECK(find(syms, "area", SymbolKind::Method) != nullptr);
@@ -180,7 +196,8 @@ TEST(fuzzy_scoring_and_search) {
   CHECK(FastIndex::fuzzyScore("gLS", "getLengthSquared") > FastIndex::fuzzyScore("gls", "gaslights"));
 
   FastIndex idx;
-  idx.updateFile("/w/a.h", "namespace geo { struct Vec2 {}; struct Vec3 {}; void make_default_shape(); }\nint vector_count;");
+  idx.updateFile("/w/a.h",
+                 "namespace geo { struct Vec2 {}; struct Vec3 {}; void make_default_shape(); }\nint vector_count;");
   idx.updateFile("/w/b.h", "struct Vec2Renderer {};");
   auto r = idx.search("Vec2");
   REQUIRE(!r.empty());

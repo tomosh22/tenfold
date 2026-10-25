@@ -19,9 +19,8 @@ using namespace tf::gfx;
 namespace {
 
 std::string dejavuMono() {
-  for (const char* p :
-       {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/dejavu/DejaVuSansMono.ttf",
-        "/usr/share/fonts/TTF/DejaVuSansMono.ttf"})
+  for (const char* p : {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf"})
     if (std::ifstream(p).good()) return p;
   const std::string d = discoverMonospaceFont("");
   return d.find("DejaVuSansMono") != std::string::npos ? d : std::string();

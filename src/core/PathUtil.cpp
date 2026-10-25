@@ -18,7 +18,8 @@ bool isDrivePrefix(const std::string& s) {
 
 std::string pathKey(const std::string& p, PathStyle style) {
   if (style == PathStyle::Posix) return p;
-  bool unc = p.size() > 2 && (p[0] == '/' || p[0] == '\\') && (p[1] == '/' || p[1] == '\\') && p[2] != '/' && p[2] != '\\';
+  bool unc =
+      p.size() > 2 && (p[0] == '/' || p[0] == '\\') && (p[1] == '/' || p[1] == '\\') && p[2] != '/' && p[2] != '\\';
   std::string out;
   out.reserve(p.size() + 1);
   for (char c : p) {

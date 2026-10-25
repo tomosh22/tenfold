@@ -24,7 +24,8 @@ class CompileDatabase {
  public:
   static std::optional<std::filesystem::path> find(const std::filesystem::path& root);
   static std::vector<CompileCommand> load(const std::filesystem::path& jsonFile, std::string* error = nullptr);
-  static bool save(const std::vector<CompileCommand>& cmds, const std::filesystem::path& jsonFile, std::string* error = nullptr);
+  static bool save(const std::vector<CompileCommand>& cmds, const std::filesystem::path& jsonFile,
+                   std::string* error = nullptr);
 };
 
 namespace compdb {
@@ -59,15 +60,17 @@ std::vector<std::filesystem::path> inferIncludeDirs(const std::vector<std::files
 // Best-effort commands for a bare directory of sources. With `includePaths`
 // (from the fast index) the -I set is inferred; otherwise every directory
 // containing a header is used (capped).
-std::vector<CompileCommand> heuristic(const std::filesystem::path& root, const std::vector<std::filesystem::path>& sources,
-                                      const std::vector<std::filesystem::path>& headers, const std::string& std = "c++20",
+std::vector<CompileCommand> heuristic(const std::filesystem::path& root,
+                                      const std::vector<std::filesystem::path>& sources,
+                                      const std::vector<std::filesystem::path>& headers,
+                                      const std::string& std = "c++20",
                                       const std::vector<std::string>& includePaths = {});
 
 // ---- MSVC toolchain discovery (for clangd --query-driver) ----
 // Inputs are injected so the logic runs on any host against a fake tree.
 struct MsvcProbe {
-  std::string vcToolsInstallDir;           // value of %VCToolsInstallDir% ("" if unset)
-  std::function<std::string()> vswhere;    // returns vswhere's installationPath output ("" if unavailable)
+  std::string vcToolsInstallDir;         // value of %VCToolsInstallDir% ("" if unset)
+  std::function<std::string()> vswhere;  // returns vswhere's installationPath output ("" if unavailable)
 };
 // <toolsDir>/bin/Hostx64/x64/cl.exe if it exists.
 std::optional<std::filesystem::path> clExeInToolsDir(const std::filesystem::path& toolsDir);

@@ -3,8 +3,8 @@
 #include <algorithm>
 #include <array>
 #include <cctype>
-#include <cstdlib>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <fstream>
 #include <set>
@@ -25,7 +25,8 @@ using Json = nlohmann::json;
 // ---------------------------------------------------------------------------
 
 std::optional<fs::path> CompileDatabase::find(const fs::path& root) {
-  static const char* candidates[] = {"", "build", "out", "cmake-build-debug", "cmake-build-release", "_build", ".tenfold"};
+  static const char* candidates[] = {"",       "build",   "out", "cmake-build-debug", "cmake-build-release",
+                                     "_build", ".tenfold"};
   for (auto c : candidates) {
     fs::path p = root / c / "compile_commands.json";
     std::error_code ec;
@@ -54,14 +55,27 @@ std::vector<std::string> splitCommand(const std::string& cmd) {
     char c = cmd[i];
     if (quote) {
       if (c == quote) quote = 0;
-      else if (c == '\\' && quote == '"' && i + 1 < cmd.size() && (cmd[i + 1] == '"' || cmd[i + 1] == '\\')) cur += cmd[++i];
+      else if (c == '\\' && quote == '"' && i + 1 < cmd.size() && (cmd[i + 1] == '"' || cmd[i + 1] == '\\'))
+        cur += cmd[++i];
       else cur += c;
       continue;
     }
-    if (c == '"' || c == '\'') { quote = c; inArg = true; continue; }
-    if (c == '\\' && i + 1 < cmd.size()) { cur += cmd[++i]; inArg = true; continue; }
+    if (c == '"' || c == '\'') {
+      quote = c;
+      inArg = true;
+      continue;
+    }
+    if (c == '\\' && i + 1 < cmd.size()) {
+      cur += cmd[++i];
+      inArg = true;
+      continue;
+    }
     if (std::isspace(static_cast<unsigned char>(c))) {
-      if (inArg) { out.push_back(cur); cur.clear(); inArg = false; }
+      if (inArg) {
+        out.push_back(cur);
+        cur.clear();
+        inArg = false;
+      }
       continue;
     }
     cur += c;
@@ -85,9 +99,15 @@ std::string quoteArg(const std::string& a) {
 std::vector<CompileCommand> CompileDatabase::load(const fs::path& jsonFile, std::string* error) {
   std::vector<CompileCommand> out;
   std::ifstream in(jsonFile);
-  if (!in) { if (error) *error = "cannot open " + jsonFile.string(); return out; }
+  if (!in) {
+    if (error) *error = "cannot open " + jsonFile.string();
+    return out;
+  }
   Json j = Json::parse(in, nullptr, false);
-  if (!j.is_array()) { if (error) *error = "not a JSON array: " + jsonFile.string(); return out; }
+  if (!j.is_array()) {
+    if (error) *error = "not a JSON array: " + jsonFile.string();
+    return out;
+  }
   for (auto& e : j) {
     CompileCommand c;
     c.directory = e.value("directory", "");
@@ -111,14 +131,20 @@ bool CompileDatabase::save(const std::vector<CompileCommand>& cmds, const fs::pa
     e["file"] = c.file.generic_string();
     e["arguments"] = c.arguments;
     std::string cmd;
-    for (auto& a : c.arguments) { if (!cmd.empty()) cmd += ' '; cmd += quoteArg(a); }
+    for (auto& a : c.arguments) {
+      if (!cmd.empty()) cmd += ' ';
+      cmd += quoteArg(a);
+    }
     e["command"] = cmd;
     arr.push_back(std::move(e));
   }
   std::error_code ec;
   fs::create_directories(jsonFile.parent_path(), ec);
   std::ofstream out(jsonFile);
-  if (!out) { if (error) *error = "cannot write " + jsonFile.string(); return false; }
+  if (!out) {
+    if (error) *error = "cannot write " + jsonFile.string();
+    return false;
+  }
   out << arr.dump(2);
   return true;
 }
@@ -157,7 +183,10 @@ std::string expandProperties(const std::string& s, const std::map<std::string, s
   for (size_t i = 0; i < s.size(); ++i) {
     if (s[i] == '$' && i + 1 < s.size() && s[i + 1] == '(') {
       size_t close = s.find(')', i + 2);
-      if (close == std::string::npos) { out += s.substr(i); break; }
+      if (close == std::string::npos) {
+        out += s.substr(i);
+        break;
+      }
       std::string name = s.substr(i + 2, close - i - 2);
       // Property functions like $(Foo.Replace(...)) are not supported; leave empty.
       auto it = props.find(name);
@@ -194,8 +223,10 @@ std::vector<std::string> splitSemis(const std::string& s) {
   std::vector<std::string> out;
   std::string cur;
   for (char c : s) {
-    if (c == ';') { if (!trim(cur).empty()) out.push_back(trim(cur)); cur.clear(); }
-    else cur += c;
+    if (c == ';') {
+      if (!trim(cur).empty()) out.push_back(trim(cur));
+      cur.clear();
+    } else cur += c;
   }
   if (!trim(cur).empty()) out.push_back(trim(cur));
   return out;
@@ -208,11 +239,16 @@ struct CondParser {
   const std::map<std::string, std::string>& props;
   const fs::path& base;
 
-  void ws() { while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i; }
+  void ws() {
+    while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
+  }
   bool kw(const char* k) {
     ws();
     size_t n = std::strlen(k);
-    if (lower(s.substr(i, n)) == k && (i + n >= s.size() || !std::isalnum(static_cast<unsigned char>(s[i + n])))) { i += n; return true; }
+    if (lower(s.substr(i, n)) == k && (i + n >= s.size() || !std::isalnum(static_cast<unsigned char>(s[i + n])))) {
+      i += n;
+      return true;
+    }
     return false;
   }
   std::string atom() {
@@ -225,40 +261,69 @@ struct CondParser {
       return expandProperties(v, props);
     }
     size_t st = i;
-    while (i < s.size() && !std::isspace(static_cast<unsigned char>(s[i])) && s[i] != ')' && s[i] != '=' && s[i] != '!') ++i;
+    while (i < s.size() && !std::isspace(static_cast<unsigned char>(s[i])) && s[i] != ')' && s[i] != '=' && s[i] != '!')
+      ++i;
     return expandProperties(s.substr(st, i - st), props);
   }
   bool primary() {
     ws();
-    if (i < s.size() && s[i] == '!' && (i + 1 >= s.size() || s[i + 1] != '=')) { ++i; return !primary(); }
-    if (i < s.size() && s[i] == '(') { ++i; bool v = orExpr(); ws(); if (i < s.size() && s[i] == ')') ++i; return v; }
+    if (i < s.size() && s[i] == '!' && (i + 1 >= s.size() || s[i + 1] != '=')) {
+      ++i;
+      return !primary();
+    }
+    if (i < s.size() && s[i] == '(') {
+      ++i;
+      bool v = orExpr();
+      ws();
+      if (i < s.size() && s[i] == ')') ++i;
+      return v;
+    }
     if (kw("exists")) {
-      ws(); if (i < s.size() && s[i] == '(') ++i;
+      ws();
+      if (i < s.size() && s[i] == '(') ++i;
       std::string p = atom();
-      ws(); if (i < s.size() && s[i] == ')') ++i;
+      ws();
+      if (i < s.size() && s[i] == ')') ++i;
       fs::path fp = hostPath(p);
       std::error_code ec;
       return fs::exists(fp.is_absolute() ? fp : base / fp, ec);
     }
     if (kw("hastrailingslash")) {
-      ws(); if (i < s.size() && s[i] == '(') ++i;
+      ws();
+      if (i < s.size() && s[i] == '(') ++i;
       std::string p = atom();
-      ws(); if (i < s.size() && s[i] == ')') ++i;
+      ws();
+      if (i < s.size() && s[i] == ')') ++i;
       return !p.empty() && (p.back() == '\\' || p.back() == '/');
     }
     std::string a = atom();
     ws();
-    if (s.substr(i, 2) == "==") { i += 2; return lower(a) == lower(atom()); }
-    if (s.substr(i, 2) == "!=") { i += 2; return lower(a) != lower(atom()); }
+    if (s.substr(i, 2) == "==") {
+      i += 2;
+      return lower(a) == lower(atom());
+    }
+    if (s.substr(i, 2) == "!=") {
+      i += 2;
+      return lower(a) != lower(atom());
+    }
     return lower(a) == "true";
   }
-  bool andExpr() { bool v = primary(); while (kw("and")) v = primary() && v; return v; }
-  bool orExpr() { bool v = andExpr(); while (kw("or")) v = andExpr() || v; return v; }
+  bool andExpr() {
+    bool v = primary();
+    while (kw("and")) v = primary() && v;
+    return v;
+  }
+  bool orExpr() {
+    bool v = andExpr();
+    while (kw("or")) v = andExpr() || v;
+    return v;
+  }
 };
 
 }  // namespace
 
-bool evaluateCondition(const std::string& cond, const std::map<std::string, std::string>& props, const fs::path& baseDir) {
+bool evaluateCondition(const std::string& cond, const std::map<std::string, std::string>& props,
+                       const fs::path& baseDir) {
   if (trim(cond).empty()) return true;
   CondParser p{cond, 0, props, baseDir};
   return p.orExpr();
@@ -271,7 +336,10 @@ bool evaluateCondition(const std::string& cond, const std::map<std::string, std:
 std::vector<fs::path> projectsInSolution(const fs::path& sln, std::string* error) {
   std::vector<fs::path> out;
   std::ifstream in(sln);
-  if (!in) { if (error) *error = "cannot open " + sln.string(); return out; }
+  if (!in) {
+    if (error) *error = "cannot open " + sln.string();
+    return out;
+  }
   std::string line;
   fs::path dir = sln.parent_path();
   while (std::getline(in, line)) {
@@ -303,20 +371,28 @@ struct ProjectState {
   std::map<std::string, std::string> props;
   // ClCompile item-definition metadata (merged across groups).
   std::map<std::string, std::string> clMeta;
-  struct Item { fs::path file; std::map<std::string, std::string> meta; bool excluded = false; };
+  struct Item {
+    fs::path file;
+    std::map<std::string, std::string> meta;
+    bool excluded = false;
+  };
   std::vector<Item> items;
   std::set<std::string> visited;
   std::string error;
 };
 
 // Resolve "%(Name)" self-references by substituting the current metadata value.
-std::string mergeMeta(const std::string& value, const std::string& name, const std::map<std::string, std::string>& current) {
+std::string mergeMeta(const std::string& value, const std::string& name,
+                      const std::map<std::string, std::string>& current) {
   std::string out;
   std::string token = "%(" + name + ")";
   size_t pos = 0;
   while (true) {
     size_t f = value.find(token, pos);
-    if (f == std::string::npos) { out += value.substr(pos); break; }
+    if (f == std::string::npos) {
+      out += value.substr(pos);
+      break;
+    }
     out += value.substr(pos, f - pos);
     auto it = current.find(name);
     if (it != current.end()) out += it->second;
@@ -370,7 +446,10 @@ void processNode(const xml::Node& n, ProjectState& st, const fs::path& fileDir, 
           std::string mc = m->attr("Condition");
           if (!mc.empty() && !evaluateCondition(mc, st.props, fileDir)) continue;
           std::string v = expandProperties(trim(m->text), st.props);
-          if (m->name == "ExcludedFromBuild") { item.excluded = lower(v) == "true"; continue; }
+          if (m->name == "ExcludedFromBuild") {
+            item.excluded = lower(v) == "true";
+            continue;
+          }
           item.meta[m->name] = v;
         }
         st.items.push_back(std::move(item));
@@ -393,7 +472,10 @@ void processProject(const fs::path& file, ProjectState& st, const fs::path& proj
   st.visited.insert(key);
   std::string err;
   auto root = xml::parseFile(file.string(), &err);
-  if (!root) { st.error += file.string() + ": " + err + "\n"; return; }
+  if (!root) {
+    st.error += file.string() + ": " + err + "\n";
+    return;
+  }
   st.props["MSBuildThisFileDirectory"] = file.parent_path().generic_string() + "/";
   st.props["MSBuildThisFile"] = file.filename().string();
   processNode(*root, st, file.parent_path(), projectDir);
@@ -494,7 +576,10 @@ std::vector<CompileCommand> fromSolution(const fs::path& sln, const VcxprojOptio
   if (opt.solutionDir.empty()) opt.solutionDir = fs::weakly_canonical(sln, ec).parent_path();
   std::string err;
   for (auto& p : projectsInSolution(sln, &err)) {
-    if (!fs::is_regular_file(p, ec)) { err += "missing project " + p.string() + "\n"; continue; }
+    if (!fs::is_regular_file(p, ec)) {
+      err += "missing project " + p.string() + "\n";
+      continue;
+    }
     std::string perr;
     auto cmds = fromVcxproj(p, opt, &perr);
     err += perr;
@@ -508,7 +593,8 @@ std::vector<CompileCommand> fromSolution(const fs::path& sln, const VcxprojOptio
 // Heuristic
 // ---------------------------------------------------------------------------
 
-std::vector<fs::path> inferIncludeDirs(const std::vector<fs::path>& headers, const std::vector<std::string>& includePaths) {
+std::vector<fs::path> inferIncludeDirs(const std::vector<fs::path>& headers,
+                                       const std::vector<std::string>& includePaths) {
   // filename -> header paths with that filename
   std::map<std::string, std::vector<std::string>> byName;
   for (auto& h : headers) byName[h.filename().string()].push_back(h.generic_string());
@@ -542,7 +628,8 @@ std::vector<fs::path> inferIncludeDirs(const std::vector<fs::path>& headers, con
       size_t n = 0;
       for (auto& i : incs) n += uncovered.count(i);
       // Tie-break towards shallower directories.
-      if (n > bestCount || (n == bestCount && n > 0 && std::count(dir.begin(), dir.end(), '/') < std::count(best.begin(), best.end(), '/'))) {
+      if (n > bestCount || (n == bestCount && n > 0 &&
+                            std::count(dir.begin(), dir.end(), '/') < std::count(best.begin(), best.end(), '/'))) {
         best = dir;
         bestCount = n;
       }
@@ -671,7 +758,8 @@ MsvcProbe systemMsvcProbe() {
       std::error_code ec;
       if (fs::is_regular_file(cand, ec)) exe = cand.string();
     }
-    std::string cmd = "\"" + exe + "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
+    std::string cmd = "\"" + exe +
+                      "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
                       "-property installationPath";
     std::string out;
     if (FILE* f = _popen(("\"" + cmd + "\"").c_str(), "r")) {
@@ -685,7 +773,9 @@ MsvcProbe systemMsvcProbe() {
   return p;
 }
 
-std::string queryDriverArg(const fs::path& clExe) { return "--query-driver=" + clExe.parent_path().generic_string() + "/**"; }
+std::string queryDriverArg(const fs::path& clExe) {
+  return "--query-driver=" + clExe.parent_path().generic_string() + "/**";
+}
 
 std::vector<std::string> msvcClangdArgs(const fs::path& clExe) {
   if (clExe.empty()) return {};

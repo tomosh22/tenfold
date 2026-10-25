@@ -19,11 +19,16 @@ struct TempTree {
   fs::path root;
   TempTree() {
     static std::atomic<int> n{0};
-    root = fs::temp_directory_path() / ("tenfold_search_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" + std::to_string(n++));
+    root = fs::temp_directory_path() /
+           ("tenfold_search_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+            std::to_string(n++));
     fs::remove_all(root);
     fs::create_directories(root);
   }
-  ~TempTree() { std::error_code ec; fs::remove_all(root, ec); }
+  ~TempTree() {
+    std::error_code ec;
+    fs::remove_all(root, ec);
+  }
   fs::path write(const std::string& rel, const std::string& text) {
     fs::path p = root / rel;
     fs::create_directories(p.parent_path());
@@ -210,11 +215,14 @@ TEST(search_result_cap_and_truncated_flag) {
   SearchSummary s;
   size_t batches = 0;
   std::vector<SearchMatch> out;
-  auto h = TextSearch::start(t.input({"a.txt", "b.txt"}), o, [&](std::vector<SearchMatch>&& b) {
-    ++batches;
-    CHECK(b.size() <= 7);
-    for (auto& m : b) out.push_back(std::move(m));
-  }, [&](const SearchSummary& x) { s = x; });
+  auto h = TextSearch::start(
+      t.input({"a.txt", "b.txt"}), o,
+      [&](std::vector<SearchMatch>&& b) {
+        ++batches;
+        CHECK(b.size() <= 7);
+        for (auto& m : b) out.push_back(std::move(m));
+      },
+      [&](const SearchSummary& x) { s = x; });
   h.wait();
   CHECK_EQ(out.size(), size_t(30));
   CHECK_EQ(s.matches, size_t(30));
@@ -298,11 +306,18 @@ TEST(search_cancel_mid_search_is_prompt_and_stops_batches) {
   std::atomic<int> batchesAfterDone{0};
   SearchSummary sum;
   auto h = SearchHandle::create();
-  TextSearch::start(in, o, [&](std::vector<SearchMatch>&&) {
-    if (doneSeen) ++batchesAfterDone;
-    ++batches;
-    std::this_thread::sleep_for(std::chrono::milliseconds(2));
-  }, [&](const SearchSummary& s) { sum = s; doneSeen = true; }, h);
+  TextSearch::start(
+      in, o,
+      [&](std::vector<SearchMatch>&&) {
+        if (doneSeen) ++batchesAfterDone;
+        ++batches;
+        std::this_thread::sleep_for(std::chrono::milliseconds(2));
+      },
+      [&](const SearchSummary& s) {
+        sum = s;
+        doneSeen = true;
+      },
+      h);
   while (batches < 3) std::this_thread::sleep_for(std::chrono::milliseconds(1));
   auto t0 = std::chrono::steady_clock::now();
   h.cancel();
@@ -345,9 +360,12 @@ TEST(editor_find_in_workspace_uses_open_buffers_and_jump_records_history) {
   std::vector<SearchMatch> got;
   SearchSummary sum;
   bool done = false;
-  auto h = ed.findInWorkspace("token", SearchOptions(), [&](const std::vector<SearchMatch>& m) {
-    got.insert(got.end(), m.begin(), m.end());
-  }, [&](const SearchSummary& s) { sum = s; done = true; });
+  auto h = ed.findInWorkspace(
+      "token", SearchOptions(), [&](const std::vector<SearchMatch>& m) { got.insert(got.end(), m.begin(), m.end()); },
+      [&](const SearchSummary& s) {
+        sum = s;
+        done = true;
+      });
   CHECK(ed.waitFor([&] { return done; }, 10000));
   h.wait();
   REQUIRE(done);
@@ -378,8 +396,8 @@ TEST(editor_find_cancel_drops_queued_batches_but_still_reports_done) {
   SearchOptions o;
   o.maxResults = 1000000;
   o.batchSize = 10;
-  auto h = ed.findInWorkspace("token", o, [&](const std::vector<SearchMatch>&) { ++batches; },
-                              [&](const SearchSummary&) { done = true; });
+  auto h = ed.findInWorkspace(
+      "token", o, [&](const std::vector<SearchMatch>&) { ++batches; }, [&](const SearchSummary&) { done = true; });
   h.cancel();  // before anything was pumped
   CHECK(ed.waitFor([&] { return done; }, 10000));
   CHECK_EQ(batches, size_t(0));

@@ -23,8 +23,9 @@ struct TextViewStyle {
 // Per frame: layout all visible lines (may rasterize into the Atlas), Atlas::flush (once, before any glyph is drawn),
 // then all background rects, then one drawGlyphs per colour run. Not thread-safe.
 //
-// Atlas upload policy: Atlas::flush uploads the whole texture after it is (re)created, because GlRenderer::createTexture
-// leaves the contents undefined, and only dirty rects afterwards. Kept as is: growth is rare and 512^2 is 256 KiB.
+// Atlas upload policy: Atlas::flush uploads the whole texture after it is (re)created, because
+// GlRenderer::createTexture leaves the contents undefined, and only dirty rects afterwards. Kept as is: growth is rare
+// and 512^2 is 256 KiB.
 class TextRenderer {
  public:
   // Loads the font at `fontPath` (empty = discoverMonospaceFont("")) plus a fallback font when one is installed.

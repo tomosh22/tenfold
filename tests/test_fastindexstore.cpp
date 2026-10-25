@@ -8,8 +8,8 @@
 #include "semantic/FastIndex.h"
 #include "semantic/FastIndexStore.h"
 #include "semantic/SemanticEngine.h"
-#include "workspace/Workspace.h"
 #include "test_main.h"
+#include "workspace/Workspace.h"
 
 using namespace tf;
 namespace fs = std::filesystem;
@@ -19,7 +19,8 @@ struct TempDir {
   fs::path path;
   TempDir() {
     static int n = 0;
-    path = fs::temp_directory_path() / ("tenfold_fis_" + std::to_string(tf::currentProcessId()) + "_" + std::to_string(n++));
+    path = fs::temp_directory_path() /
+           ("tenfold_fis_" + std::to_string(tf::currentProcessId()) + "_" + std::to_string(n++));
     fs::remove_all(path);
     fs::create_directories(path);
   }
@@ -39,8 +40,11 @@ std::vector<fs::path> makeWorkspace(const fs::path& root, int n) {
   for (int i = 0; i < n; ++i) {
     auto p = root / ("src/f" + std::to_string(i) + ".cpp");
     write(p, "#include <vector>\n#include \"x" + std::to_string(i) + ".h\"\nnamespace ns" + std::to_string(i % 3) +
-                 " {\nclass Widget" + std::to_string(i) + " { public: void run(); int value; };\n"
-                 "template <class T> T helper" + std::to_string(i) + "(T t) { return t; }\n}\n"
+                 " {\nclass Widget" + std::to_string(i) +
+                 " { public: void run(); int value; };\n"
+                 "template <class T> T helper" +
+                 std::to_string(i) +
+                 "(T t) { return t; }\n}\n"
                  "void shared_name() {}\n");
     files.push_back(p);
   }

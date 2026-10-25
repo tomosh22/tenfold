@@ -29,11 +29,7 @@ struct Location {
   bool operator==(const Location& o) const { return file == o.file && pos == o.pos; }
 };
 
-inline std::string toString(Position p) {
-  return std::to_string(p.line + 1) + ":" + std::to_string(p.column + 1);
-}
-inline std::string toString(const Location& l) {
-  return l.file.string() + ":" + toString(l.pos);
-}
+inline std::string toString(Position p) { return std::to_string(p.line + 1) + ":" + std::to_string(p.column + 1); }
+inline std::string toString(const Location& l) { return l.file.string() + ":" + toString(l.pos); }
 
 }  // namespace tf

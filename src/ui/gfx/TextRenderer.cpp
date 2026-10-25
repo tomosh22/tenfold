@@ -34,8 +34,7 @@ float TextRenderer::maxScroll(size_t lineCount, int heightPx) const {
   return std::max(0.0f, content - static_cast<float>(heightPx) * 0.5f);  // scroll until half a page is left
 }
 
-void TextRenderer::draw(Renderer& r, int widthPx, int heightPx, const std::vector<std::string>& lines,
-                        float scrollY) {
+void TextRenderer::draw(Renderer& r, int widthPx, int heightPx, const std::vector<std::string>& lines, float scrollY) {
   const float lh = lineHeight(), cw = cellWidth(), h = static_cast<float>(heightPx);
   const FontMetrics& m = fonts_.metrics();
   scrollY = std::floor(std::clamp(scrollY, 0.0f, maxScroll(lines.size(), heightPx)));

@@ -12,9 +12,7 @@ LspClient::~LspClient() { stop(); }
 Json LspClient::toJson(Position p) { return Json{{"line", p.line}, {"character", p.column}}; }
 Json LspClient::toJson(Range r) { return Json{{"start", toJson(r.start)}, {"end", toJson(r.end)}}; }
 
-Position LspClient::positionFromJson(const Json& j) {
-  return {j.value("line", 0), j.value("character", 0)};
-}
+Position LspClient::positionFromJson(const Json& j) { return {j.value("line", 0), j.value("character", 0)}; }
 Range LspClient::rangeFromJson(const Json& j) {
   return {positionFromJson(j.value("start", Json::object())), positionFromJson(j.value("end", Json::object()))};
 }
@@ -22,7 +20,8 @@ LspLocation LspClient::locationFromJson(const Json& j) {
   LspLocation l;
   if (j.contains("targetUri")) {  // LocationLink
     l.uri = j.value("targetUri", "");
-    l.range = rangeFromJson(j.contains("targetSelectionRange") ? j["targetSelectionRange"] : j.value("targetRange", Json::object()));
+    l.range = rangeFromJson(j.contains("targetSelectionRange") ? j["targetSelectionRange"]
+                                                               : j.value("targetRange", Json::object()));
   } else {
     l.uri = j.value("uri", "");
     l.range = rangeFromJson(j.value("range", Json::object()));
@@ -48,7 +47,10 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
       {"textDocument",
        {{"synchronization", {{"didSave", true}, {"dynamicRegistration", false}}},
         {"completion",
-         {{"completionItem", {{"snippetSupport", false}, {"documentationFormat", Json::array({"plaintext", "markdown"})}, {"deprecatedSupport", true}}},
+         {{"completionItem",
+           {{"snippetSupport", false},
+            {"documentationFormat", Json::array({"plaintext", "markdown"})},
+            {"deprecatedSupport", true}}},
           {"contextSupport", true}}},
         {"hover", {{"contentFormat", Json::array({"plaintext", "markdown"})}}},
         {"signatureHelp", {{"signatureInformation", {{"parameterInformation", {{"labelOffsetSupport", true}}}}}}},
@@ -67,12 +69,10 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
   };
   Json initOpts = {{"clangdFileStatus", opt.clangdFileStatus}};
   if (!opt.fallbackFlags.empty()) initOpts["fallbackFlags"] = opt.fallbackFlags;
-  Json params = {{"processId", currentProcessId()},
-                 {"rootUri", opt.rootPath.empty() ? Json() : Json(pathToUri(opt.rootPath))},
-                 {"rootPath", opt.rootPath.string()},
-                 {"capabilities", caps},
-                 {"initializationOptions", initOpts},
-                 {"trace", "off"}};
+  Json params = {
+      {"processId", currentProcessId()},   {"rootUri", opt.rootPath.empty() ? Json() : Json(pathToUri(opt.rootPath))},
+      {"rootPath", opt.rootPath.string()}, {"capabilities", caps},
+      {"initializationOptions", initOpts}, {"trace", "off"}};
 
   std::mutex m;
   std::condition_variable cv;
@@ -86,7 +86,8 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
       ok = true;
       serverCaps_ = result->value("capabilities", Json::object());
       if (result->contains("offsetEncoding")) offsetEncoding_ = (*result)["offsetEncoding"].get<std::string>();
-      else if (serverCaps_.contains("positionEncoding")) offsetEncoding_ = serverCaps_["positionEncoding"].get<std::string>();
+      else if (serverCaps_.contains("positionEncoding"))
+        offsetEncoding_ = serverCaps_["positionEncoding"].get<std::string>();
       if (result->contains("serverInfo")) {
         serverVersion_ = (*result)["serverInfo"].value("name", "") + " " + (*result)["serverInfo"].value("version", "");
       }
@@ -178,7 +179,8 @@ void LspClient::installHandlers() {
     if (h) h(p.value("uri", ""), p.value("state", ""));
   });
   conn_.onNotification("$/progress", [this](const Json& p) {
-    std::string token = p.contains("token") ? (p["token"].is_string() ? p["token"].get<std::string>() : p["token"].dump()) : "";
+    std::string token =
+        p.contains("token") ? (p["token"].is_string() ? p["token"].get<std::string>() : p["token"].dump()) : "";
     if (token != "backgroundIndexProgress") return;
     const Json& v = p.value("value", Json::object());
     std::string kind = v.value("kind", "");
@@ -247,8 +249,9 @@ void LspClient::onLogMessage(std::function<void(int, const std::string&)> h) {
 // ---- document sync ----
 
 void LspClient::didOpen(const std::string& uri, const std::string& languageId, int version, const std::string& text) {
-  conn_.notify("textDocument/didOpen",
-               Json{{"textDocument", {{"uri", uri}, {"languageId", languageId}, {"version", version}, {"text", text}}}});
+  conn_.notify(
+      "textDocument/didOpen",
+      Json{{"textDocument", {{"uri", uri}, {"languageId", languageId}, {"version", version}, {"text", text}}}});
 }
 
 void LspClient::didChangeFull(const std::string& uri, int version, const std::string& text) {
@@ -259,7 +262,8 @@ void LspClient::didChangeFull(const std::string& uri, int version, const std::st
 void LspClient::didChangeIncremental(const std::string& uri, int version, const std::vector<ContentChange>& changes) {
   Json arr = Json::array();
   for (auto& c : changes) arr.push_back(Json{{"range", toJson(c.range)}, {"text", c.text}});
-  conn_.notify("textDocument/didChange", Json{{"textDocument", {{"uri", uri}, {"version", version}}}, {"contentChanges", arr}});
+  conn_.notify("textDocument/didChange",
+               Json{{"textDocument", {{"uri", uri}, {"version", version}}}, {"contentChanges", arr}});
 }
 
 void LspClient::didSave(const std::string& uri) {
@@ -319,7 +323,8 @@ int LspClient::hover(const std::string& uri, Position p, Callback<std::string> c
       else if (x.is_object()) text += x.value("value", "");
       text += "\n";
     };
-    if (c.is_array()) for (auto& x : c) one(x);
+    if (c.is_array())
+      for (auto& x : c) one(x);
     else one(c);
     cb(text, {});
   });
@@ -370,7 +375,8 @@ int LspClient::signatureHelp(const std::string& uri, Position p, Callback<LspSig
         for (auto& pr : s.value("parameters", Json::array())) {
           const Json& l = pr["label"];
           if (l.is_string()) sig.parameters.push_back(l.get<std::string>());
-          else if (l.is_array() && l.size() == 2) sig.parameters.push_back(sig.label.substr(l[0].get<size_t>(), l[1].get<size_t>() - l[0].get<size_t>()));
+          else if (l.is_array() && l.size() == 2)
+            sig.parameters.push_back(sig.label.substr(l[0].get<size_t>(), l[1].get<size_t>() - l[0].get<size_t>()));
         }
         sh.signatures.push_back(std::move(sig));
       }
@@ -402,7 +408,8 @@ int LspClient::documentSymbols(const std::string& uri, Callback<std::vector<LspD
   return rawRequest("textDocument/documentSymbol", params, [cb = std::move(cb)](Json r, const std::string& err) {
     if (!err.empty()) return cb({}, err);
     std::vector<LspDocumentSymbol> out;
-    if (r.is_array()) for (auto& s : r) out.push_back(docSymbolFromJson(s));
+    if (r.is_array())
+      for (auto& s : r) out.push_back(docSymbolFromJson(s));
     cb(std::move(out), {});
   });
 }
@@ -431,10 +438,11 @@ int LspClient::rename(const std::string& uri, Position p, const std::string& new
 }
 
 int LspClient::switchSourceHeader(const std::string& uri, Callback<std::string> cb) {
-  return rawRequest("textDocument/switchSourceHeader", Json{{"uri", uri}}, [cb = std::move(cb)](Json r, const std::string& err) {
-    if (!err.empty()) return cb({}, err);
-    cb(r.is_string() ? r.get<std::string>() : std::string(), {});
-  });
+  return rawRequest("textDocument/switchSourceHeader", Json{{"uri", uri}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      cb(r.is_string() ? r.get<std::string>() : std::string(), {});
+                    });
 }
 
 }  // namespace tf

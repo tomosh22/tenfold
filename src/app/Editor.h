@@ -32,8 +32,8 @@ class Editor {
     SemanticEngine::Options semantic;
     NavigationHistory::Options navigation;
     std::function<void(const std::string&)> log;
-    int watchPollMs = 2000;           // scan interval when the file watcher has to poll
-    bool watchForcePolling = false;   // use the polling backend even where native events exist
+    int watchPollMs = 2000;          // scan interval when the file watcher has to poll
+    bool watchForcePolling = false;  // use the polling backend even where native events exist
   };
 
   explicit Editor(std::filesystem::path root);
@@ -106,15 +106,15 @@ class Editor {
 
   // --- main-thread queue ---
   void post(std::function<void()> fn);
-  size_t pump();                                                       // run queued callbacks; returns count
-  bool waitFor(std::function<bool()> pred, int timeoutMs);             // pump until pred() or timeout
+  size_t pump();                                            // run queued callbacks; returns count
+  bool waitFor(std::function<bool()> pred, int timeoutMs);  // pump until pred() or timeout
 
   const std::vector<Diagnostic>& diagnostics(const std::filesystem::path& file) const;
 
  private:
   void setCurrent(Document* d, Position p);
   void startWatching();
-  void handleFileEvent(const FileWatcher::Event& ev);   // pump thread
+  void handleFileEvent(const FileWatcher::Event& ev);  // pump thread
   void checkExternalChange(Document& doc);
   void rescanWorkspace();
   void refreshBuildSystem();
