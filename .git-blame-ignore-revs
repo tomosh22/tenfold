@@ -1,0 +1,3 @@
+# Mechanical reformats; use: git config blame.ignoreRevsFile .git-blame-ignore-revs
+# Adopt clang-format (OPEN_QUESTIONS #14)
+901ad335049ad7587db9c0957b1e3c83a0209fd8
