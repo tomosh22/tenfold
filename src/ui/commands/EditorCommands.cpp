@@ -245,6 +245,7 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Build.PrevError", "Previous Build Error");
   addUi(r, "View.ToggleBuildPanel", "Toggle Build Panel");
   addUi(r, "View.ToggleWordWrap", "Toggle Word Wrap");
+  addUi(r, "Help.ShowCompileCommand", "Show Compile Command for Current File");
   addUi(r, "Vcs.NextChange", "Next Change");
   addUi(r, "Vcs.PrevChange", "Previous Change");
   addUi(r, "Vcs.ToggleInlineDiff", "Toggle Inline Diff");

@@ -107,6 +107,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   goToLine_ = std::make_unique<GoToLine>(pickerEnv_);
   bookmarkList_ = std::make_unique<BookmarkList>(pickerEnv_);
   breakpointList_ = std::make_unique<BreakpointList>(pickerEnv_);
+  compileInfo_ = std::make_unique<CompileInfo>(pickerEnv_);
   completion_ = std::make_unique<CompletionPopup>(pickerEnv_);
   hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
@@ -264,6 +265,7 @@ void EditorApp::closePickers() {
   goToLine_->close();
   bookmarkList_->close();
   breakpointList_->close();
+  compileInfo_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
 }
@@ -282,6 +284,7 @@ std::string EditorApp::shortcutFor(const std::string& command) const {
 
 void EditorApp::bindUiCommands() {
   vcsUi_->bind(registry_);
+  compileInfo_->bind(registry_, [this] { closePickers(); });
   registry_.bind(
       "Search.SymbolSearch",
       [this](const CommandContext&, std::string_view) {
