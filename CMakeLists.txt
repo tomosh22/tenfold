@@ -151,6 +151,7 @@ add_executable(tenfold-tests
   tests/test_vcs_manager.cpp
   tests/test_vcs_p4.cpp
   tests/test_compile_info.cpp
+  tests/test_engine_fixes.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.

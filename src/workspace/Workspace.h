@@ -22,7 +22,10 @@ class Workspace {
                                                 ".lua", ".natvis", ".def",  ".rc"};
     std::set<std::string> ignoreDirs = {".git",  ".svn",   ".hg",      ".vs",          ".vscode",
                                         ".idea", ".cache", ".tenfold", "node_modules", "__pycache__"};
-    std::vector<std::string> ignoreDirPrefixes = {"build", "out", "cmake-build", "bin", "obj"};
+    // Build-output directories. ignoreDirNames match the whole directory name (case-insensitive); ignoreDirPrefixes
+    // are conventional patterns ("build-x64", "cmake-build-debug"). A folder such as "output" or "binding" is scanned.
+    std::vector<std::string> ignoreDirNames = {"build", "out", "bin", "obj"};
+    std::vector<std::string> ignoreDirPrefixes = {"build-", "cmake-build"};
     bool followSymlinks = false;
     std::string cppStandard = "c++20";
     std::string clangdPath;                    // empty: search PATH

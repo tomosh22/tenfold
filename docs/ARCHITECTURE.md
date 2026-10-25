@@ -791,8 +791,11 @@ vsConfigurations()`, `activeVsConfiguration()`, `setVsConfiguration("Debug|x64")
 `Editor::selectVsConfiguration(name, &err, applied)` additionally regenerates `.tenfold/compile_commands.json` on
 the engine worker and restarts clangd (even though the database stays at the same path), calling `applied` on the
 pump thread; CLI: `tenfold-cli vsconfig <root> [--set Debug|x64]`. The generated database is stamped
-(`.tenfold/compile_commands.stamp`: source and configuration), so a hand-edited `workspace.json` is not served from a
-stale cache. Edits to `.sln`, `.vcxproj`, `.props`, `.targets` and `Directory.Build.*` trigger a refresh like
+(`.tenfold/compile_commands.stamp`: source and configuration; a heuristic database is stamped `heuristic`, which is how a
+warm start keeps reporting it, and a cached heuristic database is dropped when a solution or CMake project appears), so
+a hand-edited `workspace.json` is not served from a stale cache. `Workspace::saveSettings` merges into the existing
+`workspace.json` (unknown keys survive), writes `workspace.json.tmp` and renames it, and refuses to touch a file that is
+not a JSON object. Edits to `.sln`, `.vcxproj`, `.props`, `.targets` and `Directory.Build.*` trigger a refresh like
 `compile_commands.json` does.
 
 **Evaluation order** follows MSBuild: pass 1 properties and imports in document order (environment variables are the
@@ -859,8 +862,9 @@ instance property functions (`$(x.Replace(...))`), numeric condition operators.
   source is `vcxproj` (a `compile_commands.json` or CMake takes precedence over the solution).
 * `.tenfold/clangd-config/clangd/config.yaml`: the `CompileFlags.Add` list the engine writes in heuristic mode where
   clangd honours `XDG_CONFIG_HOME` (the shared `-I` flags). It is read whatever the current source is, because clangd
-  reads it whatever the source is: the engine only rewrites it for a heuristic database or when it is missing, so an
-  old heuristic config can outlive a switch to another source.
+  reads it whatever the source is. Since P1 the engine rewrites it whenever its content would change (a freshly
+  generated heuristic database writes the flags, every other source writes none), except for a cached heuristic
+  database, which keeps the config written beside it.
 * `Editor::document(path)` and `SemanticEngine::fileReady(path)` for "clangd has been given the file" and "clangd's file
   status is idle" (parsed). The report's confidence is `authoritative` (clangd running, file open and parsed),
   `approximate` (clangd not running, or still parsing the open file), or `not open`.
