@@ -2,6 +2,7 @@
 #include <chrono>
 #include <cstring>
 
+#include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
 #include "ui_test.h"
 
@@ -44,6 +45,27 @@ GlFixture* glFixture() {
       std::cerr << "    GL unavailable: " << err << "\n";
       fx.window.reset();
     }
+  }
+  return fx.renderer ? &fx : nullptr;
+}
+
+D3dFixture* d3dFixture() {
+  static D3dFixture fx;
+  static bool tried = false;
+  if (!tried) {
+    tried = true;
+#ifdef TENFOLD_HAVE_D3D11
+    std::string err;
+    tf::gfx::D3d11Renderer::Options o;
+    o.forceWarp = true;  // deterministic output (and what headless CI has); no window: offscreen only
+    auto d3d = tf::gfx::D3d11Renderer::create(o, &err);
+    if (!d3d) {
+      std::cerr << "    D3D11 unavailable: " << err << "\n";
+    } else {
+      std::cerr << "    D3D11 adapter: " << d3d->adapterName() << (d3d->isWarp() ? " (WARP)" : "") << "\n";
+      fx.renderer = std::move(d3d);
+    }
+#endif
   }
   return fx.renderer ? &fx : nullptr;
 }

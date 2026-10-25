@@ -309,6 +309,34 @@ caret and mouse hit-testing, all derived from one cell iterator so they cannot d
 settings passed in; `discoverMonospaceFont` is only the fallback search. Layout of 120 x 150 visible cells with a warm
 atlas takes about 0.1 ms.
 
+## Renderer backends (`src/ui/gfx`, B9)
+
+`Renderer` has two implementations with identical behaviour (batching, draw order, straight alpha blended in gamma
+space, R8 coverage x colour / RGBA8 modulate, scissor stack rounding outwards, `readPixels` top-left origin,
+offscreen mode): `GlRenderer` (OpenGL 3.3 core, every platform) and `D3d11Renderer` (Direct3D 11, Windows). Both
+share the FreeType atlas: glyph rasterisation stays on FreeType, DirectWrite is not used.
+
+* **Selection.** CMake option `TENFOLD_D3D11` (default ON on Windows) builds the D3D11 files and defines
+  `TENFOLD_HAVE_D3D11`; `tenfold-ui --renderer=gl|d3d11` picks at run time (default `d3d11` on Windows, `gl`
+  elsewhere). `ui::WindowOptions::openGl = false` creates the SDL window without `SDL_WINDOW_OPENGL`;
+  `Window::nativeHandle()` returns the HWND (`SDL_PROP_WINDOW_WIN32_HWND_POINTER`).
+* **Shaders.** HLSL source is embedded in `D3d11Renderer.cpp` and compiled at start-up with `D3DCompile`
+  (`d3dcompiler_47.dll`, Windows 10+), so the build needs no fxc/dxc and CI needs no extra tool. Cost: a few ms at
+  start-up. Two pixel shaders (coverage, modulate) instead of a per-draw flag.
+* **Device.** Hardware adapter first, WARP (`D3D_DRIVER_TYPE_WARP`) as fallback; `TENFOLD_D3D11_WARP=1` forces WARP.
+  Feature level 11_0 down to 10_0, no debug layer.
+* **Swap chain** (`WindowsSwapChain`). `DXGI_SWAP_EFFECT_FLIP_DISCARD`, 2 buffers, R8G8B8A8_UNORM (non-sRGB), created
+  with `DXGI_SWAP_CHAIN_FLAG_FRAME_LATENCY_WAITABLE_OBJECT` and `SetMaximumFrameLatency(1)`;
+  `D3d11Renderer::beginFrame` blocks on the waitable object before recording, so at most one frame is queued ahead of
+  the display. Without `IDXGISwapChain2` (Wine) it falls back to `IDXGIDevice1::SetMaximumFrameLatency(1)`.
+  `endFrame()` only draws; `present()` flips (the GL equivalent is `Window::swap()`). A size change in `beginFrame`
+  triggers `ResizeBuffers`. Offscreen mode (screenshots, tests; always on without an HWND) renders into an owned
+  texture and `readPixels` copies through a staging texture.
+* **Tests.** `RENDERER_TEST` (tests/ui/ui_test.h) registers each renderer test twice: `name` (GL) and `name_d3d11`
+  (offscreen, WARP; skipped with a message off Windows). `tenfold-ui-tests d3d11` runs only the D3D11 ones. The
+  D3D11 runs are compared against the GL goldens (b1_scene, b1_text) with per-channel <= 3 and <= 0.5 % of pixels
+  (GL: 0.2 %), since WARP and Mesa rasterise triangle edges slightly differently.
+
 ## UI widgets (`src/ui/widgets`, part of `tenfold_ui`)
 
 A small retained widget layer of our own (B3a). `Widget` has absolute-pixel bounds, parent/children, visibility,
