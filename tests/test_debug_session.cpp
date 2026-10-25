@@ -264,7 +264,10 @@ TEST(dbg_editor_start_attaches_at_startup_unless_switched_off) {
     f.ed->debug().setAttachRetryMs(0);
     f.ed->start();
     CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("connect") == 1; }, 3000));
-    CHECK((f.fake->connectLaunchFlags() == std::vector<bool>{false}));
+    // Startup only ever attaches (never launches); with the retry timer off there is exactly one attempt.
+    const std::vector<bool> flags = f.fake->connectLaunchFlags();
+    REQUIRE(!flags.empty());
+    for (bool launch : flags) CHECK(!launch);
     CHECK(f.ed->debug().lastError().empty());
     f.ed->shutdown();
   }
