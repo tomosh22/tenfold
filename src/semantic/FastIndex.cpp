@@ -1,6 +1,7 @@
 #include "semantic/FastIndex.h"
 
 #include <algorithm>
+#include <array>
 #include <chrono>
 #include <fstream>
 #include <mutex>
@@ -891,11 +892,63 @@ bool statFile(const std::filesystem::path& p, int64_t* mtime, uint64_t* size) {
 }
 }  // namespace
 
+namespace {
+
+inline char lowerAscii(char c) { return (c >= 'A' && c <= 'Z') ? static_cast<char>(c + 32) : c; }
+inline bool isLowerAscii(char c) { return c >= 'a' && c <= 'z'; }
+inline bool isUpperAscii(char c) { return c >= 'A' && c <= 'Z'; }
+
+// Prefilter masks (search): one bit per character class, case-insensitive. a-z get a bit each, all digits share one,
+// '_' and ':' have one, every other byte is folded onto the last three. A candidate can only match a query if
+// (queryMask & ~candidateMask) == 0; folding only ever adds bits to both sides, so it can cause false positives
+// but never false negatives.
+// Runs fn(threadIndex) on `threads` threads (the caller is thread 0).
+template <class F>
+void runParallel(int threads, F&& fn) {
+  std::vector<std::thread> pool;
+  for (int t = 1; t < threads; ++t) pool.emplace_back([&fn, t] { fn(t); });
+  fn(0);
+  for (auto& th : pool) th.join();
+}
+
+int hardwareThreads(int requested) {
+  if (requested > 0) return requested;
+  return static_cast<int>(std::clamp(std::thread::hardware_concurrency(), 1u, 8u));
+}
+
+constexpr std::array<uint32_t, 256> makeBitTable() {
+  std::array<uint32_t, 256> t{};
+  for (unsigned c = 0; c < 256; ++c) {
+    unsigned l = (c >= 'A' && c <= 'Z') ? c + 32 : c;
+    if (l >= 'a' && l <= 'z') t[c] = 1u << (l - 'a');
+    else if (l >= '0' && l <= '9') t[c] = 1u << 26;
+    else if (l == '_') t[c] = 1u << 27;
+    else if (l == ':') t[c] = 1u << 28;
+    else t[c] = 1u << (29 + (l % 3));
+  }
+  return t;
+}
+constexpr std::array<uint32_t, 256> kBitTable = makeBitTable();
+
+inline uint32_t charBit(char ch) { return kBitTable[static_cast<unsigned char>(ch)]; }
+inline uint32_t maskOf(std::string_view s) {
+  uint32_t m = 0;
+  for (char ch : s) m |= charBit(ch);
+  return m;
+}
+
+}  // namespace
+
 void FastIndex::addLocked(std::shared_ptr<const FileSymbols> fs) {
   std::string key = keyFor(fs->file);
   removeLocked(key);
-  for (size_t i = 0; i < fs->symbols.size(); ++i) byName_[fs->symbols[i].name].push_back({fs, i});
+  for (size_t i = 0; i < fs->symbols.size(); ++i) {
+    auto& refs = byName_[fs->symbols[i].name];
+    if (refs.empty()) ++namesGen_;  // a fresh node: its vector is still empty
+    refs.push_back({fs, static_cast<uint32_t>(i)});
+  }
   symbolCount_ += fs->symbols.size();
+  fileInfo_[fs.get()].seq = ++nextSeq_;
   files_[key] = std::move(fs);
   ++generation_;
 }
@@ -908,9 +961,13 @@ void FastIndex::removeLocked(const std::string& key) {
     auto bn = byName_.find(s.name);
     if (bn == byName_.end()) continue;
     std::erase_if(bn->second, [&](const Ref& r) { return r.file == old; });
-    if (bn->second.empty()) byName_.erase(bn);
+    if (bn->second.empty()) {
+      byName_.erase(bn);
+      ++namesGen_;
+    }
   }
   symbolCount_ -= old->symbols.size();
+  fileInfo_.erase(old.get());
   files_.erase(it);
   ++generation_;
 }
@@ -1026,7 +1083,9 @@ void FastIndex::removeFile(const std::filesystem::path& file) {
 void FastIndex::clear() {
   std::unique_lock<std::shared_mutex> lk(mu_);
   files_.clear();
+  fileInfo_.clear();
   byName_.clear();
+  ++namesGen_;
   symbolCount_ = 0;
   ++generation_;
 }
@@ -1057,15 +1116,132 @@ std::vector<FastIndex::Match> FastIndex::lookup(std::string_view name) const {
   return out;
 }
 
+namespace {
+
+// Greedy case-insensitive subsequence test of `q` against scope + "::" + name without building the string. This is
+// exactly the condition under which fuzzyScore() can return non-zero (an exact or prefix match is a subsequence).
+// `q` must already be lower-cased.
+bool isSubsequenceOfQualified(std::string_view q, const Symbol& sym) {
+  size_t qi = 0;
+  const size_t qn = q.size();
+  auto feed = [&](std::string_view part) {
+    for (char ch : part) {
+      if (qi == qn) return;
+      if (lowerAscii(ch) == q[qi]) ++qi;
+    }
+  };
+  if (!sym.scope.empty()) {
+    feed(sym.scope);
+    feed("::");
+  }
+  feed(sym.name);
+  return qi == q.size();
+}
+
+// Per symbol: character classes of "scope::name". Consecutive symbols very often share a scope, so the scope mask
+// is memoised.
+std::vector<uint32_t> computeRefMasks(const FileSymbols& fs) {
+  std::vector<uint32_t> out(fs.symbols.size());
+  const std::string* lastScope = nullptr;
+  uint32_t lastScopeMask = 0;
+  for (size_t i = 0; i < fs.symbols.size(); ++i) {
+    const Symbol& s = fs.symbols[i];
+    uint32_t scopeMask = 0;
+    if (!s.scope.empty()) {
+      if (!lastScope || *lastScope != s.scope) {
+        lastScopeMask = maskOf(s.scope) | charBit(':');
+        lastScope = &s.scope;
+      }
+      scopeMask = lastScopeMask;
+    }
+    out[i] = maskOf(s.name) | scopeMask;
+  }
+  return out;
+}
+
+constexpr size_t kBucketsPerBlock = 4096;    // hash buckets per table block (~3000 names): the scan's work unit
+constexpr size_t kFilesPerBlock = 8;         // files per work unit of a qualified scan
+constexpr size_t kParallelMinNames = 16384;  // below this, threads cost more than they save
+constexpr size_t kParallelMinFiles = 64;
+
+}  // namespace
+
+// Flat view of byName_ for the non-qualified scan. Walking an unordered_map node by node is a chain of dependent
+// cache misses; contiguous arrays of node pointers plus per-name character masks let every thread stream through
+// its slice with many independent loads in flight. The table is a list of blocks, each holding the names of a
+// range of hash buckets, so it is built in parallel too (independent bucket chains) and never concatenated.
+// unordered_map nodes are address-stable until erased, so it stays valid until a name is added or erased
+// (namesGen_). Visiting order is irrelevant to the result: the ranking is a total order.
+struct FastIndex::ScanTable {
+  struct Block {
+    std::vector<const NameMap::value_type*> nodes;
+    std::vector<uint32_t> masks;  // maskOf(name)
+  };
+  size_t namesGen = 0;
+  std::vector<Block> blocks;
+};
+
+std::shared_ptr<const FastIndex::ScanTable> FastIndex::prepare() const {
+  std::lock_guard<std::mutex> lk(prepMu_);
+  if (table_ && table_->namesGen == namesGen_) return table_;
+  auto t = std::make_shared<ScanTable>();
+  t->namesGen = namesGen_;
+  const size_t buckets = byName_.bucket_count();
+  const size_t nblocks = (buckets + kBucketsPerBlock - 1) / kBucketsPerBlock;
+  t->blocks.resize(nblocks);
+  std::atomic<size_t> next{0};
+  const int threads = byName_.size() < kParallelMinNames
+                          ? 1
+                          : static_cast<int>(std::min<size_t>(hardwareThreads(searchThreads_), nblocks));
+  runParallel(std::max(threads, 1), [&](int) {
+    for (size_t b; (b = next++) < nblocks;) {
+      auto& blk = t->blocks[b];
+      const size_t end = std::min(buckets, (b + 1) * kBucketsPerBlock);
+      for (size_t bucket = b * kBucketsPerBlock; bucket < end; ++bucket)
+        for (auto it = byName_.cbegin(bucket); it != byName_.cend(bucket); ++it) {
+          blk.nodes.push_back(&*it);
+          blk.masks.push_back(maskOf(it->first));
+        }
+      blk.nodes.shrink_to_fit();
+      blk.masks.shrink_to_fit();
+    }
+  });
+  table_ = std::move(t);
+  return table_;
+}
+
+// Fills FileInfo::masks for files that do not have them yet (all of them on the first qualified query, only
+// new / re-added files afterwards). Caller holds mu_ shared. After it returns every file's masks are complete and
+// stay untouched while mu_ is held, so the scan reads them without further locking.
+void FastIndex::ensureFileMasks() const {
+  std::lock_guard<std::mutex> g(prepMu_);  // serialises concurrent searches filling masks
+  std::vector<std::pair<const FileSymbols*, const FileInfo*>> missing;
+  for (auto& [key, fs] : files_) {
+    const FileInfo& info = fileInfo_.at(fs.get());
+    if (info.masks.size() != fs->symbols.size()) missing.push_back({fs.get(), &info});
+  }
+  if (missing.empty()) return;
+  std::atomic<size_t> next{0};
+  const int threads = missing.size() < 16 ? 1 : hardwareThreads(searchThreads_);
+  runParallel(threads, [&](int) {
+    for (size_t k; (k = next++) < missing.size();) missing[k].second->masks = computeRefMasks(*missing[k].first);
+  });
+}
+
+void FastIndex::prepareSearch() const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  (void)prepare();
+  ensureFileMasks();
+}
+
 int FastIndex::fuzzyScore(std::string_view q, std::string_view c) {
   if (q.empty()) return 1;
   if (q.size() > c.size()) return 0;
-  auto lower = [](char ch) { return static_cast<char>(std::tolower(static_cast<unsigned char>(ch))); };
   // Exact / prefix fast paths.
   bool exactCI = q.size() == c.size();
   bool prefixCI = true;
   for (size_t i = 0; i < q.size(); ++i) {
-    if (lower(q[i]) != lower(c[i])) {
+    if (lowerAscii(q[i]) != lowerAscii(c[i])) {
       exactCI = false;
       prefixCI = false;
       break;
@@ -1078,12 +1254,12 @@ int FastIndex::fuzzyScore(std::string_view q, std::string_view c) {
   size_t ci = 0;
   int prevMatch = -2;
   for (size_t qi = 0; qi < q.size(); ++qi) {
+    const char ql = lowerAscii(q[qi]);
     bool found = false;
     while (ci < c.size()) {
-      if (lower(q[qi]) == lower(c[ci])) {
+      if (ql == lowerAscii(c[ci])) {
         bool wordStart =
-            ci == 0 || c[ci - 1] == '_' || c[ci - 1] == ':' ||
-            (std::islower(static_cast<unsigned char>(c[ci - 1])) && std::isupper(static_cast<unsigned char>(c[ci])));
+            ci == 0 || c[ci - 1] == '_' || c[ci - 1] == ':' || (isLowerAscii(c[ci - 1]) && isUpperAscii(c[ci]));
         score += 10;
         if (wordStart) score += 30;
         if (static_cast<int>(ci) == prevMatch + 1) score += 15;
@@ -1101,36 +1277,134 @@ int FastIndex::fuzzyScore(std::string_view q, std::string_view c) {
   return std::max(score, 1);
 }
 
-std::vector<FastIndex::Match> FastIndex::search(std::string_view query, size_t limit) const {
+std::vector<FastIndex::Match> FastIndex::search(std::string_view query, size_t limit,
+                                                const std::function<bool()>& cancelled) const {
   std::vector<Match> out;
   std::string q(query);
   // Strip whitespace.
   std::erase_if(q, [](char ch) { return ch == ' ' || ch == '\t'; });
   const bool qualified = q.find("::") != std::string::npos;
   std::shared_lock<std::shared_mutex> lk(mu_);
-  if (!qualified) {
-    for (auto& [name, refs] : byName_) {
-      int s = fuzzyScore(q, name);
-      if (s <= 0) continue;
-      for (auto& r : refs) {
-        int bonus = r.file->symbols[r.index].definition ? 5 : 0;
-        out.push_back({r.file, r.index, s + bonus});
-      }
-    }
-  } else {
-    for (auto& [name, refs] : byName_) {
-      for (auto& r : refs) {
-        std::string full = r.file->symbols[r.index].qualified();
-        int s = fuzzyScore(q, full);
-        if (s > 0) out.push_back({r.file, r.index, s + (r.file->symbols[r.index].definition ? 5 : 0)});
-      }
-    }
-  }
-  std::stable_sort(out.begin(), out.end(), [](const Match& a, const Match& b) {
+  if (limit == 0) return out;
+  const uint32_t qmask = maskOf(q);
+  std::string qLower(q);
+  for (auto& ch : qLower) ch = lowerAscii(ch);
+
+  // A candidate under consideration. `order` is the historical insertion order among equal (score, name):
+  // the position in byName_[name] for plain queries, (file add sequence, symbol index) for qualified ones.
+  struct Cand {
+    int score;
+    uint32_t index;
+    uint64_t order;
+    const std::string* name;
+    const std::shared_ptr<const FileSymbols>* file;
+  };
+  // Total order identical to the historical stable_sort: score desc, name asc, then insertion order.
+  auto better = [](const Cand& a, const Cand& b) {
     if (a.score != b.score) return a.score > b.score;
-    return a.sym().name < b.sym().name;
+    if (int c = a.name->compare(*b.name)) return c < 0;
+    return a.order < b.order;
+  };
+
+  // Work is cut into blocks handed out by an atomic counter (dynamic balancing + cancellation points).
+  std::shared_ptr<const ScanTable> table;
+  struct FileEntry {
+    std::shared_ptr<const FileSymbols> file;
+    uint32_t seq;
+    const FileInfo* info;
+  };
+  std::vector<FileEntry> files;
+  size_t nblocks, parallelMin, units;
+  if (!qualified) {
+    table = prepare();
+    nblocks = table->blocks.size();
+    units = byName_.size();
+    parallelMin = kParallelMinNames;
+  } else {
+    // Qualified queries scan the symbols file by file: sequential memory instead of per-name pointer chasing, and
+    // no auxiliary structure to maintain.
+    ensureFileMasks();
+    files.reserve(files_.size());
+    for (auto& [key, fs] : files_) {
+      const FileInfo& info = fileInfo_.at(fs.get());
+      files.push_back({fs, info.seq, &info});
+    }
+    nblocks = (files.size() + kFilesPerBlock - 1) / kFilesPerBlock;
+    units = files.size();
+    parallelMin = kParallelMinFiles;
+  }
+  int threads = hardwareThreads(searchThreads_);
+  if (units < parallelMin) threads = 1;
+  threads = static_cast<int>(std::max<size_t>(1, std::min<size_t>(static_cast<size_t>(threads), nblocks)));
+  std::vector<std::vector<Cand>> heaps(static_cast<size_t>(threads));
+  std::atomic<size_t> nextBlock{0};
+  std::atomic<bool> aborted{false};
+
+  runParallel(threads, [&](int tid) {
+    std::vector<Cand>& heap = heaps[static_cast<size_t>(tid)];  // max-heap under `better`: front() is the worst kept
+    heap.reserve(std::min<size_t>(limit, 4096) + 1);
+    std::string full;
+    auto consider = [&](const Cand& c) {
+      if (heap.size() < limit) {
+        heap.push_back(c);
+        std::push_heap(heap.begin(), heap.end(), better);
+      } else if (better(c, heap.front())) {
+        std::pop_heap(heap.begin(), heap.end(), better);
+        heap.back() = c;
+        std::push_heap(heap.begin(), heap.end(), better);
+      }
+    };
+    for (;;) {
+      if (aborted.load(std::memory_order_relaxed)) return;
+      if (cancelled && cancelled()) {
+        aborted = true;
+        return;
+      }
+      const size_t b = nextBlock++;
+      if (b >= nblocks) return;
+      if (!qualified) {
+        const auto& blk = table->blocks[b];
+        for (size_t i = 0; i < blk.nodes.size(); ++i) {
+          if ((qmask & ~blk.masks[i]) != 0) continue;  // the name lacks one of the query's characters
+          const NameMap::value_type& node = *blk.nodes[i];
+          const int s = fuzzyScore(q, node.first);
+          if (s <= 0) continue;
+          if (heap.size() >= limit && s + 5 < heap.front().score) continue;  // cannot beat the current worst
+          const auto& refs = node.second;
+          for (size_t j = 0; j < refs.size(); ++j) {
+            const Ref& r = refs[j];
+            consider({s + (r.file->symbols[r.index].definition ? 5 : 0), r.index, j, &node.first, &r.file});
+          }
+        }
+      } else {
+        const size_t end = std::min(files.size(), (b + 1) * kFilesPerBlock);
+        for (size_t f = b * kFilesPerBlock; f < end; ++f) {
+          const auto& syms = files[f].file->symbols;
+          const auto& masks = files[f].info->masks;
+          for (size_t i = 0; i < syms.size(); ++i) {
+            if ((qmask & ~masks[i]) != 0) continue;  // "scope::name" lacks one of the query's characters
+            const Symbol& sym = syms[i];
+            if (!isSubsequenceOfQualified(qLower, sym)) continue;  // cheap reject before building the string
+            full.assign(sym.scope);
+            if (!sym.scope.empty()) full += "::";
+            full += sym.name;
+            const int s = fuzzyScore(q, full);
+            if (s <= 0) continue;
+            consider({s + (sym.definition ? 5 : 0), static_cast<uint32_t>(i),
+                      (static_cast<uint64_t>(files[f].seq) << 32) | i, &sym.name, &files[f].file});
+          }
+        }
+      }
+    }
   });
-  if (out.size() > limit) out.resize(limit);
+  if (aborted) return out;
+
+  std::vector<Cand> all;
+  for (auto& h : heaps) all.insert(all.end(), h.begin(), h.end());
+  std::sort(all.begin(), all.end(), better);
+  if (all.size() > limit) all.resize(limit);
+  out.reserve(all.size());
+  for (const Cand& c : all) out.push_back({*c.file, c.index, c.score});
   return out;
 }
 
