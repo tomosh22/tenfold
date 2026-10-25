@@ -28,6 +28,12 @@ void registerEditorCommands(CommandRegistry& r) {
   r.add({"Nav.Forward", "Navigate Forward",
          [](const CommandContext& c, std::string_view) { return c.editor->forward(); },
          [](const CommandContext& c) { return hasEditor(c) && c.editor->navigation().canGoForward(); }});
+  r.add({"Nav.LastEditLocation", "Go to Last Edit Location",
+         [](const CommandContext& c, std::string_view) {
+           const auto loc = c.editor->lastEditLocation();
+           return loc && c.editor->gotoLocation(*loc, nullptr, "last edit");
+         },
+         [](const CommandContext& c) { return hasEditor(c) && c.editor->lastEditLocation().has_value(); }});
 
   // --- semantic jumps: results go to CommandContext::onNavResult (the UI shows a picker for several) ---
   addEd(r, "Editor.GotoDefinition", "Go to Definition", [](const CommandContext& c, std::string_view) {

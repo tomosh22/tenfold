@@ -16,7 +16,12 @@ void NavigationHistory::push(Entry e) {
   // Truncate anything "forward" of the cursor (browser semantics).
   if (cursor_ < entries_.size()) entries_.erase(entries_.begin() + static_cast<long>(cursor_) + 1, entries_.end());
   if (!entries_.empty() && near(entries_.back().loc, e.loc)) {
-    entries_.back() = std::move(e);  // coalesce: keep the most recent position
+    // Coalesce: keep the most recent position. The "from" record of the next jump lands on the same line as the
+    // previous destination and must not erase that destination's label (the symbol shown in the history list).
+    if (e.label.empty() && pathsEqual(entries_.back().loc.file, e.loc.file) &&
+        entries_.back().loc.pos.line == e.loc.pos.line)
+      e.label = std::move(entries_.back().label);
+    entries_.back() = std::move(e);
   } else {
     entries_.push_back(std::move(e));
     while (entries_.size() > opt_.maxEntries) entries_.pop_front();

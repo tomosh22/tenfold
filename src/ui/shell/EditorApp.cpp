@@ -86,10 +86,34 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   registerEditorCommands(registry_);
   bindUiCommands();
   keys_ = loadKeyBindings(editor.workspace().root(), userDir, diags_);
-  if (bench_) bench_->status().addSegment("message", StatusBar::Align::Left);
+  if (bench_) {
+    bench_->status().addSegment("message", StatusBar::Align::Left);
+    bench_->status().addSegment("navcounts", StatusBar::Align::Right);
+    NavigationUi::Hooks hooks;
+    hooks.run = [this](const std::string& id) {
+      runCommandId(id, "", activeContext());
+      return true;
+    };
+    hooks.shortcut = [this](const std::string& id) { return shortcutFor(id); };
+    nav_ = std::make_unique<NavigationUi>(*bench_, editor_, std::move(hooks));
+  }
   if (!diags_.empty())
     setMessage(formatDiag(diags_[0]) + (diags_.size() > 1 ? " (+" + std::to_string(diags_.size() - 1) + " more)" : ""),
                kDiagMs);
+}
+
+EditorApp::~EditorApp() = default;
+
+void EditorApp::setNavStatusCounts(bool on) {
+  if (nav_) nav_->setShowCounts(on);
+  if (!on && bench_) bench_->status().setText("navcounts", "");
+}
+
+std::string EditorApp::shortcutFor(const std::string& command) const {
+  for (const KeyBinding& b : keys_.bindings())  // first keyboard binding in the global context
+    if (b.command == command && b.context == "global" && b.arg.empty() && !b.chords.empty() && !b.chords[0].mouse)
+      return formatChords(b.chords);
+  return {};
 }
 
 void EditorApp::bindUiCommands() {
@@ -132,6 +156,7 @@ void EditorApp::setMessage(const std::string& text, int ttlMs, bool pending) {
 }
 
 bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
+  if (nav_) nav_->setNow(nowMs);
   if (ttlMs_ > 0) {
     expiry_ = nowMs + ttlMs_;
     ttlMs_ = 0;
@@ -159,6 +184,11 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
     case KeyMap::Status::Matched: break;
   }
   setMessage("");
+  runCommandId(r.binding->command, r.binding->arg, ctx);
+  return true;
+}
+
+void EditorApp::runCommandId(const std::string& id, const std::string& arg, const char* ctx) {
   CommandContext cc;
   cc.editor = &editor_;
   cc.context = ctx;
@@ -168,19 +198,18 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
     else if (locs.size() > 1)
       setMessage(std::to_string(locs.size()) + " results (result picker is not available yet)", kMessageMs);
   };
-  const RunResult rr = registry_.run(r.binding->command, r.binding->arg, cc);
-  const Command* cmd = registry_.find(r.binding->command);
-  const std::string name = cmd ? cmd->name : r.binding->command;
+  const RunResult rr = registry_.run(id, arg, cc);
+  const Command* cmd = registry_.find(id);
+  const std::string name = cmd ? cmd->name : id;
   switch (rr.status) {
     case RunStatus::Ok:
     case RunStatus::Disabled: break;  // e.g. Back with no history: nothing to say
     case RunStatus::Unbound: setMessage(name + " is not available yet", kMessageMs); break;
-    case RunStatus::UnknownCommand: setMessage("Unknown command " + r.binding->command, kMessageMs); break;
+    case RunStatus::UnknownCommand: setMessage("Unknown command " + id, kMessageMs); break;
     case RunStatus::Failed:
       setMessage(name + " failed" + (rr.message.empty() ? "" : ": " + rr.message), kMessageMs);
       break;
   }
-  return true;
 }
 
 int EditorApp::tick(int64_t nowMs) {
@@ -193,6 +222,11 @@ int EditorApp::tick(int64_t nowMs) {
   if (expiry_ && nowMs >= expiry_) setMessage("");
   int wait = root_.tick(nowMs);
   auto soonest = [&](int ms) { wait = wait < 0 ? ms : std::min(wait, ms); };
+  if (nav_) {
+    const int w = nav_->tick(nowMs);
+    if (w >= 0) soonest(w);
+    bench_->status().setText("navcounts", nav_->showCounts() ? nav_->countsText() : std::string());
+  }
   if (keys_.pending()) soonest(100);
   if (expiry_) soonest(static_cast<int>(std::max<int64_t>(1, expiry_ - nowMs)));
   return wait;

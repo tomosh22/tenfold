@@ -188,6 +188,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/shell/DocumentView.cpp
     src/ui/shell/Workbench.cpp
     src/ui/shell/EditorApp.cpp
+    src/ui/features/NavigationUi.cpp
   )
   # Default key bindings are embedded as a raw string literal so the app works without the asset dir.
   set(TENFOLD_DEFAULT_KEYS "${CMAKE_SOURCE_DIR}/assets/keybindings.default.txt")
@@ -223,6 +224,8 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_widgets.cpp
     tests/ui/test_commands.cpp
     tests/ui/test_workbench.cpp
+    # Before test_editor_view.cpp: its 1920x1080 perf test leaves the shared GL fixture in a state that breaks later goldens.
+    tests/ui/test_navigation_ui.cpp
     tests/ui/test_settings.cpp
     tests/ui/test_editor_app.cpp
     tests/ui/test_editor_view.cpp
