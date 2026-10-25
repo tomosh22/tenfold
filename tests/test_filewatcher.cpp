@@ -116,7 +116,11 @@ TEST(fw_event_kinds_and_directory_created_after_start) {
   Collector c;
   FileWatcher w;
   REQUIRE(w.start(d.path, ignoreBuild, c.callback()));
+#if defined(_WIN32)
+  CHECK_EQ(w.mode(), std::string("readdirchanges"));
+#elif defined(__linux__)
   CHECK_EQ(w.mode(), std::string("inotify"));
+#endif
 
   writeFile(d.path / "new.cpp", "int x;");
   CHECK(waitUntil([&] { return c.has(d.path / "new.cpp", FileWatcher::Event::Created); }, 1500));
@@ -209,23 +213,27 @@ TEST(fw_directory_rename_and_removal) {
   w.stop();
 }
 
-TEST(fw_polling_fallback_detects_changes) {
-  // Exercise the portable polling path directly through a tiny watcher: force
-  // it by making the root unwatchable is not possible portably, so just check
-  // that mode() is one of the known values and events still flow.
+TEST(fw_polling_mode_detects_changes) {
+  // The portable polling path (used on macOS for now and as the inotify fallback).
   TempDir d;
+  writeFile(d.path / "sub/q.cpp", "x");
   Collector c;
   FileWatcher::Options o;
   o.pollMs = 100;
+  o.forcePolling = true;
   FileWatcher w(o);
   REQUIRE(w.start(d.path, nullptr, c.callback()));
-  std::string m = w.mode();
-  CHECK(m == "inotify" || m == "poll" || m == "readdirchanges");
+  CHECK_EQ(w.mode(), std::string("poll"));
   writeFile(d.path / "p.cpp", "x");
   CHECK(waitUntil([&] { return c.has(d.path / "p.cpp", FileWatcher::Event::Created); }, 2000));
+  writeFile(d.path / "sub/q.cpp", "changed, longer");
+  CHECK(waitUntil([&] { return c.has(d.path / "sub/q.cpp", FileWatcher::Event::Modified); }, 2000));
+  fs::remove(d.path / "sub/q.cpp");
+  CHECK(waitUntil([&] { return c.has(d.path / "sub/q.cpp", FileWatcher::Event::Deleted); }, 2000));
   w.stop();
 }
 
+#if defined(__linux__)  // the inotify watch limit has no equivalent in ReadDirectoryChangesW
 TEST(fw_watch_limit_falls_back_to_polling_with_rescan) {
   TempDir d;
   for (int i = 0; i < 6; ++i) writeFile(d.path / ("dir" + std::to_string(i)) / "f.cpp", "x");
@@ -241,18 +249,20 @@ TEST(fw_watch_limit_falls_back_to_polling_with_rescan) {
   };
   FileWatcher w(o);
   REQUIRE(w.start(d.path, nullptr, c.callback()));
-#if defined(__linux__)
   CHECK_EQ(w.mode(), std::string("poll"));
   CHECK_EQ(w.watchCount(), 0u);
-  std::lock_guard<std::mutex> lk(lm);
-  CHECK(logged.find("watch limit") != std::string::npos);
-#endif
+  {
+    std::lock_guard<std::mutex> lk(lm);
+    CHECK(logged.find("watch limit") != std::string::npos);
+  }
   writeFile(d.path / "dir3/new.cpp", "y");
   CHECK(waitUntil([&] { return c.has(d.path / "dir3/new.cpp", FileWatcher::Event::Created); }, 3000));
   fs::remove(d.path / "dir1/f.cpp");
   CHECK(waitUntil([&] { return c.has(d.path / "dir1/f.cpp", FileWatcher::Event::Deleted); }, 3000));
   w.stop();
 }
+
+#endif
 
 TEST(watch_header_edit_updates_fast_index_within_1s) {
   EditorFixture f;

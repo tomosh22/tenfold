@@ -39,6 +39,7 @@ class FileWatcher {
   struct Options {
     int debounceMs = 200;
     int pollMs = 2000;                          // polling mode scan interval
+    bool forcePolling = false;                  // use the portable polling scan on every platform (tests, odd file systems)
     size_t maxWatches = 0;                      // inotify: act as if the watch limit were this (0 = system limit); for tests
     std::function<void(const std::string&)> log;
   };
