@@ -924,7 +924,7 @@ size_t randomBoundary(Rng& r, const std::string& t) {
   return o;
 }
 
-void runProperty(unsigned seed, int ops, bool charMode) {
+void runProperty(unsigned seed, int ops, bool charMode, int maxCarets = 6) {
   Fx f("ab\xC3\xA9 c\n\nfoo bar\n\xE2\x82\xAC x\nlast", charMode ? "char" : "word");
   REQUIRE(f.doc != nullptr);
   const std::string initial = f.text();
@@ -954,7 +954,7 @@ void runProperty(unsigned seed, int ops, bool charMode) {
     const int op = r.in(0, 99);
     if (op < 20) {  // new random caret / selection set
       std::vector<RefCaret> cs;
-      int n = r.in(1, 6);
+      int n = r.in(1, maxCarets);
       for (int k = 0; k < n; ++k) {
         size_t a = randomBoundary(r, ref.text);
         size_t h = r.in(0, 2) == 0 ? randomBoundary(r, ref.text) : a;
@@ -1100,49 +1100,183 @@ TEST(multicaret_property_random_edits_word_mode) {
   for (unsigned seed : {7u, 8u, 9u}) runProperty(seed, 2500, false);
 }
 
+// --- TextBuffer::replaceMany against one-at-a-time application ---------------------------------------------------
+
+TEST(textbuffer_replace_many_matches_sequential) {
+  const char* pieces[] = {"", "x", "\n", "ab\ncd", "\n\n", "\xC3\xA9", "q\r\nr", "z\n"};
+  for (unsigned seed = 1; seed <= 6; ++seed) {
+    Rng r(seed);
+    for (int round = 0; round < 400; ++round) {
+      std::string base;
+      int lines = r.in(1, 12);
+      for (int i = 0; i < lines; ++i)
+        base += std::string(static_cast<size_t>(r.in(0, 6)), 'a' + i % 26) + (i + 1 < lines ? "\n" : "");
+      TextBuffer a(base), b(base);
+      // Random sorted, disjoint edits.
+      std::vector<TextBuffer::Edit> edits;
+      std::vector<std::string> texts;
+      texts.reserve(16);  // the edits hold views into it
+      size_t off = 0;
+      const size_t total = base.size();
+      int n = r.in(1, 8);
+      for (int k = 0; k < n && off <= total; ++k) {
+        size_t lo = off + static_cast<size_t>(r.in(0, 4));
+        if (lo > total) break;
+        size_t hi = std::min(total, lo + static_cast<size_t>(r.in(0, 6)));
+        texts.push_back(pieces[r.in(0, 7)]);
+        edits.push_back({{a.positionAt(lo), a.positionAt(hi)}, texts.back()});
+        off = hi;
+      }
+      auto ra = a.replaceMany(edits);
+      std::vector<TextBuffer::EditResult> rb(edits.size());
+      for (size_t k = edits.size(); k-- > 0;) rb[k] = b.replace(edits[k].range, edits[k].text);
+      if (a.text() != b.text()) {
+        tftest::fail(__FILE__, __LINE__, "replaceMany text differs, seed " + std::to_string(seed));
+        return;
+      }
+      CHECK_EQ(a.lineCount(), b.lineCount());
+      for (size_t k = 0; k < edits.size(); ++k) {
+        CHECK(ra[k].removed == rb[k].removed);
+        CHECK(ra[k].inserted == rb[k].inserted);
+        CHECK_EQ(ra[k].lineDelta, rb[k].lineDelta);
+      }
+    }
+  }
+}
+
+TEST(multicaret_batched_document_events_are_per_edit_and_versioned) {
+  Document d = Document::fromText("x.txt", "aa\nbb\ncc");
+  std::vector<Document::Change> seen;
+  std::vector<int> versions;
+  TextBuffer shadow("aa\nbb\ncc");
+  d.addListener([&](Document& doc, const Document::Change& ch) {
+    seen.push_back(ch);
+    versions.push_back(doc.version());
+    shadow.replace(ch.removed, ch.newText);  // what an LSP server reconstructs from the deltas
+  });
+  const int v0 = d.version();
+  auto after = d.replaceMany({{{{0, 1}, {0, 1}}, "X\nY"}, {{{1, 0}, {1, 2}}, ""}, {{{2, 2}, {2, 2}}, "!"}});
+  CHECK_EQ(d.buffer().text(), "aX\nYa\n\ncc!");
+  REQUIRE(seen.size() == 3u);
+  CHECK(seen[0].removed.start == P(2, 2));  // last edit first
+  CHECK(seen[2].removed.start == P(0, 1));
+  CHECK_EQ(versions[0], v0 + 1);
+  CHECK_EQ(versions[2], v0 + 3);
+  CHECK_EQ(d.version(), v0 + 3);
+  CHECK_EQ(shadow.text(), d.buffer().text());
+  CHECK(after[0] == (Range{P(0, 1), P(1, 1)}));
+  CHECK(after[1] == (Range{P(2, 0), P(2, 0)}));
+  CHECK(after[2] == (Range{P(3, 2), P(3, 3)}));
+  CHECK(d.undo());  // one step for the whole batch
+  CHECK_EQ(d.buffer().text(), "aa\nbb\ncc");
+  CHECK_EQ(shadow.text(), "aa\nbb\ncc");
+  CHECK(!d.undo());
+  CHECK(d.redo());
+  CHECK_EQ(d.buffer().text(), "aX\nYa\n\ncc!");
+  CHECK_EQ(shadow.text(), d.buffer().text());
+}
+
+TEST(multicaret_property_many_carets_multiline_inserts) {
+  for (unsigned seed : {11u, 12u, 13u}) runProperty(seed, 2000, true, 40);
+  runProperty(14u, 2000, false, 40);
+}
+
 // --- benchmark (opt-in: TENFOLD_BENCH=1) -----------------------------------------------------------------------
+
+namespace {
+using BenchClock = std::chrono::steady_clock;
+double msSince(BenchClock::time_point t0) {
+  return std::chrono::duration<double, std::milli>(BenchClock::now() - t0).count();
+}
+// Median of `reps` runs of `fn` (each preceded by `setup`, untimed).
+template <class Setup, class Fn>
+double medianMs(int reps, Setup setup, Fn fn) {
+  std::vector<double> v;
+  for (int i = 0; i < reps; ++i) {
+    setup();
+    auto t0 = BenchClock::now();
+    fn();
+    v.push_back(msSince(t0));
+  }
+  std::sort(v.begin(), v.end());
+  return v[v.size() / 2];
+}
+}  // namespace
 
 TEST(multicaret_bench_keystroke) {
   if (!std::getenv("TENFOLD_BENCH")) return;
   std::string t;
   for (int i = 0; i < 100000; ++i) t += "    int value_" + std::to_string(i) + " = " + std::to_string(i) + ";  // x\n";
-  Fx f(t);
-  using Clk = std::chrono::steady_clock;
-  auto ms = [](Clk::time_point a, Clk::time_point b) {
-    return std::chrono::duration<double, std::milli>(b - a).count();
-  };
-  f.ed->workspace().settings().undoGrouping = "char";
-
-  f.ed->moveCursor(P(50000, 8));
-  const int N = 200;
-  auto t0 = Clk::now();
-  for (int i = 0; i < N; ++i) f.ed->insertText("x");
-  auto t1 = Clk::now();
-  std::cerr << "    bench: insertText(\"x\") 1 caret, 100k lines: " << ms(t0, t1) / N << " ms/op\n";
-
+  Fx f(t, "char");
   std::vector<Selection> many;
   for (int i = 0; i < 1000; ++i) many.push_back(C(i * 100, 4));
-  f.ed->setSelections(many);
-  const int M = 5;
-  double ins = 0, und = 0, red = 0;
-  for (int i = 0; i < M; ++i) {
-    f.ed->setSelections(many);
-    auto a = Clk::now();
-    f.ed->insertText("x");
-    auto b = Clk::now();
-    f.ed->undo();
-    auto c = Clk::now();
-    f.ed->redo();
-    auto d = Clk::now();
-    f.ed->undo();
-    ins += ms(a, b);
-    und += ms(b, c);
-    red += ms(c, d);
+  auto fresh = [&] { f.ed->setSelections(many); };
+  struct Case {
+    const char* name;
+    std::function<void()> run;
+  };
+  std::cerr << "    bench (ms, median of 7), 100k lines, 1000 carets:\n";
+  std::cerr << "      case            apply     undo     redo\n";
+  auto row = [&](const char* name, std::function<void()> run) {
+    double apply = medianMs(7, fresh, [&] { run(); });
+    double undo = 0, redo = 0;
+    {
+      std::vector<double> u, r;
+      for (int i = 0; i < 7; ++i) {
+        fresh();
+        run();
+        auto a = BenchClock::now();
+        f.ed->undo();
+        u.push_back(msSince(a));
+        auto b = BenchClock::now();
+        f.ed->redo();
+        r.push_back(msSince(b));
+        f.ed->undo();
+      }
+      std::sort(u.begin(), u.end());
+      std::sort(r.begin(), r.end());
+      undo = u[3];
+      redo = r[3];
+    }
+    // leave the document as it was
+    while (f.ed->undo()) {}
+    char buf[160];
+    std::snprintf(buf, sizeof buf, "      %-14s %7.3f  %7.3f  %7.3f\n", name, apply, undo, redo);
+    std::cerr << buf;
+    CHECK(f.text().size() == t.size());
+  };
+  row("type 'x'", [&] { f.ed->insertText("x"); });
+  row("Enter", [&] { f.ed->insertText("\n"); });
+  row("backspace", [&] { f.ed->backspace(); });
+  row("paste a\\nb\\nc", [&] { f.ed->insertText("a\nb\nc"); });
+
+  // One caret.
+  {
+    f.ed->moveCursor(P(50000, 8));
+    const int N = 2000;
+    auto t0 = BenchClock::now();
+    for (int i = 0; i < N; ++i) f.ed->insertText("x");
+    std::cerr << "    1 caret typing 'x', 100k lines: " << msSince(t0) / N << " ms/op\n";
+    t0 = BenchClock::now();
+    for (int i = 0; i < 200; ++i) f.ed->insertText("\n");
+    std::cerr << "    1 caret Enter, 100k lines: " << msSince(t0) / 200 << " ms/op\n";
   }
-  std::cerr << "    bench: insertText(\"x\") 1000 carets, 100k lines: " << ins / M << " ms/op\n";
-  std::cerr << "    bench: undo of a 1000-caret edit: " << und / M << " ms, redo: " << red / M << " ms\n";
-  f.ed->setSelections(many);
-  auto a = Clk::now();
-  f.ed->backspace();
-  std::cerr << "    bench: backspace 1000 carets: " << ms(a, Clk::now()) << " ms\n";
+  // One caret on a single 50 MB line.
+  {
+    std::string big(50 * 1000 * 1000, 'a');
+    Fx g(big, "char");
+    g.ed->moveCarets(Editor::Direction::LineEnd);
+    const int N = 2000;
+    auto t0 = BenchClock::now();
+    for (int i = 0; i < N; ++i) g.ed->insertText("x");
+    std::cerr << "    1 caret typing at the end of a 50 MB line: " << msSince(t0) / N << " ms/op\n";
+    g.ed->moveCursor(P(0, 25 * 1000 * 1000));
+    t0 = BenchClock::now();
+    for (int i = 0; i < 50; ++i) g.ed->insertText("x");
+    std::cerr << "    1 caret typing in the middle of a 50 MB line: " << msSince(t0) / 50 << " ms/op\n";
+    g.ed->moveCarets(Editor::Direction::LineEnd);
+    t0 = BenchClock::now();
+    g.ed->undo();
+    std::cerr << "    undo of one keystroke on the 50 MB line: " << msSince(t0) << " ms\n";
+  }
 }

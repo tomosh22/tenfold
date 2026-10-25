@@ -38,6 +38,16 @@ class Document {
   TextBuffer::EditResult replace(Range r, std::string_view text);
   void insert(Position p, std::string_view text) { replace({p, p}, text); }
   void erase(Range r) { replace(r, {}); }
+  // Several edits as ONE undo step, applied in a single pass over the buffer (O(lines + inserted text), not O(lines)
+  // per edit). `edits` must be sorted by position and non-overlapping, in the coordinates before the call. Listeners
+  // still get one Change per edit, from the last edit to the first (each range valid in the state it describes) and
+  // with a version number that increases per event; but while they run the buffer already holds ALL the edits.
+  // Edits with an empty range and empty text are skipped. Returns, per edit, the range its text occupies afterwards.
+  struct BatchEdit {
+    Range range;
+    std::string text;
+  };
+  std::vector<Range> replaceMany(std::vector<BatchEdit> edits);
   bool undo();
   bool redo();
 
@@ -60,16 +70,25 @@ class Document {
   void removeListener(int id);
 
  private:
-  struct UndoRecord {
-    Range range;
-    std::string oldText;
-    std::string newText;
+  // An undo step is a list of batches (a plain replace() is a batch of one edit). A record says where text now sits
+  // and what the same place held / will hold: undoing and redoing are the same "swap" applied to the whole batch.
+  struct UndoRec {
+    Range range;          // where `present` sits in the current state (records of a batch ascend, disjoint)
+    std::string present;  // text currently there
+    std::string alt;      // text to swap in
   };
+  using Batch = std::vector<UndoRec>;
   struct UndoGroup {
-    std::vector<UndoRecord> recs;  // in the order the edits were applied
+    std::vector<Batch> batches;  // in the order applied
     std::vector<Selection> before, after;
   };
-  TextBuffer::EditResult applyRaw(Range r, std::string_view text, UndoRecord* rec);
+  struct BatchResult {
+    std::vector<TextBuffer::EditResult> edits;
+    std::vector<Range> after;
+  };
+  BatchResult applyBatch(const std::vector<BatchEdit>& edits, Batch* rec, bool skipNoops);
+  void record(Batch&& b);
+  UndoGroup flipGroup(UndoGroup&& g);
 
   std::filesystem::path path_;
   TextBuffer buf_;
