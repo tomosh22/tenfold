@@ -1,4 +1,9 @@
 #pragma once
+#include <map>
+#include <string>
+#include <string_view>
+#include <vector>
+
 #include "ui/gfx/Renderer.h"
 
 namespace tf::ui {
@@ -27,6 +32,59 @@ struct Theme {
   Color statusHover{0.30f, 0.40f, 0.58f, 1};
   Color gutterBackground{0.098f, 0.104f, 0.121f, 1};
   Color gutterText{0.42f, 0.45f, 0.50f, 1};
+  // Editor colours (B7). Not used by the B3a widgets; TextView reads them.
+  Color currentLine{0.149f, 0.161f, 0.188f, 1};
+  Color selection{0.184f, 0.290f, 0.471f, 1};
+  Color caret{0.83f, 0.85f, 0.88f, 1};
+  Color columnGuide{0.173f, 0.184f, 0.212f, 1};
+  Color whitespace{0.227f, 0.243f, 0.278f, 1};
+  Color panelBorder{0.07f, 0.075f, 0.09f, 1};
+
+  // Token colours by name: lexical kinds ("keyword", "comment", ...) and clangd semantic token types ("method"), each
+  // optionally narrowed by a modifier ("method.static"). Filled by the theme loader; empty means "use text".
+  std::map<std::string, Color> tokens;
+
+  // Colour for a token of `type` with `modifiers` (e.g. {"static", "readonly"}). Order: type.modifier for each
+  // modifier, then type, then the fallback parent (method -> function -> identifier), ..., finally `text`.
+  Color tokenColor(std::string_view type, const std::vector<std::string>& modifiers = {}) const {
+    std::string t(type);
+    for (int guard = 0; !t.empty() && guard < 16; ++guard) {
+      for (const auto& m : modifiers) {
+        auto it = tokens.find(t + "." + m);
+        if (it != tokens.end()) return it->second;
+      }
+      auto it = tokens.find(t);
+      if (it != tokens.end()) return it->second;
+      t = tokenFallback(t);
+    }
+    return text;
+  }
+  // Parent of a token kind in the fallback chain; empty at the end of the chain.
+  static std::string tokenFallback(std::string_view t) {
+    static const std::map<std::string, std::string, std::less<>> parents = {{"method", "function"},
+                                                                            {"function", "identifier"},
+                                                                            {"macro", "preprocessor"},
+                                                                            {"property", "variable"},
+                                                                            {"parameter", "variable"},
+                                                                            {"variable", "identifier"},
+                                                                            {"enumMember", "variable"},
+                                                                            {"namespace", "identifier"},
+                                                                            {"type", "identifier"},
+                                                                            {"class", "type"},
+                                                                            {"struct", "type"},
+                                                                            {"interface", "type"},
+                                                                            {"enum", "type"},
+                                                                            {"typeParameter", "type"},
+                                                                            {"concept", "type"},
+                                                                            {"char", "string"},
+                                                                            {"punctuation", "operator"},
+                                                                            {"event", "variable"},
+                                                                            {"decorator", "preprocessor"},
+                                                                            {"modifier", "keyword"},
+                                                                            {"regexp", "string"}};
+    auto it = parents.find(t);
+    return it == parents.end() ? std::string() : it->second;
+  }
 
   float padding = 8;           // horizontal padding inside tabs and status segments
   float verticalPad = 4;       // added above and below text for bars

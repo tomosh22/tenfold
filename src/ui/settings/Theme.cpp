@@ -1,0 +1,177 @@
+#include "ui/settings/Theme.h"
+
+#include <algorithm>
+#include <fstream>
+#include <sstream>
+
+namespace tf::ui {
+
+namespace {
+
+const char kDark[] =
+#include "DefaultThemeDark.inc"
+    ;
+const char kLight[] =
+#include "DefaultThemeLight.inc"
+    ;
+
+struct ColorMember {
+  const char* name;
+  gfx::Color Theme::*ptr;
+};
+const std::vector<ColorMember>& colorMembers() {
+  static const std::vector<ColorMember> m = {
+      {"background", &Theme::background},
+      {"panelBackground", &Theme::panelBackground},
+      {"tabStripBackground", &Theme::tabStripBackground},
+      {"tabActive", &Theme::tabActive},
+      {"tabInactive", &Theme::tabInactive},
+      {"tabHover", &Theme::tabHover},
+      {"tabAccent", &Theme::tabAccent},
+      {"tabInsert", &Theme::tabInsert},
+      {"text", &Theme::text},
+      {"textDim", &Theme::textDim},
+      {"dirtyMarker", &Theme::dirtyMarker},
+      {"closeHover", &Theme::closeHover},
+      {"splitter", &Theme::splitter},
+      {"splitterHot", &Theme::splitterHot},
+      {"statusBackground", &Theme::statusBackground},
+      {"statusText", &Theme::statusText},
+      {"statusHover", &Theme::statusHover},
+      {"gutterBackground", &Theme::gutterBackground},
+      {"gutterText", &Theme::gutterText},
+      {"currentLine", &Theme::currentLine},
+      {"selection", &Theme::selection},
+      {"caret", &Theme::caret},
+      {"columnGuide", &Theme::columnGuide},
+      {"whitespace", &Theme::whitespace},
+      {"panelBorder", &Theme::panelBorder},
+  };
+  return m;
+}
+
+const std::vector<std::string> kLexical = {"keyword", "identifier",   "number",   "string",     "char",
+                                           "comment", "preprocessor", "operator", "punctuation"};
+// Order matters for nothing but readability; "type" is the generic one.
+const std::vector<std::string> kSemantic = {"namespace", "type",       "class",         "struct",    "interface",
+                                            "enum",      "enumMember", "typeParameter", "concept",   "function",
+                                            "method",    "property",   "variable",      "parameter", "macro",
+                                            "event",     "decorator",  "modifier",      "regexp"};
+
+bool contains(const std::vector<std::string>& v, const std::string& s) {
+  return std::find(v.begin(), v.end(), s) != v.end();
+}
+
+}  // namespace
+
+const std::vector<std::string>& themeColorNames() {
+  static const std::vector<std::string> n = [] {
+    std::vector<std::string> r;
+    for (auto& m : colorMembers()) r.push_back(m.name);
+    return r;
+  }();
+  return n;
+}
+const std::vector<std::string>& themeTokenKinds() {
+  static const std::vector<std::string> k = [] {
+    std::vector<std::string> r = kLexical;
+    r.insert(r.end(), kSemantic.begin(), kSemantic.end());
+    return r;
+  }();
+  return k;
+}
+const std::vector<std::string>& themeTokenModifiers() {
+  static const std::vector<std::string> m = {"declaration",   "definition",    "readonly", "static",
+                                             "deprecated",    "abstract",      "async",    "modification",
+                                             "documentation", "defaultLibrary"};
+  return m;
+}
+
+std::vector<std::string> requiredThemeKeys() {
+  std::vector<std::string> r;
+  for (auto& n : themeColorNames()) r.push_back("color." + n);
+  for (auto& n : kLexical) r.push_back("token." + n);
+  for (const char* n : {"namespace", "type", "class", "enum", "enumMember", "typeParameter", "concept", "function",
+                        "method", "property", "variable", "parameter", "macro"})
+    r.push_back(std::string("token.") + n);
+  return r;
+}
+
+Theme parseTheme(std::string_view text, std::string_view source, std::vector<SettingsDiag>& diags, const Theme& base) {
+  Theme t = base;
+  std::set<std::string> seen;
+  parseKeyValueLines(text, source, diags, [&](int line, std::string_view key, std::string_view value) {
+    auto err = [&](bool warning, std::string msg) {
+      diags.push_back({std::string(source), line, warning, std::move(msg)});
+    };
+    std::string k(key);
+    if (!seen.insert(k).second) err(true, "'" + k + "' set twice in this file");
+    gfx::Color c;
+    std::string e;
+    if (k.rfind("color.", 0) == 0) {
+      const ColorMember* m = nullptr;
+      for (auto& cm : colorMembers())
+        if (k.compare(6, std::string::npos, cm.name) == 0) m = &cm;
+      if (!m) return err(false, "unknown theme colour '" + k + "'");
+      if (!parseColor(value, c, e)) return err(false, k + ": " + e);
+      t.*(m->ptr) = c;
+      return;
+    }
+    if (k.rfind("token.", 0) == 0) {
+      std::string rest = k.substr(6), kind = rest, mod;
+      if (size_t dot = rest.find('.'); dot != std::string::npos) {
+        kind = rest.substr(0, dot);
+        mod = rest.substr(dot + 1);
+      }
+      if (!contains(themeTokenKinds(), kind)) return err(false, "unknown token kind in '" + k + "'");
+      if (!mod.empty() && !contains(themeTokenModifiers(), mod))
+        return err(false, "unknown token modifier in '" + k + "'");
+      if (!parseColor(value, c, e)) return err(false, k + ": " + e);
+      t.tokens[rest] = c;
+      return;
+    }
+    err(false, "unknown theme key '" + k + "' (expected color.* or token.*)");
+  });
+  return t;
+}
+
+std::string_view builtinThemeText(std::string_view name) {
+  if (name == "dark") return kDark;
+  if (name == "light") return kLight;
+  return {};
+}
+
+std::filesystem::path findThemeFile(std::string_view name, const std::filesystem::path& workspaceRoot,
+                                    const std::filesystem::path& userDir) {
+  if (name.empty() || name.find_first_of("/\\") != std::string_view::npos || name == "..") return {};
+  std::error_code ec;
+  std::string file = std::string(name) + ".txt";
+  for (const auto& p : {workspaceRoot.empty() ? std::filesystem::path() : workspaceRoot / ".tenfold" / "themes" / file,
+                        userDir.empty() ? std::filesystem::path() : userDir / "themes" / file})
+    if (!p.empty() && std::filesystem::is_regular_file(p, ec)) return p;
+  return {};
+}
+
+Theme loadTheme(std::string_view name, const std::filesystem::path& workspaceRoot, const std::filesystem::path& userDir,
+                std::vector<SettingsDiag>& diags, std::string* fingerprint) {
+  std::string text, source;
+  std::filesystem::path file = findThemeFile(name, workspaceRoot, userDir);
+  if (!file.empty()) {
+    std::ifstream f(file, std::ios::binary);
+    std::ostringstream ss;
+    ss << f.rdbuf();
+    text = ss.str();
+    source = file.generic_string();
+  } else if (!builtinThemeText(name).empty()) {
+    text = std::string(builtinThemeText(name));
+    source = std::string(name) + " (built-in)";
+  } else {
+    diags.push_back({"settings", 0, false, "unknown theme '" + std::string(name) + "'; using dark"});
+    text = std::string(kDark);
+    source = "dark (built-in)";
+  }
+  if (fingerprint) *fingerprint = source + "\n" + text;
+  return parseTheme(text, source, diags);
+}
+
+}  // namespace tf::ui

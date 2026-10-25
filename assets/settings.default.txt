@@ -1,0 +1,29 @@
+# tenfold default settings (embedded in the binary; edit a copy, not this file).
+#
+# Format: one `key = value` per line, dotted keys (no [sections]). `#` starts a comment only as the first
+# non-blank character of a line (colours contain '#'). Types: bool (true/false), int, float, string (optional
+# "quotes"), colour (#rrggbb or #rrggbbaa), font ("family or path[, size in pt]"; empty = unset).
+# Later layers override earlier ones: this file, <user config dir>/settings.txt, <workspace>/.tenfold/settings.txt.
+# Undo grouping (undoGrouping, undoGroupPauseMs) lives in <workspace>/.tenfold/workspace.json, not here.
+
+editor.smoothScroll = true
+editor.wordWrap = false
+editor.caretBlink = true
+editor.caretBlinkMs = 530
+editor.highlightCurrentLine = true
+editor.wheelLines = 3
+editor.tabWidth = 4
+# 0 = off. A column guide (e.g. 90) is only a candidate until verified against 10x.
+editor.columnGuide = 0
+editor.showWhitespace = false
+
+# Unset: the app discovers a monospace font, trying font.fallbacks in order (OPEN_QUESTIONS #7).
+font.editor =
+font.fallbacks = Consolas, JetBrains Mono
+font.size = 11
+
+# Theme name: workspace .tenfold/themes/<name>.txt, then user themes/<name>.txt, then built-in (dark, light).
+ui.theme = dark
+
+# Show "<- 3 | 1 ->" back/forward counts in the status bar.
+nav.statusCounts = false

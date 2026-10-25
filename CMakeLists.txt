@@ -181,6 +181,8 @@ if(TENFOLD_BUILD_UI)
     src/ui/commands/KeyMap.cpp
     src/ui/commands/EditorCommands.cpp
     src/ui/settings/KeyBindings.cpp
+    src/ui/settings/Settings.cpp
+    src/ui/settings/Theme.cpp
     src/ui/shell/DocumentView.cpp
     src/ui/shell/Workbench.cpp
   )
@@ -189,6 +191,17 @@ if(TENFOLD_BUILD_UI)
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${TENFOLD_DEFAULT_KEYS}")
   file(READ "${TENFOLD_DEFAULT_KEYS}" _tf_default_keys)
   file(WRITE "${CMAKE_BINARY_DIR}/generated/DefaultKeyBindings.inc" "R\"TFKB(${_tf_default_keys})TFKB\"\n")
+  # Default settings and the two shipped themes are embedded the same way.
+  foreach(_tf_emb "settings.default.txt|DefaultSettings.inc|TFST" "themes/dark.txt|DefaultThemeDark.inc|TFTD"
+                  "themes/light.txt|DefaultThemeLight.inc|TFTL")
+    string(REPLACE "|" ";" _tf_emb "${_tf_emb}")
+    list(GET _tf_emb 0 _tf_src)
+    list(GET _tf_emb 1 _tf_dst)
+    list(GET _tf_emb 2 _tf_tag)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_SOURCE_DIR}/assets/${_tf_src}")
+    file(READ "${CMAKE_SOURCE_DIR}/assets/${_tf_src}" _tf_text)
+    file(WRITE "${CMAKE_BINARY_DIR}/generated/${_tf_dst}" "R\"${_tf_tag}(${_tf_text})${_tf_tag}\"\n")
+  endforeach()
   target_include_directories(tenfold_ui PRIVATE "${CMAKE_BINARY_DIR}/generated")
   target_include_directories(tenfold_ui PUBLIC src)
   target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text tenfold_core)
@@ -207,6 +220,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_widgets.cpp
     tests/ui/test_commands.cpp
     tests/ui/test_workbench.cpp
+    tests/ui/test_settings.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

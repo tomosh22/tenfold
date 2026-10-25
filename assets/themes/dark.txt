@@ -1,0 +1,55 @@
+# tenfold dark theme (neutral placeholder; the UI colours reproduce Theme::darkDefault()).
+# TODO(OPEN_QUESTIONS #7, VERIFY WITH USER): replace with the palette from the user's 10x screenshots.
+# Same file format as settings.default.txt; only color.* and token.* keys are allowed.
+
+# UI colours (names = members of ui::Theme).
+color.background = #1e2025
+color.panelBackground = #23252b
+color.tabStripBackground = #191b1f
+color.tabActive = #23252b
+color.tabInactive = #282a30
+color.tabHover = #303339
+color.tabAccent = #528adb
+color.tabInsert = #528adb
+color.text = #d4d9e0
+color.textDim = #858c99
+color.dirtyMarker = #e6b859
+color.closeHover = #bf4747
+color.splitter = #121317
+color.splitterHot = #528adb
+color.statusBackground = #364a73
+color.statusText = #edf2fa
+color.statusHover = #4c6694
+color.gutterBackground = #191b1f
+color.gutterText = #6b7380
+color.currentLine = #262930
+color.selection = #2f4a78
+color.caret = #d4d9e0
+color.columnGuide = #2c2f36
+color.whitespace = #3a3e47
+color.panelBorder = #121317
+
+# Token colours: lexical kinds, then clangd semantic token types. `token.<type>.<modifier>` narrows a
+# type (e.g. token.method.static). Missing ones fall back: method -> function -> identifier -> color.text.
+token.keyword = #c586c0
+token.identifier = #d4d9e0
+token.number = #b5cea8
+token.string = #ce9178
+token.char = #ce9178
+token.comment = #6a9955
+token.preprocessor = #9b9b9b
+token.operator = #d4d9e0
+token.punctuation = #a8aeb8
+token.namespace = #d4d9e0
+token.type = #4ec9b0
+token.class = #4ec9b0
+token.enum = #4ec9b0
+token.enumMember = #b8d7a3
+token.typeParameter = #4ec9b0
+token.concept = #4ec9b0
+token.function = #dcdcaa
+token.method = #dcdcaa
+token.property = #9cdcfe
+token.variable = #9cdcfe
+token.parameter = #9cdcfe
+token.macro = #bd93f9
