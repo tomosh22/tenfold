@@ -55,7 +55,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 |---|---|---|
 | UTF-8 text, CRLF preserved | ✅ | |
 | Undo / redo | ✅ | Per document, linear; nestable undo groups restore caret sets; typed-word grouping (A5, setting). **verify** 10x's grouping of typed characters (OPEN_QUESTIONS #3). |
-| Multi-caret / column select | 🔶 | Engine done (A5): carets/selections, add above/below, next occurrence, column select, word/line/page moves; property-tested. GUI in B2. |
+| Multi-caret / column select | ✅ | Engine (A5) + TextView (B2a): click/drag/double/triple/Alt-drag column select, Ctrl/Alt-click add caret, multi-caret clipboard; keystroke-to-paint 0.36 ms with 1000 carets on 100k lines. |
 | Auto-indent, bracket matching, comment toggling | ⬜ | Lexer available (`CppLexer`). |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 
@@ -64,9 +64,9 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ⬜ | **verify** 10x's `KeyMappings.10x_settings` grammar if users want to import theirs. |
-| Colour schemes as text files | ⬜ | **verify** format. |
-| Settings as text file | ⬜ | **verify** 10x's `Settings.10x_settings` keys. |
+| Key bindings as a text file | 🔶 | Done (B4 + B-INT): named commands, chords, contexts, `.tenfold/keybindings.txt` overlay, diagnostics in status bar. Defaults are placeholders: **verify** with the user's `KeyMappings.10x_settings` (OPEN_QUESTIONS #1). |
+| Colour schemes as text files | 🔶 | Mechanism done (B7): theme files with lexical + semantic token colours and fallbacks, hot reload. Shipped palettes are neutral placeholders: **verify** with 10x screenshots (OPEN_QUESTIONS #7). |
+| Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Build integration (run command, parse errors, jump) | ⬜ | Error jumps should go through `Editor::gotoLocation` so they are in history. |
 | Debugger integration | ⬜ | **verify** what 10x does (external debugger launch vs. integrated). |
 | Version control (Perforce / Git) | ⬜ | **verify** exact operations 10x exposes. |
