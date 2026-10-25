@@ -104,6 +104,7 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   status_->addSegment("clangd", StatusBar::Align::Left);
   status_->addSegment("fastindex", StatusBar::Align::Left);
   status_->addSegment("build", StatusBar::Align::Left);
+  status_->addSegment("debug", StatusBar::Align::Left);
   status_->addSegment("encoding", StatusBar::Align::Right);
   status_->addSegment("eol", StatusBar::Align::Right);
   status_->setText("workspace", editor_.workspace().root().filename().string());
@@ -622,6 +623,12 @@ void Workbench::refreshStatus() {
     else clangd = "clangd: ready";
   }
   status_->setText("clangd", clangd);
+  {  // C2c: debugger state, and the orange bar while the debuggee runs or is stopped
+    const DebugSession& dbg = editor_.debug();
+    const bool active = dbg.connected() || dbg.mode() != DebugMode::Disconnected;
+    status_->setText("debug", active ? dbg.status() : std::string());
+    status_->setDebugging(dbg.mode() == DebugMode::Running || dbg.mode() == DebugMode::Break);
+  }
   status_->setText("fastindex", st.fastIndexDone ? "fast index: " + std::to_string(st.fastFiles) + " files"
                                                  : "fast index: indexing");
 }

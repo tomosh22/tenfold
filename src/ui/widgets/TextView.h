@@ -44,6 +44,15 @@ namespace tf::ui {
 // scrolling is off. Caret Up / Down / PageUp / PageDown and Home / End move by visual row (moveCaretsVisual, which
 // EditorApp offers to the caret commands); everything else stays with the Editor.
 //
+// Glyph margin (C2c): when the Editor has a debugger backend or any breakpoint, the gutter grows a lane (one line
+// height wide) at its left edge, left of the line numbers (Layout::setGlyphLane). It shows, on the first visual row of
+// a line only, the breakpoint of that line (red disc; hollow ring = disabled; a white plus on the disc = conditional)
+// and the yellow current-statement arrow (Break mode, in every view of that file; the line also gets a background
+// band over all its rows). The arrow is drawn over a breakpoint disc. A bookmark's flag keeps its small square just
+// right of the lane (at the gutter's left edge when there is no lane). A left click in the lane toggles a breakpoint
+// on the clicked line through Breakpoints (the DebugSession pushes it to the backend); it moves neither caret nor
+// focus. The view repaints when Breakpoints::generation() or DebugSession::generation() moves.
+//
 // Dirtiness: input handling and onTick() compare the Editor state (document, version, selections) with what was last
 // drawn, so changes made elsewhere (LSP edits, Back/Forward, another view) repaint too. Drive onTick through
 // RootWidget::tick(nowMs) after each batch of events and wait for at most the returned ms (blink / scroll animation).
@@ -104,6 +113,10 @@ class TextView : public Widget {
   RectF caretRect(Position p) const;
   RectF textArea() const;  // the clip rect of text (right of the gutter)
   int visibleLineCount() const;
+  // Debugger glyph lane (C2c): present when the Editor has a debugger backend or any breakpoint; width 0 otherwise.
+  bool glyphMarginActive() const;
+  float glyphLaneWidth() const;
+  RectF glyphLaneRect() const;  // window pixels; zero width when there is no lane
   void ensureCaretVisible(bool animate = true);
   std::string positionText() const;  // "Ln 3, Col 5" of the primary caret (Col is the visual column, tabs expanded)
 
@@ -126,6 +139,9 @@ class TextView : public Widget {
     int line, row, vrow, start, end, indent;
   };
   Layout geometry() const;
+  std::optional<int> statementLine() const;  // the line of the debugger's current statement when it is in this document
+  void paintGlyphMargin(PaintContext& ctx, const Layout& L, const RowRef& r, float y, bool arrow);
+  void toggleBreakpointAt(int line);
   int wrapCols() const;
   void syncWrap();
   float scrollX() const;
@@ -178,7 +194,7 @@ class TextView : public Widget {
   std::vector<Range> findMatches_;  // sorted
   int findCurrent_ = -1;
   std::vector<int> searchLines_;  // find-in-files markers, restored when the in-file matches go away
-  uint64_t bookmarkGen_ = ~0ull;
+  uint64_t bookmarkGen_ = ~0ull, breakpointGen_ = ~0ull, debugGen_ = ~0ull;
   std::vector<int> bookmarkLines_;  // of the bound document, refreshed on paint
 
   // What was last seen, to detect changes.

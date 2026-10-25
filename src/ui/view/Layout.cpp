@@ -8,7 +8,7 @@ namespace tf::ui {
 float Layout::gutterWidth(int lineCount) const {
   int digits = 3;
   for (int n = lineCount; n >= 1000; n /= 10) ++digits;
-  return static_cast<float>(digits + 2) * cellWidth();
+  return lane_ + static_cast<float>(digits + 2) * cellWidth();
 }
 
 int Layout::lineAt(float yInView, float scrollY, int lineCount) const {

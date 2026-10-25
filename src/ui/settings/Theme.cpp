@@ -71,6 +71,11 @@ const std::vector<ColorMember>& colorMembers() {
       {"tabInactiveText", &Theme::tabInactiveText, true},
       {"popupBackground", &Theme::popupBackground, true},
       {"popupBorder", &Theme::popupBorder, true},
+      {"debugBreakpoint", &Theme::debugBreakpoint, true},
+      {"debugCurrentLine", &Theme::debugCurrentLine, true},
+      {"debugCurrentArrow", &Theme::debugCurrentArrow, true},
+      {"statusBackgroundDebugging", &Theme::statusBackgroundDebugging, true},
+      {"statusTextDebugging", &Theme::statusTextDebugging, true},
   };
   return m;
 }

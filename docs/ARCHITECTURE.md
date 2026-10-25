@@ -355,6 +355,46 @@ Running Object Table enumeration.
   devenv, breakpoint / start / step / VS-side breakpoint / stop, then `DTE.Quit`). The CI job `windows-vs-debugger`
   (non-blocking) runs it on `windows-2022`.
 
+
+### Debugger UI (C2c)
+
+Looks like Visual Studio; everything runs against whatever backend the session has (the UI tests use `FakeDebugger`,
+compiled into `tenfold-ui-tests` too).
+
+* **Glyph margin** (`TextView`, `paintGlyphMargin`): a lane one line height wide at the left edge of the gutter, left of
+  the line numbers; `Layout::setGlyphLane` adds its width to `gutterWidth` (so `textOffset`, hit testing, the wrap
+  width and the caret all move with it; another gutter strip between numbers and text, e.g. diff marks, adds its own
+  term the same way). The lane exists while the Editor has a debugger backend (`DebugSession::hasBackend()`: always
+  on Windows, where the factory is installed) or any breakpoint at all (workspace-wide, so the text does not jump when
+  you switch tabs). Without either, the gutter is exactly what it was before, which is why the older goldens are
+  unchanged. Glyphs are on the first visual row of a line only (B2c's row model): breakpoint = red disc
+  (`debugBreakpoint`, built-in #E51400), disabled = ring, conditional = disc with a white plus (ring with a plus in the
+  ring colour when also disabled); current statement = arrow in `debugCurrentArrow`, drawn over the disc. The bookmark
+  flag keeps its small square but sits just right of the lane. Shapes are 1px-high rects (no circle primitive).
+* **Click**: a left press in the lane toggles a breakpoint on that line (a click on any row of a wrapped line counts)
+  through `Breakpoints::toggle` + `Editor::saveBreakpoints`; the glyph appears at once (optimistic), the session pushes
+  `setBreakpoint` / `removeBreakpoint` to the backend and takes the backend's version back after `pump()` (the backend
+  wins; a breakpoint it could not bind stays with the normal glyph and the error goes to the status bar). The press
+  moves no caret and takes no focus.
+* **Current statement**: only in Break mode, in every `TextView` whose document is the statement's file (not only the
+  current one): the arrow plus a band over all rows of the line (`debugCurrentLine`, behind selection and text). The
+  jump to it is the engine's (`gotoLocation`).
+* **Repaint**: `syncState` compares `Breakpoints::generation()` and `DebugSession::generation()` with the last seen.
+* **Commands** (`EditorCommands.cpp`, engine-level, named in the registry): `Debug.Start` F5, `Debug.StartWithoutDebugging`
+  Ctrl+F5, `Debug.Stop` Shift+F5, `Debug.Restart` Ctrl+Shift+F5, `Debug.ToggleBreakpoint` F9,
+  `Debug.ToggleBreakpointEnabled` Ctrl+F9, `Debug.DeleteAllBreakpoints` Ctrl+Shift+F9, `Debug.StepOver` F10,
+  `Debug.StepInto` F11, `Debug.StepOut` Shift+F11, `Debug.RunToCursor` Ctrl+F10, `Debug.BreakAll` Ctrl+Alt+Break; and
+  bound by `EditorApp`: `Debug.ShowBreakpoints` Ctrl+Alt+B, `Debug.EditCondition` (no key). Debug commands queue on
+  the session and return at once (asynchronous). Ctrl+Alt+B used to be `View.ToggleBuildPanel`; that moved to
+  Ctrl+Alt+O (Visual Studio's Output window key).
+* **`BreakpointList`** (`src/ui/features`): modal input-less `ListPopup`, one row per breakpoint (`[x] path:line`,
+  condition or line text; `[ ]` and dim when disabled). Enter jumps with `gotoLocation` (Back returns), Space toggles
+  enabled, Delete removes; the list follows changes from the backend (`refresh()` from `EditorApp::tick`).
+  `openCondition()` is the `Debug.EditCondition` input line (empty text removes the condition).
+* **Status bar**: segment `debug` (declared after `build`) shows `DebugSession::status()` while connected or not
+  Disconnected; empty otherwise. `StatusBar::setDebugging(true)` while the mode is Running or Break switches the bar to
+  `statusBackgroundDebugging` / `statusTextDebugging` (vs-dark: #CA5100 / white; `dark` and `light` leave them
+  transparent = unchanged look). A new `lastError` of the session is shown in the status bar message like other errors.
 ## Version control (C3a, `src/vcs`)
 
 Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it. Nothing in `src/vcs`
@@ -836,10 +876,13 @@ thread-safe `wake` callback); the UI thread calls `poll()`, which reloads, fires
 `applyTo(RootWidget&, scale)` swaps the theme (repaint). `editorSettings()` gives TextView its subset in one call.
 The optional colour keys (`editorBackground`, `currentLineFill`, `currentLineBorder`, `selectionActive`,
 `selectionInactive`, `findHighlight`, `findHighlightCurrent`, `editorCaret`, `tabActiveText`, `tabInactiveText`,
-`popupBackground`, `popupBorder`) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
+`popupBackground`, `popupBorder`, and the debugger keys `debugBreakpoint`, `debugCurrentLine`, `debugCurrentArrow`,
+`statusBackgroundDebugging`, `statusTextDebugging`) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
 so `dark` and `light` and their goldens are unchanged; only `vs-dark` sets them. `vs-dark.txt` lists in its header the
 values that are recalled rather than sampled. Control-flow keyword and string-escape colours need lexer kinds that do
-not exist yet, and per-state status bar colours need a debugger state; neither has a key.
+not exist yet; they have no key. The debugger keys fall back to built-in colours (breakpoint #E51400, the dirty-marker
+colour for the statement arrow and band); the two status bar keys have no fallback, so the bar only changes in themes
+that set them (`vs-dark`).
 
 user's 10x key map is known (OPEN_QUESTIONS #1). `EditorApp` (below) wires it into the app.
 ### Workbench (`src/ui/shell`, B3b)
@@ -881,7 +924,7 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
 * **Commands** (EditorApp): `Build.Build` (Ctrl+Shift+B; an argument is a custom shell command), `Build.Cancel`
   (Ctrl+Break, enabled while a build runs), `Build.NextError` / `Build.PrevError` (F4 / Shift+F4:
   `Editor::next/prevBuildMessage`, then the panel selects and scrolls to the line and the message goes to the status
-  bar), `View.ToggleBuildPanel` (Ctrl+Alt+B). Status bar segment `build` shows `build: <state>` after the first build
+  bar), `View.ToggleBuildPanel` (Ctrl+Alt+O). Status bar segment `build` shows `build: <state>` after the first build
   and toggles the panel on click.
 * **Squiggles**: `TextView` draws `Editor::buildDiagnostics(file)` under the clangd ones in `Theme::buildError` /
   `buildWarning` (theme keys `color.buildError`, `color.buildWarning`, both shipped themes), with scrollbar marks in the
@@ -1011,7 +1054,8 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   (`gotoLocation`, so it is in the navigation history); numbers past the end clamp to the last line.
 * **BookmarkList** (`Editor.ListBookmarks`, Ctrl+Shift+F2): modal list of every bookmark (line text, `path:line`),
   the input filters, Enter -> `gotoBookmarkItem`. Toggle / next / previous (Ctrl+F2, F2, Shift+F2) are engine commands.
-  TextView draws a small accent-coloured flag at the left edge of a bookmarked line's gutter.
+  TextView draws a small accent-coloured flag at the left edge of a bookmarked line's gutter (right of the breakpoint
+  glyph lane when there is one, see "Debugger UI").
 * **Settings** (`assets/settings.default.txt`): `editor.indentUnit` (`tab` or a number of spaces, default 4),
   `editor.detectIndent` (true), `editor.autoIndent` (true), `editor.autoClosePairs` (true),
   `editor.trimTrailingWhitespace` (false). `editor.wordWrap` is still only reserved: soft wrap is not implemented.

@@ -263,6 +263,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/shell/EditorApp.cpp
     src/ui/shell/FontSetup.cpp
     src/ui/features/NavigationUi.cpp
+    src/ui/features/BreakpointList.cpp
   )
   # Default key bindings are embedded as a raw string literal so the app works without the asset dir.
   set(TENFOLD_DEFAULT_KEYS "${CMAKE_SOURCE_DIR}/assets/keybindings.default.txt")
@@ -317,6 +318,8 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_build_ui.cpp
     tests/ui/test_b8.cpp
     tests/ui/test_wrap.cpp
+    tests/ui/test_debugger_ui.cpp
+    src/debug/FakeDebugger.cpp  # test support (the scripted backend of the debugger UI tests)
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

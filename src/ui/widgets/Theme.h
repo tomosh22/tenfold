@@ -66,6 +66,14 @@ struct Theme {
   Color tabInactiveText{0, 0, 0, 0};       // title of an inactive, un-hovered tab; unset = textDim
   Color popupBackground{0, 0, 0, 0};       // pickers, completion list, find box; unset = tabInactive
   Color popupBorder{0, 0, 0, 0};           // their 1px border; unset = splitterHot
+  // Debugger (C2c). Breakpoint glyph: unset = #E51400; current statement line / arrow: unset = dirtyMarker at 25% /
+  // dirtyMarker.
+  Color debugBreakpoint{0, 0, 0, 0};
+  Color debugCurrentLine{0, 0, 0, 0};
+  Color debugCurrentArrow{0, 0, 0, 0};
+  // Status bar while the session is Running or Break: unset = unchanged look.
+  Color statusBackgroundDebugging{0, 0, 0, 0};
+  Color statusTextDebugging{0, 0, 0, 0};
   static Color orElse(const Color& c, const Color& fallback) { return c.a > 0 ? c : fallback; }
 
   // Token colours by name: lexical kinds ("keyword", "comment", ...) and clangd semantic token types ("method"), each

@@ -22,6 +22,11 @@ class StatusBar : public Widget {
   const std::string& text(const std::string& key) const;
   void setOnClick(const std::string& key, std::function<void(const std::string& key)> onClick);
 
+  // While true (debugger Running / Break) the bar uses Theme::statusBackgroundDebugging / statusTextDebugging when the
+  // theme sets them.
+  void setDebugging(bool on);
+  bool debugging() const { return debugging_; }
+
   float preferredHeight() const;
   // Window-coordinate rect of a segment as of the last layout/paint (zero-size if empty or unknown).
   RectF segmentRect(const std::string& key);
@@ -47,7 +52,7 @@ class StatusBar : public Widget {
   Segment* segmentAt(float x, float y);
 
   std::vector<Segment> segs_;
-  bool stale_ = true;
+  bool stale_ = true, debugging_ = false;
   Segment* hot_ = nullptr;
 };
 
