@@ -11,7 +11,7 @@
 #include <thread>
 #include <unordered_map>
 
-#include <unistd.h>
+#include "core/Platform.h"
 
 namespace tf {
 
@@ -296,7 +296,7 @@ bool FastIndexStore::save(const std::filesystem::path& path, const Entries& file
   std::error_code ec;
   if (path.has_parent_path()) std::filesystem::create_directories(path.parent_path(), ec);
   std::filesystem::path tmp = path;
-  tmp += ".tmp." + std::to_string(::getpid());
+  tmp += ".tmp." + std::to_string(tf::currentProcessId());
   {
     std::ofstream out(tmp, std::ios::binary | std::ios::trunc);
     if (!out) return fail(err, "cannot create temp file");

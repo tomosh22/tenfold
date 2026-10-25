@@ -3,8 +3,8 @@
 #include <cstring>
 #include <fstream>
 #include <thread>
-#include <unistd.h>
 
+#include "core/Platform.h"
 #include "semantic/FastIndex.h"
 #include "semantic/FastIndexStore.h"
 #include "semantic/SemanticEngine.h"
@@ -19,7 +19,7 @@ struct TempDir {
   fs::path path;
   TempDir() {
     static int n = 0;
-    path = fs::temp_directory_path() / ("tenfold_fis_" + std::to_string(::getpid()) + "_" + std::to_string(n++));
+    path = fs::temp_directory_path() / ("tenfold_fis_" + std::to_string(tf::currentProcessId()) + "_" + std::to_string(n++));
     fs::remove_all(path);
     fs::create_directories(path);
   }
@@ -73,7 +73,7 @@ TEST(fastindexstore_roundtrip_identical_lookups) {
   auto store = td.path / ".tenfold/fastindex.bin";
   std::string err;
   REQUIRE(FastIndexStore::save(store, a.exportFiles(), &err));
-  CHECK(!fs::exists(store.string() + ".tmp." + std::to_string(::getpid())));
+  CHECK(!fs::exists(store.string() + ".tmp." + std::to_string(tf::currentProcessId())));
 
   auto loaded = FastIndexStore::load(store, &err);
   REQUIRE(loaded.has_value());

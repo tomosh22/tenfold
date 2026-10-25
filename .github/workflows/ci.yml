@@ -14,7 +14,7 @@ permissions:
 env:
   CLANGD_VERSION: "22.1.1"
   CLANG_FORMAT_VERSION: "18.1.8"
-  NINJA_VERSION: "1.12.1"
+  NINJA_VERSION: "1.13.0"
 
 jobs:
   build:
@@ -158,5 +158,13 @@ jobs:
             echo "No C++ files changed."
             exit 0
           fi
-          printf 'Checking %s\n' "${files[@]}"
-          clang-format --dry-run --Werror "${files[@]}"
+          printf 'Checking changed lines in %s\n' "${files[@]}"
+          # Only lines changed since the base are checked: existing code is hand-formatted
+          # and is not expected to match .clang-format byte for byte.
+          out="$(git clang-format --binary "$(command -v clang-format)" --diff "$base" "$HEAD_SHA" -- "${files[@]}" || true)"
+          if printf '%s\n' "$out" | grep -q '^@@'; then
+            printf '%s\n' "$out"
+            echo "::error::Changed lines are not clang-formatted. Run: git clang-format $base"
+            exit 1
+          fi
+          echo "Changed lines are clang-formatted."
