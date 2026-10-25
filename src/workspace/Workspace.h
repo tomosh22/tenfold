@@ -122,6 +122,9 @@ std::filesystem::path bundledBinDir();
 // Search `dirs` in order for any candidate; returns the first existing file.
 std::string findExecutableIn(const std::string& name, const std::vector<std::string>& dirs, bool windows);
 
+// `raw` made absolute with symlinks and "." / ".." resolved (what macOS's _NSGetExecutablePath result needs before
+// its parent directory is meaningful). Pure; usable on any platform.
+std::filesystem::path canonicalExecutablePath(const std::filesystem::path& raw);
 // Directory holding the running executable ("" if unknown).
 std::filesystem::path executableDir();
 // Where a packaged build keeps helper executables, in search order: the executable's own directory (the packaged

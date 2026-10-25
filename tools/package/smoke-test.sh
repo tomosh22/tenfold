@@ -21,6 +21,30 @@ esac
 
 root="$(find "$tmp" -maxdepth 2 -type d -name bin -print -quit)"
 root="$(dirname "$root")"
+# On any failure print what the next CI log needs: where the package was unpacked and what bin/ really holds.
+diag() {
+  rc=$?
+  trap - EXIT
+  if [ "$rc" -ne 0 ]; then
+    echo "---- diagnostics (exit $rc) ----" >&2
+    echo "unpacked root (exe dir parent): $root" >&2
+    echo "uname: $(uname -sm)" >&2
+    ls -lA "$root" "$root/bin" >&2 || true
+    for f in "$root"/bin/clangd "$root"/bin/clangd.exe; do
+      if [ -f "$f" ]; then
+        echo "clangd file: $f" >&2
+        file "$f" >&2 || true
+        command -v xattr >/dev/null 2>&1 && xattr -l "$f" >&2 || true
+        "$f" --version >&2 || echo "clangd --version failed (exit $?)" >&2
+      fi
+    done
+    echo "engine log:" >&2
+    cat "$tmp/cli.log" >&2 2>/dev/null || true
+  fi
+  rm -rf "$tmp"
+  exit "$rc"
+}
+trap diag EXIT
 exe=""
 for e in "$root/bin/tenfold-cli.exe" "$root/bin/tenfold-cli"; do [ -f "$e" ] && exe="$e" && break; done
 [ -n "$exe" ] || { echo "FAIL: tenfold-cli not found in package" >&2; exit 1; }

@@ -304,7 +304,12 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   // Precedence: clangdPath setting / --clangd > clangd bundled next to the editor > PATH.
   const ClangdChoice choice = findClangd(setting);
   if (choice.path.empty()) {
-    if (error) *error = "clangd not found: " + (setting.empty() ? std::string("clangd") : setting);
+    if (error) {
+      *error = "clangd not found: " + (setting.empty() ? std::string("clangd") : setting);
+      if (setting.empty()) {
+        *error += " (executable dir: " + executableDir().string() + "; looked next to it, in its bin/, and on PATH)";
+      }
+    }
     return nullptr;
   }
   const std::string resolved = choice.path;

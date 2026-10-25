@@ -12,6 +12,9 @@
 #include <windows.h>
 #endif
 
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
+#endif
 #include <nlohmann/json.hpp>
 
 namespace tf {
@@ -328,12 +331,25 @@ std::vector<std::string> executableCandidates(const std::string& name, bool wind
   return out;
 }
 
+fs::path canonicalExecutablePath(const fs::path& raw) {
+  if (raw.empty()) return {};
+  std::error_code ec;
+  fs::path p = fs::weakly_canonical(raw, ec);
+  return ec ? raw : p;
+}
+
 static fs::path selfExePath() {
   fs::path exe;
 #ifdef _WIN32
   wchar_t buf[MAX_PATH * 4];
   DWORD n = GetModuleFileNameW(nullptr, buf, static_cast<DWORD>(sizeof(buf) / sizeof(buf[0])));
   if (n > 0 && n < sizeof(buf) / sizeof(buf[0])) exe = fs::path(std::wstring(buf, n));
+#elif defined(__APPLE__)
+  // No /proc on macOS: ask dyld. The path may be relative or go through symlinks / "..", so canonicalise it.
+  uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);  // fails, reporting the required size
+  std::string buf(size, '\0');
+  if (size > 0 && _NSGetExecutablePath(buf.data(), &size) == 0) exe = canonicalExecutablePath(fs::path(buf.c_str()));
 #else
   std::error_code ec;
   exe = fs::read_symlink("/proc/self/exe", ec);
