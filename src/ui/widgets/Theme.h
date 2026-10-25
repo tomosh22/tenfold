@@ -48,6 +48,10 @@ struct Theme {
   Color scrollbarThumb{0.349f, 0.376f, 0.439f, 0.549f};  // #596070 at 55%
   Color bracketMatch{0.322f, 0.541f, 0.859f, 0.349f};    // box behind a matching bracket pair
 
+  // Build output (C1): squiggles, scrollbar marks and panel lines of the last build, apart from clangd's.
+  Color buildError{1.0f, 0.478f, 0.271f, 1};      // #ff7a45
+  Color buildWarning{0.784f, 0.847f, 0.290f, 1};  // #c8d84a
+
   // Token colours by name: lexical kinds ("keyword", "comment", ...) and clangd semantic token types ("method"), each
   // optionally narrowed by a modifier ("method.static"). Filled by the theme loader; empty means "use text".
   std::map<std::string, Color> tokens;

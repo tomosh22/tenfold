@@ -188,6 +188,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/FindInFiles.cpp
     src/ui/features/CompletionPopup.cpp
     src/ui/features/HoverTooltip.cpp
+    src/ui/features/BuildPanel.cpp
     src/ui/features/SignatureHelp.cpp
     src/ui/features/DiagnosticsPanel.cpp
     src/ui/view/Viewport.cpp
@@ -250,6 +251,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_view_colouring.cpp
     tests/ui/test_pickers.cpp
     tests/ui/test_b5b.cpp
+    tests/ui/test_build_ui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

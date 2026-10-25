@@ -59,6 +59,7 @@ const std::map<std::string, Key>& keyNames() {
         {"menu", Key::Menu},
         {"printscreen", Key::PrintScreen},
         {"pause", Key::Pause},
+        {"break", Key::Pause},
     };
     const std::pair<const char*, char> punct[] = {
         {"minus", '-'},       {"plus", '+'},       {"comma", ','},        {"period", '.'},  {"dot", '.'},

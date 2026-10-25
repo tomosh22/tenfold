@@ -112,6 +112,16 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     };
     hooks.shortcut = [this](const std::string& id) { return shortcutFor(id); };
     nav_ = std::make_unique<NavigationUi>(*bench_, editor_, std::move(hooks));
+    auto bp = std::make_unique<BuildPanel>(editor_);
+    build_ = bp.get();
+    build_->onClose = [this] { bench_->hideBottomPanel(); };
+    build_->onMessage = [this](const std::string& m) { setMessage(m, kMessageMs); };
+    build_->onJumped = [this] {  // reveal the target's tab and give the editor the keys back
+      bench_->sync();
+      bench_->setActivePanel(bench_->activePanel());
+    };
+    bench_->addBottomPanel("Build", std::move(bp));
+    bench_->status().setOnClick("build", [this](const std::string&) { bench_->toggleBottomPanel("Build"); });
   }
   showDiagnostics();
   // Clangd semantic tokens go to every view of the document they describe (they replace the previous set).
@@ -125,6 +135,11 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 
 EditorApp::~EditorApp() {
   closePickers();  // their callbacks point into this object
+  if (build_) {
+    build_->onClose = nullptr;
+    build_->onMessage = nullptr;
+    build_->onJumped = nullptr;
+  }
   completion_.reset();
   hover_.reset();
   sigHelp_.reset();
@@ -268,6 +283,37 @@ void EditorApp::bindUiCommands() {
                      cycling_ = true;  // ends when Ctrl is released
                      return true;
                    });
+  registry_.bind("Build.Build", [this](const CommandContext&, std::string_view arg) {
+    BuildOverrides o;
+    o.command = std::string(arg);  // optional: a custom shell command instead of the detected build
+    bench_->showBottomPanel("Build");
+    std::string err;
+    if (!build_->start(o, &err)) setMessage("Build failed to start: " + err, kMessageMs);
+    return true;
+  });
+  registry_.bind(
+      "Build.Cancel",
+      [this](const CommandContext&, std::string_view) {
+        build_->cancel();
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->buildRunning(); });
+  for (bool fwd : {true, false})
+    registry_.bind(fwd ? "Build.NextError" : "Build.PrevError", [this, fwd](const CommandContext&, std::string_view) {
+      std::string err;
+      const auto m = fwd ? editor_.nextBuildMessage(&err) : editor_.prevBuildMessage(&err);
+      if (!m) {
+        setMessage(err.empty() ? "No build errors or warnings" : err, kMessageMs);
+        return true;
+      }
+      build_->selectMessage(*m);
+      setMessage(std::string(m->severity == BuildSeverity::Error ? "error: " : "warning: ") + m->text, kMessageMs);
+      return true;
+    });
+  registry_.bind("View.ToggleBuildPanel", [this](const CommandContext&, std::string_view) {
+    bench_->toggleBottomPanel("Build");
+    return true;
+  });
   registry_.bind("Workbench.FocusPanel", [this](const CommandContext&, std::string_view arg) {
     const auto ps = bench_->panels();
     const int n = std::atoi(std::string(arg).c_str());  // 1-based
@@ -416,6 +462,9 @@ int EditorApp::tick(int64_t nowMs) {
   if (const int due = find_->tick(nowMs); due >= 0) soonest(due);
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
+  if (build_)
+    bench_->status().setText(
+        "build", build_->state() == BuildPanel::State::Idle ? std::string() : "build: " + build_->statusText());
   if (nav_) {
     const int w = nav_->tick(nowMs);
     if (w >= 0) soonest(w);

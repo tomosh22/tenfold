@@ -64,11 +64,12 @@ void HoverTooltip::onMouse(const InputEvent& e) {
   const Position p = v->positionAt(e.x, e.y);
   Range target{p, p};
   bool found = false;
-  for (const Diagnostic& g : env_.editor.diagnostics(d->path()))
-    if (inside(g.range, p)) {
-      target = found ? Range{std::min(target.start, g.range.start), std::max(target.end, g.range.end)} : g.range;
-      found = true;
-    }
+  for (const auto* ds : {&env_.editor.diagnostics(d->path()), &env_.editor.buildDiagnostics(d->path())})
+    for (const Diagnostic& g : *ds)
+      if (inside(g.range, p)) {
+        target = found ? Range{std::min(target.start, g.range.start), std::max(target.end, g.range.end)} : g.range;
+        found = true;
+      }
   if (!found) {
     const TextBuffer::Word w = d->buffer().wordAt(p);
     if (w.text.empty() || !inside(w.range, p)) {
@@ -108,6 +109,19 @@ void HoverTooltip::fire() {
       const S st = g.severity == 1 ? S::Error : g.severity == 2 ? S::Warn : S::Info;
       for (const std::string& l : PopupBox::wrap(g.message + (g.code.empty() ? "" : " [" + g.code + "]"), 80))
         diag_.push_back({{{l, st, false}}, "", false});
+    }
+  // The last build's message for this spot, labelled so it is not mistaken for clangd's (C1-UI).
+  for (const Diagnostic& g : env_.editor.buildDiagnostics(file_))
+    if (inside(g.range, pos_)) {
+      const S st = g.severity == 1 ? S::Error : g.severity == 2 ? S::Warn : S::Info;
+      bool first = true;
+      for (const std::string& l : PopupBox::wrap(g.message + (g.code.empty() ? "" : " [" + g.code + "]"), 80)) {
+        PopupLine pl;
+        if (first) pl.spans.push_back({"build ", S::Dim, false});
+        pl.spans.push_back({l, st, false});
+        diag_.push_back(std::move(pl));
+        first = false;
+      }
     }
   if (!diag_.empty()) show();  // diagnostics first, the hover text is added when it arrives
   const uint64_t seq = ++seq_;
