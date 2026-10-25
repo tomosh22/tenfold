@@ -103,3 +103,49 @@ add_executable(tenfold-tests
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME unit COMMAND tenfold-tests)
+
+# ---- Graphical front end (text foundation) ---------------------------------------------------------------------
+if(NOT DEFINED TENFOLD_BUILD_UI)
+  option(TENFOLD_BUILD_UI "Build the graphical front end" OFF)
+endif()
+if(TENFOLD_BUILD_UI)
+  # FreeType 2.13: system library when available, else fetched (only the rasterizer, no optional codecs).
+  find_package(Freetype QUIET)
+  if(Freetype_FOUND)
+    set(TENFOLD_FREETYPE_TARGET Freetype::Freetype)
+    message(STATUS "FreeType: system ${FREETYPE_VERSION_STRING}")
+  else()
+    include(FetchContent)
+    set(FT_DISABLE_ZLIB ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BZIP2 ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_PNG ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_HARFBUZZ ON CACHE BOOL "" FORCE)
+    set(FT_DISABLE_BROTLI ON CACHE BOOL "" FORCE)
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
+    FetchContent_Declare(freetype GIT_REPOSITORY https://github.com/freetype/freetype.git GIT_TAG VER-2-13-3)
+    FetchContent_MakeAvailable(freetype)
+    set(TENFOLD_FREETYPE_TARGET freetype)
+    message(STATUS "FreeType: fetched VER-2-13-3")
+  endif()
+
+  add_library(tenfold_text STATIC
+    src/ui/gfx/Font.cpp
+    src/ui/gfx/Atlas.cpp
+    src/ui/gfx/TextLayout.cpp
+  )
+  target_include_directories(tenfold_text PUBLIC src)
+  target_link_libraries(tenfold_text PUBLIC ${TENFOLD_FREETYPE_TARGET})
+  target_compile_options(tenfold_text PRIVATE ${TENFOLD_WARN})
+
+  add_executable(tenfold-text-tests
+    tests/test_main.cpp
+    tests/text/test_font.cpp
+    tests/text/test_atlas.cpp
+    tests/text/test_layout.cpp
+    tests/text/test_bench.cpp
+  )
+  target_include_directories(tenfold-text-tests PRIVATE tests)
+  target_link_libraries(tenfold-text-tests PRIVATE tenfold_text)
+  target_compile_definitions(tenfold-text-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  add_test(NAME text COMMAND tenfold-text-tests)
+endif()

@@ -155,3 +155,15 @@ anonymous pipes behind the same five methods. On Windows the editor should
 ship `clangd.exe` and use `--query-driver` or the `clang-cl` driver so MSVC
 system headers resolve; `CompileCommands::fromVcxproj` already emits
 `clang-cl` style commands.
+
+## Text rendering (`src/ui/gfx`, target `tenfold_text`, option `TENFOLD_BUILD_UI`)
+
+CPU-side and testable without a GPU: `Font` (FreeType 2.13, system package else FetchContent `VER-2-13-3`; light
+hinting + grey AA, `RasterMode::Lcd` is only a hook; `FontStack` = primary + fallbacks, missing glyph -> notdef box)
+-> `Atlas` (R8, shelf packer, 1px padding, doubles on growth without repacking, no eviction, dirty rects uploaded via
+`Renderer::updateTexture` by `Atlas::flush`) -> `TextLayout` (monospace cells, no shaping: UTF-8 with U+FFFD for bad
+bytes, tab stops, wide = 2 cells, zero-width marks overlay the previous cell, control chars drawn as `^X`; emits
+`GlyphQuad`s grouped into colour runs from byte-range spans, and owns the byte <-> column <-> x mappings used for the
+caret and mouse hit-testing, all derived from one cell iterator so they cannot disagree). Font family/size are
+settings passed in; `discoverMonospaceFont` is only the fallback search. Layout of 120 x 150 visible cells with a warm
+atlas takes about 0.1 ms.
