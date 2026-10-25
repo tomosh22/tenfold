@@ -184,6 +184,12 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/SymbolSearch.cpp
     src/ui/features/FileSearch.cpp
     src/ui/features/NavResultPicker.cpp
+    src/ui/features/PopupBox.cpp
+    src/ui/features/FindInFiles.cpp
+    src/ui/features/CompletionPopup.cpp
+    src/ui/features/HoverTooltip.cpp
+    src/ui/features/SignatureHelp.cpp
+    src/ui/features/DiagnosticsPanel.cpp
     src/ui/view/Viewport.cpp
     src/ui/view/Layout.cpp
     src/ui/view/Highlighter.cpp
@@ -243,6 +249,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_editor_view.cpp
     tests/ui/test_view_colouring.cpp
     tests/ui/test_pickers.cpp
+    tests/ui/test_b5b.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

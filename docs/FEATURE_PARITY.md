@@ -27,7 +27,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Makefile / bare folders | ✅ | Heuristic include paths. |
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. **verify** 10x's `.10x` workspace format if import is wanted. |
 | Fast "open file" fuzzy search | ✅ | B5a picker (Ctrl+P / Ctrl+O): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
-| Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI in B5. |
+| Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI (B5b): Ctrl+Shift+F modal list grouped by file, live streaming, case / word / regex toggles, include / exclude globs, F8 / Shift+F8, scrollbar markers. |
 | File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents (UI prompt in B-phase). |
 
 ## Code intelligence
@@ -39,11 +39,11 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Find references | ✅ | |
 | Symbol search (workspace, fuzzy, qualified `a::b`) | ✅ | Workspace symbols rank before system headers. GUI picker (B5a, Ctrl+,): approximate results greyed with "verifying...", swapped for the authoritative ones keeping the selection, target-line preview (`picker.preview`, **verify** with 10x), Enter records a navigation jump. Fast tier is 35-270 ms on Godot until A10 makes it asynchronous. |
 | Document outline | ✅ | `documentSymbols` |
-| Autocomplete | ✅ | clangd, detailed style; approximate fallback. |
-| Signature help | ✅ | |
-| Hover / quick info | ✅ | |
+| Autocomplete | ✅ | clangd, detailed style; approximate fallback (greyed). GUI (B5b): popup at the caret, `.` `->` `::` and 2+ identifier characters, client-side fuzzy filter, docs pane, Tab / Enter accept as one undo step. |
+| Signature help | ✅ | GUI (B5b): on `(` / `,`, active parameter highlighted, follows commas locally, Escape / `)` closes. |
+| Hover / quick info | ✅ | GUI (B5b): 400 ms dwell, diagnostics first, approximate text greyed. |
 | Rename | ✅ | Returns a per-file edit map; GUI applies it. |
-| Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`; squiggles + scrollbar markers in TextView (B2b). |
+| Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`; squiggles + scrollbar markers in TextView (B2b); list of open-file and build diagnostics (B5b, Ctrl+Shift+M). |
 | Switch header/source | ✅ | clangd extension, fallback by stem. |
 | Semantic highlighting | ✅ | Lexical colours instantly (cached per line, background exact pass), clangd semantic tokens override identifiers only — no flicker (A9 + B2b). Palette pending OPEN_QUESTIONS #7. |
 | Call hierarchy / type hierarchy | 🔶 | Engine done (A9): `Editor::callHierarchy` / `incomingCalls` / `outgoingCalls`, `typeHierarchy` / `supertypes` / `subtypes`, `gotoHierarchyItem` (navigation history). Needs GUI. |

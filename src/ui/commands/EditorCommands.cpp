@@ -142,6 +142,9 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "File.OpenFile", "Open File...");
   addUi(r, "Search.SymbolSearch", "Go to Symbol in Workspace...");
   addUi(r, "Search.FindInWorkspace", "Find in Workspace...");
+  addUi(r, "Search.NextResult", "Next Search Result");
+  addUi(r, "Search.PrevResult", "Previous Search Result");
+  addUi(r, "View.ShowDiagnostics", "Show Diagnostics");
   addUi(r, "Workbench.CycleMruNext", "Next Recent Document");
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");

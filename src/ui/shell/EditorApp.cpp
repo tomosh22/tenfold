@@ -88,6 +88,16 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   pickerEnv_.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
   symbols_ = std::make_unique<SymbolSearch>(pickerEnv_);
   navResults_ = std::make_unique<NavResultPicker>(pickerEnv_);
+  find_ = std::make_unique<FindInFiles>(pickerEnv_);
+  find_->setMarkersFn([this](const std::filesystem::path& f, const std::vector<Range>& r) {
+    forEachView([&](TextView& v) {
+      if (v.document() && v.document()->path() == f) v.setSearchMarkers(r);
+    });
+  });
+  diagPanel_ = std::make_unique<DiagnosticsPanel>(pickerEnv_);
+  completion_ = std::make_unique<CompletionPopup>(pickerEnv_);
+  hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
+  sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   registerEditorCommands(registry_);
   bindUiCommands();
@@ -115,6 +125,9 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 
 EditorApp::~EditorApp() {
   closePickers();  // their callbacks point into this object
+  completion_.reset();
+  hover_.reset();
+  sigHelp_.reset();
   life_.reset();
   editor_.onSemanticTokens(nullptr);
   if (settings_) {
@@ -183,6 +196,8 @@ void EditorApp::applySettings(const Settings& s) { pickerEnv_.preview = s.getBoo
 void EditorApp::closePickers() {
   symbols_->close();
   navResults_->close();
+  find_->close();
+  diagPanel_->close();
   if (files_) files_->close();
 }
 
@@ -207,6 +222,28 @@ void EditorApp::bindUiCommands() {
         return true;
       },
       [](const CommandContext& c) { return c.editor && c.editor->started(); });
+  registry_.bind("Search.FindInWorkspace", [this](const CommandContext& c, std::string_view) {
+    std::string initial;  // a single-line selection of the primary caret seeds the query
+    if (c.editor->currentDocument() && !c.editor->selections().empty() && !c.editor->selections()[0].empty() &&
+        c.editor->selections()[0].anchor.line == c.editor->selections()[0].head.line)
+      initial = c.editor->currentDocument()->buffer().textInRange(c.editor->selections()[0].range());
+    closePickers();
+    find_->open(initial);
+    return true;
+  });
+  registry_.bind("Search.NextResult", [this](const CommandContext&, std::string_view) {
+    find_->step(true);  // says "No search results" / "Result i of n" itself
+    return true;
+  });
+  registry_.bind("Search.PrevResult", [this](const CommandContext&, std::string_view) {
+    find_->step(false);
+    return true;
+  });
+  registry_.bind("View.ShowDiagnostics", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    diagPanel_->open();
+    return true;
+  });
   registry_.bind("App.Quit", [this](const CommandContext&, std::string_view) { return quit_ = true; });
   registry_.bind(
       "Editor.Copy", [](const CommandContext& c, std::string_view) { return doCopy(*c.editor); },
@@ -268,6 +305,31 @@ void EditorApp::setMessage(const std::string& text, int ttlMs, bool pending) {
 
 bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
   now_ = nowMs;
+  if (root_.modal()) {  // a picker owns the screen: the editor popups step aside
+    completion_->close();
+    sigHelp_->close();
+    hover_->dismiss();
+  } else if (e.type == InputType::KeyDown) {
+    hover_->dismiss();
+    if (completion_->handleKey(e) || sigHelp_->handleKey(e)) return true;
+  } else if (e.type == InputType::MouseMove) {
+    hover_->onMouse(e);
+  } else if (e.type == InputType::MouseDown) {
+    hover_->dismiss();
+  }
+  const bool r = handleEventImpl(e, nowMs);
+  if (!root_.modal()) {
+    if (e.type == InputType::Text) {
+      completion_->onTyped(e.text);
+      sigHelp_->onTyped(e.text);
+    }
+    completion_->update();
+    sigHelp_->update();
+  }
+  return r;
+}
+
+bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (nav_) nav_->setNow(nowMs);
   if (ttlMs_ > 0) {
     expiry_ = nowMs + ttlMs_;
@@ -351,6 +413,9 @@ int EditorApp::tick(int64_t nowMs) {
   int wait = root_.tick(nowMs);
   auto soonest = [&](int ms) { wait = wait < 0 ? ms : std::min(wait, ms); };
   if (const int due = symbols_->tick(nowMs); due >= 0) soonest(due);
+  if (const int due = find_->tick(nowMs); due >= 0) soonest(due);
+  if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
+  diagPanel_->refresh();
   if (nav_) {
     const int w = nav_->tick(nowMs);
     if (w >= 0) soonest(w);

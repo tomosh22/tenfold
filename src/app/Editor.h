@@ -112,6 +112,10 @@ class Editor {
   void findReferences(NavResult done);
   void findSymbols(const std::string& query, NavResult done);
   void hover(std::function<void(const std::string&, const std::string& error)> done);
+  // Hover for any position of `doc` (mouse dwell), not only the caret. Without clangd the text is approximate.
+  void hoverAt(Document& doc, Position pos, std::function<void(const std::string&, const std::string& error)> done);
+  // Signature help at the primary caret (clangd only: `error` is set without it).
+  void signatureHelp(std::function<void(const LspSignatureHelp&, const std::string& error)> done);
   void complete(std::function<void(const std::vector<LspCompletionItem>&, const std::string& error)> done);
   void switchSourceHeader(std::function<void(bool jumped, const std::string& error)> done);
 
