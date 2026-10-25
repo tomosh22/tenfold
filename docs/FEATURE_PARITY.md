@@ -13,7 +13,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Feature | Status | Notes |
 |---|---|---|
-| Navigate Backward / Forward | ✅ | `NavigationHistory`; VS-style semantics; edit tracking. Suggested keys: Alt+Left / Alt+Right and Ctrl+- / Ctrl+Shift+- (VS). |
+| Navigate Backward / Forward | ✅ | `NavigationHistory`; VS-style semantics; edit tracking. Keys: Alt+Left / Alt+Right and Ctrl+- / Ctrl+Shift+- (VS), thumb buttons Mouse4/5. UI (B6): toolbar Back/Forward buttons with key-aware tooltips, history dropdown (long-press / right-click), optional "← 3 \| 1 →" status counts (`nav.statusCounts`), Go to Last Edit Location (Ctrl+Shift+Backspace). |
 | Navigation that cannot miss | ✅ | clangd authoritative, fast index approximate, budgeted delivery, cold-start augmentation. |
 | Still instant | ✅ | fast index at startup, persisted to `.tenfold/fastindex.bin` so warm starts only re-lex changed files (A4); clangd background index persisted; approximate results within the budget. |
 

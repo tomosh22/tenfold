@@ -149,6 +149,35 @@ fast editor must:
   `Document` change, so history survives editing.
 * `onFileRenamed` / `onFileRemoved` keep entries valid across workspace
   changes.
+* `Editor::goToHistoryEntry(i)` walks the cursor with `back()`/`forward()`
+  until it sits on entry `i`; the jump adds no entries (leaving the live
+  position records it once, exactly like `back()`). Coalescing keeps the
+  label of an entry when the next jump's "from" record lands on the same line.
+* `Editor::lastEditLocation()` is one tracked `Location`: the primary caret
+  after the last edit (typing, deleting, undo/redo, `replaceRange`,
+  `applyEdits` on the current document). It shifts with line insertions and
+  deletions in its file by the same rule as history entries, also for changes
+  that are not user edits (`reloadFromDisk`). `Nav.LastEditLocation`
+  (Ctrl+Shift+Backspace) goes there through `gotoLocation`, so Back returns.
+
+### Navigation UI (B6)
+
+`src/ui/features/NavigationUi.{h,cpp}`: `EditorApp` creates it when it has a
+`Workbench`. A thin toolbar (`Workbench::setTopBar`) above the panels holds
+Back and Forward buttons whose enabled state is
+`NavigationHistory::canGoBack/canGoForward`. A click runs the `Nav.Back` /
+`Nav.Forward` commands through `EditorApp`'s command path (never the Editor),
+so buttons, key bindings and the Mouse4/Mouse5 thumb buttons behave
+identically. The tooltip ("Navigate Backward (Alt+Left)") is built from the
+first keyboard binding in the live `KeyMap`. Long-press (400 ms, driven by
+`EditorApp::tick`) or right-click opens a dropdown of `entries()` (Back: the
+current entry and older ones, newest first; Forward: current and newer) with
+the symbol label or `file:line`, the current entry marked; a click jumps with
+`goToHistoryEntry`. The dropdown is a private minimal list drawn in the
+overlay pass (it flushes its own text so editor text does not show through);
+replace it with `ListPopup` (B5a). The status segment `navcounts` ("← 3 | 1 →")
+follows `EditorApp::setNavStatusCounts` (the `nav.statusCounts` setting, default
+off; call it from the settings wiring).
 
 ## Text model
 

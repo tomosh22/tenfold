@@ -116,10 +116,18 @@ std::unique_ptr<Widget> Workbench::replaceNode(Widget* old, std::unique_ptr<Widg
   return out;
 }
 
+void Workbench::setTopBar(Widget* bar, float height) {
+  topBar_ = bar;
+  topBarH_ = height;
+  requestLayout();
+}
+
 void Workbench::onLayout() {
   const RectF& b = bounds();
   const float sh = status_->preferredHeight();
-  if (top_) top_->layout({b.x, b.y, b.w, b.h - sh});
+  const float tb = topBar_ ? topBarH_ : 0;
+  if (topBar_) topBar_->layout({b.x, b.y, b.w, tb});
+  if (top_) top_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
   RectF acc{0, 0, 0, 0};
   if (active_ && panels().size() > 1)

@@ -17,6 +17,7 @@ Ctrl+- = Nav.Back
 Ctrl+Shift+- = Nav.Forward
 Mouse4 = Nav.Back
 Mouse5 = Nav.Forward
+Ctrl+Shift+Backspace = Nav.LastEditLocation
 
 # --- Semantic navigation ---
 F12 = Editor.GotoDefinition
