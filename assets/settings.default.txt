@@ -27,3 +27,6 @@ ui.theme = dark
 
 # Show "<- 3 | 1 ->" back/forward counts in the status bar.
 nav.statusCounts = false
+
+# Symbol search shows a preview of the target line on the right (OPEN_QUESTIONS #6, VERIFY WITH USER).
+picker.preview = true

@@ -175,6 +175,12 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/Panel.cpp
     src/ui/widgets/StatusBar.cpp
     src/ui/widgets/TextView.cpp
+    src/ui/widgets/InputLine.cpp
+    src/ui/widgets/ListPopup.cpp
+    src/ui/features/PickerUtil.cpp
+    src/ui/features/SymbolSearch.cpp
+    src/ui/features/FileSearch.cpp
+    src/ui/features/NavResultPicker.cpp
     src/ui/view/Viewport.cpp
     src/ui/view/Layout.cpp
     src/ui/widgets/ShellDemo.cpp
@@ -229,6 +235,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_settings.cpp
     tests/ui/test_editor_app.cpp
     tests/ui/test_editor_view.cpp
+    tests/ui/test_pickers.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

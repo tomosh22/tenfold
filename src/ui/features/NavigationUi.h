@@ -18,7 +18,8 @@ namespace tf::ui {
 // which lists NavigationHistory::entries() (Back: the current entry and everything older, newest first; Forward: the
 // current entry and everything newer). The current entry is marked. Click = jump, Escape / click elsewhere = close.
 // Time is owned by the caller: EditorApp passes its monotonic millisecond clock to setNow() / tick().
-// NOTE: the dropdown is a private minimal list; replace it with B5a's ListPopup once that is on main.
+// TODO(B5b): the dropdown is a private minimal list anchored at its button (golden b6_nav_dropdown); ListPopup is
+// centred and would need an anchor rect option plus a golden update, so it was left as is in B5a.
 class NavigationUi {
  public:
   enum class Which { Back, Forward };

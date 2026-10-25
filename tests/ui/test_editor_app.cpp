@@ -181,12 +181,14 @@ TEST(app_pending_chord_text_in_status_bar) {
 TEST(app_unbound_ui_commands_say_not_available_and_escape_does_not_quit) {
   Env env;
   env.bench->openFile("a.cpp");
-  CHECK(env.key(Key('P'), ModCtrl));  // File.OpenFile: the picker is B5
+  CHECK(env.key(Key('P'), ModCtrl));  // File.OpenFile: B5a opens the picker (key context "picker" while it is open)
+  CHECK(env.bench->modal() != nullptr);
+  CHECK(env.key(Key::Escape));  // closes the picker; Escape never reaches the editor's CollapseCarets binding
+  CHECK(env.bench->modal() == nullptr);
+  CHECK(env.key(Key('F'), ModCtrl | ModShift));  // find in files: B5b
   CHECK(env.status("message").find("not available yet") != std::string::npos);
-  CHECK(env.key(Key('F'), ModCtrl | ModShift));
-  CHECK(env.status("message").find("not available yet") != std::string::npos);
-  CHECK(env.key(Key(','), ModCtrl));
-  CHECK(env.status("message").find("not available yet") != std::string::npos);
+  CHECK(env.key(Key(','), ModCtrl));  // symbol search needs a started Editor (this fixture has none): disabled
+  CHECK(env.bench->modal() == nullptr);
 
   env.ed->addCaretBelow();
   CHECK_EQ(env.ed->selections().size(), size_t(2));

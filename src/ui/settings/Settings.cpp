@@ -49,7 +49,8 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"font.fallbacks", SettingType::String},
                                              {"font.size", SettingType::Float},
                                              {"ui.theme", SettingType::String},
-                                             {"nav.statusCounts", SettingType::Bool}};
+                                             {"nav.statusCounts", SettingType::Bool},
+                                             {"picker.preview", SettingType::Bool}};
   return s;
 }
 

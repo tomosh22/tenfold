@@ -22,6 +22,11 @@
 // belongs to a widget painted earlier). A shell frame is thus one rect batch plus one glyph batch per text colour.
 // Overlay layer: Widget::paintOverlay() runs for the whole tree after the glyphs were emitted, so rects drawn there
 // (text carets) land on top of all text. Use it sparingly: it costs one extra rect batch per frame.
+// Top layer (popups): a widget with setTopLayer(true) is skipped by the base pass and painted afterwards, together
+// with its subtree, as a second frame layer: rects, then its own glyphs (flushText again), then its overlay rects. A
+// popup therefore covers the editor's glyphs for the price of one more rect batch and one glyph batch per colour.
+// Modal: RootWidget::showModal(w) makes `w` (full-window bounds, top layer) the keyboard and mouse target until
+// closeModal(); see RootWidget.
 // Timers: the app calls RootWidget::tick(nowMs) after handling events; widgets that animate (caret blink, smooth
 // scroll) return how many ms until they want the next tick from onTick() and mark themselves dirty when it changed.
 namespace tf::ui {
@@ -78,10 +83,15 @@ class Widget {
   bool contains(float x, float y) const { return visible_ && ui::contains(bounds_, x, y); }
 
   // ---- painting ----
-  void paintTree(PaintContext& ctx);         // paint(), then children in order, skipped when invisible
-  void paintOverlayTree(PaintContext& ctx);  // paintOverlay() of visible widgets, parents first
-  void markDirty();                          // request a redraw (propagates to the root)
-  int tickTree(int64_t nowMs);               // onTick() of visible widgets; min wait in ms, -1 = nothing pending
+  void paintTree(PaintContext& ctx, bool inTop = false);  // paint(), then children in order (top-layer ones skipped
+                                                          // unless inTop), skipped when invisible
+  void paintOverlayTree(PaintContext& ctx, bool inTop = false);  // paintOverlay() of visible widgets, parents first
+  void paintTopTree(PaintContext& ctx, bool overlay);  // the top-layer subtrees (paint, or paintOverlay if `overlay`)
+  bool hasTopLayer() const;                            // any visible top-layer widget below this one
+  bool topLayer() const { return topLayer_; }
+  void setTopLayer(bool t) { topLayer_ = t; }
+  void markDirty();             // request a redraw (propagates to the root)
+  int tickTree(int64_t nowMs);  // onTick() of visible widgets; min wait in ms, -1 = nothing pending
 
   // ---- input ----
   // Deepest visible descendant (or this) containing the point; children later in the list are on top. Null if none.
@@ -112,6 +122,7 @@ class Widget {
   std::vector<std::unique_ptr<Widget>> children_;
   RectF bounds_{0, 0, 0, 0};
   bool visible_ = true;
+  bool topLayer_ = false;
 };
 
 // Top of a widget tree. Owns the theme, holds the text renderer, routes input, tracks dirtiness.
@@ -147,6 +158,15 @@ class RootWidget : public Widget {
   // rects, flushes text, endFrame. Clears the dirty flag. Does not swap.
   void render(gfx::Renderer& r, int w, int h);
 
+  // ---- modal popups ----
+  // Shows `w` as the (single) modal widget: it becomes a top-layer child with the root's full bounds, takes the focus
+  // (`focus` or itself) and receives every mouse event; key events go to the focused widget inside it (or to `w`).
+  // The previous focus returns on closeModal(). Showing a second modal closes the first. Closing is safe from inside
+  // the modal's own event handler: the widget is destroyed on the next dispatch/render.
+  void showModal(std::unique_ptr<Widget> w, Widget* focus = nullptr);
+  void closeModal();
+  Widget* modal() const { return modal_; }
+
   Widget* focused() const { return focus_; }
   Widget* captured() const { return capture_; }
   Widget* hoveredWidget() const { return hover_; }
@@ -162,6 +182,8 @@ class RootWidget : public Widget {
   gfx::TextRenderer* text_;
   Theme theme_;
   Widget *focus_ = nullptr, *capture_ = nullptr, *hover_ = nullptr;
+  Widget *modal_ = nullptr, *beforeModal_ = nullptr;
+  std::vector<std::unique_ptr<Widget>> retired_;  // closed modals, destroyed at the next dispatch/render
   bool dirty_ = true, layoutDirty_ = true;
   int w_ = 0, h_ = 0;
 };
