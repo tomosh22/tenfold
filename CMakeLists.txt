@@ -176,9 +176,20 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/StatusBar.cpp
     src/ui/widgets/LinesView.cpp
     src/ui/widgets/ShellDemo.cpp
+    src/ui/commands/Command.cpp
+    src/ui/commands/CommandRegistry.cpp
+    src/ui/commands/KeyMap.cpp
+    src/ui/commands/EditorCommands.cpp
+    src/ui/settings/KeyBindings.cpp
   )
+  # Default key bindings are embedded as a raw string literal so the app works without the asset dir.
+  set(TENFOLD_DEFAULT_KEYS "${CMAKE_SOURCE_DIR}/assets/keybindings.default.txt")
+  set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${TENFOLD_DEFAULT_KEYS}")
+  file(READ "${TENFOLD_DEFAULT_KEYS}" _tf_default_keys)
+  file(WRITE "${CMAKE_BINARY_DIR}/generated/DefaultKeyBindings.inc" "R\"TFKB(${_tf_default_keys})TFKB\"\n")
+  target_include_directories(tenfold_ui PRIVATE "${CMAKE_BINARY_DIR}/generated")
   target_include_directories(tenfold_ui PUBLIC src)
-  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text)
+  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text tenfold_core)
   target_compile_options(tenfold_ui PRIVATE ${TENFOLD_WARN})
 
   add_executable(tenfold-ui src/ui_app/main.cpp)
@@ -192,6 +203,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_renderer.cpp
     tests/ui/test_text_view.cpp
     tests/ui/test_widgets.cpp
+    tests/ui/test_commands.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

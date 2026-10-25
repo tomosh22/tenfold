@@ -1,0 +1,76 @@
+# tenfold default key bindings (embedded into the binary; this file is the source).
+#
+# TODO(OPEN_QUESTIONS #1, VERIFY WITH USER): these are PLACEHOLDERS. The real defaults must mirror the user's
+# 10x key map (KeyMappings.10x_settings); nothing below is claimed to be 10x's binding except where the plan
+# (IMPLEMENTATION_PLAN B4) lists it. Do not add 10x bindings from memory.
+#
+# Format:  [context] chord [chord ...] = Command.Id [argument]
+#   context  optional: global (default), editor, picker. editor/picker bindings beat global ones.
+#   chords   Ctrl+K Ctrl+C = two strokes. Modifiers: Ctrl Shift Alt Super. Mouse4/Mouse5 = thumb buttons.
+#   '#' starts a comment only at the start of a line; a command of '-' removes a binding from an earlier layer.
+# User overrides: <config dir>/tenfold/keybindings.txt, then <workspace>/.tenfold/keybindings.txt.
+
+# --- Navigation history ---
+Alt+Left = Nav.Back
+Alt+Right = Nav.Forward
+Ctrl+- = Nav.Back
+Ctrl+Shift+- = Nav.Forward
+Mouse4 = Nav.Back
+Mouse5 = Nav.Forward
+
+# --- Semantic navigation ---
+F12 = Editor.GotoDefinition
+Ctrl+F12 = Editor.GotoDeclaration
+Shift+F12 = Editor.FindReferences
+Alt+O = Editor.SwitchHeaderSource
+
+# --- Pickers and search ---
+Ctrl+, = Search.SymbolSearch
+Ctrl+P = File.OpenFile
+Ctrl+O = File.OpenFile
+Ctrl+Shift+F = Search.FindInWorkspace
+Ctrl+Tab = Workbench.CycleMruNext
+Ctrl+Shift+Tab = Workbench.CycleMruPrev
+
+# --- Editing (placeholders for the keys the text view handles today) ---
+
+[editor] Left = Editor.CaretLeft
+[editor] Right = Editor.CaretRight
+[editor] Up = Editor.CaretUp
+[editor] Down = Editor.CaretDown
+[editor] Ctrl+Left = Editor.CaretWordLeft
+[editor] Ctrl+Right = Editor.CaretWordRight
+[editor] Home = Editor.CaretLineStart
+[editor] End = Editor.CaretLineEnd
+[editor] Ctrl+Home = Editor.CaretDocStart
+[editor] Ctrl+End = Editor.CaretDocEnd
+[editor] PageUp = Editor.CaretPageUp
+[editor] PageDown = Editor.CaretPageDown
+
+[editor] Shift+Left = Editor.SelectLeft
+[editor] Shift+Right = Editor.SelectRight
+[editor] Shift+Up = Editor.SelectUp
+[editor] Shift+Down = Editor.SelectDown
+[editor] Ctrl+Shift+Left = Editor.SelectWordLeft
+[editor] Ctrl+Shift+Right = Editor.SelectWordRight
+[editor] Shift+Home = Editor.SelectLineStart
+[editor] Shift+End = Editor.SelectLineEnd
+[editor] Ctrl+Shift+Home = Editor.SelectDocStart
+[editor] Ctrl+Shift+End = Editor.SelectDocEnd
+[editor] Shift+PageUp = Editor.SelectPageUp
+[editor] Shift+PageDown = Editor.SelectPageDown
+
+[editor] Backspace = Editor.Backspace
+[editor] Delete = Editor.Delete
+[editor] Enter = Editor.Enter
+[editor] Tab = Editor.Tab
+[editor] Ctrl+Z = Editor.Undo
+[editor] Ctrl+Y = Editor.Redo
+[editor] Ctrl+Shift+Z = Editor.Redo
+[editor] Ctrl+A = Editor.SelectAll
+[editor] Ctrl+Alt+Up = Editor.AddCaretAbove
+[editor] Ctrl+Alt+Down = Editor.AddCaretBelow
+[editor] Ctrl+D = Editor.AddCaretAtNextOccurrence
+[editor] Ctrl+C = Editor.Copy
+[editor] Ctrl+X = Editor.Cut
+[editor] Ctrl+V = Editor.Paste

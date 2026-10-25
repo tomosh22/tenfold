@@ -253,3 +253,19 @@ repaints once. Widgets: `TabStrip` (pinned, dirty marker, close, MRU order, drag
 scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar` (keyed, clickable segments), plus
 `LinesView` (placeholder content until B2's TextView). `Theme` is a neutral dark placeholder until B7 loads it from
 files. The engine never includes any of this.
+
+## Commands and key bindings (`src/ui/commands`, `src/ui/settings/KeyBindings.*`, part of `tenfold_ui`)
+
+Every user action is a named `Command` (`Editor.GotoDefinition`, `Nav.Back`, ...: id, human name, handler
+`bool(const CommandContext&, string_view arg)`, optional `enabled()`), held in a `CommandRegistry` that can enumerate
+(command palette) and `run(id, arg, ctx)`; the result distinguishes `UnknownCommand`, `Disabled`, `Unbound` and
+`Failed`. `registerEditorCommands` registers what `Editor` can serve itself; UI-only commands (pickers, find in
+workspace, MRU cycling, clipboard, `Workbench.*`) are registered without a handler and report `Unbound` until the
+front end calls `CommandRegistry::bind`. `KeyMap` is the binding table plus the chord state machine
+(`feed(chord, activeContext, nowMs)` returns Matched / Pending with "Ctrl+K..." text / NoMatch; a stroke that breaks a
+pending chord is swallowed, a pending chord expires after `timeoutMs`; context-scoped bindings beat `global`). Key
+bindings are plain text, `[context] chord [chord] = Command.Id [argument]`, parsed by `parseKeyBindings` (errors and
+duplicate warnings collected with line numbers, never fatal). Layers: embedded `assets/keybindings.default.txt`
+(generated into a header at configure time), then `<user config dir>/tenfold/keybindings.txt`, then
+`<workspace>/.tenfold/keybindings.txt`; a command of `-` removes a binding. The defaults are placeholders until the
+user's 10x key map is known (OPEN_QUESTIONS #1). Wiring `KeyMap::feed` into the app's event loop is not done yet.
