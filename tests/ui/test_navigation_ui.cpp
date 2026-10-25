@@ -64,15 +64,15 @@ struct Env {
 
   explicit Env(const std::string& userKeys = {}) {
     static int n = 0;
-    dir = fs::temp_directory_path() /
+    dir = uitest::tempRoot() /
           ("tf_navui_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
            std::to_string(n++));
     fs::create_directories(dir / ".tenfold");
     for (const char* f : {"a.cpp", "b.cpp", "c.cpp"}) {
-      std::ofstream out(dir / f);
+      std::ofstream out(dir / f, std::ios::binary);
       for (int i = 0; i < 40; ++i) out << "int " << f[0] << i << ";\n";
     }
-    if (!userKeys.empty()) std::ofstream(dir / ".tenfold" / "keybindings.txt") << userKeys;
+    if (!userKeys.empty()) std::ofstream(dir / ".tenfold" / "keybindings.txt", std::ios::binary) << userKeys;
     gfx::FontStack stack;
     stack.add(std::make_shared<tftext::MockFont>(U"abcdefghijklmnopqrstuvwxyz0123456789 ._-:,;×●…ABCLMNTUFDK>"));
     text = gfx::TextRenderer::fromFonts(std::move(stack));

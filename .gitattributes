@@ -1,0 +1,3 @@
+# Checkouts use LF everywhere (Windows CI too): embedded assets, golden inputs and test fixtures compare bytes.
+* text=auto eol=lf
+*.png binary

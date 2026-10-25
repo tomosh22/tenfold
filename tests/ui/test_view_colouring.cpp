@@ -118,7 +118,7 @@ struct Fx2 {
                std::unique_ptr<gfx::TextRenderer> tr = nullptr, bool render = true)
       : w(w_), h(h_) {
     static int counter = 0;
-    dir = fs::temp_directory_path() /
+    dir = uitest::tempRoot() /
           ("tenfold_col_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
            std::to_string(counter++));
     fs::create_directories(dir);
@@ -438,7 +438,7 @@ TEST(settings_change_repaints_with_new_tab_width_and_theme) {
   CHECK(xOfX() == 44 + 4 * 8 + 1);
   fs::create_directories(user);
   {
-    std::ofstream out(user / "settings.txt");
+    std::ofstream out(user / "settings.txt", std::ios::binary);
     out << "editor.tabWidth = 2\neditor.columnGuide = 20\neditor.showWhitespace = true\nui.theme = light\n"
            "editor.bogus = 1\n";
   }
@@ -464,7 +464,7 @@ TEST(settings_change_repaints_with_new_tab_width_and_theme) {
   int rebuilt = 0;
   app.attachSettings(svc, 1.0f, [&] { return ++rebuilt > 0; });
   {
-    std::ofstream out(user / "settings.txt");
+    std::ofstream out(user / "settings.txt", std::ios::binary);
     out << "font.size = 14\n";
   }
   svc.notifyFileChanged(user / "settings.txt");

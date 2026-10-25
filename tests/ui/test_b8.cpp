@@ -67,9 +67,8 @@ struct Env {
 
   explicit Env(const std::string& aText = "int alpha = 1;\nint beta = alpha;\n// Alpha\nint gamma;\nalpha();\n") {
     static int n = 0;
-    dir = fs::temp_directory_path() /
-          ("tf_b8_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-           std::to_string(n++));
+    dir = uitest::tempRoot() / ("tf_b8_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                                "_" + std::to_string(n++));
     fs::create_directories(dir);
     std::ofstream(dir / "a.cpp", std::ios::binary) << aText;
     std::ofstream(dir / "b.cpp", std::ios::binary) << "b0\nb1\nb2\nb3\n";
@@ -414,11 +413,11 @@ TEST(b8_bookmarks_toggle_gutter_jump_list_persist_and_follow_edits) {
 // --- performance ----------------------------------------------------------------------------------------------------
 
 TEST(b8_smart_typing_stays_in_the_keystroke_budget) {
-  fs::path dir = fs::temp_directory_path() /
+  fs::path dir = uitest::tempRoot() /
                  ("tf_b8_perf_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
   fs::create_directories(dir);
   {
-    std::ofstream out(dir / "big.cpp");
+    std::ofstream out(dir / "big.cpp", std::ios::binary);
     for (int i = 0; i < 100000; ++i) out << "    for (int k = 0; k < " << i << "; ++k) { total += k; }\n";
   }
   {
@@ -505,7 +504,7 @@ TEST(b8_golden_find_highlight_and_bookmark_gutter) {
   o.semantic.persistFastIndex = false;
   o.watchForcePolling = true;
   o.watchPollMs = 60000;
-  const fs::path tmp = fs::temp_directory_path() / "tf_b8_golden";  // the folder name is in the status bar: fixed
+  const fs::path tmp = uitest::tempRoot() / "tf_b8_golden";  // the folder name is in the status bar: fixed
   std::error_code rm;
   fs::remove_all(tmp, rm);
   fs::create_directories(tmp / "src");

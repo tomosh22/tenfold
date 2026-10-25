@@ -115,9 +115,9 @@ struct Env {
 
   Env() {
     static int n = 0;
-    dir = fs::temp_directory_path() /
-          ("tf_c1ui_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-           std::to_string(n++));
+    dir =
+        uitest::tempRoot() / ("tf_c1ui_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                              "_" + std::to_string(n++));
     writeFile(dir / "a.cpp", "int a;\nint bad_name;\nint c;\n");
     writeFile(dir / "b.cpp", "int x;\nint y;\nint z;\nint w = foo;\n");
     Editor::Options o;

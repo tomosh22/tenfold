@@ -395,9 +395,9 @@ struct AppEnv {
 
   AppEnv() {
     static int n = 0;
-    dir = fs::temp_directory_path() /
-          ("tf_pick_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-           std::to_string(n++));
+    dir =
+        uitest::tempRoot() / ("tf_pick_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                              "_" + std::to_string(n++));
     writeFile(dir / "src/main.cpp", "int main() { return dup(); }\n");
     writeFile(dir / "src/alpha.cpp", "int dup() { return 1; }\nstruct AlphaShape {};\nint alphaOnly() { return 3; }\n");
     writeFile(dir / "src/beta.cpp",

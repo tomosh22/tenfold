@@ -1,4 +1,5 @@
 #pragma once
+#include <filesystem>
 #include <memory>
 #include <string>
 
@@ -8,6 +9,14 @@
 #include "ui/platform/Window.h"
 
 namespace uitest {
+
+// The temp directory with 8.3 short names expanded (Windows runners return C:/Users/RUNNER~1/...). The Editor and
+// the file watcher canonicalise paths, so tests that compare against paths they built must start from the same form.
+inline std::filesystem::path tempRoot() {
+  std::error_code ec;
+  auto p = std::filesystem::canonical(std::filesystem::temp_directory_path(), ec);
+  return ec ? std::filesystem::temp_directory_path() : p;
+}
 
 // Set by `tenfold-ui-tests --update-goldens`: golden tests rewrite their reference images.
 extern bool updateGoldens;
