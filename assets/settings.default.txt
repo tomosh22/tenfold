@@ -41,3 +41,12 @@ nav.statusCounts = false
 
 # Symbol search shows a preview of the target line on the right (OPEN_QUESTIONS #6, VERIFY WITH USER).
 picker.preview = true
+
+# Version control (C3c). vcs.diffTool: the external diff program of Vcs.DiffFileExternal; empty = auto: on Windows
+# p4merge.exe from PATH, then %ProgramFiles%\Perforce\p4merge.exe; elsewhere p4merge from PATH.
+# vcs.diffToolArgs: its arguments, split like a command line (double quotes group). Placeholders: {base} (temp file
+# with the committed text), {current} (temp file with the buffer), {baseTitle}, {currentTitle}, {file} (the real
+# path). A value wrapped in quotes loses the outer pair, hence the doubled quotes below. For p4merge with these
+# default arguments the titles are passed as well (-nl "<file>#have" -nr "<file> (unsaved)").
+vcs.diffTool =
+vcs.diffToolArgs = ""{base}" "{current}""

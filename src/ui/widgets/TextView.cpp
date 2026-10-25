@@ -36,6 +36,10 @@ void TextView::bindDocument() {
   wrap_.reset();
   anchorLine_ = -1;
   prefSel_.clear();
+  if (!blocks_.empty()) {  // blocks belong to the previous document
+    blocks_.clear();
+    ++blocksGen_;
+  }
 }
 
 // Keeps one change listener on the bound document that feeds the highlighter. The document may have been closed
@@ -48,6 +52,7 @@ void TextView::bindListener(Document* d) {
   listenId_ = d->addListener([this](Document&, const Document::Change& c) {
     hl_.onChange(c);
     wrap_.onChange(c);
+    blocksOnChange(c);
   });
 }
 
@@ -245,7 +250,9 @@ bool TextView::wordWrapActive() const { return wrapLayout().enabled(); }
 float TextView::scrollX() const { return wordWrapActive() ? 0.0f : std::floor(vp_.x()); }
 
 float TextView::totalHeight() const {
-  return root() ? static_cast<float>(wrapLayout().totalRows()) * root()->text().lineHeight() : 0.0f;
+  if (!root()) return 0.0f;
+  const int rows = wrapLayout().totalRows();
+  return static_cast<float>(rows + rowMap().extraRows()) * root()->text().lineHeight();
 }
 
 // Rebinds the wrap map to the current width. When the wrap width changed (resize, toggle, a wider gutter) the first
@@ -259,7 +266,8 @@ void TextView::syncWrap() {
   syncedCols_ = cols;
   float y = vp_.y();
   if (!first && anchorLine_ >= 0)
-    y = static_cast<float>(W.firstRowOf(std::min(anchorLine_, document()->buffer().lineCount() - 1))) *
+    y = static_cast<float>(
+            rowMap().display(W.firstRowOf(std::min(anchorLine_, document()->buffer().lineCount() - 1)))) *
         root()->text().lineHeight();
   vp_.jumpTo(cols > 0 ? 0.0f : vp_.x(), std::clamp(y, 0.0f, maxScrollY()));
   markDirty();
@@ -281,19 +289,23 @@ void TextView::collectVisibleRows(std::vector<RowRef>& out) const {
   WrapLayout& W = wrapLayout();
   const float lh = root()->text().lineHeight(), sy = std::floor(vp_.y());
   const int total = W.totalRows();
-  const int vr0 = std::clamp(static_cast<int>(std::floor(sy / lh)), 0, total);
-  const int vr1 = std::clamp(static_cast<int>(std::floor((sy + bounds().h) / lh)) + 1, vr0, total);
+  const RowBlocks& M = rowMap();  // inline diff blocks: display rows = wrap rows + the rows of blocks before them
+  const int dTotal = total + M.extraRows();
+  const int vr0 = std::clamp(static_cast<int>(std::floor(sy / lh)), 0, dTotal);
+  const int vr1 = std::clamp(static_cast<int>(std::floor((sy + bounds().h) / lh)) + 1, vr0, dTotal);
   if (vr0 >= vr1) return;
+  int wrow = M.wrapRow(vr0);  // inside a block: the first text row below it
+  if (wrow >= total) return;
   int r0 = 0;
-  int line = W.lineOfRow(vr0, &r0);
+  int line = W.lineOfRow(wrow, &r0);
   const int n = d->buffer().lineCount();
-  int vrow = vr0;
+  int vrow = M.display(wrow);
   for (bool firstLine = true; line < n && vrow < vr1; ++line, firstLine = false) {
     for (int r = firstLine ? r0 : 0; vrow < vr1; ++r) {
       const int end = W.rowEnd(line, r);  // scans, so the row count below is current
       if (r >= W.rowsEstimate(line)) break;
       out.push_back({line, r, vrow, W.rowStart(line, r), end, W.rowIndent(line, r)});
-      ++vrow;
+      vrow = M.display(++wrow);
     }
   }
 }
@@ -330,17 +342,20 @@ void TextView::forSegments(int line, int b0, int b1, bool withBreak, Fn fn) cons
 // the wrap map changed).
 void TextView::setMarkLines(Scrollbar::Lane lane, std::vector<int> lines) {
   markLines_[static_cast<int>(lane)] = lines;
-  if (!wrap_.enabled()) {
+  if (!wrap_.enabled() && blocks_.empty()) {
     sb_->setMarkers(lane, std::move(lines));
     return;
   }
-  for (int& l : lines) l = wrap_.firstRowOf(l);
+  const RowBlocks& M = rowMap();
+  for (int& l : lines) l = M.display(wrap_.firstRowOf(l));
   sb_->setMarkers(lane, std::move(lines));
 }
 
 void TextView::pushMarkers() {
   markGen_ = wrap_.generation();
-  for (int lane = 0; lane < 7; ++lane) setMarkLines(static_cast<Scrollbar::Lane>(lane), markLines_[lane]);
+  markSerial_ = rowSerial_;
+  for (int lane = 0; lane < Scrollbar::kLanes; ++lane)
+    setMarkLines(static_cast<Scrollbar::Lane>(lane), markLines_[lane]);
 }
 
 int64_t TextView::now() const {
@@ -366,8 +381,11 @@ Position TextView::positionAt(float x, float y) const {
   if (!d || !root()) return {0, 0};
   const Layout L = geometry();
   WrapLayout& W = wrapLayout();
-  const int vrow = static_cast<int>(std::floor((y - bounds().y + std::floor(vp_.y())) / L.lineHeight()));
+  const int drow = static_cast<int>(std::floor((y - bounds().y + std::floor(vp_.y())) / L.lineHeight()));
   const float lx = x - (bounds().x + L.textOffset(d->buffer().lineCount())) + scrollX();
+  int inBlock = -1;
+  int vrow = rowMap().wrapRow(drow, &inBlock);
+  if (inBlock >= 0) vrow = std::max(0, vrow - 1);  // a row of an inline block: the text row above it
   return W.positionAt(vrow, lx);
 }
 
@@ -381,7 +399,7 @@ RectF TextView::caretRect(Position p) const {
   const float w = std::max(1.0f, std::floor(L.cellWidth() / 6));
   const int row = W.rowOfByte(p.line, p.column);
   return {bounds().x + L.textOffset(b.lineCount()) - scrollX() + W.xOf(p.line, row, p.column),
-          bounds().y + L.lineTop(W.firstRowOf(p.line) + row, std::floor(vp_.y())), w, L.lineHeight()};
+          bounds().y + L.lineTop(rowMap().display(W.firstRowOf(p.line) + row), std::floor(vp_.y())), w, L.lineHeight()};
 }
 
 std::string TextView::positionText() const {
@@ -438,7 +456,7 @@ void TextView::ensureCaretVisible(bool animate) {
   // The rows above the caret that can be on screen with it are examined first: its row index is only as good as the
   // line heights above it.
   for (int l = std::max(0, p.line - visibleLineCount()); W.enabled() && l < p.line; ++l) W.rowsEstimate(l);
-  const float top = static_cast<float>(W.visualRowOf(p)) * lh;
+  const float top = static_cast<float>(rowMap().display(W.visualRowOf(p))) * lh;
   float ty = vp_.targetY();
   if (top - margin < ty) ty = top - margin;
   else if (top + lh + margin > ty + h) ty = top + lh + margin - h;
@@ -467,7 +485,15 @@ void TextView::scrollBy(float dx, float dy) {
     return;
   }
   int first, last;
-  L.visibleLines(vp_.targetY(), bounds().h, b.lineCount(), first, last);
+  if (blocks_.empty()) {
+    L.visibleLines(vp_.targetY(), bounds().h, b.lineCount(), first, last);
+  } else {  // display rows are not lines: map the first and the last visible row back to lines
+    const RowBlocks& M = rowMap();
+    const int d0 = std::max(0, static_cast<int>(std::floor(vp_.targetY() / L.lineHeight())));
+    const int d1 = static_cast<int>(std::floor((vp_.targetY() + bounds().h) / L.lineHeight()));
+    first = std::clamp(wrapLayout().lineOfRow(M.wrapRow(d0)), 0, b.lineCount());
+    last = std::clamp(wrapLayout().lineOfRow(M.wrapRow(d1)) + 1, first, b.lineCount());
+  }
   float widest = 0;
   for (int i = first; i < last; ++i) widest = std::max(widest, L.lineWidth(b.line(i)));
   const float maxX =
@@ -526,6 +552,7 @@ bool TextView::syncState() {
 
 int TextView::onTick(int64_t nowMs) {
   syncState();
+  updateDiffMarkers();
   int wait = -1;
   if (vp_.animating()) {
     const float dt = (lastTick_ < 0 || nowMs - lastTick_ > 100) ? 16.0f : static_cast<float>(nowMs - lastTick_);
@@ -589,6 +616,7 @@ void TextView::paint(PaintContext& ctx) {
     themeGen_ = root()->themeGeneration();
   }
   syncWrap();
+  updateDiffMarkers();
   const Layout L = geometry();
   const TextBuffer& buf = d->buffer();
   const int n = buf.lineCount();
@@ -615,8 +643,9 @@ void TextView::paint(PaintContext& ctx) {
   ctx.fill(gutterClip, th.gutterBackground);
   const bool colour = colouring();
   if (colour) hl_.prepare(first, last);
-  if (W.generation() != markGen_) pushMarkers();
-  sb_->setMetrics(maxScrollY(), b.h, sy, W.totalRows());
+  const RowBlocks& rowsMap = rowMap();
+  if (W.generation() != markGen_ || rowSerial_ != markSerial_) pushMarkers();
+  sb_->setMetrics(maxScrollY(), b.h, sy, W.totalRows() + rowsMap.extraRows());
   if (settings_.columnGuide > 0) {
     const float gx = std::floor(textX + static_cast<float>(settings_.columnGuide) * cw);
     if (gx >= clip.x && gx < clip.x + clip.w) ctx.fill({gx, clip.y, 1, clip.h}, th.columnGuide);
@@ -644,7 +673,7 @@ void TextView::paint(PaintContext& ctx) {
     const std::vector<Selection>& sels = editor_.selections();
     const Position head = buf.clamp(sels[0].head);
     if (settings_.highlightCurrentLine && head.line >= first && head.line < last) {
-      const int vrow = W.visualRowOf(head);
+      const int vrow = rowMap().display(W.visualRowOf(head));
       if (!vis_.empty() && vrow >= vis_.front().vrow && vrow <= vis_.back().vrow) {
         const RectF line = intersect({clip.x, b.y + L.lineTop(vrow, sy), clip.w, lh}, clip);
         ctx.fill(line, Theme::orElse(th.currentLineFill, mix(th.panelBackground, th.text, 0.05f)));
@@ -696,6 +725,8 @@ void TextView::paint(PaintContext& ctx) {
             ctx.fill(intersect({textX + W.xOf(p.line, r.row, p.column), rowY(r), cw, lh}, clip), th.bracketMatch);
           }
         }
+  paintBlocks(ctx, L, sx);
+  paintDiffStrip(ctx, L, sy);
   bookmarkLines_ = editor_.bookmarks().lines(d->path());
   int spanLine = -1;
   const std::vector<gfx::ColorSpan>* spans = nullptr;
@@ -903,6 +934,350 @@ bool TextView::moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool e
   return true;
 }
 
+// ---- version control (C3c) ----
+
+bool TextView::diffStripActive() const {
+  const Document* d = document();
+  return d && editor_.vcs().active() && editor_.vcs().hasBase(d->path());
+}
+
+RectF TextView::diffStripRect() const {
+  const Document* d = document();
+  if (!d || !root()) return {0, 0, 0, 0};
+  const Layout L = geometry();
+  return {bounds().x + L.diffStripX(d->buffer().lineCount()), bounds().y, L.diffStripWidth(), bounds().h};
+}
+
+std::vector<DiffHunk> TextView::currentHunks() const {
+  const Document* d = document();
+  VcsManager& v = editor_.vcs();
+  if (!d || !v.active()) return {};
+  const auto base = v.baseLines(d->path());
+  if (!base) return {};
+  if (v.hunksVersion(d->path()) == d->version()) return v.hunks(d->path());
+  return diffLines(*base, d->buffer().lines());
+}
+
+int TextView::hunkIndexAt(const std::vector<DiffHunk>& hs, int line) {
+  for (size_t i = 0; i < hs.size(); ++i)
+    if (hs[i].newCount > 0 && line >= hs[i].newStart && line < hs[i].newStart + hs[i].newCount)
+      return static_cast<int>(i);
+  for (int edge : {0, 1})  // a deletion wedge at the line's top edge, then at its bottom edge
+    for (size_t i = 0; i < hs.size(); ++i)
+      if (hs[i].newCount == 0 && hs[i].newStart == line + edge) return static_cast<int>(i);
+  return -1;
+}
+
+// The display-row map of the open blocks. Block `i` precedes the wrap row after its anchor line; rebuilt when the wrap
+// map, the blocks or the text changed (a line insert moves the anchor's wrap row without touching either map).
+const RowBlocks& TextView::rowMap() const {
+  static const RowBlocks none;
+  const Document* d = document();
+  if (blocks_.empty() || !d || !root()) return none;
+  WrapLayout& W = wrapLayout();
+  const uint64_t key[4] = {W.generation(), blocksGen_, static_cast<uint64_t>(d->version()),
+                           static_cast<uint64_t>(d->buffer().lineCount())};
+  if (std::equal(std::begin(key), std::end(key), std::begin(rowKey_))) return rowMap_;
+  std::copy(std::begin(key), std::end(key), std::begin(rowKey_));
+  const int n = d->buffer().lineCount();
+  std::vector<RowBlocks::Block> bs;
+  for (const Block& b : blocks_) {
+    const int a = std::clamp(b.anchor, -1, n - 1);
+    bs.push_back({a + 1 >= n ? W.totalRows() : W.firstRowOf(a + 1), b.rows()});
+  }
+  rowMap_.set(std::move(bs));
+  ++rowSerial_;
+  return rowMap_;
+}
+
+void TextView::mutateBlocks(const std::function<void()>& f) {
+  const Document* d = document();
+  auto topRow = [&] {
+    if (!d || !root() || anchorLine_ < 0 || anchorLine_ >= d->buffer().lineCount()) return 0;
+    return rowMap().display(wrapLayout().firstRowOf(anchorLine_));
+  };
+  const int before = topRow();
+  f();
+  ++blocksGen_;
+  const int after = topRow();
+  if (root() && after != before) vp_.shiftY(static_cast<float>(after - before) * root()->text().lineHeight());
+  markDirty();
+}
+
+int TextView::blockIndex(const DiffHunk& h) const {
+  for (size_t i = 0; i < blocks_.size(); ++i) {
+    const DiffHunk& o = blocks_[i].hunk;
+    if (o.baseStart == h.baseStart && o.baseCount == h.baseCount && o.newCount == h.newCount && o.kind == h.kind)
+      return static_cast<int>(i);
+  }
+  return -1;
+}
+
+bool TextView::toggleInlineDiff(int line) {
+  Document* d = document();
+  if (!d || !root()) return false;
+  VcsManager& v = editor_.vcs();
+  const auto base = v.active() ? v.baseLines(d->path()) : nullptr;
+  if (!base) return false;
+  if (line < 0) line = isCurrent() ? d->buffer().clamp(editor_.selections()[0].head).line : 0;
+  const std::vector<DiffHunk> hs = currentHunks();
+  const int k = hunkIndexAt(hs, line);
+  if (k < 0) return false;
+  const DiffHunk h = hs[static_cast<size_t>(k)];
+  if (const int at = blockIndex(h); at >= 0) {
+    mutateBlocks([&] { blocks_.erase(blocks_.begin() + at); });
+    return true;
+  }
+  mutateBlocks([&] {
+    Block b;
+    b.hunk = h;
+    b.anchor = anchorOf(h);
+    b.lines = hunkBaseLines(h, *base);
+    const auto pos =
+        std::upper_bound(blocks_.begin(), blocks_.end(), b.anchor, [](int a, const Block& o) { return a < o.anchor; });
+    blocks_.insert(pos, std::move(b));
+  });
+  // Show all of it: scroll down just enough for the block's bottom, never past its top.
+  const int at = blockIndex(h);
+  if (at >= 0) {
+    const RowBlocks& M = rowMap();
+    const float lh = root()->text().lineHeight(), top = static_cast<float>(M.top(static_cast<size_t>(at))) * lh,
+                bottom = top + static_cast<float>(blocks_[static_cast<size_t>(at)].rows()) * lh;
+    if (bottom > vp_.targetY() + bounds().h)
+      vp_.scrollTo(vp_.targetX(), std::clamp(std::min(bottom - bounds().h, top), 0.0f, maxScrollY()), false);
+  }
+  return true;
+}
+
+bool TextView::closeInlineDiffs() {
+  if (blocks_.empty()) return false;
+  mutateBlocks([&] { blocks_.clear(); });
+  return true;
+}
+
+TextView::InlineBlockInfo TextView::blockInfo(size_t i) const {
+  const Block& b = blocks_[i];
+  InlineBlockInfo info;
+  info.hunk = b.hunk;
+  info.anchorLine = b.anchor;
+  info.rows = b.rows();
+  info.lines = b.lines;
+  if (!root()) return info;
+  const RowBlocks& M = rowMap();
+  const gfx::TextRenderer& tr = root()->text();
+  const float lh = tr.lineHeight(), pad = theme().padding;
+  const float y = bounds().y + static_cast<float>(M.top(i)) * lh - std::floor(vp_.y());
+  const float w = std::max(0.0f, bounds().w - scrollbarWidth());
+  info.rect = {bounds().x, y, w, static_cast<float>(info.rows) * lh};
+  info.header = {bounds().x, y, w, lh};
+  const float cw = tr.measure("\xC3\x97") + 2 * pad, rw = tr.measure("Revert hunk") + 2 * pad;
+  info.closeButton = {bounds().x + w - cw - 2, y + 1, cw, lh - 2};
+  info.revertButton = {info.closeButton.x - rw - 4, y + 1, rw, lh - 2};
+  return info;
+}
+
+std::vector<TextView::InlineBlockInfo> TextView::inlineBlocks() const {
+  std::vector<InlineBlockInfo> out;
+  for (size_t i = 0; i < blocks_.size(); ++i) out.push_back(blockInfo(i));
+  return out;
+}
+
+bool TextView::revertInlineBlock(size_t i, std::string* error) {
+  Document* d = document();
+  if (!d || i >= blocks_.size()) return false;
+  const DiffHunk want = blocks_[i].hunk;
+  const std::vector<DiffHunk> hs = currentHunks();
+  for (size_t k = 0; k < hs.size(); ++k) {
+    const DiffHunk& h = hs[k];
+    if (h.baseStart != want.baseStart || h.baseCount != want.baseCount || h.newCount != want.newCount) continue;
+    if (!editor_.vcs().revertHunk(d->path(), k, error)) return false;
+    if (const int at = blockIndex(want); at >= 0) mutateBlocks([&] { blocks_.erase(blocks_.begin() + at); });
+    return true;
+  }
+  if (error) *error = "the change no longer exists";
+  mutateBlocks([&] { blocks_.erase(blocks_.begin() + static_cast<long>(i)); });
+  return false;
+}
+
+// Edits above a block move it (until the recomputed hunks arrive and place it exactly); edits at or below leave it.
+void TextView::blocksOnChange(const Document::Change& c) {
+  if (blocks_.empty() || c.lineDelta == 0) return;
+  bool moved = false;
+  for (Block& b : blocks_) {
+    const bool above = c.removed.end.line < b.anchor || (c.removed.end.line == b.anchor && c.removed.end.column == 0 &&
+                                                         c.removed.start == c.removed.end && c.lineDelta > 0);
+    if (!above) continue;
+    b.anchor = std::max(-1, b.anchor + c.lineDelta);
+    moved = true;
+  }
+  if (moved) {
+    ++blocksGen_;
+    markDirty();
+  }
+}
+
+// Re-places the blocks on the freshly computed hunks: a block stays while a hunk with the same base lines and the
+// same size exists (moved edits only shift it); it goes when its hunk changed or vanished.
+void TextView::refreshBlocks() {
+  if (blocks_.empty()) return;
+  const Document* d = document();
+  VcsManager& v = editor_.vcs();
+  if (!d || !v.active() || !v.hasBase(d->path())) {
+    mutateBlocks([&] { blocks_.clear(); });
+    return;
+  }
+  if (v.hunksVersion(d->path()) != d->version()) return;  // stale: the anchors follow the edits until it catches up
+  const std::vector<DiffHunk>& hs = v.hunks(d->path());
+  mutateBlocks([&] {
+    for (size_t i = blocks_.size(); i-- > 0;) {
+      const DiffHunk& o = blocks_[i].hunk;
+      bool found = false;
+      for (size_t k = 0; k < hs.size() && !found; ++k) {
+        const DiffHunk& h = hs[k];
+        if (h.baseStart != o.baseStart || h.baseCount != o.baseCount || h.newCount != o.newCount) continue;
+        if (v.hunkBaseLines(d->path(), k) != blocks_[i].lines) continue;
+        blocks_[i].hunk = h;
+        blocks_[i].anchor = anchorOf(h);
+        found = true;
+      }
+      if (!found) blocks_.erase(blocks_.begin() + static_cast<long>(i));
+    }
+    std::stable_sort(blocks_.begin(), blocks_.end(),
+                     [](const Block& a, const Block& b) { return a.anchor < b.anchor; });
+  });
+}
+
+// Version control changed (or another document): blocks follow their hunks, the scrollbar gets the change marks.
+void TextView::updateDiffMarkers() {
+  const Document* d = document();
+  VcsManager& v = editor_.vcs();
+  const uint64_t gen = d ? v.generation() : 0;
+  if (gen == vcsGen_ && d == vcsDoc_) return;
+  vcsGen_ = gen;
+  vcsDoc_ = d;
+  refreshBlocks();
+  std::vector<int> lanes[3];
+  if (d && v.active()) {
+    const int n = d->buffer().lineCount();
+    for (const DiffHunk& h : v.hunks(d->path())) {
+      std::vector<int>& m = lanes[h.kind == HunkKind::Added ? 0 : h.kind == HunkKind::Modified ? 1 : 2];
+      if (h.newCount == 0) {
+        m.push_back(std::min(h.newStart, n - 1));
+        continue;
+      }
+      const int step = std::max(1, h.newCount / 1024);  // the bar cannot show more than a mark per pixel row
+      for (int l = h.newStart; l < h.newStart + h.newCount; l += step) m.push_back(l);
+    }
+  }
+  setMarkLines(Scrollbar::Lane::DiffAdded, std::move(lanes[0]));
+  setMarkLines(Scrollbar::Lane::DiffModified, std::move(lanes[1]));
+  setMarkLines(Scrollbar::Lane::DiffDeleted, std::move(lanes[2]));
+  markDirty();
+}
+
+bool TextView::vcsClick(const InputEvent& e) {
+  const Document* d = document();
+  if (!d || !root()) return false;
+  for (size_t i = 0; i < blocks_.size(); ++i) {
+    const InlineBlockInfo info = blockInfo(i);
+    if (!ui::contains(info.rect, e.x, e.y)) continue;
+    if (ui::contains(info.revertButton, e.x, e.y)) {
+      revertInlineBlock(i);
+    } else if (ui::contains(info.closeButton, e.x, e.y)) {
+      mutateBlocks([&] { blocks_.erase(blocks_.begin() + static_cast<long>(i)); });
+    }
+    return true;  // the rest of the block is inert, a click there does not move the caret
+  }
+  if (!diffStripActive()) return false;
+  const Layout L = geometry();
+  const int n = d->buffer().lineCount();
+  const float x0 = bounds().x + L.diffStripX(n) - 2, x1 = bounds().x + L.gutterWidth(n) + L.cellWidth() / 2;
+  if (e.x < x0 || e.x >= x1) return false;
+  const int drow = static_cast<int>(std::floor((e.y - bounds().y + std::floor(vp_.y())) / L.lineHeight()));
+  if (rowMap().wrapRow(drow) >= wrapLayout().totalRows()) return false;
+  return toggleInlineDiff(d->buffer().clamp(positionAt(e.x, e.y)).line);
+}
+
+// The change strip: one bar per hunk over all visual rows of its lines (blue modified, green added) and a small red
+// wedge on the boundary where lines were deleted.
+void TextView::paintDiffStrip(PaintContext& ctx, const Layout& L, float sy) {
+  const Document* d = document();
+  VcsManager& v = editor_.vcs();
+  if (vis_.empty() || !d || !v.active()) return;
+  const std::vector<DiffHunk>& hs = v.hunks(d->path());
+  if (hs.empty()) return;
+  const Theme& th = ctx.theme;
+  const RectF& b = bounds();
+  const int n = d->buffer().lineCount(), first = vis_.front().line, last = vis_.back().line + 1;
+  const float sw = L.diffStripWidth(), x = b.x + L.diffStripX(n), lh = L.lineHeight();
+  auto rowTop = [&](const RowRef& r) { return b.y + L.lineTop(r.vrow, sy); };
+  auto it = std::lower_bound(hs.begin(), hs.end(), first,
+                             [](const DiffHunk& h, int line) { return h.newStart + h.newCount < line; });
+  for (; it != hs.end() && it->newStart <= last; ++it) {
+    const DiffHunk& h = *it;
+    if (h.newCount > 0) {
+      const int lo = std::max(first, h.newStart), hi = std::min(last, h.newStart + h.newCount);
+      if (lo >= hi) continue;
+      const auto [a0, a1] = visibleRange(lo);
+      const auto [b0, b1] = visibleRange(hi - 1);
+      if (a0 == a1 || b0 == b1) continue;
+      const float y0 = rowTop(vis_[a0]), y1 = rowTop(vis_[b1 - 1]) + lh;
+      ctx.fill(intersect({x, y0, sw, y1 - y0}, b), h.kind == HunkKind::Added ? th.vcsAdded() : th.vcsModified());
+      continue;
+    }
+    float y;  // deletion: the boundary above line newStart (below the last visible row at the bottom edge)
+    if (h.newStart >= first && h.newStart < last) y = rowTop(vis_[visibleRange(h.newStart).first]);
+    else if (h.newStart == last) y = rowTop(vis_.back()) + lh;
+    else continue;
+    const int wdt = static_cast<int>(sw) + 1;  // a right-pointing triangle of 1 px slices, centred on the boundary
+    for (int i = -(wdt - 1); i <= wdt - 1; ++i)
+      ctx.fill(intersect({x, std::floor(y) + static_cast<float>(i), static_cast<float>(wdt - std::abs(i)), 1}, b),
+               th.vcsDeleted());
+  }
+}
+
+// Inline diff blocks in the display rows RowBlocks reserved: a header row (what changed, "Revert hunk" and a close
+// button) and the base lines on the red tint, with a red margin mark in the strip column.
+void TextView::paintBlocks(PaintContext& ctx, const Layout& L, float sx) {
+  if (blocks_.empty()) return;
+  const Document* d = document();
+  const Theme& th = ctx.theme;
+  const RectF& b = bounds();
+  const RectF clip = textArea();
+  const int n = d->buffer().lineCount();
+  const float lh = L.lineHeight(), pad = th.padding, textX = b.x + L.textOffset(n) - sx;
+  const Color tint = Theme::orElse(th.diffBlockBackground, mix(th.panelBackground, th.vcsDeleted(), 0.2f)),
+              text = Theme::orElse(th.diffBlockText, th.textDim),
+              head = Theme::orElse(th.diffBlockHeader, th.tabInactive), button = th.tabHover;
+  for (size_t i = 0; i < blocks_.size(); ++i) {
+    const InlineBlockInfo info = blockInfo(i);
+    if (info.rect.y + info.rect.h <= b.y || info.rect.y >= b.y + b.h) continue;
+    ctx.fill(intersect(info.rect, b), tint);
+    ctx.fill(intersect(info.header, b), head);
+    if (info.rows > 1)
+      ctx.fill(intersect({b.x + L.diffStripX(n), info.rect.y + lh, L.diffStripWidth(), info.rect.h - lh}, b),
+               th.vcsDeleted());
+    const DiffHunk& h = info.hunk;
+    const std::string kind = h.kind == HunkKind::Added ? "Added" : h.kind == HunkKind::Deleted ? "Deleted" : "Modified";
+    const std::string label = kind + (h.baseCount == 0 ? ", no lines in the base"
+                                                       : ", " + std::to_string(h.baseCount) +
+                                                             (h.baseCount == 1 ? " line" : " lines") + " in the base");
+    const RectF labelClip =
+        intersect({info.header.x, info.header.y, std::max(0.0f, info.revertButton.x - info.header.x), lh}, b);
+    ctx.text(b.x + L.textOffset(n), info.header.y, label, th.textDim, labelClip);
+    for (const auto& [rc, name] : {std::pair<RectF, const char*>{info.revertButton, "Revert hunk"},
+                                   std::pair<RectF, const char*>{info.closeButton, "\xC3\x97"}}) {
+      ctx.fill(intersect(rc, b), button);
+      ctx.text(rc.x + pad, info.header.y, name, th.text, intersect(rc, b));
+    }
+    for (size_t j = 0; j < info.lines.size(); ++j) {
+      const float y = info.rect.y + static_cast<float>(j + 1) * lh;
+      if (y + lh <= b.y || y >= b.y + b.h) continue;
+      ctx.text(textX, y, info.lines[j], text, clip);
+    }
+  }
+}
+
 bool TextView::onEvent(const InputEvent& e) {
   if (!document() || !root()) return false;
   bool handled = false;
@@ -951,6 +1326,7 @@ void TextView::mouseDown(const InputEvent& e) {
     return;
   }
   if (!isCurrent()) activate();
+  if (vcsClick(e)) return;  // the change strip and the inline diff blocks (C3c)
   const TextBuffer& b = document()->buffer();
   const Position pos = b.clamp(positionAt(e.x, e.y));
   const bool shift = e.mods & ModShift, ctrl = e.mods & ModCtrl, alt = e.mods & ModAlt;

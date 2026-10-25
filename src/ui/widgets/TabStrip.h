@@ -23,11 +23,15 @@ namespace tf::ui {
 // Programmatic calls (addTab, setActive, ...) never fire callbacks; callbacks mean "the user asked for this".
 class TabStrip : public Widget {
  public:
+  // Version-control state of a tab (C3c): a small marker left of the title. Modified / Added / CheckedOut are filled
+  // squares in the theme's tabVcs* colours, ReadOnly (Perforce, not checked out) an outlined one.
+  enum class VcsMark { None, Modified, Added, CheckedOut, ReadOnly, Conflict };
   struct Tab {
     int id;
     std::string title;
     bool dirty = false;
     bool pinned = false;
+    VcsMark vcs = VcsMark::None;
   };
 
   std::function<void(int id)> onActivate, onClose;
@@ -41,6 +45,8 @@ class TabStrip : public Widget {
   bool setActive(int id);  // false for an unknown id
   void setTitle(int id, std::string title);
   void setDirty(int id, bool dirty);
+  void setVcsMark(int id, VcsMark m);
+  RectF vcsMarkerRect(int id);          // window coordinates; empty without a marker
   void setPinned(int id, bool pinned);  // moves the tab to the end of the pinned group / start of the unpinned group
   // Moves a tab to `index` (clamped to its group).
   void moveTab(int id, int index);
@@ -71,6 +77,7 @@ class TabStrip : public Widget {
     float x, w;         // content coordinates (before scrolling)
     float titleW;       // reserved for the title
     bool slot;          // has a close/dirty slot at the right
+    float markW;        // width reserved left of the title for the VCS marker (0 = none)
     std::string shown;  // truncated title
   };
   void ensureGeo();

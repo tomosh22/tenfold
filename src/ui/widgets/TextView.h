@@ -11,10 +11,12 @@
 #include "ui/settings/Settings.h"
 #include "ui/view/Highlighter.h"
 #include "ui/view/Layout.h"
+#include "ui/view/RowBlocks.h"
 #include "ui/view/Scrollbar.h"
 #include "ui/view/Viewport.h"
 #include "ui/view/WrapLayout.h"
 #include "ui/widgets/Widget.h"
+#include "vcs/LineDiff.h"
 
 namespace tf::ui {
 
@@ -52,6 +54,13 @@ namespace tf::ui {
 // right of the lane (at the gutter's left edge when there is no lane). A left click in the lane toggles a breakpoint
 // on the clicked line through Breakpoints (the DebugSession pushes it to the backend); it moves neither caret nor
 // focus. The view repaints when Breakpoints::generation() or DebugSession::generation() moves.
+// Version control (C3c): when Editor::vcs() has a base for the document, a narrow change strip between the line
+// numbers and the text shows the hunks (added green, modified blue, deleted a red wedge on the boundary between two
+// rows; a wrapped line's mark spans all its rows) and the scrollbar gets change marks. Clicking the strip, or
+// toggleInlineDiff(), opens an inline diff block under the hunk: header row with "Revert hunk" and a close button,
+// then the base (old) lines on a red tint. The block is a view decoration: it reserves display rows (RowBlocks maps
+// WrapLayout rows to display rows; WrapLayout and the Document never know about it), follows edits above it and
+// goes away when its hunk changes.
 //
 // Dirtiness: input handling and onTick() compare the Editor state (document, version, selections) with what was last
 // drawn, so changes made elsewhere (LSP edits, Back/Forward, another view) repaint too. Drive onTick through
@@ -103,6 +112,31 @@ class TextView : public Widget {
   bool colouring() const;  // true for C/C++ files
   // The bracket at / before the primary caret and its partner (positions of the two bracket characters).
   std::optional<std::pair<Position, Position>> bracketMatch();
+  // ---- version control (C3c) ----
+  // Where something of an open inline block sits (window pixels), for tests and hit testing.
+  struct InlineBlockInfo {
+    DiffHunk hunk;
+    int anchorLine = 0;  // the block sits under this line (-1: above the first line)
+    int rows = 0;        // display rows: header + base lines
+    RectF rect{0, 0, 0, 0}, header{0, 0, 0, 0}, revertButton{0, 0, 0, 0}, closeButton{0, 0, 0, 0};
+    std::vector<std::string> lines;  // the base lines shown
+  };
+  // Opens (or closes, when open) the inline block of the hunk at `line` (-1 = the primary caret's line). False when
+  // there is no change there. The Document is untouched.
+  bool toggleInlineDiff(int line = -1);
+  bool closeInlineDiffs();  // true if any was open
+  std::vector<InlineBlockInfo> inlineBlocks() const;
+  // "Revert hunk" of block `i` (one undo step through VcsManager::revertHunk); the block goes with its hunk.
+  bool revertInlineBlock(size_t i, std::string* error = nullptr);
+  // Hunks of the document in the view's current text: the engine's when they belong to this version, else recomputed
+  // (an edit is younger than the debounced diff). Empty without a base.
+  std::vector<DiffHunk> currentHunks() const;
+  // Index of the hunk a caret on `line` belongs to: the hunk containing it, else a deletion wedge at the line's top
+  // edge, else one at its bottom edge; -1 for none.
+  static int hunkIndexAt(const std::vector<DiffHunk>& hunks, int line);
+  bool diffStripActive() const;  // version control has a base for this document
+  RectF diffStripRect() const;   // the strip column (window pixels), full view height
+
   // Makes this view's document the Editor's current one (no history entry; the caret this view last had) and takes
   // focus.
   void activate();
@@ -158,6 +192,25 @@ class TextView : public Widget {
                    const std::vector<gfx::ColorSpan>* spans);
   float scrollbarWidth() const;
   void bindListener(Document* d);
+  // ---- version control internals ----
+  struct Block {
+    DiffHunk hunk;
+    int anchor = 0;  // line the block sits under
+    std::vector<std::string> lines;
+    int rows() const { return 1 + static_cast<int>(lines.size()); }
+  };
+  const RowBlocks& rowMap() const;
+  // Runs `f` (which edits blocks_) and keeps the first visible line where it was: blocks above it change its row.
+  void mutateBlocks(const std::function<void()>& f);
+  void refreshBlocks();
+  void blocksOnChange(const Document::Change& c);
+  int blockIndex(const DiffHunk& h) const;
+  static int anchorOf(const DiffHunk& h) { return h.newCount > 0 ? h.newStart + h.newCount - 1 : h.newStart - 1; }
+  InlineBlockInfo blockInfo(size_t i) const;
+  bool vcsClick(const InputEvent& e);
+  void paintDiffStrip(PaintContext& ctx, const Layout& L, float sy);
+  void paintBlocks(PaintContext& ctx, const Layout& L, float sx);
+  void updateDiffMarkers();
   void bindDocument();
   uint64_t diagnosticSignature() const;
   void updateDiagMarkers();
@@ -178,9 +231,18 @@ class TextView : public Widget {
   Viewport vp_;
   Highlighter hl_;
   mutable WrapLayout wrap_;
-  mutable std::vector<RowRef> vis_;  // the visible rows of the last collectVisibleRows
-  std::vector<int> markLines_[7];    // scrollbar markers as document lines (the bar gets visual rows)
+  mutable std::vector<RowRef> vis_;                // the visible rows of the last collectVisibleRows
+  std::vector<int> markLines_[Scrollbar::kLanes];  // scrollbar markers as document lines (the bar gets display rows)
   uint32_t markGen_ = 0;
+  // Inline diff blocks (C3c) and the display-row map derived from them.
+  std::vector<Block> blocks_;
+  uint32_t blocksGen_ = 1;
+  mutable RowBlocks rowMap_;
+  mutable uint64_t rowKey_[4] = {~0ull, 0, 0, 0};
+  mutable uint32_t rowSerial_ = 0;
+  uint32_t markSerial_ = ~0u;
+  uint64_t vcsGen_ = ~0ull;
+  const Document* vcsDoc_ = nullptr;
   int syncedCols_ = -1, anchorLine_ = -1;
   std::vector<Selection> prefSel_;  // carets as left by the last vertical move, with their x in cells
   std::vector<int> prefCol_;

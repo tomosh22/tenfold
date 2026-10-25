@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "ui/features/VcsState.h"
 #include "ui/shell/DocumentView.h"
 
 namespace tf::ui {
@@ -105,6 +106,7 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   status_->addSegment("fastindex", StatusBar::Align::Left);
   status_->addSegment("build", StatusBar::Align::Left);
   status_->addSegment("debug", StatusBar::Align::Left);
+  status_->addSegment("vcs", StatusBar::Align::Left);
   status_->addSegment("encoding", StatusBar::Align::Right);
   status_->addSegment("eol", StatusBar::Align::Right);
   status_->setText("workspace", editor_.workspace().root().filename().string());
@@ -599,7 +601,10 @@ void Workbench::sync() {
   if (cur) lastCaret_[cur->path().generic_string()] = editor_.cursor().pos;
   for (Panel* p : panels())
     for (const auto& t : p->tabs().tabs())
-      if (Document* d = docOf(t.id)) p->tabs().setDirty(t.id, d->dirty());
+      if (Document* d = docOf(t.id)) {
+        p->tabs().setDirty(t.id, d->dirty());
+        p->tabs().setVcsMark(t.id, vcsTabMark(editor_.vcs().fileStatus(d->path())));
+      }
   refreshStatus();
 }
 
@@ -610,8 +615,9 @@ void Workbench::refreshStatus() {
     status_->setText("pos", "Ln " + std::to_string(p.line + 1) + ", Col " + std::to_string(p.column + 1));
     status_->setText("eol", cur->buffer().lineEnding() == LineEnding::CRLF ? "CRLF" : "LF");
     status_->setText("encoding", "UTF-8");
+    status_->setText("vcs", vcsStatusText(editor_.vcs(), cur->path()));
   } else {
-    for (const char* k : {"pos", "eol", "encoding"}) status_->setText(k, "");
+    for (const char* k : {"pos", "eol", "encoding", "vcs"}) status_->setText(k, "");
   }
   const SemanticEngine::Status st = editor_.started() ? editor_.semantic().status() : SemanticEngine::Status{};
   std::string clangd = "clangd: off";

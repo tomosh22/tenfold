@@ -245,11 +245,14 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/BuildPanel.cpp
     src/ui/features/SignatureHelp.cpp
     src/ui/features/DiagnosticsPanel.cpp
+    src/ui/features/VcsUi.cpp
+    src/ui/features/DiffTool.cpp
     src/ui/view/Viewport.cpp
     src/ui/view/Layout.cpp
     src/ui/view/Highlighter.cpp
     src/ui/view/Scrollbar.cpp
     src/ui/view/WrapLayout.cpp
+    src/ui/view/RowBlocks.cpp
     src/ui/widgets/ShellDemo.cpp
     src/ui/commands/Command.cpp
     src/ui/commands/CommandRegistry.cpp
@@ -320,6 +323,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_wrap.cpp
     tests/ui/test_debugger_ui.cpp
     src/debug/FakeDebugger.cpp  # test support (the scripted backend of the debugger UI tests)
+    tests/ui/test_vcs_ui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

@@ -103,6 +103,11 @@ class VcsManager {
   // is re-read. `done(ok, error)` runs on the pump thread.
   using Done = std::function<void(bool ok, const std::string& error)>;
   void revertFile(const std::filesystem::path& file, Done done = {});
+  // Explicit "check out" (C3c, Vcs.CheckOut): runs the provider's beforeFirstEdit for `file` right now, off the UI
+  // thread, exactly what the first edit would have run (nothing for Git; `p4 edit` for Perforce), then re-reads the
+  // file's status. An open document counts as checked out afterwards, so its first edit does not repeat it. A failure
+  // is reported through onError like an auto-checkout failure; `done(ok, error)` runs on the pump thread.
+  void checkOut(const std::filesystem::path& file, Done done = {});
   // Replaces the lines of hunk `index` of the open document by the base lines through the Document edit path (ONE
   // undo step, carets of the current document follow). Synchronous and exact: stale hunks are recomputed first.
   bool revertHunk(const std::filesystem::path& file, size_t index, std::string* error = nullptr);

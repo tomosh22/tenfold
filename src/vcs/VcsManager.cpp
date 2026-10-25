@@ -367,6 +367,36 @@ void VcsManager::revertFile(const fs::path& file, Done done) {
   });
 }
 
+void VcsManager::checkOut(const fs::path& file, Done done) {
+  if (stopped_ || !opt_.enabled) {
+    if (done) done(false, "version control is disabled");
+    return;
+  }
+  ensureStarted();
+  push([this, file, done] {
+    if (!provider_) {
+      post([done] {
+        if (done) done(false, "no version control system found for this workspace");
+      });
+      return;
+    }
+    std::string err;
+    const bool ok = provider_->beforeFirstEdit(file, &err);
+    ++beforeCalls_;
+    auto infos = std::make_shared<std::vector<VcsFileInfo>>(provider_->status({file}));
+    post([this, file, done, ok, err, infos] {
+      if (ok) {
+        if (DocState* st = find(file)) st->firstEditDone = true;
+      } else {
+        reportError(file, err);
+      }
+      applyStatuses(*infos, false);
+      changed(file);
+      if (done) done(ok, err);
+    });
+  });
+}
+
 bool VcsManager::revertHunk(const fs::path& file, size_t index, std::string* error) {
   auto fail = [&](const std::string& m) {
     if (error) *error = m;

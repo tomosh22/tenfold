@@ -76,6 +76,22 @@ struct Theme {
   Color statusTextDebugging{0, 0, 0, 0};
   static Color orElse(const Color& c, const Color& fallback) { return c.a > 0 ? c : fallback; }
 
+  // Version control (C3c), optional: unset keeps the built-in fallback named in the comment, so dark and light still
+  // show change marks (they need a colour), while vs-dark carries the Visual Studio values.
+  Color diffAdded{0, 0, 0, 0};            // gutter strip / scrollbar mark of added lines; unset = green #57a64a
+  Color diffModified{0, 0, 0, 0};         // modified lines; unset = tabAccent
+  Color diffDeleted{0, 0, 0, 0};          // the wedge of deleted lines; unset = diagnosticError
+  Color diffBlockBackground{0, 0, 0, 0};  // rows of an inline diff block; unset = panelBackground 20% towards deleted
+  Color diffBlockText{0, 0, 0, 0};        // the base (old) lines in that block; unset = textDim
+  Color diffBlockHeader{0, 0, 0, 0};      // the block's header row with the buttons; unset = tabInactive
+  Color tabVcsModified{0, 0, 0, 0};       // tab marker, file modified (Git / Perforce); unset = dirtyMarker
+  Color tabVcsAdded{0, 0, 0, 0};          // new / untracked / opened for add; unset = the added colour
+  Color tabVcsCheckedOut{0, 0, 0, 0};     // Perforce checked out; unset = the deleted colour (red)
+  Color tabVcsReadOnly{0, 0, 0, 0};       // Perforce read-only, not checked out (outlined marker); unset = textDim
+  Color vcsAdded() const { return orElse(diffAdded, {0.341f, 0.651f, 0.290f, 1}); }
+  Color vcsModified() const { return orElse(diffModified, tabAccent); }
+  Color vcsDeleted() const { return orElse(diffDeleted, diagnosticError); }
+
   // Token colours by name: lexical kinds ("keyword", "comment", ...) and clangd semantic token types ("method"), each
   // optionally narrowed by a modifier ("method.static"). Filled by the theme loader; empty means "use text".
   std::map<std::string, Color> tokens;

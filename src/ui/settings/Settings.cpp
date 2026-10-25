@@ -55,7 +55,9 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"font.size", SettingType::Float},
                                              {"ui.theme", SettingType::String},
                                              {"nav.statusCounts", SettingType::Bool},
-                                             {"picker.preview", SettingType::Bool}};
+                                             {"picker.preview", SettingType::Bool},
+                                             {"vcs.diffTool", SettingType::String},
+                                             {"vcs.diffToolArgs", SettingType::String}};
   return s;
 }
 

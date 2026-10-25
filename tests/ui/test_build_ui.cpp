@@ -583,6 +583,7 @@ TEST(c1ui_golden_build_panel_with_failed_build_and_squiggle) {
   o.semantic.persistFastIndex = false;
   o.watchForcePolling = true;
   o.watchPollMs = 60000;
+  o.vcs.enabled = false;  // C3c: edits here must not grow change marks, tab markers or a status segment
   Editor ed(TENFOLD_SOURCE_DIR "/examples/sample_project", o);
   REQUIRE(ed.start(&err));
   for (int i = 0; i < 2000 && !ed.semantic().status().fastIndexDone; ++i) {

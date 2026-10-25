@@ -8,6 +8,7 @@ namespace tf::ui {
 namespace {
 constexpr const char* kClose = "\xC3\x97";      // U+00D7
 constexpr const char* kDirty = "\xE2\x97\x8F";  // U+25CF
+float markerSize(float lineHeight) { return std::max(4.0f, std::round(lineHeight * 0.32f)); }
 }  // namespace
 
 int TabStrip::indexOf(int id) const {
@@ -70,6 +71,12 @@ void TabStrip::setDirty(int id, bool dirty) {
   tabs_[i].dirty = dirty;
   invalidate();
 }
+void TabStrip::setVcsMark(int id, VcsMark m) {
+  const int i = indexOf(id);
+  if (i < 0 || tabs_[i].vcs == m) return;
+  tabs_[i].vcs = m;
+  invalidate();
+}
 void TabStrip::setPinned(int id, bool pinned) {
   const int i = indexOf(id);
   if (i < 0 || tabs_[i].pinned == pinned) return;
@@ -115,9 +122,10 @@ void TabStrip::ensureGeo() {
     Geo g;
     g.slot = !t.pinned || t.dirty;
     const float extra = g.slot ? gap + slotW : 0;
-    g.shown = tr.fit(t.title, th.tabMaxWidth - 2 * th.padding - extra);
+    g.markW = t.vcs == VcsMark::None ? 0 : markerSize(tr.lineHeight()) + gap;
+    g.shown = tr.fit(t.title, th.tabMaxWidth - 2 * th.padding - extra - g.markW);
     g.titleW = tr.measure(g.shown);
-    g.w = th.padding + g.titleW + extra + (g.slot ? gap : th.padding);
+    g.w = th.padding + g.markW + g.titleW + extra + (g.slot ? gap : th.padding);
     g.x = x;
     x += g.w;
     geo_.push_back(std::move(g));
@@ -159,6 +167,14 @@ RectF TabStrip::tabRect(int id) {
   const int i = indexOf(id);
   if (i < 0 || i >= static_cast<int>(geo_.size())) return {0, 0, 0, 0};
   return {bounds().x + geo_[i].x - scroll_, bounds().y, geo_[i].w, bounds().h};
+}
+
+RectF TabStrip::vcsMarkerRect(int id) {
+  ensureGeo();
+  const int i = indexOf(id);
+  if (i < 0 || i >= static_cast<int>(geo_.size()) || geo_[i].markW <= 0 || !root()) return {0, 0, 0, 0};
+  const float s = markerSize(root()->text().lineHeight());
+  return {bounds().x + geo_[i].x - scroll_ + theme().padding, bounds().y + (bounds().h - s) / 2, s, s};
 }
 
 RectF TabStrip::closeRect(int id) {
@@ -309,7 +325,23 @@ void TabStrip::paint(PaintContext& ctx) {
     if (active)
       ctx.fill(intersect({full.x, full.y + full.h - th.accentHeight, full.w, th.accentHeight}, b), th.tabAccent);
     ctx.fill(intersect({full.x + full.w - 1, full.y, 1, full.h}, b), th.tabStripBackground);  // 1px separator
-    ctx.text(full.x + th.padding, textY, g.shown,
+    if (t.vcs != VcsMark::None) {
+      const RectF m = intersect(vcsMarkerRect(t.id), b);
+      const Color mc = t.vcs == VcsMark::Modified     ? Theme::orElse(th.tabVcsModified, th.dirtyMarker)
+                       : t.vcs == VcsMark::Added      ? Theme::orElse(th.tabVcsAdded, th.vcsAdded())
+                       : t.vcs == VcsMark::CheckedOut ? Theme::orElse(th.tabVcsCheckedOut, th.vcsDeleted())
+                       : t.vcs == VcsMark::ReadOnly   ? Theme::orElse(th.tabVcsReadOnly, th.textDim)
+                                                      : th.diagnosticError;
+      if (t.vcs == VcsMark::ReadOnly && m.w >= 4 && m.h >= 4) {  // an outlined square
+        ctx.fill({m.x, m.y, m.w, 1}, mc);
+        ctx.fill({m.x, m.y + m.h - 1, m.w, 1}, mc);
+        ctx.fill({m.x, m.y, 1, m.h}, mc);
+        ctx.fill({m.x + m.w - 1, m.y, 1, m.h}, mc);
+      } else {
+        ctx.fill(m, mc);
+      }
+    }
+    ctx.text(full.x + th.padding + g.markW, textY, g.shown,
              active ? Theme::orElse(th.tabActiveText, th.text)
              : hot  ? th.text
                     : Theme::orElse(th.tabInactiveText, th.textDim),

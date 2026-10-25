@@ -78,6 +78,21 @@ color.debugCurrentLine = #FFEE6240
 color.debugCurrentArrow = #FFEE62
 color.statusBackgroundDebugging = #CA5100
 color.statusTextDebugging = #FFFFFF
+# --- Version control (C3c) ------------------------------------------------------------------------------------------
+# Change strip between the line numbers and the text (and the scrollbar marks): added green, modified blue, deleted
+# red wedge. [?] All values are approximations of VS 2022's change-tracking margin, not sampled.
+color.diffAdded = #57A64A
+color.diffModified = #1C97EA
+color.diffDeleted = #F14C4C
+# Inline diff block under a change: the old lines on a red tint (VS: removed line background), its header row.
+color.diffBlockBackground = #4B1818
+color.diffBlockText = #D7BABA
+color.diffBlockHeader = #2D2D30
+# Tab markers: modified, added / untracked, Perforce checked out, Perforce read-only (outlined).
+color.tabVcsModified = #E2C08D
+color.tabVcsAdded = #73C991
+color.tabVcsCheckedOut = #F14C4C
+color.tabVcsReadOnly = #999999
 
 # --- Token colours (lexical kinds, then clangd semantic types / modifiers) -------------------------------------------
 token.keyword = #569CD6

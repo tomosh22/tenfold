@@ -39,16 +39,20 @@ float Scrollbar::scrollFor(float thumbY) const {
 RectF Scrollbar::markerRect(Lane lane, int line) const {
   const RectF& b = bounds();
   const float lw = b.w / 3, y = std::floor(b.y + (static_cast<float>(line) + 0.5f) / static_cast<float>(lines_) * b.h);
+  const float my = std::min(y, b.y + b.h - 2);
+  if (lane >= Lane::DiffAdded) return {b.x, my, std::max(2.0f, std::floor(lw * 0.6f)), 2};
   const int l = lane == Lane::Search ? 0 : lane == Lane::Caret ? 1 : 2;
-  return {b.x + lw * static_cast<float>(l), std::min(y, b.y + b.h - 2), lw, 2};
+  return {b.x + lw * static_cast<float>(l), my, lw, 2};
 }
 
 void Scrollbar::paint(PaintContext& ctx) {
   const Theme& th = ctx.theme;
   ctx.fill(bounds(), th.scrollbarTrack);
-  const Color colors[7] = {th.matchMarker,    th.textDim,    th.diagnosticError, th.diagnosticWarning,
-                           th.diagnosticInfo, th.buildError, th.buildWarning};
-  for (int lane : {0, 6, 5, 4, 3, 2, 1}) {  // later ones on top: clangd errors over warnings over info over build
+  const Color colors[kLanes] = {th.matchMarker,    th.textDim,     th.diagnosticError, th.diagnosticWarning,
+                                th.diagnosticInfo, th.buildError,  th.buildWarning,    th.vcsAdded(),
+                                th.vcsModified(),  th.vcsDeleted()};
+  // Later ones on top: changes, then search, build, clangd info / warnings / errors, carets.
+  for (int lane : {9, 8, 7, 0, 6, 5, 4, 3, 2, 1}) {
     float lastY = -1e9f;
     for (int line : marks_[lane]) {
       const RectF r = markerRect(static_cast<Lane>(lane), line);

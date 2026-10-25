@@ -23,6 +23,13 @@ class Layout {
   float gutterWidth(int lineCount) const;
   float textOffset(int lineCount) const { return gutterWidth(lineCount) + cellWidth() / 2; }
 
+  // Version-control change strip (C3c): a narrow bar between the line numbers and the text. It lies in the padding
+  // cell the gutter already reserves right of the numbers (numbers end one cell before gutterWidth), so it adds no
+  // width and no text moves when version control becomes active; gutterWidth() stays the one place that decides how
+  // wide everything left of the text is. x is relative to the view's left edge.
+  float diffStripWidth() const;
+  float diffStripX(int lineCount) const { return gutterWidth(lineCount) - diffStripWidth() - 2; }
+
   // Vertical position of a line relative to the top of the view; the line under a y in the view (clamped to the
   // document); and the line range [first, last) visible in a view `heightPx` tall scrolled by `scrollY`.
   float lineTop(int line, float scrollY) const { return static_cast<float>(line) * lineHeight() - scrollY; }
