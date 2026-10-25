@@ -7,7 +7,7 @@ decided by the user). Each has a default we implement until answered.
 |---|---|---|---|
 | 1 | Exact key bindings in your 10x setup (export `KeyMappings.10x_settings` if possible) | Alt+Left/Right and Ctrl+-/Ctrl+Shift+- for Back/Forward; F12 family for navigation | B4 |
 | 2 | Which Visual Studio configuration/platform 10x uses for parsing by default | Debug / x64, overridable in `.tenfold/workspace.json` | A2 |
-| 3 | Undo grouping: does 10x undo a whole typed word or one character? | word-level grouping with 1 s pause boundary | A5 |
+| 3 | Undo grouping: does 10x undo a whole typed word or one character? And does a typed space end the word it follows (so "hello world" undoes as "world", then "hello ") or start the next one? | word-level grouping with 1 s pause boundary; whitespace joins and then closes the current step. Settings `undoGrouping` ("word"/"char") and `undoGroupPauseMs` in `.tenfold/workspace.json` | A5 |
 | 4 | Does 10x soft-wrap long lines by default? Smooth scrolling? | no wrap; smooth scroll on | B2 |
 | 5 | Tab/panel behaviours: pinned tabs, MRU Ctrl+Tab order, drag between panels | all three implemented | B3 |
 | 6 | Does symbol search show a preview of the target line? | yes | B5 |

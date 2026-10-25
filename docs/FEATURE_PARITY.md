@@ -54,8 +54,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | UTF-8 text, CRLF preserved | ✅ | |
-| Undo / redo | ✅ | Per document, linear. **verify** 10x's grouping of typed characters. |
-| Multi-caret / column select | ⬜ | View-layer feature over `Document::replace`. |
+| Undo / redo | ✅ | Per document, linear; nestable undo groups restore caret sets; typed-word grouping (A5, setting). **verify** 10x's grouping of typed characters (OPEN_QUESTIONS #3). |
+| Multi-caret / column select | 🔶 | Engine done (A5): carets/selections, add above/below, next occurrence, column select, word/line/page moves; property-tested. GUI in B2. |
 | Auto-indent, bracket matching, comment toggling | ⬜ | Lexer available (`CppLexer`). |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 
