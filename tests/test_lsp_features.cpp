@@ -364,11 +364,14 @@ TEST(lsp_highlight_folding_inlay) {
 // Code actions, formatting
 // ---------------------------------------------------------------------------
 
-TEST(lsp_code_action_adds_missing_include_one_undo_step) {
-  SKIP_WITHOUT_CLANGD();
+// Opens `src` as a new file of a temp copy of the sample project, takes the include quick fix whose title contains
+// `wantTitle` for the first diagnostic on `diagLine`, applies it and checks it is one undo step that leaves the disk
+// alone. `needle` must appear in the text afterwards.
+static void quickFixCase(const std::string& src, int diagLine, const std::string& expectDiag,
+                         const std::string& wantTitle, const std::string& needle, const std::string& gone,
+                         bool skipIfDiagMissing) {
   TempDir dir;
   fs::copy(kRoot, dir.path, fs::copy_options::recursive);
-  const std::string src = "#include <vector>\n\nint use() {\n  std::string s;\n  return 0;\n}\n";
   const fs::path file = dir.path / "src/needs_include.cpp";
   spit(file, src);
   Fx f(dir.path);
@@ -377,16 +380,26 @@ TEST(lsp_code_action_adds_missing_include_one_undo_step) {
   REQUIRE(d != nullptr);
   REQUIRE(f.ed.waitFor([&] { return !f.ed.diagnostics(file).empty(); }, 60000));
   const Diagnostic* diag = nullptr;
-  for (auto& x : f.ed.diagnostics(file))
-    if (x.range.start.line == 3) diag = &x;
+  for (auto& x : f.ed.diagnostics(file)) {
+    if (!diag && x.range.start.line == diagLine) diag = &x;
+  }
+  if (diag && diag->message.find(expectDiag) == std::string::npos) diag = nullptr;
+  if (!diag) {
+    for (auto& x : f.ed.diagnostics(file)) std::cerr << "    diag " << x.range.start.line << ": " << x.message << "\n";
+    if (skipIfDiagMissing) {
+      std::cerr << "    SKIPPED: this platform's standard library does not produce the expected diagnostic\n";
+      return;
+    }
+  }
   REQUIRE(diag != nullptr);
   std::vector<CodeAction> actions;
   std::string err;
-  REQUIRE(f.call<std::vector<CodeAction>>([&](auto done) { f.ed.codeActions(diag->range, done); }, &actions, &err));
   const CodeAction* inc = nullptr;
+  REQUIRE(f.call<std::vector<CodeAction>>([&](auto done) { f.ed.codeActions(diag->range, done); }, &actions, &err));
   for (auto& a : actions)
-    if (a.title.find("<string>") != std::string::npos) inc = &a;
+    if (a.title.find(wantTitle) != std::string::npos) inc = &a;
   if (!inc) {
+    std::cerr << "    diagnostic: " << diag->message << "\n";
     for (auto& a : actions) std::cerr << "    action: " << a.title << "\n";
   }
   REQUIRE(inc != nullptr);
@@ -397,12 +410,29 @@ TEST(lsp_code_action_adds_missing_include_one_undo_step) {
     if (!e.empty()) std::cerr << "    " << e << "\n";
   });
   f.ed.waitFor([&] { return ok; }, 5000);
-  CHECK(d->buffer().text().find("#include <string>") != std::string::npos);
+  CHECK(d->buffer().text().find(needle) != std::string::npos);
+  if (!gone.empty()) CHECK(d->buffer().text().find(gone) == std::string::npos);
   CHECK(d->buffer().text() != src);
   CHECK(d->undo());  // ONE step
   CHECK_EQ(d->buffer().text(), src);
   CHECK(!d->canUndo());
   CHECK_EQ(slurp(file), src);  // nothing written to disk
+}
+
+// The classic: std::string without <string>. Whether the diagnostic exists depends on the standard library, not on
+// us: libstdc++'s <vector> only forward-declares std::string (error + clangd's stdlib-header fix), while libc++'s and
+// the MSVC STL's <vector> pull in the full <string> (no error to fix), so there the case is skipped with a message.
+// The typo-correction test below covers the same edit/undo path on every platform.
+TEST(lsp_code_action_adds_missing_include_one_undo_step) {
+  SKIP_WITHOUT_CLANGD();
+  quickFixCase("#include <vector>\n\nint use() {\n  std::string s;\n  return 0;\n}\n", 3, "'string' in namespace 'std'",
+               "<string>", "#include <string>", "", /*skipIfDiagMissing=*/true);
+}
+
+// A fix-it that carries a plain edit, independent of any library: clang's typo correction.
+TEST(lsp_code_action_typo_fixit_one_undo_step) {
+  SKIP_WITHOUT_CLANGD();
+  quickFixCase("int use() {\n  int length = 3;\n  return lenth;\n}\n", 2, "lenth", "length", "length", "lenth", false);
 }
 
 TEST(lsp_code_action_command_applies_server_edit) {
