@@ -33,6 +33,11 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#endif
+
 #include "lsp/JsonRpc.h"
 
 using tf::Json;
@@ -94,7 +99,7 @@ void setWritable(const fs::path& p, bool w) {
 }
 
 void save() {
-  std::ofstream o(statePath, std::ios::trunc);
+  std::ofstream o(statePath, std::ios::binary | std::ios::trunc);
   o << state.dump(2);
 }
 
@@ -314,6 +319,11 @@ int cmdAdd(const std::vector<std::string>& a) {
 }  // namespace
 
 int main(int argc, char** argv) {
+#ifdef _WIN32
+  // Emulate exactly the bytes we are told to print: no \n -> \r\n translation.
+  _setmode(_fileno(stdout), _O_BINARY);
+  _setmode(_fileno(stderr), _O_BINARY);
+#endif
   const char* sp = std::getenv("FAKE_P4_STATE");
   if (!sp) {
     std::fputs("fake p4: FAKE_P4_STATE is not set\n", stderr);
@@ -321,7 +331,7 @@ int main(int argc, char** argv) {
   }
   statePath = sp;
   {
-    std::ifstream in(statePath);
+    std::ifstream in(statePath, std::ios::binary);
     state = Json::parse(in, nullptr, false);
     if (!state.is_object()) {
       std::fputs("fake p4: cannot read the state file\n", stderr);

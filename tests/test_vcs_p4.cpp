@@ -14,6 +14,7 @@
 #include "test_main.h"
 #include "test_vcs_util.h"
 #include "vcs/GitProvider.h"
+#include "vcs/LineDiff.h"
 #include "vcs/PerforceProvider.h"
 #include "vcs/VcsManager.h"
 
@@ -574,4 +575,25 @@ TEST(vcs_provider_selection) {
   CHECK(VcsManager::providersFor("git")[0]()->name() == "git");
   CHECK(VcsManager::providersFor("perforce")[0]()->name() == "perforce");
   CHECK(VcsManager::defaultProviders()[0]()->name() == "perforce");
+}
+
+TEST(p4_base_text_line_endings_do_not_matter) {
+  // The real p4 prints text files with the client's LineEnd setting (CRLF on many Windows clients): the provider
+  // hands the bytes over as printed and the diff ignores the ending, in both directions.
+  P4Fx fx;
+  fx.depotFile("crlf.txt", "a\r\nb\r\nc\r\n");
+  fx.depotFile("lf.txt", "a\nb\nc\n");
+  fx.save();
+  auto p = fx.detected();
+  auto crlf = p->baseText(fx.path("crlf.txt"));
+  auto lf = p->baseText(fx.path("lf.txt"));
+  REQUIRE(crlf.has_value());
+  REQUIRE(lf.has_value());
+  CHECK_EQ(*crlf, std::string("a\r\nb\r\nc\r\n"));  // exactly what the fake printed (no CRT translation)
+  CHECK_EQ(*lf, std::string("a\nb\nc\n"));
+  CHECK(splitLines(*crlf) == splitLines(std::string("a\nb\nc\n")));      // LF buffer against a CRLF base
+  CHECK(splitLines(*lf) == splitLines(std::string("a\r\nb\r\nc\r\n")));  // CRLF buffer against an LF base
+  CHECK(diffLines(splitLines(*crlf), splitLines(std::string("a\nb\nc\n"))).empty());
+  CHECK(diffLines(splitLines(*lf), splitLines(std::string("a\r\nb\r\nc\r\n"))).empty());
+  CHECK_EQ(diffLines(splitLines(*crlf), splitLines(std::string("a\nX\nc\n"))).size(), static_cast<size_t>(1));
 }
