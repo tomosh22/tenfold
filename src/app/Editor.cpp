@@ -96,13 +96,6 @@ Position wordLeft(const TextBuffer& b, Position p) {
   while (c > 0 && charClass(l, c - 1) == k) --c;
   return {p.line, c};
 }
-
-// Where position `p` (at or after `endPre`) ends up when the text up to `endPre` was replaced such that `endPre`
-// became `endPost`. This composes the per-edit remapping of TextBuffer::EditResult for a whole bottom-to-top batch.
-Position remapAfter(Position p, Position endPre, Position endPost) {
-  if (p.line == endPre.line) return {endPost.line, endPost.column + (p.column - endPre.column)};
-  return {p.line + (endPost.line - endPre.line), p.column};
-}
 }  // namespace
 
 Editor::Editor(fs::path root) : Editor(std::move(root), Options()) {}
@@ -860,22 +853,12 @@ void Editor::applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious) {
   }
   Document& doc = *current_;
   doc.beginGroup(carets_, joinPrevious);
+  std::vector<Document::BatchEdit> batch(n);
+  for (size_t k = 0; k < n; ++k) batch[k] = {edits[order[k]].range, std::move(edits[order[k]].text)};
   inEdit_ = true;
-  std::vector<TextBuffer::EditResult> results(n);
-  for (size_t k = n; k-- > 0;) {
-    CaretEdit& e = edits[order[k]];
-    if (e.range.empty() && e.text.empty()) results[k] = {e.range, e.range, 0};
-    else results[k] = doc.replace(e.range, e.text);
-  }
+  const std::vector<Range> after = doc.replaceMany(std::move(batch));
   inEdit_ = false;
-  Position endPre{}, endPost{};
-  for (size_t k = 0; k < n; ++k) {
-    const TextBuffer::EditResult& res = results[k];
-    const Position landed = k == 0 ? res.inserted.end : remapAfter(res.inserted.end, endPre, endPost);
-    carets_[order[k]] = caretAt(landed);
-    endPre = res.removed.end;
-    endPost = landed;
-  }
+  for (size_t k = 0; k < n; ++k) carets_[order[k]] = caretAt(after[k].end);
   wants_.assign(n, -1);
   normalizeCarets();
   doc.endGroup(carets_);

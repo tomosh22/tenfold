@@ -37,6 +37,16 @@ class TextBuffer {
   // Replace `range` with `text`. Returns details for listeners (undo,
   // navigation history, LSP incremental sync).
   EditResult replace(Range range, std::string_view text);
+  // Apply several edits at once. `edits` must be sorted by position and non-overlapping (edit k+1 starts at or
+  // after the end of edit k), all in the coordinates of the buffer BEFORE the call. Cost is O(lines + inserted text)
+  // instead of O(lines) per edit. Result k equals what replace() returns when the edits are applied one at a time
+  // from the last to the first: `removed` and `inserted.start` are in the original coordinates, `inserted.end`
+  // is where the text ends in the state with edits k+1.. applied but not 0..k-1.
+  struct Edit {
+    Range range;
+    std::string_view text;
+  };
+  std::vector<EditResult> replaceMany(const std::vector<Edit>& edits);
   EditResult insert(Position at, std::string_view text) { return replace({at, at}, text); }
   EditResult erase(Range range) { return replace(range, {}); }
 

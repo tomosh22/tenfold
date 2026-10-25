@@ -47,37 +47,87 @@ bool Document::saveToDisk(std::string* error) {
 
 std::string Document::uri() const { return pathToUri(path_); }
 
-TextBuffer::EditResult Document::applyRaw(Range r, std::string_view text, UndoRecord* rec) {
-  r.start = buf_.clamp(r.start);
-  r.end = buf_.clamp(r.end);
-  if (r.end < r.start) std::swap(r.start, r.end);
-  std::string old = buf_.textInRange(r);
-  auto res = buf_.replace(r, text);
-  if (rec) {
-    rec->range = res.inserted;  // to undo, replace the inserted range with old text
-    rec->oldText = old;
-    rec->newText = std::string(text);
+Document::BatchResult Document::applyBatch(const std::vector<BatchEdit>& edits, Batch* rec, bool skipNoops) {
+  const size_t n = edits.size();
+  std::vector<Range> rs(n);
+  for (size_t k = 0; k < n; ++k) {
+    Range r{buf_.clamp(edits[k].range.start), buf_.clamp(edits[k].range.end)};
+    if (r.end < r.start) std::swap(r.start, r.end);
+    if (k > 0 && r.start < rs[k - 1].end) {  // contract violation: keep the edits disjoint
+      r.start = rs[k - 1].end;
+      if (r.end < r.start) r.end = r.start;
+    }
+    rs[k] = r;
   }
-  ++version_;
+  std::vector<std::string> olds(n);
+  std::vector<TextBuffer::Edit> be(n);
+  for (size_t k = 0; k < n; ++k) {
+    olds[k] = buf_.textInRange(rs[k]);
+    be[k] = {rs[k], edits[k].text};
+  }
+  BatchResult out;
+  out.edits = buf_.replaceMany(be);
+
+  // Where each inserted text sits afterwards: remap through the preceding edits (everything at or after the end of
+  // edit k-1 moves rigidly: lines shift, and columns on the end line follow the end of its inserted text).
+  out.after.resize(n);
+  Position endPre{}, endPost{};
+  auto remap = [&](Position p, size_t k) {
+    if (k == 0) return p;
+    if (p.line == endPre.line) return Position{endPost.line, endPost.column + (p.column - endPre.column)};
+    return Position{p.line + (endPost.line - endPre.line), p.column};
+  };
+  auto skipped = [&](size_t k) { return skipNoops && rs[k].empty() && edits[k].text.empty(); };
+  size_t real = 0;
+  for (size_t k = 0; k < n; ++k) {
+    const Position s = remap(rs[k].start, k), e = remap(out.edits[k].inserted.end, k);
+    out.after[k] = {s, e};
+    endPre = rs[k].end;
+    endPost = e;
+    if (!skipped(k)) ++real;
+  }
+  if (rec)
+    for (size_t k = 0; k < n; ++k)
+      if (!skipped(k)) rec->push_back({out.after[k], edits[k].text, std::move(olds[k])});
+
+  if (real == 0) return out;
   dirty_ = true;
-  Change ch{r, std::string(text), res.lineDelta};
   auto copy = listeners_;  // listeners may add/remove listeners
-  for (auto& [id, l] : copy) l(*this, ch);
-  return res;
+  int v = version_;
+  for (size_t k = n; k-- > 0;) {  // one event per edit, last to first, so each range is valid when it is handled
+    if (skipped(k)) continue;
+    version_ = ++v;
+    Change ch{rs[k], edits[k].text, out.edits[k].lineDelta};
+    for (auto& [id, l] : copy) l(*this, ch);
+  }
+  version_ = v;
+  return out;
 }
 
-TextBuffer::EditResult Document::replace(Range r, std::string_view text) {
-  UndoRecord rec;
-  auto res = applyRaw(r, text, &rec);
+void Document::record(Batch&& b) {
+  if (b.empty()) return;
   if (depth_ > 0) {
-    open_.recs.push_back(std::move(rec));
+    open_.batches.push_back(std::move(b));
   } else {
     UndoGroup g;
-    g.recs.push_back(std::move(rec));
+    g.batches.push_back(std::move(b));
     undo_.push_back(std::move(g));
   }
   redo_.clear();
-  return res;
+}
+
+TextBuffer::EditResult Document::replace(Range r, std::string_view text) {
+  Batch rec;
+  auto res = applyBatch({{r, std::string(text)}}, &rec, false);
+  record(std::move(rec));
+  return res.edits[0];
+}
+
+std::vector<Range> Document::replaceMany(std::vector<BatchEdit> edits) {
+  Batch rec;
+  auto res = applyBatch(edits, &rec, true);
+  record(std::move(rec));
+  return std::move(res.after);
 }
 
 void Document::beginGroup(std::vector<Selection> carets, bool joinPrevious) {
@@ -95,27 +145,32 @@ void Document::endGroup(std::vector<Selection> carets) {
   if (depth_ == 0) return;
   if (!carets.empty()) open_.after = std::move(carets);
   if (--depth_ > 0) return;
-  if (!open_.recs.empty()) undo_.push_back(std::move(open_));
+  if (!open_.batches.empty()) undo_.push_back(std::move(open_));
   open_ = UndoGroup{};
+}
+
+// Reverts the group's batches last to first, each as one batched edit, and returns the group that reverts that.
+Document::UndoGroup Document::flipGroup(UndoGroup&& g) {
+  UndoGroup out;
+  out.before = std::move(g.before);
+  out.after = std::move(g.after);
+  for (size_t i = g.batches.size(); i-- > 0;) {
+    std::vector<BatchEdit> edits;
+    edits.reserve(g.batches[i].size());
+    for (UndoRec& r : g.batches[i]) edits.push_back({r.range, std::move(r.alt)});
+    Batch flipped;
+    applyBatch(edits, &flipped, false);
+    out.batches.push_back(std::move(flipped));
+  }
+  return out;
 }
 
 bool Document::undo() {
   if (undo_.empty() || depth_ > 0) return false;
   UndoGroup g = std::move(undo_.back());
   undo_.pop_back();
-  UndoGroup redoGroup;
-  redoGroup.before = g.before;
-  redoGroup.after = g.after;
-  for (size_t i = g.recs.size(); i-- > 0;) {
-    const UndoRecord& rec = g.recs[i];
-    UndoRecord inverse;
-    applyRaw(rec.range, rec.oldText, &inverse);
-    // inverse.range now covers oldText; redo replaces it with newText.
-    redoGroup.recs.push_back({inverse.range, rec.oldText, rec.newText});
-  }
-  std::reverse(redoGroup.recs.begin(), redoGroup.recs.end());
   restored_ = g.before;
-  redo_.push_back(std::move(redoGroup));
+  redo_.push_back(flipGroup(std::move(g)));
   return true;
 }
 
@@ -123,16 +178,8 @@ bool Document::redo() {
   if (redo_.empty() || depth_ > 0) return false;
   UndoGroup g = std::move(redo_.back());
   redo_.pop_back();
-  UndoGroup undoGroup;
-  undoGroup.before = g.before;
-  undoGroup.after = g.after;
-  for (const UndoRecord& rec : g.recs) {
-    UndoRecord fwd;
-    applyRaw(rec.range, rec.newText, &fwd);
-    undoGroup.recs.push_back({fwd.range, rec.oldText, rec.newText});
-  }
   restored_ = g.after;
-  undo_.push_back(std::move(undoGroup));
+  undo_.push_back(flipGroup(std::move(g)));
   return true;
 }
 
