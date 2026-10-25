@@ -28,7 +28,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. **verify** 10x's `.10x` workspace format if import is wanted. |
 | Fast "open file" fuzzy search | 🔶 | `Workspace` has the file list; reuse `FastIndex::fuzzyScore`. |
 | Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI in B5. |
-| File watching / external changes | ⬜ | |
+| File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents (UI prompt in B-phase). |
 
 ## Code intelligence
 
