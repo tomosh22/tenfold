@@ -24,11 +24,19 @@ Ctrl+F12 = Editor.GotoDeclaration
 Shift+F12 = Editor.FindReferences
 Alt+O = Editor.SwitchHeaderSource
 
+# --- File and application ---
+Ctrl+S = File.Save
+Ctrl+Q = App.Quit
+
 # --- Pickers and search ---
 Ctrl+, = Search.SymbolSearch
 Ctrl+P = File.OpenFile
 Ctrl+O = File.OpenFile
 Ctrl+Shift+F = Search.FindInWorkspace
+Alt+1 = Workbench.FocusPanel 1
+Alt+2 = Workbench.FocusPanel 2
+Alt+3 = Workbench.FocusPanel 3
+Alt+4 = Workbench.FocusPanel 4
 Ctrl+Tab = Workbench.CycleMruNext
 Ctrl+Shift+Tab = Workbench.CycleMruPrev
 
@@ -63,7 +71,11 @@ Ctrl+Shift+Tab = Workbench.CycleMruPrev
 [editor] Backspace = Editor.Backspace
 [editor] Delete = Editor.Delete
 [editor] Enter = Editor.Enter
+[editor] KpEnter = Editor.Enter
 [editor] Tab = Editor.Tab
+[editor] Escape = Editor.CollapseCarets
+[editor] Ctrl+Backspace = Editor.DeleteWordLeft
+[editor] Ctrl+Delete = Editor.DeleteWordRight
 [editor] Ctrl+Z = Editor.Undo
 [editor] Ctrl+Y = Editor.Redo
 [editor] Ctrl+Shift+Z = Editor.Redo

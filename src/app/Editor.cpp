@@ -910,6 +910,17 @@ void Editor::insertText(const std::string& text) {
   }
 }
 
+void Editor::insertTextPerCaret(const std::vector<std::string>& texts) {
+  if (!current_ || carets_.empty() || texts.size() != carets_.size()) return;
+  breakTyping();
+  std::vector<size_t> order(carets_.size());
+  for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+  std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return carets_[a].range() < carets_[b].range(); });
+  std::vector<CaretEdit> edits(carets_.size());
+  for (size_t r = 0; r < order.size(); ++r) edits[order[r]] = {carets_[order[r]].range(), texts[r]};
+  applyCaretEdits(std::move(edits), false);
+}
+
 void Editor::backspace() {
   if (!current_ || carets_.empty()) return;
   breakTyping();

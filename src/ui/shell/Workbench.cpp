@@ -420,6 +420,14 @@ void Workbench::showDocument(Document& d) {
 void Workbench::showActiveTab() {
   if (!active_ || active_->activeId() < 0) return;
   if (Document* d = docOf(active_->activeId())) showDocument(*d);
+  focusActiveView();
+}
+
+// Keys go to the focused widget: after a tab/panel switch that must be the view now shown (the old one is hidden).
+void Workbench::focusActiveView() {
+  if (!active_) return;
+  Widget* w = active_->activeContent();
+  if (w && w->acceptsFocus() && !w->hasFocus()) w->setFocus();
 }
 
 // The Editor navigated: make a tab for its current document visible without recording anything.
@@ -438,6 +446,7 @@ bool Workbench::revealDocument(Document& d) {
     active_ = p;
     requestLayout();
   }
+  focusActiveView();
   return true;
 }
 

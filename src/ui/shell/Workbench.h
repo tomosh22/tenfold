@@ -106,6 +106,7 @@ class Workbench : public RootWidget {
   void releaseDocument(const std::filesystem::path& path);
   void showDocument(Document& d);
   void showActiveTab();
+  void focusActiveView();
   bool revealDocument(Document& d);
   void applyDrop(int id, const DropTarget& t);
   void cancelDrag();

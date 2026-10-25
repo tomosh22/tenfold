@@ -251,7 +251,7 @@ quads are emitted after the tree has painted, so a shell frame is one rect batch
 ~0.05 ms CPU for chrome + two text views). If the glyph atlas grows mid-frame the recorded UVs are stale and `render()`
 repaints once. Widgets: `TabStrip` (pinned, dirty marker, close, MRU order, drag reorder / drag-out, overflow
 scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar` (keyed, clickable segments), plus
-`LinesView` (placeholder content until B2's TextView). `Theme` is a neutral dark placeholder until B7 loads it from
+`TextView` (below). `Theme` is a neutral dark placeholder until B7 loads it from
 files. The engine never includes any of this.
 
 ## Commands and key bindings (`src/ui/commands`, `src/ui/settings/KeyBindings.*`, part of `tenfold_ui`)
@@ -286,11 +286,12 @@ user dir and `<workspace>/.tenfold` (if it exists) with `FileWatcher`, and on a 
 thread-safe `wake` callback); the UI thread calls `poll()`, which reloads, fires `onChanged` / `onThemeChanged`, and
 `applyTo(RootWidget&, scale)` swaps the theme (repaint). `editorSettings()` gives TextView its subset in one call.
 
+user's 10x key map is known (OPEN_QUESTIONS #1). `EditorApp` (below) wires it into the app.
 ### Workbench (`src/ui/shell`, B3b)
 
 `Workbench` (a `RootWidget`) owns the editor layout: a tree of `Splitter`s and `Panel`s above a `StatusBar`, and the
 map tab id -> file. A tab is a view onto an `Editor` `Document` (several tabs may show one document); the view widget
-comes from `makeDocumentView(Editor&, Document&)` in `DocumentView.cpp`, the single seam B2's TextView plugs into.
+comes from `makeDocumentView(Editor&, Document&)` in `DocumentView.cpp`: a TextView pinned to the document.
 Split duplicates the active tab into the new panel; dragging a tab (TabStrip drag-out, the mouse is then captured by the
 workbench) onto a strip moves it, onto a content edge splits; closing a panel moves its tabs to the nearest neighbour.
 Tab switches go through `Editor::activateDocument`, which does not touch navigation history; navigation through the
@@ -300,3 +301,50 @@ reveals the tab of the Editor's current document, refreshes dirty markers and th
 Layout is saved to `<workspace>/.tenfold/layout.json` (split orientation + ratio, panels, tab paths relative to the
 workspace, pinned flags, active tab, active panel) and restored on start; missing files are dropped and a corrupt file
 yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the workbench.
+
+Two small framework additions came with the editor view: an **overlay layer** (`Widget::paintOverlay`, run after the glyphs
+are emitted, so carets draw over text at the cost of one extra rect batch) and **ticks** (`RootWidget::tick(nowMs)` calls
+`Widget::onTick`, which returns the ms until it next wants a tick; the app waits at most that long, so caret blink and
+smooth scrolling need no timer thread and an idle window sleeps).
+
+### TextView (B2a, `src/ui/widgets/TextView.*`, `src/ui/view/{Viewport,Layout}.*`)
+
+The editor view over an `Editor&` and a `Document` (it follows `currentDocument()`, or is pinned to one document for
+tabs; `activate()` makes a pinned view's document current via `Editor::activateDocument` with the view's remembered
+caret, so a tab switch records no navigation history). `Viewport` holds the pixel scroll offsets
+and the smooth-scroll animation (exponential approach, 60 ms); `Layout` maps lines/carets to pixels and a byte offset to x
+and back by delegating to `gfx::TextLayout` (tabs, wide characters), so hit-testing and drawing cannot disagree. A frame
+paints only the visible lines: current-line highlight and selection rects first, then the gutter numbers and line text
+through the deferred glyph path, then caret bars in the overlay (about 3 GL draw calls). The view never mutates carets
+or text: mouse clicks, drags (`setSelections`, Alt-drag `columnSelect`), double/triple click (word / line), shift-click,
+Ctrl- and Alt-click (add a caret) and all keys call `Editor`, so undo groups, navigation history and LSP sync stay
+correct. The view does not handle keys (`EditorApp` turns them into commands); it handles text input, the mouse and the wheel. Changes made
+elsewhere (another view, LSP edits, Back/Forward) are noticed by comparing document, version and selections on every
+event and tick, and the caret is scrolled into view. Settings: `smoothScroll` (default on) and `wordWrap` (default off,
+reserved, not implemented) per OPEN_QUESTIONS #4, `caretBlink`, `caretBlinkMs`, `highlightCurrentLine`, `wheelLines`.
+Measured keystroke-to-paint (key event, edit, sync, layout, paint recording; 100k lines, 1920x1080) is ~0.1 ms with one
+caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpipe submit is not representative.
+
+### EditorApp: input to commands (`src/ui/shell/EditorApp.*`, B-INT)
+
+`EditorApp(root, editor, workbench*)` is the glue the window's event loop calls. `handleEvent(e, nowMs)` turns a KeyDown
+(a lone modifier press is not a stroke) or an X1/X2 MouseDown into a `KeyChord`, picks the context (`editor` when the
+focused widget is a TextView, else `global`), runs `KeyMap::feed` and `CommandRegistry::run`; everything else (text
+input, the mouse, unbound keys) is dispatched to the widget tree. Bindings are `loadKeyBindings(workspace root, user
+config dir)`. `tick(nowMs)` runs `Workbench::sync`, expires a stale chord (`KeyMap::tick`) and message, and ticks the
+root; it returns the wait the main loop should use. The status bar has a `message` segment: the pending chord text
+("Ctrl+K..."), the first key-binding diagnostic (`formatDiag`, "+N more", shown for 12 s), "<command> is not available
+yet" for a bound command without a handler (File.OpenFile, Search.SymbolSearch, Search.FindInWorkspace: B5 builds the
+pickers), a failed command, or a navigation result with several candidates (picker also B5). The UI-only handlers bound
+here: `App.Quit` (Ctrl+Q), `Workbench.CycleMruNext/Prev` (the cycle ends when a key event arrives without Ctrl),
+`Workbench.FocusPanel N` (1-based), `Editor.Copy/Cut/Paste` and, in the engine-served set, `File.Save`. Multi-caret
+clipboard: copy joins the selections with a line break (no selection: the caret lines); paste with exactly as many lines
+as carets (a final line break does not count) inserts one line per caret in document order
+(`Editor::insertTextPerCaret`), otherwise the whole text at every caret. The clipboard has an injectable backend
+(`setClipboardBackend`) for tests. Escape is a binding (`[editor] Escape = Editor.CollapseCarets`), it never quits;
+Ctrl+Q or closing the window quits, and shutdown is: `Workbench::saveLayout`, then `Editor::shutdown`. The Workbench
+focuses the view of the active tab after every tab/panel switch or reveal, so keys always reach the visible TextView.
+
+`tenfold-ui <workspace> [file]` is this editor. The single-file `EditorShell` of B2a was dropped (a Workbench with one
+tab is the same thing); `--shell` (B3a widget demo, still key-driven through EditorApp) and `--demo` (renderer scene)
+remain.

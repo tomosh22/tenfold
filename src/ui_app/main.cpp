@@ -1,9 +1,12 @@
 // tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH]
+//   default: the editor (Workbench of TextView tabs, key bindings, layout.json); --shell: the B3a widget demo;
+//   --demo: the renderer scene
 #include <algorithm>
+#include <chrono>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
-#include <fstream>
+#include <filesystem>
 #include <memory>
 #include <string>
 #include <vector>
@@ -14,6 +17,8 @@
 #include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Window.h"
+#include "ui/settings/KeyBindings.h"
+#include "ui/shell/EditorApp.h"
 #include "ui/shell/Workbench.h"
 #include "ui/widgets/ShellDemo.h"
 
@@ -53,21 +58,12 @@ void drawScene(gfx::Renderer& r, int w, int h, gfx::TextureId atlas, float mx, f
   r.endFrame();
 }
 
-std::vector<std::string> readLines(const std::string& path, std::string& err) {
-  std::ifstream in(path, std::ios::binary);
-  std::vector<std::string> lines;
-  if (!in) {
-    err = "cannot open " + path;
-    return lines;
-  }
-  for (std::string l; std::getline(in, l);) {
-    if (!l.empty() && l.back() == '\r') l.pop_back();
-    lines.push_back(std::move(l));
-  }
-  return lines;
-}
+constexpr const char *kDefaultWorkspace = "examples/sample_project", *kDefaultFile = "src/main.cpp";
 
-constexpr const char* kDefaultFile = "examples/sample_project/src/main.cpp";
+int64_t nowMs() {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
 
 }  // namespace
 
@@ -115,62 +111,53 @@ int main(int argc, char** argv) {
     std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
     return 1;
   }
-  std::unique_ptr<Editor> editor;  // created only; wiring it to views is B2+
-  if (!workspace.empty()) editor = std::make_unique<Editor>(workspace);
+  std::unique_ptr<Editor> editor;  // editor mode only; the --shell demo owns its own
   const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
 
-  // Text view (B1c): plain lines + gutter. The font setting arrives with B7; for now discovery decides.
-  std::vector<std::string> lines;
   std::unique_ptr<gfx::TextRenderer> text;
-  float scrollY = 0;
-  std::unique_ptr<ui::ShellDemo> shellRoot;
-  std::unique_ptr<ui::Workbench> bench;
-  if (!workspace.empty() && !shell && !demo) {  // B3b: the workbench (restores <workspace>/.tenfold/layout.json)
-    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
-    if (!text) {
-      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
-      return 1;
-    }
-    bench = std::make_unique<ui::Workbench>(*text, *editor, ui::Theme::darkDefault().scaled(win->pixelScale()));
-    const bool restored = bench->restoreLayout();
-    if (!file.empty()) bench->openFile(file);
-    else if (!restored) bench->openFile("src/main.cpp");  // first run: don't start blank (no-op if absent)
-    bench->sync();
-  } else if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
-    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
-    if (!text) {
-      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
-      return 1;
-    }
-    const float sc = win->pixelScale();
-    shellRoot = std::make_unique<ui::ShellDemo>(*text, workspace.empty() ? "examples/sample_project" : workspace,
-                                                ui::Theme::darkDefault().scaled(sc));
-  } else if (!demo) {
-    if (file.empty()) file = kDefaultFile;
-    err.clear();
-    lines = readLines(file, err);
-    if (!err.empty()) {
-      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
-      return 1;
-    }
-    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
+  std::unique_ptr<ui::RootWidget> demoRoot;  // --shell: ShellDemo
+  std::unique_ptr<ui::Workbench> bench;      // default: the editor
+  std::unique_ptr<ui::EditorApp> app;
+  if (shell || !demo) {
+    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);  // font setting arrives with B7
     if (!text) {
       std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
       return 1;
     }
   }
-  auto drawFrame = [&](int w, int h, float mx, float my) {
-    if (bench) bench->render(*renderer, w, h);
-    else if (shellRoot) shellRoot->render(*renderer, w, h);
-    else if (demo) drawScene(*renderer, w, h, atlas, mx, my);
-    else {
-      text->draw(*renderer, w, h, lines, scrollY);
-      renderer->endFrame();
+  const ui::Theme theme = ui::Theme::darkDefault().scaled(win->pixelScale());
+  if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
+    auto sd = std::make_unique<ui::ShellDemo>(*text, workspace.empty() ? kDefaultWorkspace : workspace, theme);
+    app = std::make_unique<ui::EditorApp>(*sd, sd->editor(), nullptr, ui::userConfigDir());
+    demoRoot = std::move(sd);
+  } else if (!demo) {  // the editor: <workspace> [file], the file relative to the workspace or to the cwd
+    namespace fs = std::filesystem;
+    if (workspace.empty())
+      workspace = file.empty() || !fs::exists(file) ? kDefaultWorkspace : fs::path(file).parent_path().string();
+    if (workspace.empty()) workspace = ".";
+    editor = std::make_unique<Editor>(fs::absolute(workspace));
+    bench = std::make_unique<ui::Workbench>(*text, *editor, theme);
+    const bool restored = bench->restoreLayout();
+    if (!file.empty()) {
+      fs::path path = fs::absolute(fs::path(workspace) / file);
+      if (!fs::exists(path) && fs::exists(file)) path = fs::absolute(file);
+      if (bench->openFile(path) < 0) std::fprintf(stderr, "tenfold-ui: cannot open %s\n", path.string().c_str());
+    } else if (!restored) {
+      bench->openFile(kDefaultFile);  // first run: don't start blank (no-op if absent)
     }
+    bench->sync();
+    app = std::make_unique<ui::EditorApp>(*bench, *editor, bench.get(), ui::userConfigDir());
+    if (shot.empty() && !editor->start(&err)) std::fprintf(stderr, "tenfold-ui: editor start: %s\n", err.c_str());
+  }
+  ui::RootWidget* root = bench ? static_cast<ui::RootWidget*>(bench.get()) : demoRoot.get();
+  auto drawFrame = [&](int w, int h, float mx, float my) {
+    if (root) root->render(*renderer, w, h);
+    else drawScene(*renderer, w, h, atlas, mx, my);
   };
 
   if (!shot.empty()) {
     renderer->setOffscreen(true);
+    if (app) app->tick(nowMs());
     drawFrame(width, height, -100, -100);
     std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
     if (!renderer->readPixels(width, height, px.data()) || !gfx::writePngFile(shot, px.data(), width, height)) {
@@ -181,12 +168,19 @@ int main(int argc, char** argv) {
     return 0;
   }
 
-  bool started = !bench;  // the semantic engine starts after the first frame so the window appears immediately
-  // Event-driven loop: block until input arrives, redraw only when something changed.
+  // Event-driven loop: block until input arrives (or until a widget wants a tick: caret blink, scroll animation, a
+  // pending key chord, or the Editor's queue needs pumping), redraw only when something changed.
   float mx = -100, my = -100;
   bool dirty = true, quit = false;
   std::vector<ui::InputEvent> events;
   while (!quit) {
+    int wait = -1;
+    if (editor) editor->pump();
+    if (app) {
+      wait = app->tick(nowMs());
+      if (editor && (wait < 0 || wait > 100)) wait = 100;  // poll the Editor's main-thread queue
+      if (root->dirty()) dirty = true;
+    }
     if (dirty) {
       int pw, ph;
       win->sizePx(pw, ph);
@@ -194,65 +188,31 @@ int main(int argc, char** argv) {
       win->swap();
       dirty = false;
     }
-    if (!started) {
-      started = true;
-      editor->start(&err);
-    }
     events.clear();
-    win->waitEvent(bench ? 250 : -1, events);  // the workbench polls Editor state a few times a second
+    win->waitEvent(wait, events);
     for (const ui::InputEvent& e : events) {
-      if (bench) {
-        if (e.type == ui::InputType::Quit || (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape))
+      if (e.type == ui::InputType::Quit) {
+        quit = true;
+      } else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
+                 e.type == ui::InputType::ScaleChanged) {
+        dirty = true;
+      } else if (app) {
+        // Ctrl+Q (App.Quit) and closing the window quit. Escape belongs to the editor (collapse carets); only the
+        // --shell demo quits on an unhandled Escape.
+        if (!app->handleEvent(e, nowMs()) && shell && e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape)
           quit = true;
-        else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
-                 e.type == ui::InputType::ScaleChanged)
-          dirty = true;
-        else bench->dispatch(e);
-        continue;
-      }
-      if (shellRoot) {
-        if (e.type == ui::InputType::Quit || (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape))
-          quit = true;
-        else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
-                 e.type == ui::InputType::ScaleChanged)
-          dirty = true;
-        else shellRoot->dispatch(e);
-        continue;
-      }
-      switch (e.type) {
-        case ui::InputType::Quit: quit = true; break;
-        case ui::InputType::KeyDown:
-          if (e.key == ui::Key::Escape) quit = true;
-          break;
-        case ui::InputType::MouseMove:
-          mx = e.x;
-          my = e.y;
-          dirty = demo;  // the text view ignores the mouse position
-          break;
-        case ui::InputType::Wheel:
-          if (text) {  // simple pixel scrolling, 3 lines per notch; B2 replaces this
-            int pw, ph;
-            win->sizePx(pw, ph);
-            scrollY = std::clamp(scrollY - e.dy * 3 * text->lineHeight(), 0.0f, text->maxScroll(lines.size(), ph));
-            dirty = true;
-          }
-          break;
-        case ui::InputType::Resize:
-        case ui::InputType::Expose:
-        case ui::InputType::ScaleChanged: dirty = true; break;
-        default: break;
+        if (app->quitRequested()) quit = true;
+      } else if (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape) {
+        quit = true;
+      } else if (e.type == ui::InputType::MouseMove) {
+        mx = e.x;
+        my = e.y;
+        dirty = true;  // the demo scene follows the pointer
       }
     }
-    if (bench) {
-      editor->pump();
-      bench->sync();
-    }
-    if (bench && bench->dirty()) dirty = true;
-    if (shellRoot && shellRoot->dirty()) dirty = true;  // widgets request redraws through the root
   }
-  if (bench) {
-    bench->saveLayout();
-    editor->shutdown();
-  }
+  // Shutdown order: the workbench saves layout.json, then the Editor shuts down.
+  if (bench) bench->saveLayout();
+  if (editor) editor->shutdown();
   return 0;
 }

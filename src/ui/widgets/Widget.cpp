@@ -71,6 +71,22 @@ void Widget::paintTree(PaintContext& ctx) {
   for (auto& c : children_) c->paintTree(ctx);
 }
 
+void Widget::paintOverlayTree(PaintContext& ctx) {
+  if (!visible_) return;
+  paintOverlay(ctx);
+  for (auto& c : children_) c->paintOverlayTree(ctx);
+}
+
+int Widget::tickTree(int64_t nowMs) {
+  if (!visible_) return -1;
+  int wait = onTick(nowMs);
+  for (auto& c : children_) {
+    const int w = c->tickTree(nowMs);
+    if (w >= 0 && (wait < 0 || w < wait)) wait = w;
+  }
+  return wait;
+}
+
 void Widget::markDirty() {
   if (RootWidget* r = root()) r->dirty_ = true;
 }
@@ -177,7 +193,10 @@ void RootWidget::render(gfx::Renderer& r, int w, int h) {
   for (int attempt = 0; attempt < 2; ++attempt) {
     r.beginFrame(w, h, theme_.background);
     paintTree(ctx);
-    if (text_->flushText(r)) break;
+    if (text_->flushText(r)) {
+      paintOverlayTree(ctx);
+      break;
+    }
   }
   r.endFrame();
   dirty_ = false;
