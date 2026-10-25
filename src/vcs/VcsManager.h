@@ -39,6 +39,10 @@ class VcsManager {
     int statusDebounceMs = 1000;  // quiet time after workspace file events before the status is re-read
     // Tried in order, the first whose detect() accepts the workspace root wins. Empty = defaultProviders().
     std::vector<ProviderFactory> providers;
+    // Which providers are used when `providers` is empty (workspace.json "vcs.provider"): "auto" (Perforce, then
+    // Git; the first whose detect() accepts the workspace wins), "perforce", "git" or "none" (version control off).
+    std::string provider = "auto";
+    std::string p4Path;  // workspace.json "vcs.p4Path": the p4 executable; empty = `p4` from PATH
     DiffOptions diff;
     std::function<void(const std::string&)> log;
     // Test hook: runs on the worker thread right before every diff is computed.
@@ -53,8 +57,10 @@ class VcsManager {
     int beforeFirstEditCalls = 0;
   };
 
-  // Git only. C3b registers Perforce here (Perforce first when both detect, a p4 client being the more specific).
-  static std::vector<ProviderFactory> defaultProviders();
+  // Perforce first, then Git (a p4 client mapping the workspace is the more specific claim).
+  static std::vector<ProviderFactory> defaultProviders(const std::string& p4Path = {});
+  // The providers for a `vcs.provider` setting (see Options::provider); empty for "none". Unknown values mean "auto".
+  static std::vector<ProviderFactory> providersFor(const std::string& setting, const std::string& p4Path = {});
 
   VcsManager(Editor& editor, Options opt);
   ~VcsManager();

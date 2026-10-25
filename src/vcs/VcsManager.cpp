@@ -6,19 +6,33 @@
 #include "core/Document.h"
 #include "core/PathUtil.h"
 #include "vcs/GitProvider.h"
+#include "vcs/PerforceProvider.h"
 
 namespace tf {
 
 namespace fs = std::filesystem;
 
-std::vector<VcsManager::ProviderFactory> VcsManager::defaultProviders() {
+std::vector<VcsManager::ProviderFactory> VcsManager::defaultProviders(const std::string& p4Path) {
   std::vector<ProviderFactory> v;
+  v.push_back([p4Path] { return std::make_unique<PerforceProvider>(p4Path); });
   v.push_back([] { return std::make_unique<GitProvider>(); });
   return v;
 }
 
+std::vector<VcsManager::ProviderFactory> VcsManager::providersFor(const std::string& setting,
+                                                                  const std::string& p4Path) {
+  if (setting == "none") return {};
+  std::vector<ProviderFactory> all = defaultProviders(p4Path);
+  if (setting == "perforce") return {all[0]};
+  if (setting == "git") return {all[1]};
+  return all;
+}
+
 VcsManager::VcsManager(Editor& editor, Options opt) : editor_(editor), opt_(std::move(opt)) {
-  if (opt_.providers.empty()) opt_.providers = defaultProviders();
+  if (opt_.providers.empty()) {
+    opt_.providers = providersFor(opt_.provider, opt_.p4Path);
+    if (opt_.providers.empty()) opt_.enabled = false;  // provider = "none"
+  }
 }
 
 VcsManager::~VcsManager() {

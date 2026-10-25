@@ -12,6 +12,8 @@
 #include <sstream>
 #include <utility>
 
+#include <nlohmann/json.hpp>
+
 namespace tf {
 
 namespace fs = std::filesystem;
@@ -124,9 +126,32 @@ Position advanceBy(Position p, const std::string& text, size_t bytes) {
 
 Editor::Editor(fs::path root) : Editor(std::move(root), Options()) {}
 
+namespace {
+// workspace.json {"vcs": {"provider": "auto|perforce|git|none", "p4Path": "..."}} (or the flat keys "vcs.provider" /
+// "vcs.p4Path"). Only fills what the caller left at its default.
+void readVcsSettings(const fs::path& file, VcsManager::Options& o) {
+  std::ifstream in(file);
+  if (!in) return;
+  nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
+  if (!j.is_object()) return;
+  auto str = [&](const char* nested, const char* flat) -> std::string {
+    if (j.contains("vcs") && j["vcs"].is_object() && j["vcs"].contains(nested) && j["vcs"][nested].is_string())
+      return j["vcs"][nested].get<std::string>();
+    if (j.contains(flat) && j[flat].is_string()) return j[flat].get<std::string>();
+    return {};
+  };
+  const std::string prov = str("provider", "vcs.provider");
+  if (o.provider == "auto" && (prov == "auto" || prov == "perforce" || prov == "git" || prov == "none"))
+    o.provider = prov;
+  const std::string p4 = str("p4Path", "vcs.p4Path");
+  if (o.p4Path.empty()) o.p4Path = p4;
+}
+}  // namespace
+
 Editor::Editor(fs::path root, Options opt) : ws_(std::move(root)), opt_(std::move(opt)), nav_(opt_.navigation) {
   if (!opt_.semantic.log) opt_.semantic.log = opt_.log;
   if (!opt_.vcs.log) opt_.vcs.log = opt_.log;
+  readVcsSettings(ws_.cacheDir() / "workspace.json", opt_.vcs);
   vcs_ = std::make_unique<VcsManager>(*this, opt_.vcs);
   ws_.loadSettings();
   debug_ = std::make_unique<DebugSession>(*this);
@@ -291,6 +316,19 @@ bool Editor::save(Document& doc, std::string* error) {
         doc.replaceMany(std::move(trims));
         doc.endGroup();
       }
+    }
+  }
+  {
+    // A read-only file (Perforce: not checked out, e.g. auto-checkout failed) must say so instead of "cannot write".
+    std::error_code ec;
+    if (fs::is_regular_file(doc.path(), ec) &&
+        (fs::status(doc.path(), ec).permissions() & fs::perms::owner_write) == fs::perms::none) {
+      if (error)
+        *error = doc.path().filename().string() + " is read-only" +
+                 (vcs_ && vcs_->active() && vcs_->providerName() == "perforce"
+                      ? " (not checked out in Perforce; run p4 edit, or revert the edit)"
+                      : " (clear the read-only attribute to save)");
+      return false;
     }
   }
   if (!doc.saveToDisk(error)) return false;
