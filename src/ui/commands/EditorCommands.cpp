@@ -226,6 +226,8 @@ void registerEditorCommands(CommandRegistry& r) {
 
   // --- UI-only: the front end binds these (B3b / B5 / B8) ---
   addUi(r, "Debug.ShowBreakpoints", "Show Breakpoints...");
+  addUi(r, "Debug.OpenInVisualStudio", "Open in Visual Studio");
+  addUi(r, "Build.SelectConfiguration", "Select Solution Configuration...");
   addUi(r, "Debug.EditCondition", "Edit Breakpoint Condition...");
   addUi(r, "Editor.GotoLine", "Go to Line...");
   addUi(r, "Editor.Find", "Find in File...");

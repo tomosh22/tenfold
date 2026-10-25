@@ -458,6 +458,17 @@ compiled into `tenfold-ui-tests` too).
   Disconnected; empty otherwise. `StatusBar::setDebugging(true)` while the mode is Running or Break switches the bar to
   `statusBackgroundDebugging` / `statusTextDebugging` (vs-dark: #CA5100 / white; `dark` and `light` leave them
   transparent = unchanged look). A new `lastError` of the session is shown in the status bar message like other errors.
+* **`Debug.OpenInVisualStudio`** (bound by `EditorApp`, no default key; commented example in
+  `assets/keybindings.default.txt`): `Editor::openInVisualStudio()` (current file at the caret in the connected /
+  attached Visual Studio). Without a backend the status bar message says so; a backend failure arrives through the
+  session's `lastError` and is shown like other debugger errors.
+* **`ConfigurationPicker`** (`src/ui/features`, C5 UI; `Build.SelectConfiguration`, no default key): modal `ListPopup`
+  with a filter line listing `Editor::vsConfigurations()` ("Debug|x64", ...), the active one badged "active" and
+  preselected. Enter calls `Editor::selectVsConfiguration(name, &err, applied)`. Status-bar segment `config` (declared
+  after `message`, click opens the picker) shows the active configuration, `Configuration: Release|x64 (reloading...)`
+  until `applied` fires, and nothing for a workspace without a solution configuration. The list is read from the .sln
+  files on construction, on opening the picker and after a switch, not per frame (a .sln added later appears after the
+  first open of the picker).
 ## Version control (C3a, `src/vcs`)
 
 Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it. Nothing in `src/vcs`

@@ -251,6 +251,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/FindInFiles.cpp
     src/ui/features/FindReplace.cpp
     src/ui/features/GoToLine.cpp
+    src/ui/features/ConfigurationPicker.cpp
     src/ui/features/BookmarkList.cpp
     src/ui/features/CompletionPopup.cpp
     src/ui/features/HoverTooltip.cpp
@@ -338,6 +339,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_compile_info_ui.cpp
     src/debug/FakeDebugger.cpp  # test support (the scripted backend of the debugger UI tests)
     tests/ui/test_vcs_ui.cpp
+    tests/ui/test_config_ui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
