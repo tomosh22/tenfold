@@ -143,6 +143,148 @@ TEST(dbg_commands_run_in_order_on_the_worker_thread) {
   CHECK(f.untilMode(DebugMode::Design));
 }
 
+TEST(dbg_open_in_editor_pass_through_at_the_caret) {
+  Fx f;
+  CHECK(f.ed->gotoLocation({f.file(), {4, 1}}));
+  CHECK(f.ed->openInVisualStudio());  // connects first, then runs on the worker
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("openInEditor") == 1; }, 3000));
+  const auto calls = f.fake->callsOf("openInEditor");
+  REQUIRE(calls.size() == 1);
+  CHECK(calls[0].detail == f.file().generic_string() + ":4:1");
+  CHECK(calls[0].thread != std::this_thread::get_id());
+  // the result arrives through post(); a backend failure shows up in lastError()
+  f.fake->failNext("openInEditor", "no such window");
+  bool called = false;
+  DebugResult got;
+  CHECK(f.ed->debug().openInEditor(f.file(), 0, 0, [&](const DebugResult& r) {
+    called = true;
+    got = r;
+  }));
+  CHECK(f.until([&] { return called; }));
+  CHECK(!got.ok);
+  CHECK(f.ed->debug().lastError().find("no such window") != std::string::npos);
+  // without a document there is nothing to open
+  Fx g(false);
+  Editor bare(g.dir);
+  CHECK(!bare.openInVisualStudio());
+}
+
+TEST(dbg_attach_only_is_quiet_when_no_instance_runs) {
+  Fx f;
+  f.fake->setNoInstance(true);
+  bool called = false;
+  DebugResult got;
+  CHECK(f.ed->debug().attachIfRunning([&](const DebugResult& r) {
+    called = true;
+    got = r;
+  }));
+  CHECK(f.until([&] { return called; }));
+  CHECK(!got.ok);
+  CHECK(got.notRunning);
+  CHECK(!f.ed->debug().connected());
+  CHECK(f.ed->debug().mode() == DebugMode::Disconnected);
+  CHECK(f.ed->debug().lastError().empty());
+  CHECK(f.ed->debug().status().find(" - ") == std::string::npos);
+  CHECK((f.fake->connectLaunchFlags() == std::vector<bool>{false}));
+  // a command launches as before (and the instance then exists)
+  CHECK(f.ed->debug().start());
+  CHECK(f.untilMode(DebugMode::Running));
+  CHECK((f.fake->connectLaunchFlags() == std::vector<bool>{false, true}));
+}
+
+TEST(dbg_attach_retries_while_breakpoints_exist_and_pushes_them) {
+  Fx f;
+  f.fake->setNoInstance(true);
+  f.ed->debug().setAttachRetryMs(20);
+  CHECK(f.ed->toggleBreakpoint());  // a breakpoint toggled before anything is attached
+  CHECK(f.ed->debug().attachIfRunning());
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("connect") >= 3; }, 3000));
+  for (bool launch : f.fake->connectLaunchFlags()) CHECK(!launch);  // retries never launch
+  CHECK(!f.ed->debug().connected());
+  CHECK(f.ed->debug().lastError().empty());
+  f.fake->setNoInstance(false);  // "the user opened the solution in VS"
+  CHECK(f.until([&] { return f.ed->debug().connected(); }));
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.breakpoints().size() == 1; }, 3000));
+  CHECK(f.ed->debug().lastError().empty());
+  // connected: no more connect calls
+  const size_t n = f.fake->count("connect");
+  std::this_thread::sleep_for(std::chrono::milliseconds(150));
+  CHECK_EQ(f.fake->count("connect"), n);
+}
+
+TEST(dbg_attach_does_not_retry_without_breakpoints_until_one_appears) {
+  Fx f;
+  f.fake->setNoInstance(true);
+  f.ed->debug().setAttachRetryMs(20);
+  CHECK(f.ed->debug().attachIfRunning());
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("connect") == 1; }, 3000));
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK_EQ(f.fake->count("connect"), size_t(1));
+  CHECK(f.ed->toggleBreakpoint());
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("connect") >= 2; }, 3000));
+}
+
+TEST(dbg_attach_reattaches_after_the_instance_went_away) {
+  Fx f;
+  f.ed->debug().setAttachRetryMs(20);
+  CHECK(f.ed->toggleBreakpoint());
+  CHECK(f.ed->debug().attachIfRunning());
+  CHECK(f.untilMode(DebugMode::Design));
+  f.fake->setNoInstance(true);
+  f.fake->setMode(DebugMode::Disconnected);  // Visual Studio was closed
+  CHECK(f.untilMode(DebugMode::Disconnected));
+  const size_t n = f.fake->count("connect");
+  CHECK(f.fake->waitUntil([&](const FakeDebugger::State& s) { return s.count("connect") >= n + 2; }, 3000));
+  f.fake->setNoInstance(false);
+  CHECK(f.untilMode(DebugMode::Design));
+  CHECK(f.ed->debug().lastError().empty());
+}
+
+TEST(dbg_explicit_disconnect_stops_attach_retries) {
+  Fx f;
+  f.fake->setNoInstance(true);
+  f.ed->debug().setAttachRetryMs(20);
+  CHECK(f.ed->toggleBreakpoint());
+  CHECK(f.ed->debug().attachIfRunning());
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("connect") >= 2; }, 3000));
+  CHECK(f.ed->debug().disconnect());
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("disconnect") >= 1; }, 3000));
+  std::this_thread::sleep_for(std::chrono::milliseconds(60));
+  const size_t n = f.fake->count("connect");
+  std::this_thread::sleep_for(std::chrono::milliseconds(200));
+  CHECK_EQ(f.fake->count("connect"), n);
+}
+
+TEST(dbg_editor_start_attaches_at_startup_unless_switched_off) {
+  {
+    Fx f(false);
+    f.fake->setNoInstance(true);
+    f.ed->setDebuggerFactory([&]() -> std::unique_ptr<Debugger> { return std::make_unique<FakeDebugger>(f.fake); });
+    f.ed->debug().setAttachRetryMs(0);
+    f.ed->start();
+    CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("connect") == 1; }, 3000));
+    CHECK((f.fake->connectLaunchFlags() == std::vector<bool>{false}));
+    CHECK(f.ed->debug().lastError().empty());
+    f.ed->shutdown();
+  }
+  {
+    Fx f(false);
+    f.ed->setDebuggerFactory([&]() -> std::unique_ptr<Debugger> { return std::make_unique<FakeDebugger>(f.fake); });
+    f.ed->workspace().settings().debugAttachAtStartup = false;
+    f.ed->start();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    CHECK_EQ(f.fake->count("connect"), size_t(0));
+    f.ed->shutdown();
+  }
+  {
+    Fx f(false);  // no backend factory at all: nothing happens, nothing is reported
+    f.ed->start();
+    CHECK(!f.ed->debug().hasBackend());
+    CHECK(f.ed->debug().lastError().empty());
+    f.ed->shutdown();
+  }
+}
+
 TEST(dbg_commands_are_asynchronous_and_do_not_block_the_caller) {
   Fx f;
   CHECK(f.connectAndWait());

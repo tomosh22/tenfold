@@ -168,6 +168,9 @@ bool Editor::start(std::string* error) {
   hookTokens();
   if (ws_.settings().watchFiles) startWatching();
   bool ok = semantic_->start(error);
+  // Debugger (C2b2): attach to a running Visual Studio that has the solution open; quiet when there is none, and
+  // nothing at all on a platform without a debugger backend.
+  if (ws_.settings().debugAttachAtStartup && debug_->hasBackend()) debug_->attachIfRunning();
   // Builds often live in an ignored directory (build/); watch just that folder
   // so a regenerated compile_commands.json is noticed.
   if (watcher_) {
@@ -1210,6 +1213,11 @@ bool Editor::toggleBreakpoint() {
   const bool now = breakpoints_.toggle(current_->path(), carets_[0].head.line);
   saveBreakpoints();
   return now;
+}
+
+bool Editor::openInVisualStudio() {
+  if (!current_) return false;
+  return debug_->openInEditor(current_->path(), cursor_.pos.line, cursor_.pos.column);
 }
 
 void Editor::loadBreakpoints() {

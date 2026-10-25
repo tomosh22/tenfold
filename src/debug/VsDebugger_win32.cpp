@@ -37,15 +37,22 @@ using com::Dispatch;
 using com::Variant;
 
 constexpr int kLaunchWaitMs = 90000;
-constexpr DWORD kRetryLimitMs = 15000;  // how long one call is retried while Visual Studio rejects it as busy
 
 std::string pathUtf8(const fs::path& p) { return com::narrow(p.wstring()); }
 fs::path pathFromUtf8(const std::string& s) { return fs::path(com::widen(s)); }
 
 // ---- IMessageFilter: retry calls Visual Studio rejects while it is busy (modal dialog, build, solution load) ----
+// Shared between the backend and its message filter (the filter is called by COM on the same thread, but it is
+// reference counted and outlives nothing that matters; cancel() writes `cancelled` from another thread).
+struct RetryState {
+  std::atomic<bool> cancelled{false};
+  std::atomic<unsigned long> limitMs{15000};  // per call: how long one call is retried while VS rejects it as busy
+  std::atomic<unsigned long> deadline{0};     // GetTickCount() value after which nothing is retried; 0 = none
+};
+
 class RetryFilter final : public IMessageFilter {
  public:
-  RetryFilter(const std::atomic<bool>* cancelled, DWORD limitMs) : cancelled_(cancelled), limitMs_(limitMs) {}
+  explicit RetryFilter(RetryState* state) : st_(state) {}
 
   HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
     if (riid == IID_IUnknown || riid == IID_IMessageFilter) {
@@ -68,16 +75,31 @@ class RetryFilter final : public IMessageFilter {
   // Returns the delay in ms before the call is retried, or -1 to give up (the caller then sees
   // RPC_E_CALL_REJECTED / RPC_E_SERVERCALL_RETRYLATER).
   DWORD STDMETHODCALLTYPE RetryRejectedCall(HTASK, DWORD tickCount, DWORD rejectType) override {
-    if (cancelled_->load()) return static_cast<DWORD>(-1);
-    if (rejectType == SERVERCALL_RETRYLATER && tickCount < limitMs_) return 100;
-    return static_cast<DWORD>(-1);
+    const unsigned long dl = st_->deadline.load();
+    const bool past = dl != 0 && static_cast<long>(GetTickCount() - dl) >= 0;
+    return static_cast<DWORD>(
+        retryDelayMs(rejectType == SERVERCALL_RETRYLATER, tickCount, st_->limitMs.load(), past, st_->cancelled.load()));
   }
   DWORD STDMETHODCALLTYPE MessagePending(HTASK, DWORD, DWORD) override { return PENDINGMSG_WAITDEFPROCESS; }
 
  private:
   std::atomic<long> refs_{1};
-  const std::atomic<bool>* cancelled_;
-  DWORD limitMs_;
+  RetryState* st_;
+};
+
+// Bounds the retry window for the duration of one poll().
+struct PollWindow {
+  RetryState& st;
+  unsigned long restore;
+  PollWindow(RetryState& s, unsigned long pollMs, unsigned long commandMs) : st(s), restore(commandMs) {
+    unsigned long d = GetTickCount() + pollMs;
+    st.deadline.store(d == 0 ? 1 : d);
+    st.limitMs.store(pollMs);
+  }
+  ~PollWindow() {
+    st.deadline.store(0);
+    st.limitMs.store(restore);
+  }
 };
 
 // Runs a command line and returns its stdout; nullopt when it cannot run or exceeds the timeout.
@@ -131,7 +153,9 @@ bool runCapture(const std::wstring& cmdline, DWORD timeoutMs, std::string& out, 
 
 class VsDebugger final : public Debugger {
  public:
-  VsDebugger() = default;
+  explicit VsDebugger(const VsBusyPolicy& policy) : policy_(policy) {
+    retry_.limitMs.store(static_cast<unsigned long>(policy.commandMs));
+  }
   ~VsDebugger() override {
     dte_ = Dispatch();
     if (filterRegistered_) {
@@ -147,7 +171,7 @@ class VsDebugger final : public Debugger {
   DebugResult connect(const DebugWorkspaceInfo& workspace) override {
     ws_ = workspace;
     haveWs_ = true;
-    return connectImpl();
+    return connectImpl(workspace.launchIfMissing);
   }
 
   DebugResult disconnect() override {
@@ -282,6 +306,10 @@ class VsDebugger final : public Debugger {
       out = std::move(s);
       return DebugResult::success();
     }
+    // A poll must never hold up queued commands: a Visual Studio stuck in a modal dialog rejects every call, so
+    // the whole poll gets a short retry window (the session keeps its last snapshot on the failure).
+    PollWindow window(retry_, static_cast<unsigned long>(policy_.pollMs),
+                      static_cast<unsigned long>(policy_.commandMs));
     std::string d;
     Dispatch dbg;
     HRESULT hr = dte_.getObject(L"Debugger", dbg, &d);
@@ -296,16 +324,23 @@ class VsDebugger final : public Debugger {
         out = std::move(s);
         return DebugResult::success();
       }
-      return DebugResult::failure(describeHr("Debugger.CurrentMode", hr, d));
+      return pollFailure("Debugger.CurrentMode", hr, d);
     }
     s.mode = modeFromDte(mode);
-    if (s.mode == DebugMode::Break) s.currentStatement = currentStatement(dbg);
+    if (s.mode == DebugMode::Break) {
+      HRESULT fatal = S_OK;
+      s.currentStatement = currentStatement(dbg, fatal);
+      if (FAILED(fatal)) {
+        if (isServerDeadHr(fatal)) return finish(fatal, "Debugger.CurrentStackFrame", d);
+        return pollFailure("Debugger.CurrentStackFrame", fatal, d);
+      }
+    }
     std::vector<BpInfo> all;
     d.clear();
     hr = listBreakpoints(dbg, all, d);
     if (FAILED(hr)) {
       if (isServerDeadHr(hr)) return finish(hr, "Debugger.Breakpoints", d);
-      return DebugResult::failure(describeHr("Debugger.Breakpoints", hr, d));
+      return pollFailure("Debugger.Breakpoints", hr, d);
     }
     for (const BpInfo& b : all) {
       Breakpoint bp;
@@ -319,7 +354,7 @@ class VsDebugger final : public Debugger {
     return DebugResult::success();
   }
 
-  void cancel() override { cancelled_.store(true); }
+  void cancel() override { retry_.cancelled.store(true); }
 
  private:
   struct BpInfo {
@@ -332,6 +367,13 @@ class VsDebugger final : public Debugger {
 
   static bool sameSpot(const BpInfo& b, const std::string& file, int line1) {
     return b.line == line1 && solutionPathsEqual(b.file, file);  // Windows path semantics
+  }
+
+  // A failed poll: "Visual Studio is busy" when the calls were rejected for the whole retry window.
+  DebugResult pollFailure(const char* what, HRESULT hr, const std::string& detail) {
+    if (isServerBusyHr(hr))
+      return DebugResult::failure("Visual Studio is busy (" + std::string(what) + " rejected; is a dialog open?)");
+    return DebugResult::failure(describeHr(what, hr, detail));
   }
 
   DebugResult finish(HRESULT hr, const char* what, const std::string& detail) {
@@ -381,16 +423,24 @@ class VsDebugger final : public Debugger {
     if (FAILED(hr)) return hr;
     for (long i = 1; i <= count; ++i) {
       Variant item;
-      if (FAILED(bps.call(L"Item", {Variant::fromLong(i)}, &item))) continue;
+      hr = bps.call(L"Item", {Variant::fromLong(i)}, &item);
+      if (isServerBusyHr(hr) || isServerDeadHr(hr)) return hr;  // never report a partial list
+      if (FAILED(hr)) continue;
       BpInfo b;
       b.obj = item.toDispatch();
       if (!b.obj) continue;
       long line = 0;
-      if (FAILED(b.obj.getString(L"File", b.file)) || b.file.empty()) continue;  // function breakpoint etc.
-      if (FAILED(b.obj.getLong(L"FileLine", line))) continue;
+      hr = b.obj.getString(L"File", b.file);
+      if (isServerBusyHr(hr) || isServerDeadHr(hr)) return hr;
+      if (FAILED(hr) || b.file.empty()) continue;  // function breakpoint etc.
+      hr = b.obj.getLong(L"FileLine", line);
+      if (isServerBusyHr(hr) || isServerDeadHr(hr)) return hr;
+      if (FAILED(hr)) continue;
       b.line = static_cast<int>(line);
-      b.obj.getBool(L"Enabled", b.enabled);
-      b.obj.getString(L"Condition", b.condition);
+      hr = b.obj.getBool(L"Enabled", b.enabled);
+      if (isServerBusyHr(hr) || isServerDeadHr(hr)) return hr;
+      hr = b.obj.getString(L"Condition", b.condition);
+      if (isServerBusyHr(hr) || isServerDeadHr(hr)) return hr;
       out.push_back(std::move(b));
     }
     return S_OK;
@@ -398,12 +448,23 @@ class VsDebugger final : public Debugger {
 
   // The statement the debuggee is stopped at. The current stack frame is authoritative; only when it cannot be read
   // at all (an exception, not an empty file name = no source) the active document and its caret stand in.
-  std::optional<DebugLocation> currentStatement(Dispatch& dbg) {
+  std::optional<DebugLocation> currentStatement(Dispatch& dbg, HRESULT& fatal) {
     Dispatch frame;
-    if (SUCCEEDED(dbg.getObject(L"CurrentStackFrame", frame))) {
+    HRESULT fhr = dbg.getObject(L"CurrentStackFrame", frame);
+    if (isServerBusyHr(fhr) || isServerDeadHr(fhr)) {  // not "cannot be read": the answer is unknown
+      fatal = fhr;
+      return std::nullopt;
+    }
+    if (SUCCEEDED(fhr)) {
       std::string file;
       long line = 0;
-      if (SUCCEEDED(frame.getString(L"FileName", file)) && SUCCEEDED(frame.getLong(L"LineNumber", line))) {
+      HRESULT h1 = frame.getString(L"FileName", file);
+      HRESULT h2 = SUCCEEDED(h1) ? frame.getLong(L"LineNumber", line) : h1;
+      if (isServerBusyHr(h2) || isServerDeadHr(h2)) {
+        fatal = h2;
+        return std::nullopt;
+      }
+      if (SUCCEEDED(h2)) {
         if (file.empty() || line <= 0) return std::nullopt;
         return DebugLocation{pathFromUtf8(file), fromVsLine(static_cast<int>(line))};
       }
@@ -429,7 +490,7 @@ class VsDebugger final : public Debugger {
       comInit_ = true;
     }
     if (!filterRegistered_) {
-      auto* f = new RetryFilter(&cancelled_, kRetryLimitMs);
+      auto* f = new RetryFilter(&retry_);
       IMessageFilter* prev = nullptr;
       if (SUCCEEDED(CoRegisterMessageFilter(f, &prev))) filterRegistered_ = true;
       if (prev) prev->Release();
@@ -441,15 +502,15 @@ class VsDebugger final : public Debugger {
   DebugResult ensureConnected() {
     if (dte_) return DebugResult::success();
     if (!haveWs_) return DebugResult::failure("not connected to Visual Studio");
-    return connectImpl();
+    return connectImpl(true);  // a command: launching Visual Studio is allowed
   }
 
   bool sleepMs(int ms) {  // false when cancelled
     for (int waited = 0; waited < ms; waited += 50) {
-      if (cancelled_.load()) return false;
+      if (retry_.cancelled.load()) return false;
       std::this_thread::sleep_for(std::chrono::milliseconds(50));
     }
-    return !cancelled_.load();
+    return !retry_.cancelled.load();
   }
 
   std::string solutionOf(Dispatch& dte) {
@@ -482,7 +543,7 @@ class VsDebugger final : public Debugger {
       return {};
     }
     std::string out;
-    if (!runCapture(L"\"" + vswhere + L"\" -latest -property productPath", 20000, out, cancelled_)) {
+    if (!runCapture(L"\"" + vswhere + L"\" -latest -property productPath", 20000, out, retry_.cancelled)) {
       error = "vswhere.exe failed";
       return {};
     }
@@ -494,7 +555,7 @@ class VsDebugger final : public Debugger {
     return com::widen(line);
   }
 
-  DebugResult connectImpl() {
+  DebugResult connectImpl(bool launchIfMissing) {
     DebugResult init = initCom();
     if (!init) return init;
     dte_ = Dispatch();
@@ -508,13 +569,16 @@ class VsDebugger final : public Debugger {
         return DebugResult::success();
       }
     } else {
-      if (instances.empty())
-        return DebugResult::failure("no running Visual Studio, and the workspace has no solution to open");
+      if (instances.empty()) {
+        const char* msg = "no running Visual Studio, and the workspace has no solution to open";
+        return launchIfMissing ? DebugResult::failure(msg) : DebugResult::noInstance(msg);
+      }
       dte_ = instances.front().dte;
       note_ = "workspace has no solution: attached to the newest running Visual Studio " +
               instances.front().info.versionText + " (pid " + std::to_string(instances.front().info.pid) + ")";
       return DebugResult::success();
     }
+    if (!launchIfMissing) return DebugResult::noInstance("no running Visual Studio has " + sln + " open");
     // Launch devenv.exe "<sln>" and wait for it to register in the ROT and load the solution.
     std::string err;
     std::wstring devenv = findDevenv(err);
@@ -549,11 +613,14 @@ class VsDebugger final : public Debugger {
   bool filterRegistered_ = false;
   Dispatch dte_;
   std::string note_;  // reported as DebugSnapshot::lastError until the next connect
-  std::atomic<bool> cancelled_{false};
+  VsBusyPolicy policy_;
+  RetryState retry_;
 };
 
 }  // namespace
 
-std::unique_ptr<Debugger> createVisualStudioDebugger() { return std::make_unique<VsDebugger>(); }
+std::unique_ptr<Debugger> createVisualStudioDebugger(const VsBusyPolicy& policy) {
+  return std::make_unique<VsDebugger>(policy);
+}
 
 }  // namespace tf

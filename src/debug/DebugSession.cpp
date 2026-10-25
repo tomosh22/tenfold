@@ -61,6 +61,11 @@ struct DebugSession::Impl {
   bool finished = false;
   std::atomic<uint64_t> bpExecuted{0};
   std::atomic<int> fastMs{kDefaultFastPollMs}, slowMs{kDefaultSlowPollMs};
+  // Attach retries (attach-only connects the worker makes by itself while the backend is not connected): the
+  // interval (0 = off), whether tenfold has breakpoints worth pushing, and what to connect with (under mu).
+  std::atomic<int> attachMs{0};
+  std::atomic<bool> haveBps{false};
+  DebugWorkspaceInfo attachInfo;
   std::mutex postMu;
   std::function<void(std::function<void()>)> poster;
   std::thread thread;
@@ -99,6 +104,14 @@ void DebugSession::setPollIntervals(int fastMs, int slowMs) {
     impl_->slowMs = slowMs_;
     impl_->cv.notify_all();
   }
+}
+
+void DebugSession::onBreakpointsChanged() {
+  if (impl_) {
+    impl_->haveBps = !ed_.breakpoints().empty();
+    impl_->cv.notify_all();  // the worker may now want to retry attaching
+  }
+  pushBreakpoints();
 }
 
 bool DebugSession::ensureBackend() {
@@ -163,19 +176,40 @@ void DebugSession::startWorker() {
       postSnapshot(s);
     };
 
+    using Clock = std::chrono::steady_clock;
+    Clock::time_point lastAttach = Clock::now();
+    // Nothing is attached (never was, or the instance went away) and attaching is wanted.
+    auto wantsAttach = [&] {
+      return im->attachMs.load() > 0 && im->haveBps.load() && (!connected || lastMode == DebugMode::Disconnected);
+    };
+    auto attachDue = [&] {
+      return wantsAttach() && Clock::now() - lastAttach >= std::chrono::milliseconds(im->attachMs.load());
+    };
+
     while (true) {
       Cmd cmd;
-      bool haveCmd = false, polled = false;
+      bool haveCmd = false, polled = false, attach = false;
       {
         std::unique_lock<std::mutex> lk(im->mu);
         if (!im->stop && im->queue.empty()) {
+          std::optional<std::chrono::milliseconds> wait;  // nullopt: until something is queued
           if (connected) {
             const bool fast = lastMode == DebugMode::Running || lastMode == DebugMode::Break;
-            const auto wait = std::chrono::milliseconds(fast ? im->fastMs.load() : im->slowMs.load());
-            polled = !im->cv.wait_for(lk, wait, [&] { return im->stop || !im->queue.empty(); });
-          } else {
-            im->cv.wait(lk, [&] { return im->stop || !im->queue.empty(); });
+            wait = std::chrono::milliseconds(fast ? im->fastMs.load() : im->slowMs.load());
           }
+          if (wantsAttach()) {
+            auto due = std::chrono::duration_cast<std::chrono::milliseconds>(
+                lastAttach + std::chrono::milliseconds(im->attachMs.load()) - Clock::now());
+            if (due < std::chrono::milliseconds(0)) due = std::chrono::milliseconds(0);
+            if (!wait || due < *wait) wait = due;
+          }
+          const bool wasWanting = wantsAttach();
+          auto ready = [&] { return im->stop || !im->queue.empty() || wantsAttach() != wasWanting; };
+          bool timedOut = false;
+          if (wait) timedOut = !im->cv.wait_for(lk, *wait, ready);
+          else im->cv.wait(lk, ready);
+          polled = timedOut && connected;
+          attach = timedOut;
         }
         if (im->stop) break;
         if (!im->queue.empty()) {
@@ -192,6 +226,7 @@ void DebugSession::startWorker() {
         if (cmd.kind == Kind::Breakpoint) ++im->bpExecuted;
         if (cmd.kind == Kind::Connect) {
           epoch = cmd.epoch;
+          lastAttach = Clock::now();
           connected = r.ok;
         } else if (cmd.kind == Kind::Disconnect) {
           epoch = cmd.epoch;
@@ -207,6 +242,24 @@ void DebugSession::startWorker() {
           more = !im->queue.empty();
         }
         if (connected && !more) pollOnce();
+      } else if (attach && attachDue()) {
+        lastAttach = Clock::now();
+        DebugWorkspaceInfo info;
+        {
+          std::lock_guard<std::mutex> lk(im->mu);
+          info = im->attachInfo;
+        }
+        DebugResult r = guarded([info](Debugger& d) { return d.connect(info); }, be);
+        if (r.ok) {
+          connected = true;
+          havePosted = false;
+          im->post([this, r, ep = epoch] { commandFinished("attach", Kind::Connect, r, ep, {}); });
+          pollOnce();
+        } else if (!r.notRunning) {
+          // a real problem (not just "nothing to attach to"): report it, without touching the connection state
+          im->post([this, r, ep = epoch] { commandFinished("attach", Kind::Normal, r, ep, {}); });
+        }
+        if (polled && connected) pollOnce();
       } else if (polled && connected) {
         pollOnce();
       }
@@ -279,13 +332,25 @@ bool DebugSession::submit(const char* what, std::function<DebugResult(Debugger&)
   return true;
 }
 
-bool DebugSession::connect(Done done) {
+bool DebugSession::connect(Done done) { return connectImpl(true, std::move(done)); }
+
+bool DebugSession::attachIfRunning(Done done) { return connectImpl(false, std::move(done)); }
+
+void DebugSession::setAttachRetryMs(int ms) {
+  attachMs_ = ms > 0 ? ms : 0;
+  if (impl_ && attachWanted_) {
+    impl_->attachMs = attachMs_;
+    impl_->cv.notify_all();
+  }
+}
+
+bool DebugSession::connectImpl(bool launchIfMissing, Done done) {
   if (connectRequested_) {
     if (done) ed_.post([done] { done(DebugResult::success()); });
     return true;
   }
   if (!ensureBackend()) {
-    setError(kNoBackend);
+    if (launchIfMissing) setError(kNoBackend);  // an attach attempt on a platform without a backend stays quiet
     return false;
   }
   ed_.loadBreakpoints();
@@ -296,6 +361,17 @@ bool DebugSession::connect(Done done) {
   info.root = ed_.workspace().root();
   if (!solution_.empty()) info.solution = solution_;
   else if (auto s = ed_.workspace().solutionFiles(); !s.empty()) info.solution = s.front();
+  info.launchIfMissing = launchIfMissing;
+  if (!launchIfMissing) attachWanted_ = true;
+  {
+    // The worker's own retries are always attach-only.
+    DebugWorkspaceInfo a = info;
+    a.launchIfMissing = false;
+    std::lock_guard<std::mutex> lk(impl_->mu);
+    impl_->attachInfo = std::move(a);
+  }
+  impl_->haveBps = !ed_.breakpoints().empty();
+  impl_->attachMs = attachWanted_ ? attachMs_ : 0;
   return submit("connect", [info](Debugger& d) { return d.connect(info); }, std::move(done), Kind::Connect);
 }
 
@@ -305,6 +381,8 @@ bool DebugSession::disconnect(Done done) {
     return true;
   }
   connectRequested_ = connected_ = false;
+  attachWanted_ = false;  // the user disconnected: no more automatic attaching until attachIfRunning()
+  impl_->attachMs = 0;
   known_.clear();
   ++epoch_;
   setMode(DebugMode::Disconnected);
@@ -339,6 +417,11 @@ bool DebugSession::stepInto(Done done) {
 }
 bool DebugSession::stepOut(Done done) {
   return command("stepOut", [](Debugger& d) { return d.stepOut(); }, std::move(done));
+}
+bool DebugSession::openInEditor(const fs::path& file, int line, int column, Done done) {
+  return command(
+      "openInEditor", [file, line, column](Debugger& d) { return d.openInEditor(file, line, column); },
+      std::move(done));
 }
 bool DebugSession::runToCursor(const fs::path& file, int line, Done done) {
   return command("runToCursor", [file, line](Debugger& d) { return d.runToCursor(file, line); }, std::move(done));
@@ -377,13 +460,13 @@ void DebugSession::commandFinished(const char* what, Kind kind, const DebugResul
                                    const Done& done) {
   const bool current = epoch == epoch_;
   if (!r.ok) {
-    setError(std::string(what) + ": " + r.error);
+    if (!(r.notRunning && kind == Kind::Connect)) setError(std::string(what) + ": " + r.error);  // else: quiet
   } else if (kind != Kind::Breakpoint && current) {
     clearError();
   }
   if (current && kind == Kind::Connect) {
     if (r.ok) {
-      connected_ = true;
+      connected_ = connectRequested_ = true;  // (also after an attach the worker made by itself)
       touch();
       known_.clear();
       pushBreakpoints();  // everything we have; the backend's own are adopted from the first trusted snapshot

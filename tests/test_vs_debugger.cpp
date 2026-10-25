@@ -98,6 +98,24 @@ TEST(vsdte_hresult_classes) {
   CHECK_EQ(describeHr("Go", static_cast<long>(0x80004005u)), std::string("Go failed (0x80004005)"));
 }
 
+TEST(vsdte_retry_policy) {
+  VsBusyPolicy p;
+  CHECK_EQ(p.commandMs, 15000);
+  CHECK_EQ(p.pollMs, 1000);
+  CHECK(p.pollMs < p.commandMs);
+  // retry later while inside the window
+  CHECK_EQ(retryDelayMs(true, 0, 15000, false, false), 100L);
+  CHECK_EQ(retryDelayMs(true, 14999, 15000, false, false), 100L);
+  CHECK_EQ(retryDelayMs(true, 15000, 15000, false, false), -1L);
+  // a poll window of 1 s gives up after 1 s even though commands would still retry
+  CHECK_EQ(retryDelayMs(true, 999, static_cast<unsigned long>(p.pollMs), false, false), 100L);
+  CHECK_EQ(retryDelayMs(true, 1000, static_cast<unsigned long>(p.pollMs), false, false), -1L);
+  // the poll's overall deadline, cancel() and "rejected, not retry-later" end it at once
+  CHECK_EQ(retryDelayMs(true, 10, 15000, true, false), -1L);
+  CHECK_EQ(retryDelayMs(true, 10, 15000, false, true), -1L);
+  CHECK_EQ(retryDelayMs(false, 10, 15000, false, false), -1L);
+}
+
 TEST(vsdte_vswhere_output) {
   CHECK_EQ(firstOutputLine("C:\\VS\\Common7\\IDE\\devenv.exe\r\n"), std::string("C:\\VS\\Common7\\IDE\\devenv.exe"));
   CHECK_EQ(firstOutputLine("\r\n  \r\n  x y  \r\nz"), std::string("x y"));

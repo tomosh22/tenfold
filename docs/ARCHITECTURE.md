@@ -305,6 +305,17 @@ here; the Visual Studio backend (C2b, `VsDebugger_win32.cpp`) and the UI (C2c) p
   it back (no echo). A failed `setBreakpoint` is reported and forgotten (the breakpoint stays in tenfold and is retried
   with the next change); a `Disconnected` snapshot never deletes breakpoints. On connect everything in `Breakpoints`
   is pushed and breakpoints only the backend has are adopted.
+* **Attach-only connection (C2b2).** Breakpoints toggled in tenfold only reach the debugger once the session is
+  connected, and a command connects implicitly (the Visual Studio backend may then launch devenv).
+  `DebugWorkspaceInfo::launchIfMissing` (default true) switches that off: `connect()` then answers
+  `DebugResult::noInstance()` (`notRunning`) when no instance has the solution open. `DebugSession::attachIfRunning()`
+  connects that way and treats `notRunning` as nothing wrong: no `lastError`, nothing in `status()`, mode stays
+  `Disconnected`. `Editor::start()` calls it once when the workspace setting `debug.attachAtStartup` (default true,
+  `.tenfold/workspace.json`) is on and a backend factory exists. While nothing is attached (never was, or the
+  instance went away: a `Disconnected` snapshot) and `Breakpoints` is not empty, the worker retries the attach-only
+  connect by itself every `setAttachRetryMs()` (default 10 s; 0 = never), so opening the solution in Visual Studio
+  later picks up tenfold's breakpoints (on success everything in `Breakpoints` is pushed as after any connect).
+  Other problems of a retry are reported once. An explicit `disconnect()` stops the retries; commands launch as before.
 * **Follow current statement.** Entering Break mode, or a new current statement while in Break, calls
   `Editor::gotoLocation({file, {line, 0}}, ..., "debugger")` (so Back returns) when
   `DebugSession::followCurrentStatement` (default true) is set. The statement is also exposed for the UI.
@@ -327,8 +338,12 @@ Running Object Table enumeration.
 * **Threading.** Every call, and the destructor, runs on the `DebugSession` worker. `connect()` calls
   `CoInitializeEx(COINIT_APARTMENTTHREADED)` and registers an `IMessageFilter`; the destructor releases the DTE
   object, unregisters the filter and calls `CoUninitialize`. The filter retries calls Visual Studio rejects as busy
-  (`RPC_E_CALL_REJECTED`, `RPC_E_SERVERCALL_RETRYLATER`) every 100 ms for up to 15 s per call. `cancel()` sets an
-  atomic flag that the filter and the devenv launch wait check, so shutdown never hangs.
+  (`RPC_E_CALL_REJECTED`, `RPC_E_SERVERCALL_RETRYLATER`) every 100 ms for up to 15 s per call of a command. A
+  `poll()` gets a window of 1 s for the whole poll (`VsBusyPolicy`, both values configurable through
+  `createVisualStudioDebugger(policy)`; the decision is the pure `retryDelayMs`), so a Visual Studio stuck in a modal
+  dialog cannot delay queued commands: the poll fails with "Visual Studio is busy" and the session keeps its last
+  snapshot. A poll never reports a partial breakpoint list: a busy or dead answer while reading it fails the poll.
+  `cancel()` sets an atomic flag that the filter and the devenv launch wait check, so shutdown never hangs.
 * **Connecting.** The ROT is enumerated for monikers `!VisualStudio.DTE.<ver>:<pid>` (any version, newest first). The
   instance whose `Solution.FullName` equals the workspace solution (case-insensitive, separators, `.`/`..`, `\\?\`
   normalised) wins. Otherwise `devenv.exe "<sln>"` is launched (`vswhere.exe -latest -property productPath` under
@@ -349,7 +364,9 @@ Running Object Table enumeration.
   frame without source gives no current statement; only when the frame cannot be read at all does it fall back to
   `ActiveDocument.FullName` + `Selection.CurrentLine`), and the whole breakpoint list.
 * **Open in Visual Studio at the caret.** `Debugger::openInEditor(file, line, column)` is an optional virtual
-  (default: not supported) implemented here; C2c wires it to a command.
+  (default: not supported) implemented here. `DebugSession::openInEditor(file, line, column, done)` queues it on
+  the worker like the other commands (connecting first) and `Editor::openInVisualStudio()` calls it at the primary
+  caret of the current document; the UI command (C2c) binds to that.
 * **Tests.** `tests/test_vs_debugger.cpp`: helpers everywhere; on Windows the wrappers against
   `Scripting.Dictionary`; `vsdte_integration` only with `TENFOLD_VS_DTE_TEST=1` (creates a tiny solution, launches
   devenv, breakpoint / start / step / VS-side breakpoint / stop, then `DTE.Quit`). The CI job `windows-vs-debugger`

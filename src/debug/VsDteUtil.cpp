@@ -122,6 +122,11 @@ bool isServerDeadHr(long hr) {
   }
 }
 
+long retryDelayMs(bool retryLater, unsigned long elapsedMs, unsigned long limitMs, bool pastDeadline, bool cancelled) {
+  if (cancelled || pastDeadline || !retryLater || elapsedMs >= limitMs) return -1;
+  return 100;
+}
+
 std::string firstOutputLine(const std::string& output) {
   size_t i = 0;
   while (i < output.size()) {

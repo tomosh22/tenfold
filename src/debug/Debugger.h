@@ -37,8 +37,12 @@ inline const char* toString(DebugMode m) {
 struct DebugResult {
   bool ok = true;
   std::string error;  // set when !ok
+  // Only from connect() with launchIfMissing == false: there is simply no debugger instance to attach to. Not a
+  // problem worth reporting; the session stays Disconnected quietly and tries again later.
+  bool notRunning = false;
   static DebugResult success() { return {}; }
-  static DebugResult failure(std::string e) { return {false, std::move(e)}; }
+  static DebugResult failure(std::string e) { return {false, std::move(e), false}; }
+  static DebugResult noInstance(std::string e) { return {false, std::move(e), true}; }
   explicit operator bool() const { return ok; }
 };
 
@@ -46,6 +50,9 @@ struct DebugResult {
 struct DebugWorkspaceInfo {
   std::filesystem::path root;
   std::filesystem::path solution;  // the .sln of the workspace; empty when it has none
+  // False = attach only: connect() must not start a debugger instance. When none has the solution open it returns
+  // DebugResult::noInstance(). Commands (and the implicit connect before them) use true.
+  bool launchIfMissing = true;
 };
 
 struct DebugLocation {

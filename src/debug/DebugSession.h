@@ -53,6 +53,13 @@ class DebugSession {
   // --- commands (queued onto the worker; false and lastError() when impossible) ---
   // Everything except connect / disconnect connects first when the session is not connected yet.
   bool connect(Done done = {});
+  // Attach-only connect: never starts a debugger instance. When none has the workspace's solution open the session
+  // quietly stays Disconnected (no lastError, nothing in status()) and `done` still receives the "no instance"
+  // result. While Disconnected (also after a connected instance went away) and Breakpoints is not empty, the worker
+  // retries attach-only every attachRetryMs (default 10 s), so opening the solution later picks up tenfold's
+  // breakpoints. Returns false without any error text when there is no backend. An explicit disconnect() stops the
+  // retries; connect() and every command still launch as before.
+  bool attachIfRunning(Done done = {});
   bool disconnect(Done done = {});
   bool start(Done done = {});
   bool startWithoutDebugging(Done done = {});
@@ -63,6 +70,10 @@ class DebugSession {
   bool stepInto(Done done = {});
   bool stepOut(Done done = {});
   bool runToCursor(const std::filesystem::path& file, int line, Done done = {});  // 0-based line
+  // Shows the file in the backend's own editor with the caret there (Visual Studio: "Open in Visual Studio"); 0-based
+  // line and column. Not a debugging command, but queued on the worker like the others (and connects first); a
+  // backend without the feature reports "not supported" through lastError() / `done`.
+  bool openInEditor(const std::filesystem::path& file, int line, int column, Done done = {});
 
   // --- state (main thread; moves only inside pump()) ---
   DebugMode mode() const { return mode_; }
@@ -90,6 +101,8 @@ class DebugSession {
   // How long shutdown() waits for a blocked backend call (after Debugger::cancel()) before abandoning the worker
   // thread. An abandoned worker finishes on its own and touches nothing of the editor.
   void setShutdownTimeout(int ms) { shutdownMs_ = ms; }
+  static constexpr int kDefaultAttachRetryMs = 10000;
+  void setAttachRetryMs(int ms);  // 0 = never retry
 
   // Stops the worker (disconnecting a connected backend on that thread) and delivers nothing afterwards.
   void shutdown();
@@ -99,6 +112,7 @@ class DebugSession {
   struct Cmd;
   enum class Kind { Normal, Connect, Disconnect, Breakpoint };
 
+  bool connectImpl(bool launchIfMissing, Done done);
   bool ensureBackend();
   void startWorker();
   void stopWorker();
@@ -110,7 +124,7 @@ class DebugSession {
   void applySnapshot(const DebugSnapshot& s, uint64_t epoch, uint64_t bpExecuted);
   void adoptBackendBreakpoints(const std::vector<Breakpoint>& backend);
   void pushBreakpoints();
-  void onBreakpointsChanged() { pushBreakpoints(); }
+  void onBreakpointsChanged();
   void setMode(DebugMode m);
 
   Editor& ed_;
@@ -120,6 +134,8 @@ class DebugSession {
   std::shared_ptr<Impl> impl_;  // the running worker
   std::shared_ptr<int> token_;  // posted callbacks hold a weak_ptr; gone when the worker is stopped
   std::filesystem::path solution_;
+  int attachMs_ = kDefaultAttachRetryMs;
+  bool attachWanted_ = false;  // attachIfRunning() was called (and no disconnect() since)
   int fastMs_ = kDefaultFastPollMs, slowMs_ = kDefaultSlowPollMs, shutdownMs_ = kDefaultShutdownTimeoutMs;
 
   // Main-thread state.
