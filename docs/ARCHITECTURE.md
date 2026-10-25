@@ -229,6 +229,67 @@ fast editor must:
   Shift+F4 continues from there.
 * **UI (C1-UI)**: see "Build panel and bottom dock" under the Workbench section.
 
+## Version control (C3a, `src/vcs`)
+
+Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it. Nothing in `src/vcs`
+includes a UI header; it depends on `core` and `lsp/Process.h` (and on `app/Editor.h` in `VcsManager.cpp`, for
+`post()`).
+
+```
+ Editor ── owns ── VcsManager ──(jobs)──▶ worker thread ── owns ── VcsProvider (GitProvider, later Perforce)
+    ▲                    ▲                      │  child processes, line diff
+    │ open/edit/save/    │ hunks(), fileStatus() │
+    │ reload/close/      └──────── Editor::post() ◀┘  results: base text, status, hunks
+    │ file events
+```
+
+* **`VcsProvider`** (`Vcs.h`): `detect`, `status(files)` (one `VcsStatus` per file: Unmodified, Modified, Added,
+  Deleted, Renamed, Untracked, Ignored, CheckedOut, ReadOnlyNotCheckedOut, Conflicted, Unknown; an empty list means
+  "the whole workspace, changed files only"), `baseText(file)` (the committed / have revision; nullopt without an
+  error means there is no committed version), `revert(file)`, `beforeFirstEdit(file)` (no-op for Git; Perforce runs
+  `p4 edit`). Every call blocks on a child process and is made from the manager's worker thread only. `runCommand`
+  (`VcsExec.h`) runs a tool without a shell (arguments are passed as they are), captures stdout and stderr and
+  enforces a timeout.
+* **`GitProvider`**: `rev-parse --show-toplevel`, `status --porcelain=v2 -z -uall` (renames, untracked, conflicts),
+  `show HEAD:<path>`, `restore --source=HEAD --staged --worktree` with `checkout HEAD --` as the fallback for old git.
+  `GIT_LITERAL_PATHSPECS=1` and `--no-optional-locks` are always set (names with `*`, `[`, spaces or non-ASCII text
+  work; a background status never takes the index lock away from the user's own git). A staged rename queried by path
+  is recognised through `diff --cached -M`, because a pathspec hides the other half of the rename.
+* **`LineDiff`**: Myers O(ND) on integer line ids after a common prefix / suffix trim. Texts are split like
+  `TextBuffer::setText` (a CR before an LF is dropped), so the committed text of a CRLF checkout and an LF buffer
+  (or the reverse, `core.autocrlf`) compare equal. The edit distance is capped (`DiffOptions::maxEditDistance`,
+  3000); beyond it the changed middle part becomes one hunk. Hunks are `{baseStart, baseCount, newStart, newCount,
+  kind}` with 0-based line indices; `hunkBaseLines` returns the deleted / replaced base lines for an inline display
+  and `revertHunkEdit` the one `Document::replace` that restores them.
+* **`VcsManager`** (`Editor::vcs()`): picks the first provider whose `detect()` accepts the workspace root
+  (`Options::providers`, default Git only; C3b adds Perforce there). Per open document it keeps the base lines (split
+  on the worker, shared immutably), the last hunks and the document version they belong to. A new file in the index
+  has an empty base (the whole file is one Added hunk); an untracked file has no base and no hunks.
+
+### Threading (VCS)
+
+| Thread | Does |
+|---|---|
+| main (`Editor`) | `documentOpened/Changed/Saved/Reloaded/Closed` notifications, all queries (`hunks`, `fileStatus`, `generation`), `revertHunk` (synchronous and exact), the pumped result handlers |
+| VCS worker (lazy, one per `Editor`, started by the first open document) | provider detection, child processes, the line diff, the debounce timers |
+
+An edit bumps the document's sequence number and (re)arms a timer **on the worker** (`Options::debounceMs`, 150 ms).
+When it fires it posts to the main thread, which copies the buffer lines (about 3 ms for 100k lines) and hands the
+snapshot to the worker; the worker diffs and posts `{sequence, hunks}`. A result whose sequence or base no longer
+matches is dropped (`Stats::staleDropped`), so a result never describes an older text than the one on screen.
+Providers never see a `Document`, only paths and strings. `beforeFirstEdit` is queued to the worker the first time a
+document becomes dirty (once per open document; an external reload or `revertFile` re-arms it) and may take as long
+as `p4 edit` needs without blocking typing; a failure goes to `onError` and the edit is kept.
+`revertFile` runs the provider revert on the worker and then reloads the open document with
+`Editor::reloadFromDisk`, i.e. exactly like an external change (only the changed lines are replaced, navigation
+history follows, the undo history is cleared). `revertHunk` applies one `replace` through `Editor::replaceRange` (or
+through the Document for a background tab): one undo step.
+
+Refresh triggers: open, save, reload, `refreshStatus()` (also re-reads the base of every open document; the UI should
+call it when the window regains focus, because commits made outside the editor do not touch the files) and,
+debounced (1 s), file-watcher events for files that are not open. `generation()` changes whenever anything a view
+shows changed, `onChanged` says which file.
+
 ## Navigation history
 
 `NavigationHistory` is a deque of `{Location, Kind, label}` plus a cursor.

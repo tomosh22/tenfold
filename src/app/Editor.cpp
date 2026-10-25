@@ -124,6 +124,8 @@ Editor::Editor(fs::path root) : Editor(std::move(root), Options()) {}
 
 Editor::Editor(fs::path root, Options opt) : ws_(std::move(root)), opt_(std::move(opt)), nav_(opt_.navigation) {
   if (!opt_.semantic.log) opt_.semantic.log = opt_.log;
+  if (!opt_.vcs.log) opt_.vcs.log = opt_.log;
+  vcs_ = std::make_unique<VcsManager>(*this, opt_.vcs);
   ws_.loadSettings();
 }
 
@@ -160,6 +162,7 @@ bool Editor::start(std::string* error) {
 }
 
 void Editor::shutdown() {
+  if (vcs_) vcs_->shutdown();  // joins its worker, which posts to this editor
   saveBookmarks();
   buildRunner_.reset();  // kills a running build and joins its reader before the queue goes away
   buildRunning_ = false;
@@ -219,12 +222,14 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
       }
     }
     if (semantic_) semantic_->didChange(d, ch);
+    if (!reloading_) vcs_->documentChanged(d);
     if (current_ == &d && !inEdit_) clampCarets();
   });
   std::string key = docKey(path);
   docs_[key] = std::move(doc);
   diskHash_[key] = hashFile(path);
   if (semantic_) semantic_->didOpen(*raw);
+  vcs_->documentOpened(*raw);
   return raw;
 }
 
@@ -232,6 +237,7 @@ bool Editor::close(const fs::path& path) {
   Document* d = document(path);
   if (!d) return false;
   if (semantic_) semantic_->didClose(*d);
+  vcs_->documentClosed(*d);
   std::error_code ec;
   if (current_ == d) {
     current_ = nullptr;
@@ -270,10 +276,16 @@ bool Editor::save(Document& doc, std::string* error) {
   saveBookmarks();
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
   if (semantic_) semantic_->didSave(doc);
+  vcs_->documentSaved(doc);
   return true;
 }
 
 bool Editor::reloadFromDisk(Document& doc, std::string* error) {
+  struct ReloadScope {
+    bool& flag;
+    explicit ReloadScope(bool& f) : flag(f) { flag = true; }
+    ~ReloadScope() { flag = false; }
+  } reloadScope(reloading_);
   std::ifstream in(doc.path(), std::ios::binary);
   if (!in) {
     if (error) *error = "cannot open " + doc.path().string();
@@ -307,6 +319,7 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
   }
   if (!doc.loadFromDisk(error)) return false;  // clean state, CRLF flag, empty undo stack
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
+  vcs_->documentReloaded(doc);
   return true;
 }
 
@@ -393,6 +406,7 @@ void Editor::rescanWorkspace() {
 
 void Editor::handleFileEvent(const FileWatcher::Event& ev) {
   if (!semantic_) return;  // shut down while the event was queued
+  vcs_->fileEvent(ev.path);
   using E = FileWatcher::Event;
   auto touched = [&](const fs::path& p) {
     if (Document* d = document(p)) {

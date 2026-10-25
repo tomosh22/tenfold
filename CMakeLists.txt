@@ -51,6 +51,11 @@ add_library(tenfold_core STATIC
   src/build/AnsiStrip.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
+  src/vcs/Vcs.cpp
+  src/vcs/VcsExec.cpp
+  src/vcs/LineDiff.cpp
+  src/vcs/GitProvider.cpp
+  src/vcs/VcsManager.cpp
 )
 target_include_directories(tenfold_core PUBLIC src third_party)
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
@@ -113,6 +118,9 @@ add_executable(tenfold-tests
   tests/test_lsp_features.cpp
   tests/test_build.cpp
   tests/test_symbol_search.cpp
+  tests/test_vcs_diff.cpp
+  tests/test_vcs_git.cpp
+  tests/test_vcs_manager.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
