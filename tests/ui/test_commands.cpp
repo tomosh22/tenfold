@@ -165,12 +165,13 @@ TEST(cmd_overlay_order_and_unbind) {
 }
 
 TEST(cmd_load_files_overlay) {
-  fs::path dir = fs::temp_directory_path() / ("tf_keys_" + std::to_string(reinterpret_cast<uintptr_t>(&dir)));
+  fs::path dir = uitest::tempRoot() / ("tf_keys_" + std::to_string(reinterpret_cast<uintptr_t>(&dir)));
   fs::create_directories(dir / "user");
   fs::create_directories(dir / "ws" / ".tenfold");
   {
-    std::ofstream(dir / "user" / "keybindings.txt") << "F12 = User.Goto\nF7 = User.Only\nbroken line\n";
-    std::ofstream(dir / "ws" / ".tenfold" / "keybindings.txt") << "F7 = Ws.Wins\n";
+    std::ofstream(dir / "user" / "keybindings.txt", std::ios::binary)
+        << "F12 = User.Goto\nF7 = User.Only\nbroken line\n";
+    std::ofstream(dir / "ws" / ".tenfold" / "keybindings.txt", std::ios::binary) << "F7 = Ws.Wins\n";
   }
   std::vector<KeyBindingDiag> d;
   KeyMap m = loadKeyBindings(dir / "ws", dir / "user", d);
@@ -350,7 +351,7 @@ TEST(cmd_ui_only_commands_report_unbound_and_editor_commands_need_editor) {
 }
 
 TEST(cmd_end_to_end_alt_left_goes_back) {
-  fs::path dir = fs::temp_directory_path() / ("tf_cmd_e2e_" + std::to_string(reinterpret_cast<uintptr_t>(&dir)));
+  fs::path dir = uitest::tempRoot() / ("tf_cmd_e2e_" + std::to_string(reinterpret_cast<uintptr_t>(&dir)));
   fs::create_directories(dir);
   {
     std::ofstream out(dir / "a.txt", std::ios::binary);

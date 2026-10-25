@@ -116,7 +116,7 @@ struct Fx {
   explicit Fx(const std::string& content, int w_ = 640, int h_ = 280, std::unique_ptr<gfx::TextRenderer> tr = nullptr)
       : w(w_), h(h_) {
     static int counter = 0;
-    dir = fs::temp_directory_path() /
+    dir = uitest::tempRoot() /
           ("tenfold_tv_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
            std::to_string(counter++));
     fs::create_directories(dir);
@@ -488,7 +488,7 @@ TEST(textview_paint_layers_selections_carets_and_draw_calls) {
 TEST(textview_pinned_view_activates_its_document) {
   Fx f("first\n");
   {
-    std::ofstream out(f.dir / "b.txt");
+    std::ofstream out(f.dir / "b.txt", std::ios::binary);
     out << "second\nline\n";
   }
   Document* b = f.ed->open("b.txt");

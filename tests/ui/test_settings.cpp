@@ -20,7 +20,7 @@ struct TempDir {
   TempDir() {
     static int n = 0;
     auto t = std::chrono::steady_clock::now().time_since_epoch().count();
-    path = fs::temp_directory_path() / ("tenfold_settings_" + std::to_string(t) + "_" + std::to_string(n++));
+    path = uitest::tempRoot() / ("tenfold_settings_" + std::to_string(t) + "_" + std::to_string(n++));
     fs::create_directories(path);
     std::error_code ec;
     path = fs::weakly_canonical(path, ec);

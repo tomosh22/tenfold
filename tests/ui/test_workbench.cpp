@@ -56,12 +56,11 @@ struct Env {
   NullRenderer nr;
   Env() {
     static int n = 0;
-    dir = fs::temp_directory_path() /
-          ("tf_wb_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-           std::to_string(n++));
+    dir = uitest::tempRoot() / ("tf_wb_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                                "_" + std::to_string(n++));
     fs::create_directories(dir);
     for (const char* f : {"a.cpp", "b.cpp", "c.cpp", "d.cpp"}) {
-      std::ofstream out(dir / f);
+      std::ofstream out(dir / f, std::ios::binary);
       for (int i = 0; i < 20; ++i) out << "int " << f[0] << i << " = " << i << ";\n";
     }
     ed = std::make_unique<Editor>(dir);

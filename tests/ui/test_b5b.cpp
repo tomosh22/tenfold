@@ -115,9 +115,9 @@ struct Env {
 
   Env() {
     static int n = 0;
-    dir = fs::temp_directory_path() /
-          ("tf_b5b_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-           std::to_string(n++));
+    dir =
+        uitest::tempRoot() / ("tf_b5b_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                              "_" + std::to_string(n++));
     writeFile(dir / "src/main.cpp", "int main() { return dup(); }\n");
     writeFile(dir / "src/alpha.cpp",
               "int dup() { return 1; }\nstruct AlphaShape {};\nint alphaOnly() { return dup(); }\n");
@@ -660,6 +660,7 @@ TEST(diagnostics_panel_lists_open_files_errors_first_and_click_jumps) {
   REQUIRE(p != nullptr);
   CHECK(p->status().find("open files") != std::string::npos);
   CHECK(primaries(p) == std::vector<std::string>{"expected ';'", "unknown type name", "unused variable"});
+  REQUIRE(p->rows().size() == 3u);  // (a failed list must not index past the end)
   CHECK_EQ(p->rows()[1].detail, std::string("src/beta.cpp:2"));
   env.type("unknown");  // filter
   CHECK(primaries(env.popup()) == std::vector<std::string>{"unknown type name"});
