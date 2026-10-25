@@ -73,4 +73,58 @@ void TextRenderer::draw(Renderer& r, int widthPx, int heightPx, const std::vecto
   r.popScissor();
 }
 
+std::unique_ptr<TextRenderer> TextRenderer::fromFonts(FontStack fonts) {
+  return std::unique_ptr<TextRenderer>(new TextRenderer(std::move(fonts)));
+}
+
+float TextRenderer::measure(std::string_view utf8) const {
+  return static_cast<float>(layout_.columnCount(utf8)) * cellWidth();
+}
+
+std::string TextRenderer::fit(std::string_view utf8, float maxWidth) const {
+  const int cols = static_cast<int>(maxWidth / cellWidth());
+  if (layout_.columnCount(utf8) <= cols) return std::string(utf8);
+  if (cols < 1) return std::string();
+  return std::string(utf8.substr(0, layout_.byteForColumn(utf8, cols - 1))) + "\xE2\x80\xA6";
+}
+
+void TextRenderer::drawText(float x, float y, std::string_view utf8, Color color, const RectF& clip) {
+  if (utf8.empty() || clip.w <= 0 || clip.h <= 0 || y + lineHeight() <= clip.y || y >= clip.y + clip.h ||
+      x >= clip.x + clip.w)
+    return;
+  if (pending_.empty()) pendingGen_ = atlas_.generation();
+  const FontMetrics& m = fonts_.metrics();
+  const float base = y + std::round((lineHeight() - (m.ascender + m.descender)) / 2 + m.ascender);
+  tmp_.clear();
+  static const std::vector<ColorSpan> noSpans;
+  layout_.layoutLine(utf8, x, base, 0, clip.x + clip.w - x, noSpans, 0, tmp_);
+  Pending* p = nullptr;
+  for (Pending& q : pending_)
+    if (q.color.r == color.r && q.color.g == color.g && q.color.b == color.b && q.color.a == color.a) p = &q;
+  if (!p) p = &pending_.emplace_back(Pending{color, {}});
+  const float cx1 = clip.x + clip.w, cy1 = clip.y + clip.h;
+  for (GlyphQuad q : tmp_.quads) {
+    if (q.x1 <= clip.x || q.x0 >= cx1 || q.y1 <= clip.y || q.y0 >= cy1) continue;
+    auto trim = [](float& a0, float& a1, float& t0, float& t1, float lo, float hi) {
+      const float span = a1 - a0, k = (t1 - t0) / span;
+      if (a0 < lo) t0 += (lo - a0) * k, a0 = lo;
+      if (a1 > hi) t1 -= (a1 - hi) * k, a1 = hi;
+    };
+    trim(q.x0, q.x1, q.u0, q.u1, clip.x, cx1);
+    trim(q.y0, q.y1, q.v0, q.v1, clip.y, cy1);
+    p->quads.push_back(q);
+  }
+}
+
+bool TextRenderer::flushText(Renderer& r) {
+  const bool stale = !pending_.empty() && atlas_.generation() != pendingGen_;
+  atlas_.flush(r);
+  if (!stale)
+    for (const Pending& p : pending_)
+      if (!p.quads.empty()) r.drawGlyphs(atlas_.texture(), p.quads.data(), static_cast<int>(p.quads.size()), p.color);
+  for (Pending& p : pending_) p.quads.clear();
+  pending_.clear();
+  return !stale;
+}
+
 }  // namespace tf::gfx

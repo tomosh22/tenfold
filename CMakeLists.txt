@@ -167,6 +167,13 @@ if(TENFOLD_BUILD_UI)
     src/ui/gfx/GlRenderer.cpp
     src/ui/gfx/PngWrite.cpp
     src/ui/gfx/TextRenderer.cpp
+    src/ui/widgets/Widget.cpp
+    src/ui/widgets/TabStrip.cpp
+    src/ui/widgets/Splitter.cpp
+    src/ui/widgets/Panel.cpp
+    src/ui/widgets/StatusBar.cpp
+    src/ui/widgets/LinesView.cpp
+    src/ui/widgets/ShellDemo.cpp
   )
   target_include_directories(tenfold_ui PUBLIC src)
   target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text)
@@ -182,7 +189,9 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_input.cpp
     tests/ui/test_renderer.cpp
     tests/ui/test_text_view.cpp
+    tests/ui/test_widgets.cpp
   )
+  target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   add_test(NAME ui-unit COMMAND tenfold-ui-tests)
