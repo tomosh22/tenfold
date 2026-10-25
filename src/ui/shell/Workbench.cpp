@@ -228,7 +228,16 @@ int Workbench::openFile(const fs::path& path, Panel* in) {
   if (id < 0) id = addTabTo(p, *d, false);
   else p->setActive(id);
   setActivePanel(p);
+  noteRecent(d->path());
   return id;
+}
+
+void Workbench::noteRecent(const fs::path& file) {
+  constexpr size_t kMaxRecent = 50;
+  const auto it = std::find(recent_.begin(), recent_.end(), file);
+  if (it != recent_.end()) recent_.erase(it);
+  recent_.insert(recent_.begin(), file);
+  if (recent_.size() > kMaxRecent) recent_.resize(kMaxRecent);
 }
 
 void Workbench::releaseDocument(const fs::path& path) {
@@ -403,7 +412,7 @@ bool Workbench::onEvent(const InputEvent& e) {
 }
 
 bool Workbench::dispatch(const InputEvent& e) {
-  if (e.type == InputType::MouseDown && !captured())
+  if (e.type == InputType::MouseDown && !captured() && !modal())
     for (Widget* w = hitTest(e.x, e.y); w; w = w->parent())
       if (auto* p = dynamic_cast<Panel*>(w)) {
         setActivePanel(p);
@@ -423,6 +432,7 @@ void Workbench::showDocument(Document& d) {
     editor_.activateDocument(d, it == lastCaret_.end() ? Position{} : it->second);
   }
   lastCur_ = &d;
+  noteRecent(d.path());
 }
 
 void Workbench::showActiveTab() {
@@ -462,7 +472,10 @@ void Workbench::sync() {
   Document* cur = editor_.currentDocument();
   if (cur != lastCur_) {
     lastCur_ = cur;
-    if (cur) revealDocument(*cur);
+    if (cur) {
+      revealDocument(*cur);
+      noteRecent(cur->path());
+    }
   }
   if (cur) lastCaret_[cur->path().generic_string()] = editor_.cursor().pos;
   for (Panel* p : panels())
@@ -526,7 +539,12 @@ std::string Workbench::layoutJson() const {
     return {{"type", "panel"}, {"tabs", tabs}, {"active", activeIdx}};
   };
   const auto it = std::find(ps.begin(), ps.end(), active_);
-  return Json{{"version", 1}, {"activePanel", static_cast<int>(it - ps.begin())}, {"root", node(node, top_)}}.dump(2);
+  Json out{{"version", 1}, {"activePanel", static_cast<int>(it - ps.begin())}, {"root", node(node, top_)}};
+  if (!recent_.empty()) {
+    out["recent"] = Json::array();
+    for (const fs::path& p : recent_) out["recent"].push_back(rel(p));
+  }
+  return out.dump(2);
 }
 
 bool Workbench::saveLayout() const {
@@ -596,10 +614,19 @@ bool Workbench::restoreLayoutFromJson(const std::string& text) {
     return own;
   };
   installTree(build(build, j["root"]), true);
+  std::vector<fs::path> recent;
+  if (j.contains("recent") && j["recent"].is_array())
+    for (const Json& r : j["recent"])
+      if (r.is_string() && recent.size() < 50) {
+        const fs::path p(r.get<std::string>());
+        recent.push_back(p.is_absolute() ? p : editor_.workspace().root() / p);
+      }
   const int ap = getInt(j, "activePanel", 0);
   active_ = built.empty() ? nullptr : built[static_cast<size_t>(std::clamp(ap, 0, static_cast<int>(built.size()) - 1))];
   if (!active_) active_ = panels().front();
   showActiveTab();
+  if (j.contains("recent"))
+    recent_ = std::move(recent);  // after showActiveTab, which would move the active file to the front
   return true;
 }
 

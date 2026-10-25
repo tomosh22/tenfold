@@ -661,9 +661,7 @@ TEST(textview_perf_keystroke_to_paint_100k_lines) {
     if (gl) {  // full frame on llvmpipe minus the same frame recorded into the null renderer
       gfx::GlRenderer& r = *gl->renderer;
       r.setOffscreen(true);
-      // The atlas texture was created through the recording renderer (id 1): drop that one first, otherwise
-      // releaseTexture(r) below would delete GL texture 1, the renderer's own white texture, and break later tests.
-      f.text->releaseTexture(f.rec);
+      f.text->releaseTexture(f.rec);  // the atlas texture id came from the recording renderer; never hand it to GL
       double full = 0, rec = 0;
       for (int i = 0; i < 30; ++i) {
         f.root->requestLayout();

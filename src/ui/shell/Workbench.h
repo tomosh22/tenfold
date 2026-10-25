@@ -61,6 +61,11 @@ class Workbench : public RootWidget {
   int cycleMru(Panel* p, bool forward);
   void endMruCycle() { cycle_ = {}; }
 
+  // Files in the order they were last shown or opened (most recent first, at most kMaxRecent); fed by openFile, tab
+  // switches and navigation, persisted in layout.json. Used by the open-file picker.
+  const std::vector<std::filesystem::path>& recentFiles() const { return recent_; }
+  void noteRecent(const std::filesystem::path& file);
+
   // ---- drag between panels ----
   void beginTabDrag(int id, float x, float y);  // normally fired by TabStrip::onBeginDragOut; captures the mouse
   DropTarget dropTargetAt(float x, float y) const;
@@ -125,6 +130,7 @@ class Workbench : public RootWidget {
   Panel* active_ = nullptr;
   std::map<int, TabInfo> tabs_;
   std::map<std::string, Position> lastCaret_;
+  std::vector<std::filesystem::path> recent_;
   Document* lastCur_ = nullptr;
   int nextId_ = 1;
   int dragTab_ = -1;

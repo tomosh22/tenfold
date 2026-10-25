@@ -65,16 +65,34 @@ void Widget::setVisible(bool v) {
   }
 }
 
-void Widget::paintTree(PaintContext& ctx) {
+void Widget::paintTree(PaintContext& ctx, bool inTop) {
   if (!visible_) return;
   paint(ctx);
-  for (auto& c : children_) c->paintTree(ctx);
+  for (auto& c : children_)
+    if (inTop || !c->topLayer_) c->paintTree(ctx, inTop);
 }
 
-void Widget::paintOverlayTree(PaintContext& ctx) {
+void Widget::paintOverlayTree(PaintContext& ctx, bool inTop) {
   if (!visible_) return;
   paintOverlay(ctx);
-  for (auto& c : children_) c->paintOverlayTree(ctx);
+  for (auto& c : children_)
+    if (inTop || !c->topLayer_) c->paintOverlayTree(ctx, inTop);
+}
+
+void Widget::paintTopTree(PaintContext& ctx, bool overlay) {
+  if (!visible_) return;
+  for (auto& c : children_) {
+    if (!c->topLayer_) c->paintTopTree(ctx, overlay);
+    else if (overlay) c->paintOverlayTree(ctx, true);
+    else c->paintTree(ctx, true);
+  }
+}
+
+bool Widget::hasTopLayer() const {
+  if (!visible_) return false;
+  for (const auto& c : children_)
+    if (c->visible_ && (c->topLayer_ || c->hasTopLayer())) return true;
+  return false;
 }
 
 int Widget::tickTree(int64_t nowMs) {
@@ -121,9 +139,35 @@ bool Widget::hovered() const {
   return r && r->hover_ == this;
 }
 
-RootWidget::~RootWidget() { focus_ = capture_ = hover_ = nullptr; }
+RootWidget::~RootWidget() { focus_ = capture_ = hover_ = modal_ = beforeModal_ = nullptr; }
+
+void RootWidget::showModal(std::unique_ptr<Widget> w, Widget* focus) {
+  closeModal();
+  Widget* raw = w.get();
+  raw->setTopLayer(true);
+  beforeModal_ = focus_;
+  modal_ = addChild(std::move(w));
+  setFocusTo(focus ? focus : raw);
+  dirty_ = true;
+}
+
+void RootWidget::closeModal() {
+  if (!modal_) return;
+  Widget* m = modal_;
+  modal_ = nullptr;
+  Widget* back = beforeModal_;
+  beforeModal_ = nullptr;
+  if (auto own = removeChild(m)) {  // kept alive until the current event handler has returned
+    own->setVisible(false);
+    retired_.push_back(std::move(own));
+  }
+  if (back) setFocusTo(back);
+  dirty_ = true;
+}
 
 void RootWidget::forget(Widget* s) {
+  if (within(beforeModal_, s)) beforeModal_ = nullptr;
+  if (within(modal_, s)) modal_ = nullptr;
   if (within(focus_, s)) focus_ = nullptr;
   if (within(capture_, s)) capture_ = nullptr;
   if (within(hover_, s)) hover_ = nullptr;
@@ -139,6 +183,7 @@ void RootWidget::setFocusTo(Widget* w) {
 }
 
 bool RootWidget::dispatch(const InputEvent& e) {
+  retired_.clear();
   auto bubble = [&](Widget* w) {
     for (; w; w = w->parent())
       if (w->onEvent(e)) return true;
@@ -149,7 +194,8 @@ bool RootWidget::dispatch(const InputEvent& e) {
     case InputType::MouseUp:
     case InputType::MouseMove:
     case InputType::Wheel: {
-      Widget* target = capture_ ? capture_ : hitTest(e.x, e.y);
+      Widget* target = capture_ ? capture_ : modal_ ? modal_->hitTest(e.x, e.y) : hitTest(e.x, e.y);
+      if (modal_ && !target) target = modal_;
       if (e.type == InputType::MouseMove && target != hover_) {
         Widget* old = hover_;
         hover_ = target;
@@ -172,7 +218,9 @@ bool RootWidget::dispatch(const InputEvent& e) {
     case InputType::KeyDown:
     case InputType::KeyUp:
     case InputType::Text:
-    case InputType::TextEditing: return bubble(focus_);
+    case InputType::TextEditing:
+      if (modal_ && !within(focus_, modal_)) setFocusTo(modal_);  // keys never leak past a modal
+      return bubble(focus_);
     default: return false;
   }
 }
@@ -188,15 +236,20 @@ void RootWidget::render(gfx::Renderer& r, int w, int h) {
     layoutDirty_ = false;
     layout({0, 0, static_cast<float>(w), static_cast<float>(h)});
   }
+  retired_.clear();
+  if (modal_) modal_->layout(bounds());
   PaintContext ctx{r, *text_, theme_};
   // A growing atlas invalidates UVs already recorded this frame; flushText then reports false and we repaint once.
   for (int attempt = 0; attempt < 2; ++attempt) {
     r.beginFrame(w, h, theme_.background);
     paintTree(ctx);
-    if (text_->flushText(r)) {
-      paintOverlayTree(ctx);
-      break;
-    }
+    if (!text_->flushText(r)) continue;
+    paintOverlayTree(ctx);
+    if (!hasTopLayer()) break;
+    paintTopTree(ctx, false);
+    if (!text_->flushText(r)) continue;
+    paintTopTree(ctx, true);
+    break;
   }
   r.endFrame();
   dirty_ = false;

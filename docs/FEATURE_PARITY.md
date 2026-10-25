@@ -26,7 +26,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
 | Makefile / bare folders | ✅ | Heuristic include paths. |
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. **verify** 10x's `.10x` workspace format if import is wanted. |
-| Fast "open file" fuzzy search | 🔶 | `Workspace` has the file list; reuse `FastIndex::fuzzyScore`. |
+| Fast "open file" fuzzy search | ✅ | B5a picker (Ctrl+P / Ctrl+O): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
 | Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI in B5. |
 | File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents (UI prompt in B-phase). |
 
@@ -37,7 +37,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Go to definition / declaration | ✅ | |
 | Go to type definition / implementation | ✅ | |
 | Find references | ✅ | |
-| Symbol search (workspace, fuzzy, qualified `a::b`) | ✅ | Workspace symbols rank before system headers. |
+| Symbol search (workspace, fuzzy, qualified `a::b`) | ✅ | Workspace symbols rank before system headers. GUI picker (B5a, Ctrl+,): approximate results greyed with "verifying...", swapped for the authoritative ones keeping the selection, target-line preview (`picker.preview`, **verify** with 10x), Enter records a navigation jump. Fast tier is 35-270 ms on Godot until A10 makes it asynchronous. |
 | Document outline | ✅ | `documentSymbols` |
 | Autocomplete | ✅ | clangd, detailed style; approximate fallback. |
 | Signature help | ✅ | |
