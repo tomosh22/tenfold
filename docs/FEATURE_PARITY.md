@@ -63,7 +63,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Feature | Status | Notes |
 |---|---|---|
-| GPU-rendered text, tabs, split panels | ⬜ | Next milestone. Recommended stack: native window + own GPU renderer (D3D11/Vulkan/Metal via a thin platform layer), like 10x. |
+| GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. Text on screen (B1c), TextView (B2), tabs/panels (B3) next. |
 | Key bindings as a text file | ⬜ | **verify** 10x's `KeyMappings.10x_settings` grammar if users want to import theirs. |
 | Colour schemes as text files | ⬜ | **verify** format. |
 | Settings as text file | ⬜ | **verify** 10x's `Settings.10x_settings` keys. |
