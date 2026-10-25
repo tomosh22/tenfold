@@ -386,6 +386,35 @@ independently testable.
 * Acceptance: identical golden screenshots to the GL backend within a
   tolerance.
 
+### B2c → B2 Soft word wrap (OPEN_QUESTIONS #4 answered)
+* Files: `src/ui/widgets/TextView.{h,cpp}`, `src/ui/view/{Viewport,Layout}.{h,cpp}` (a new
+  `src/ui/view/WrapLayout.{h,cpp}` for the line ↔ visual-row map), `src/ui/view/Scrollbar.*`,
+  `assets/settings.default.txt`.
+* Wrap at the view width on word boundaries (break inside a word only when it does not fit a row), continuation
+  rows indented like the first row's leading whitespace up to half the width; gutter number on the first row only.
+  Caret Up/Down move by visual row keeping the x position, Home/End go to the row's start/end first, then the
+  line's; mouse hit-testing, selection painting, squiggles, find markers and the scrollbar work in visual rows.
+  `editor.wordWrap` defaults to **true**, `editor.smoothScroll` to **false**; toggle command `View.ToggleWordWrap`.
+* Performance: wrap data computed lazily for visible lines plus an estimate for the rest (no full-document pass
+  per keystroke); keystroke-to-paint ≤ 8 ms on the 100k-line and 50 MB single-line benchmarks.
+* Acceptance: unit tests for the wrap layout (word boundary, long word, tabs, CJK double width, indent of
+  continuation rows), scripted caret-movement tests, one golden with wrap on; existing goldens unchanged (they pin
+  wrap off where the scenario requires it).
+
+### B7b → B7 Visual Studio dark theme (OPEN_QUESTIONS #7 answered)
+* Files: `assets/themes/vs-dark.txt` (new), `assets/settings.default.txt`, `src/ui/settings/Theme.{h,cpp}`,
+  widget paint code only where a VS look needs a new theme key (tab accent line, status bar), goldens that use the
+  application default theme.
+* Palette: Visual Studio 2022 "Dark" for editor text (C++ token colours, current line, selection, line numbers,
+  squiggles) and IDE chrome (tabs, document well, status bar, scrollbars, popups). Font fallbacks Cascadia Mono,
+  Consolas at 10 pt (VS default). `ui.theme = vs-dark` becomes the default; `dark`/`light` stay available.
+* Acceptance: theme parser test covering every key; golden for the default theme; no hard-coded colours added.
+
+### B4b → B4 10x key bindings (OPEN_QUESTIONS #1 answered, blocked on material)
+* Read 10x's key bindings settings file format and ship 10x's default bindings as the defaults, mapping 10x
+  command names onto tenfold commands. Blocked until the default file and command list are available (no
+  bindings from memory).
+
 ---
 
 ## 5. Phase C: 10x behaviours beyond editing
@@ -403,28 +432,53 @@ behind interfaces so the UI can be adjusted when the facts arrive.
 * Per-workspace build configurations (Debug/Release, platform) shared with
   `CompileCommands` so clangd and the build agree.
 
-### C2 Debugger
-* VERIFY WITH USER how 10x debugs (launch Visual Studio / RemedyBG /
-  integrated). Default plan: launch an external debugger with the current
-  file/line, plus a Debug Adapter Protocol client (reuses `JsonRpc`
-  transport patterns) for an integrated experience later.
+### C2 Debugger: Visual Studio integration (OPEN_QUESTIONS #9 answered)
+Strong integration with the Visual Studio debugger: tenfold drives a Visual Studio instance through its automation
+interface (EnvDTE over COM), so debugging happens in VS while the code stays open in tenfold.
+* **C2a ∥ engine model.** `src/debug/{Breakpoints,Debugger,DebugSession}.{h,cpp}`: breakpoint store (per file and
+  line, enabled flag, condition text; moves with edits like `Bookmarks`; persisted in `.tenfold/breakpoints.json`),
+  the abstract `Debugger` backend interface (start / start without debugging / stop / restart / break / step over /
+  into / out / run to cursor / set and remove breakpoints / query mode, current statement and breakpoints), a
+  `DebugSession` on the `Editor` that owns a backend, runs it on its own worker thread and posts state changes
+  (mode, current statement, breakpoints changed on the backend side) via `Editor::post()`, and a `FakeDebugger` for
+  tests. The current statement is shown, and in break mode the editor jumps to it through `gotoLocation`.
+* **C2b → C2a Visual Studio backend (Windows).** `src/debug/VsDebugger_win32.cpp`: late-bound `IDispatch` EnvDTE
+  (no `#import`, builds with MSVC, clang-cl and mingw) on an STA worker thread; finds the running `devenv` whose
+  `Solution.FullName` is the workspace solution through the Running Object Table, else launches `devenv <sln>` and
+  waits for it to register; maps every `Debugger` call onto `DTE.Debugger` / `Breakpoints`; polls mode, current
+  stack frame and the VS breakpoint list so breakpoints set in VS appear in tenfold; "Open in Visual Studio" at the
+  caret. Integration test behind `TENFOLD_VS_DTE_TEST=1`, run by a non-blocking `windows-vs-debugger` CI job.
+* **C2c → C2a UI.** Breakpoint glyphs in the gutter (click to toggle), current-statement arrow and line colour,
+  `Debug.*` commands with Visual Studio's default keys (F5, Ctrl+F5, Shift+F5, Ctrl+Shift+F5, F9, F10, F11,
+  Shift+F11, Ctrl+F10, Ctrl+Alt+Break), debugger state in the status bar, breakpoint list popup.
 
-### C3 Version control
-* Git first (status badges in tabs/file tree, diff gutter marks, blame
-  tooltip, checkout/revert file). Perforce: `p4 edit` on first edit of a
-  read-only file (VERIFY WITH USER the exact 10x Perforce flows).
+### C3 Version control (OPEN_QUESTIONS #10 answered)
+* **C3a ∥ engine: Git and line diff.** `src/vcs/{Vcs,VcsManager,GitProvider,LineDiff}.{h,cpp}`: provider
+  interface (detect, file status, base text, revert), Git via the `git` CLI (`status --porcelain=v2 -z`,
+  `show HEAD:<path>`, `restore`/`checkout --`), a Myers line diff between base text and the live buffer giving
+  added / modified / deleted hunks, recomputed off the main thread after edits (debounced) and posted back;
+  per-file status for tabs; revert file and revert hunk through `Document::replace` (one undo step).
+* **C3b → C3a Perforce.** `src/vcs/PerforceProvider.{h,cpp}`: detection (`p4 -ztag info` / `p4 where`, P4CONFIG),
+  `fstat` status, base text from `p4 print -q <file>#have`, revert, and **auto-checkout**: the first edit of a
+  read-only file under a Perforce client runs `p4 edit` asynchronously and makes the file writable (failure is
+  reported, the edit is kept). Tests use a fake `p4` script on `PATH`.
+* **C3c → C3a UI.** Diff marks in the gutter and scrollbar, inline diff of a hunk (deleted base lines shown as a
+  read-only block under the change), revert hunk / revert file commands, VCS status in tabs and status bar,
+  "Diff in p4merge" (or the configured external diff tool, `vcs.diffTool`) launching it on the base and the
+  current text.
 
 ### C4 Scripting
-* VERIFY WITH USER whether they rely on 10x's Python API. If yes: embed
-  CPython, expose a `tenfold` module mirroring the commands/registry from B4
-  plus editor queries; otherwise defer indefinitely.
+* Dropped (OPEN_QUESTIONS #11: the Python API is not used). Do not implement.
 
-### C5 Workspace extras
-* Unreal Engine: detect `.uproject`, generate compile commands from the
-  UBT-generated `compile_commands.json` or by invoking UBT's
-  `-mode=GenerateClangDatabase`.
-* Importers: 10x `.10x` workspace files and settings (VERIFY WITH USER by
-  obtaining sample files).
+### C5 ∥ Workspace settings from the Visual Studio solution (OPEN_QUESTIONS #12 answered)
+* No `.10x` import. The workspace's settings come from its `.sln`: complete the `.sln`/`.vcxproj`/`.props`
+  evaluation in `src/semantic/CompileCommands.cpp` so every compile command carries what MSBuild would pass to
+  `cl.exe`: solution configuration → project configuration mapping (`ProjectConfigurationPlatforms`), defines and
+  undefines, forced includes, include paths (also external/system include dirs), language standard (C and C++),
+  conformance/permissive, exceptions, RTTI, character set (`UNICODE`/`_MBCS`), runtime library (`_DEBUG`,
+  `_DLL`, `_MT`), per-file metadata overrides and `ExcludedFromBuild`, `Directory.Build.props/targets`, property
+  sheets. Active solution configuration/platform selectable (workspace setting, command), default Debug|x64 or the
+  first solution configuration. Unreal Engine `.uproject` support stays out of scope.
 
 ---
 
@@ -479,7 +533,9 @@ Anything else requires a plan amendment.
 | 3 | B2, B3, B4 (∥ after B1) | first usable window at the end of this wave |
 | 4 | B5, B6, B7 (∥) | the editor is now better than the CLI for daily use |
 | 5 | B8, B9, C1 | polish + build integration |
-| 6 | C2–C5, D1–D4 | gated on user answers |
+| 6 | B2c, B7b, C2a, C3a, C5, D2 (∥) | user answers to #4, #7, #9, #10, #12 received |
+| 7 | C2b, C2c (→ C2a), C3b, C3c (→ C3a), D1, D3 | D4 (user docs) last, after 7 |
+| — | B4b | blocked: 10x default key bindings file needed (OPEN_QUESTIONS #1) |
 
 A Sonnet task should be at most ~800 lines of new code plus tests; split
 anything larger (B2 and B5 will each need two or three sub-tasks; the

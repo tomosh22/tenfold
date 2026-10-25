@@ -7,7 +7,7 @@ checking against a running copy of 10x before they are implemented, so we
 copy what it actually does rather than what we remember.
 
 Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
-⬜ not started
+⬜ not started · — excluded by the user
 
 ## The two fixes
 
@@ -25,7 +25,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Open a Visual Studio `.sln` / `.vcxproj` | ✅ | Projects enumerated; compile flags evaluated per configuration/platform. **verify**: which configuration 10x picks by default. |
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
 | Makefile / bare folders | ✅ | Heuristic include paths. |
-| Per-workspace settings file | ✅ | `.tenfold/workspace.json`. **verify** 10x's `.10x` workspace format if import is wanted. |
+| Per-workspace settings file | ✅ | `.tenfold/workspace.json`. No `.10x` import (OPEN_QUESTIONS #12); compiler settings come from the Visual Studio solution (C5). |
 | Fast "open file" fuzzy search | ✅ | B5a picker (Ctrl+P / Ctrl+O): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
 | Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI (B5b): Ctrl+Shift+F modal list grouped by file, live streaming, case / word / regex toggles, include / exclude globs, F8 / Shift+F8, scrollbar markers. |
 | File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents (UI prompt in B-phase). |
@@ -63,7 +63,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Bookmarks | 🔶 | B8: toggle / next / previous / list, per file, follow edits, `.tenfold/bookmarks.json`, gutter flag. **verify** 10x's behaviour (OPEN_QUESTIONS #8). |
 | Find / replace in file | 🔶 | B8: Ctrl+F / Ctrl+H bar, incremental highlight of all matches, case / word / regex, F3 / Shift+F3, replace one / all (one undo step). Regex group references in the replacement are not expanded. |
 | Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off), `Editor.LineEndingLF/CRLF`. Encoding is UTF-8 only. |
-| Word wrap | ⬜ | `editor.wordWrap` is reserved; soft wrap in TextView / Layout is not implemented (OPEN_QUESTIONS #4). |
+| Word wrap | ⬜ | Soft wrap, on by default, smooth scrolling off by default (OPEN_QUESTIONS #4 answered); task B2c. |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 
 ## Shell
@@ -71,13 +71,13 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | 🔶 | Done (B4 + B-INT): named commands, chords, contexts, `.tenfold/keybindings.txt` overlay, diagnostics in status bar. Defaults are placeholders: **verify** with the user's `KeyMappings.10x_settings` (OPEN_QUESTIONS #1). |
-| Colour schemes as text files | 🔶 | Mechanism done (B7): theme files with lexical + semantic token colours and fallbacks, hot reload. Shipped palettes are neutral placeholders: **verify** with 10x screenshots (OPEN_QUESTIONS #7). |
+| Key bindings as a text file | 🔶 | Done (B4 + B-INT): named commands, chords, contexts, `.tenfold/keybindings.txt` overlay, diagnostics in status bar. Defaults are placeholders: the user wants 10x's format and 10x's defaults (OPEN_QUESTIONS #1, task B4b), blocked on obtaining 10x's default bindings file. |
+| Colour schemes as text files | 🔶 | Mechanism done (B7): theme files with lexical + semantic token colours and fallbacks, hot reload. Default becomes a Visual Studio 2022 Dark look (OPEN_QUESTIONS #7 answered; task B7b). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Build integration (run command, parse errors, jump) | ✅ | Engine (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`. UI (C1-UI): resizable bottom dock with a streaming Build panel (clickable, severity-coloured lines, Build/Cancel, status), Ctrl+Shift+B / Ctrl+Break / F4 / Shift+F4, build squiggles + scrollbar marks + hover, status bar segment. All jumps go through `gotoLocation`. See ARCHITECTURE "Build panel and bottom dock". |
-| Debugger integration | ⬜ | **verify** what 10x does (external debugger launch vs. integrated). |
-| Version control (Perforce / Git) | ⬜ | **verify** exact operations 10x exposes. |
-| Python scripting API | ⬜ | **verify** 10x's `N10X` module surface before designing ours. |
+| Debugger integration | ⬜ | Visual Studio debugger driven through EnvDTE: run/step/break, two-way breakpoint sync, follow the current statement (OPEN_QUESTIONS #9 answered); tasks C2a–C2c. |
+| Version control (Perforce / Git) | ⬜ | Git status/diff/revert; Perforce auto-checkout, status/diff/revert, inline diffs, p4merge (OPEN_QUESTIONS #10 answered); tasks C3a–C3c. |
+| Python scripting API | — | Excluded by the user (OPEN_QUESTIONS #11). |
 | Unreal Engine awareness | ⬜ | `.uproject` → generate compile commands; UE macros are handled by clangd automatically. |
 
 ## Windows
