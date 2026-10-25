@@ -31,6 +31,10 @@ class Workspace {
     // User-overridable; when empty it is discovered and then persisted here.
     std::string msvcToolchain;
     bool watchFiles = true;                    // keep index / history / documents in sync with the file system
+    // Typing undo policy (OPEN_QUESTIONS #3): "word" joins consecutive typed characters into one undo step
+    // (ended by whitespace, a pause, or a caret move); "char" makes every typed character its own step.
+    std::string undoGrouping = "word";
+    int undoGroupPauseMs = 1000;  // "word" mode: a longer pause between keystrokes starts a new step
   };
 
   explicit Workspace(std::filesystem::path root);

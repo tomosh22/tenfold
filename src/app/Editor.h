@@ -1,5 +1,6 @@
 #pragma once
 #include <condition_variable>
+#include <cstdint>
 #include <deque>
 #include <filesystem>
 #include <functional>
@@ -10,6 +11,7 @@
 #include <vector>
 
 #include "core/Document.h"
+#include "core/Selection.h"
 #include "nav/NavigationHistory.h"
 #include "search/TextSearch.h"
 #include "semantic/SemanticEngine.h"
@@ -18,21 +20,26 @@
 
 namespace tf {
 
-// The UI-independent editor model: workspace + open documents + a caret +
-// navigation history + semantic engine, with a main-thread work queue so
-// background results are handed to the UI on its own thread.
+// The UI-independent editor model: workspace + open documents + a set of
+// carets/selections + navigation history + semantic engine, with a main-thread
+// work queue so background results are handed to the UI on its own thread.
 //
 // A front end (GPU/native window, TUI, test harness) drives this class and
-// renders its state. Multi-caret, selections and rendering state belong to the
-// front end's view layer; this model owns everything that must survive
-// across views.
+// renders its state. The caret set (primary first) lives here; rendering state
+// (scroll, layout) belongs to the front end's view layer.
 class Editor {
  public:
   struct Options {
     SemanticEngine::Options semantic;
     NavigationHistory::Options navigation;
     std::function<void(const std::string&)> log;
+    // Monotonic milliseconds used for the typing-pause undo boundary; null means std::chrono::steady_clock.
+    std::function<int64_t()> clock;
   };
+
+  enum class Direction { Left, Right, Up, Down, LineStart, LineEnd, DocStart, DocEnd, PageUp, PageDown };
+  // Left/Right: Char or Word. Up/Down: Line (one line) or Page. The other directions ignore the unit.
+  enum class Unit { Char, Word, Line, Page };
 
   explicit Editor(std::filesystem::path root);
   Editor(std::filesystem::path root, Options opt);
@@ -66,9 +73,11 @@ class Editor {
   FileWatcher* fileWatcher() { return watcher_.get(); }  // null when watching is disabled
 
   // --- caret & navigation ---
+  // The primary caret (carets_[0].head) with the current file.
   Location cursor() const { return cursor_; }
   Document* currentDocument() { return current_; }
   // Ordinary caret motion within the current document (arrow keys, mouse).
+  // Collapses to a single caret at `p`.
   void moveCursor(Position p);
   // Jump somewhere (opens the file if needed) and record it in history.
   bool gotoLocation(const Location& loc, std::string* error = nullptr, const std::string& label = {});
@@ -97,10 +106,42 @@ class Editor {
   // Jump to a result (goes through gotoLocation, so it lands in navigation history).
   bool gotoSearchMatch(const SearchMatch& m, std::string* error = nullptr);
 
-  // --- editing at the caret ---
+  // --- selections & multiple carets ---
+  // All carets / selections, primary first, the rest in document order. Never empty while a document is current.
+  // Carets never overlap or touch: any command that makes two meet merges them.
+  const std::vector<Selection>& selections() const { return carets_; }
+  // Replace the caret set (mouse / Ctrl+click). Positions are clamped; carets[0] becomes the primary.
+  void setSelections(std::vector<Selection> carets);
+  // Selected text of every non-empty selection in document order, joined with '\n'.
+  std::string selectedText() const;
+  // Move every caret. `extend` keeps each anchor (grows the selection); otherwise selections collapse (Left/Right
+  // with a selection and no extend jump to its edge). Up/Down/PageUp/PageDown keep a per-caret preferred column
+  // (in code points). Word = run of identifier characters (CppLexer rules), punctuation run, or line break.
+  void moveCarets(Direction dir, Unit unit = Unit::Char, bool extend = false);
+  void addCaretAbove();  // adds a caret above the top-most caret (same preferred column), no-op on line 0
+  void addCaretBelow();  // adds a caret below the bottom-most caret
+  // If a caret is empty select the word under the primary caret; otherwise add the next occurrence (case-sensitive
+  // text of the primary selection, after it, wrapping) that does not overlap a selection. The new one is primary.
+  void addCaretAtNextOccurrence();
+  void collapseToPrimary();
+  // Rectangular selection: one selection per line between a.line and b.line, from a's visual column to b's visual
+  // column (code points), clamped to each line's length. The primary is on b's line.
+  void columnSelect(Position a, Position b);
+  void setPageLines(int n) { pageLines_ = n > 0 ? n : 1; }
+
+  // --- editing at the caret(s) ---
+  // Every command edits at every caret and forms ONE undo step; undo()/redo() restore the caret set.
+  // insertText replaces selections. A single typed character (one code point) is coalesced with the preceding
+  // typing into one step according to Workspace::Settings::undoGrouping / undoGroupPauseMs.
   void insertText(const std::string& text);
+  void backspace();
+  void del();
   void deleteRange(Range r);
   void replaceRange(Range r, const std::string& text);
+  bool undo();
+  bool redo();
+  // Injectable time source (milliseconds, monotonic) for the typing-pause boundary.
+  void setClock(std::function<int64_t()> clock) { opt_.clock = std::move(clock); }
 
   // --- main-thread queue ---
   void post(std::function<void()> fn);
@@ -110,7 +151,19 @@ class Editor {
   const std::vector<Diagnostic>& diagnostics(const std::filesystem::path& file) const;
 
  private:
+  struct CaretEdit {
+    Range range;
+    std::string text;
+  };
   void setCurrent(Document* d, Position p);
+  void setPrimaryOnly(Position p);
+  void normalizeCarets(size_t primaryIndex = 0);  // sort, merge overlapping / touching, primary first, sync cursor_
+  void clampCarets();
+  void restoreCaretsAfterHistory();
+  void commitMove(const Location& from);
+  void applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious);
+  int64_t nowMs() const;
+  void breakTyping() { typingOpen_ = false; }
   void startWatching();
   void handleFileEvent(const FileWatcher::Event& ev);   // pump thread
   void checkExternalChange(Document& doc);
@@ -124,7 +177,17 @@ class Editor {
   NavigationHistory nav_;
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;
-  Location cursor_;
+  Location cursor_;                // file + carets_[0].head
+  std::vector<Selection> carets_;  // primary first, then document order; empty without a current document
+  std::vector<int> wants_;         // per caret preferred column (code points), -1 = unset
+  int pageLines_ = 30;
+  bool inEdit_ = false;  // a caret command is editing: the document listener must not touch carets
+  // Typing coalescer: the open typing step can be extended while nothing else happened.
+  bool typingOpen_ = false;
+  Document* typingDoc_ = nullptr;
+  int typingVersion_ = 0;
+  int64_t typingTime_ = 0;
+  std::vector<Selection> typingCarets_;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
   std::vector<SearchHandle> searches_;
 
