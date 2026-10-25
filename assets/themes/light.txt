@@ -1,0 +1,54 @@
+# tenfold light theme (neutral; not derived from any other editor).
+# Same file format as settings.default.txt; only color.* and token.* keys are allowed.
+
+# UI colours (names = members of ui::Theme).
+color.background = #ffffff
+color.panelBackground = #fafafa
+color.tabStripBackground = #ececec
+color.tabActive = #fafafa
+color.tabInactive = #e2e2e2
+color.tabHover = #d6d6d6
+color.tabAccent = #2f6fd6
+color.tabInsert = #2f6fd6
+color.text = #1f2328
+color.textDim = #6a7078
+color.dirtyMarker = #b87a00
+color.closeHover = #c93c3c
+color.splitter = #cfcfcf
+color.splitterHot = #2f6fd6
+color.statusBackground = #2f6fd6
+color.statusText = #ffffff
+color.statusHover = #4b86e3
+color.gutterBackground = #f0f0f0
+color.gutterText = #8a9099
+color.currentLine = #f0f4fa
+color.selection = #b9d3f7
+color.caret = #1f2328
+color.columnGuide = #e4e4e4
+color.whitespace = #cccccc
+color.panelBorder = #cfcfcf
+
+# Token colours: lexical kinds, then clangd semantic token types. `token.<type>.<modifier>` narrows a
+# type (e.g. token.method.static). Missing ones fall back: method -> function -> identifier -> color.text.
+token.keyword = #a626a4
+token.identifier = #1f2328
+token.number = #986801
+token.string = #50a14f
+token.char = #50a14f
+token.comment = #8a8f98
+token.preprocessor = #6f42c1
+token.operator = #1f2328
+token.punctuation = #5c6370
+token.namespace = #1f2328
+token.type = #0a7a8c
+token.class = #0a7a8c
+token.enum = #0a7a8c
+token.enumMember = #986801
+token.typeParameter = #0a7a8c
+token.concept = #0a7a8c
+token.function = #2f6fd6
+token.method = #2f6fd6
+token.property = #a0522d
+token.variable = #1f2328
+token.parameter = #5c4a9e
+token.macro = #6f42c1

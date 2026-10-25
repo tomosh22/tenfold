@@ -269,6 +269,23 @@ duplicate warnings collected with line numbers, never fatal). Layers: embedded `
 (generated into a header at configure time), then `<user config dir>/tenfold/keybindings.txt`, then
 `<workspace>/.tenfold/keybindings.txt`; a command of `-` removes a binding. The defaults are placeholders until the
 user's 10x key map is known (OPEN_QUESTIONS #1). Wiring `KeyMap::feed` into the app's event loop is not done yet.
+## Settings and themes (`src/ui/settings/{Settings,Theme}.*`, B7)
+
+Settings are `key = value` text files with dotted keys (`editor.tabWidth = 4`; no `[sections]`), `#` comments only as
+the first non-blank character (colours contain `#`), types bool / int / float / string / colour (`#rrggbb[aa]`) / font
+(`family-or-path[, size_pt]`, empty = unset). `settingsSchema()` lists the known keys; unknown keys, type errors and
+malformed lines are `SettingsDiag`s (= `KeyBindingDiag`, same `formatDiag`) with file:line, never fatal. Layers:
+embedded `assets/settings.default.txt` (CMake-generated header), `<user config dir>/settings.txt`,
+`<workspace>/.tenfold/settings.txt`. `Settings::onChanged` receives exactly the set of keys whose value changed.
+Undo grouping stays in `.tenfold/workspace.json` (A5). Themes use the same grammar with `color.<ui::Theme member>`
+and `token.<kind>[.<modifier>]` keys (lexical kinds plus the clangd legend names); `ui::Theme::tokenColor` walks the
+fallback chain (`method.static` -> `method` -> `function` -> `identifier` -> `color.text`). Built-in `dark` (reproduces
+`Theme::darkDefault()`; a neutral placeholder, TODO until OPEN_QUESTIONS #7) and `light` are embedded; a theme name also
+resolves to `.tenfold/themes/<name>.txt` or `<user dir>/themes/<name>.txt`. `SettingsService` loads both, watches the
+user dir and `<workspace>/.tenfold` (if it exists) with `FileWatcher`, and on a change sets a flag (plus an optional
+thread-safe `wake` callback); the UI thread calls `poll()`, which reloads, fires `onChanged` / `onThemeChanged`, and
+`applyTo(RootWidget&, scale)` swaps the theme (repaint). `editorSettings()` gives TextView its subset in one call.
+
 ### Workbench (`src/ui/shell`, B3b)
 
 `Workbench` (a `RootWidget`) owns the editor layout: a tree of `Splitter`s and `Panel`s above a `StatusBar`, and the
