@@ -22,6 +22,9 @@
 #include <execinfo.h>
 #define TF_HAVE_BACKTRACE 1
 #endif
+#ifdef __APPLE__
+#include <sys/ucontext.h>
+#endif
 #endif
 
 namespace fs = std::filesystem;
@@ -137,7 +140,44 @@ const char* signalName(int sig) {
   }
 }
 
-void crashSignal(int sig, siginfo_t* info, void*) {
+#ifdef __APPLE__
+// backtrace() called from a handler running on the alternate stack can come back with almost nothing on macOS, so
+// the frames are also walked by hand from the interrupted context (frame-pointer chain; arm64 and x86_64 both keep
+// {previous fp, return address} at fp). Only plain memory reads and write(2): async-signal-safe. Every step is
+// validated (aligned, strictly rising, bounded distance) so a corrupt chain ends the walk instead of faulting.
+void writeManualFrames(int fd, void* uctx) {
+  auto* uc = static_cast<ucontext_t*>(uctx);
+  if (!uc || !uc->uc_mcontext) return;
+  unsigned long long pc, fp;
+#if defined(__aarch64__)
+  pc = reinterpret_cast<unsigned long long>(__darwin_arm_thread_state64_get_pc(uc->uc_mcontext->__ss));
+  fp = reinterpret_cast<unsigned long long>(__darwin_arm_thread_state64_get_fp(uc->uc_mcontext->__ss));
+#elif defined(__x86_64__)
+  pc = uc->uc_mcontext->__ss.__rip;
+  fp = uc->uc_mcontext->__ss.__rbp;
+#else
+  return;
+#endif
+  writeStr(fd, "frames (from the interrupted context):\n  #0 0x");
+  writeNum(fd, pc, 16);
+  writeStr(fd, "\n");
+  for (int i = 1; i < 64; ++i) {
+    if (fp == 0 || (fp & 7) != 0) break;
+    const auto* rec = reinterpret_cast<const unsigned long long*>(fp);
+    unsigned long long next = rec[0], ret = rec[1];
+    if (ret == 0) break;
+    writeStr(fd, "  #");
+    writeNum(fd, static_cast<unsigned>(i), 10);
+    writeStr(fd, " 0x");
+    writeNum(fd, ret, 16);
+    writeStr(fd, "\n");
+    if (next <= fp || next - fp > (1ull << 24)) break;
+    fp = next;
+  }
+}
+#endif
+
+void crashSignal(int sig, siginfo_t* info, void* uctx) {
   if (!g_inHandler) {
     g_inHandler = 1;
     char path[sizeof g_dir + 80];
@@ -159,6 +199,12 @@ void crashSignal(int sig, siginfo_t* info, void*) {
       writeStr(fd, "\nfault address: 0x");
       writeNum(fd, info ? reinterpret_cast<unsigned long long>(info->si_addr) : 0, 16);
       writeStr(fd, "\nbacktrace:\n");
+#ifdef __APPLE__
+      writeManualFrames(fd, uctx);
+      writeStr(fd, "backtrace() frames:\n");
+#else
+      (void)uctx;
+#endif
 #ifdef TF_HAVE_BACKTRACE
       void* frames[64];
       int cnt = ::backtrace(frames, 64);

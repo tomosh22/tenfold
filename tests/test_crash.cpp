@@ -394,8 +394,13 @@ TEST(crash_handler_writes_report) {
     std::string text = ss.str();
     const char* name = std::string(how) == "segv" ? "SIGSEGV" : std::string(how) == "abort" ? "SIGABRT" : "SIGFPE";
     CHECK(contains(text, name));
-    CHECK(contains(text, "backtrace:"));
-    CHECK(text.size() > 120);  // at least a few frames after the header
+    CHECK(contains(text, "pid: "));
+    CHECK(contains(text, "fault address: 0x"));
+    size_t bt = text.find("backtrace:");
+    CHECK(bt != std::string::npos);
+    // At least one frame address after the marker: "[0x..." from backtrace_symbols_fd (glibc), "#0 0x..." from the
+    // manual frame walk (macOS). Not a byte count: the formats differ per platform.
+    CHECK(bt != std::string::npos && text.find("0x", bt) != std::string::npos);
 #endif
   }
 }
