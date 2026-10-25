@@ -4,6 +4,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <shared_mutex>
 #include <string>
 #include <string_view>
@@ -99,9 +100,19 @@ class FastIndex {
   void removeFile(const std::filesystem::path& file);
   void clear();
 
-  // Fuzzy search, best matches first. A query containing "::" is matched
-  // against qualified names.
-  std::vector<Match> search(std::string_view query, size_t limit = 200) const;
+  // Fuzzy search, best matches first (score desc, then name asc, then index insertion order). A query containing
+  // "::" is matched against qualified names. Thread-safe (shared lock); large indexes are scanned by several
+  // threads and the result is bounded top-`limit` selection, so cost does not grow with the number of matches.
+  // `cancelled` (optional) is polled between scan blocks; once it returns true the scan stops early and an
+  // EMPTY vector is returned (the caller is going to discard the answer anyway).
+  std::vector<Match> search(std::string_view query, size_t limit = 200,
+                            const std::function<bool()>& cancelled = {}) const;
+  // Worker threads used by search(): 0 (default) = hardware concurrency capped at 8, 1 = scan on the calling thread.
+  void setSearchThreads(int n) { searchThreads_ = n; }
+  // Optional warm-up: builds the scan table plain (non-qualified) queries use. search() does this itself on demand
+  // (and again after a mutation added or removed a name); calling it right after indexing just moves that cost
+  // off the first query. Thread-safe.
+  void prepareSearch() const;
   // Exact (case-sensitive) name lookup, definitions first.
   std::vector<Match> lookup(std::string_view name) const;
   std::shared_ptr<const FileSymbols> fileSymbols(const std::filesystem::path& file) const;
@@ -117,16 +128,37 @@ class FastIndex {
  private:
   struct Ref {
     std::shared_ptr<const FileSymbols> file;
-    size_t index;
+    uint32_t index;
   };
+  using NameMap = std::unordered_map<std::string, std::vector<Ref>>;
+  struct ScanTable;
   void addLocked(std::shared_ptr<const FileSymbols> fs);
   void removeLocked(const std::string& key);
+  // Builds / refreshes the table the plain (non-qualified) search scans if a mutation made it stale. Caller holds
+  // mu_ (shared or unique). The returned table is valid for as long as mu_ stays held.
+  std::shared_ptr<const ScanTable> prepare() const;
+  void ensureFileMasks() const;  // caller holds mu_ (shared or unique)
 
   mutable std::shared_mutex mu_;
   std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> files_;  // key: generic path string
-  std::unordered_map<std::string, std::vector<Ref>> byName_;                   // key: exact name
+  NameMap byName_;                                                             // key: exact name
   size_t symbolCount_ = 0;
   std::atomic<uint64_t> generation_{0};
+  std::atomic<int> searchThreads_{0};
+  // Per indexed file: its add order (search tie-break for qualified queries: refs of one name are in add order)
+  // and, once a qualified query has needed them, the per-symbol character masks of "scope::name" that let that
+  // scan skip most symbols without touching their strings. Guarded by mu_; `masks` is filled lazily under prepMu_.
+  struct FileInfo {
+    uint32_t seq = 0;
+    mutable std::vector<uint32_t> masks;
+  };
+  std::unordered_map<const FileSymbols*, FileInfo> fileInfo_;
+  uint32_t nextSeq_ = 0;
+  // Search acceleration (see prepare()). namesGen_ changes when a name is added to / erased from byName_ (guarded
+  // by mu_); table_ is guarded by prepMu_.
+  size_t namesGen_ = 1;
+  mutable std::mutex prepMu_;
+  mutable std::shared_ptr<const ScanTable> table_;
 };
 
 }  // namespace tf

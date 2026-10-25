@@ -180,6 +180,99 @@ Counts: sourceFiles=3568, headerFiles=4759, fastFiles=8327, fastSymbols=507098, 
 Find in files (A6, measured by the A6 agent under load, Godot, 8327 files, warm page cache):
 literal `Vector2` 124 ms, case-insensitive 163 ms, whole word 94 ms, regex 96 ms (target < 400 ms).
 
+## A10: fast-tier symbol search within budget, off the UI thread
+
+**What changed.** `FastIndex::search` used to score every name, push every match (hundreds of thousands for a
+short query) and `stable_sort` all of them. It now keeps only the best `limit` candidates in per-thread bounded
+heaps (merged at the end, same total order: score desc, name asc, insertion order), skips names that lack one of
+the query's characters (32-bit case-insensitive mask per name), prunes names that cannot beat the current worst
+kept score, and scans in parallel (atomic block counter, up to `hardware_concurrency` threads, max 8). Qualified
+queries (`a::b`) scan file by file with a per-symbol mask of `scope::name`. `SemanticEngine::workspaceSymbols` now
+computes the fast tier on its own symbol thread (a newer query cancels an older one between scan blocks), so
+`Editor::findSymbols` returns immediately. See `docs/ARCHITECTURE.md` (thread-safety table).
+
+**Measurement conditions (read this first).** Release, `/home/user/bench/godot` (8327 files, 507,098 symbols),
+4 cores that were **shared with other agents** the whole time (load average 3-7). Numbers are best-of-5 (in-process
+harness) or median-of-5 (`tenfold-cli bench`, `--no-clangd`, 5 cold + 5 warm runs, 5 inner runs). Because the
+machine was oversubscribed the multi-threaded "after" wall times are pessimistic; the CPU-time column is the
+total CPU burnt by the query (all threads), so `CPU / 4` is a rough estimate for an idle 4-core machine.
+
+### Per query, in-process (`FastIndex::search(q, 200)` on the persisted Godot index, load ~3.5)
+
+| Query | Before wall (ms) | After wall (ms) | After CPU (ms) | Est. idle 4 cores (ms) |
+|---|---:|---:|---:|---:|
+| `n` | 209.4 | 11.2 | 26.2 | ~7 |
+| `no` | 121.6 | 8.9 | 21.7 | ~5 |
+| `nod` | 70.2 | 5.0 | 14.0 | ~4 |
+| `Node3D` | 43.6 | 1.2 | 3.2 | ~1 |
+| `get_transform` | 39.6 | 1.0 | 1.7 | <1 |
+| `set_pos` | 50.1 | 3.1 | 8.6 | ~2 |
+| `RenderingServer` | 43.4 | 1.5 | 2.8 | <1 |
+| `zzzzz` (no match) | 33.2 | 1.6 | 3.1 | <1 |
+| `Node3D::get` (qualified) | 256.7 | 5.4 | 8.7 | ~2 |
+| `geo::Tr` (qualified) | 262.7 | 12.2 | 21.6 | ~5 |
+
+### Per query through `tenfold-cli bench --no-clangd` (`symFast[...]Ms`, warm median, load 6-7 for "after")
+
+| Query | Before (ms) | After (ms) | `symCall` (ms): `findSymbols` returns |
+|---|---:|---:|---:|
+| `n` | 246.2 | 39.8 | 0.01 |
+| `no` | 126.9 | 36.1 | 0.00 |
+| `nod` | 74.4 | 19.3 | 0.00 |
+| `Node3D` | 49.1 | 3.1 | 0.00 |
+| `get_transform` | 46.4 | 4.0 | 0.00 |
+| `set_pos` | 55.9 | 5.6 | 0.00 |
+| `RenderingServer` | 48.2 | 4.0 | 0.00 |
+| `zzzzz` | 34.7 | 4.0 | 0.00 |
+| `Node3D::get` | 263.2 | 7.0 | 0.00 |
+| `geo::Tr` | 279.9 | 34.2 | 0.00 |
+
+These "after" runs happened at load average 6-7 on 4 cores (the 4.0 ms plateau is the scheduler quantum: a worker
+thread that was descheduled holds the join); the in-process table above is the cleaner measurement. On a
+busy machine `n`, `no` and `geo::Tr` can exceed the 20 ms goal (they stay under the 50 ms budget); on an idle
+machine the CPU column says they should land at about 5-7 ms. I could not get an idle machine, so that estimate
+is unverified.
+
+### The A10 command from the task (`tools/bench.sh --large ... --sym n --sym Node3D --sym get_global_transform --sym Vector3`, clangd on, load ~4)
+
+| Phase | Before cold / warm (median ms) | After cold / warm (median ms) |
+|---|---:|---:|
+| `symFast[n]Ms` | 298.2 / 243.4 | 16.0 / 16.1 |
+| `symFast[Node3D]Ms` | 44.8 / 49.3 | 2.93 / 3.39 |
+| `symFast[get_global_transform]Ms` | 36.0 / 38.1 | 3.98 / 2.26 |
+| `symFast[Vector3]Ms` | 40.5 / 42.4 | 1.40 / 3.47 |
+| `symAuth[n]Ms` (end to end through `Editor::findSymbols`) | 263.0 / 251.9 | 26.1 / 30.9 |
+| `symAuth[Node3D]Ms` | 59.8 / 48.8 | 7.12 / 4.63 |
+| `symCall[...]Ms` (new: time `Editor::findSymbols` takes to return) | n/a (blocked for the full `symFast` time) | 0.01-0.02 |
+| `defFirstMs` (approximate definition path, unchanged: one hash lookup) | 0.59 / 0.43 | 0.47 / 0.37 |
+
+`approximateSymbols` is still the synchronous API the `symFast` phases time, so those numbers measure the same
+thing before and after; the new `symCall` / `symFirst` phases (time for `findSymbols` to return / time to its
+first callback) measure the asynchronous path the UI uses.
+
+### Index build time and memory (must not regress by more than about 5%)
+
+| | Before | After |
+|---|---:|---:|
+| `FastIndex::importFiles` of the 507k-symbol Godot index, in-process, median of 5 per session, alternating sessions | 114-137 ms (avg 125) | 116-142 ms (avg 131), about +5% on average but inside the session-to-session noise (the same binary varies by +-10%) |
+| `fastIndexMs` via `tenfold-cli bench --runs 7`, cold (two sessions) | 1157.6 / 1546.1 ms | 1184.5 / 1473.4 ms |
+| `fastIndexMs`, warm | 196.5 / 210.4 ms | 182.8 / 188.2 ms |
+| Search structures (`prepareSearch()`, runs on the index thread after `fastIndexDone`, not part of `fastIndexMs`) | none | 25-45 ms of background work (under load) |
+| Index memory after warm-up (RSS delta in the in-process harness) | 43.0 MiB | 48.4 MiB (+5.4 MiB: name table 4.8 MiB + qualified masks 2 MiB) |
+| Editor process peak RSS, cold (median of 7) | 365 / 392 MiB | 396 / 385 MiB (about +3%, within the session-to-session spread of 357-392 MiB) |
+| Editor process peak RSS, warm (median of 7) | 150.3 / 150.9 MiB | 143.2 / 143.7 MiB (about -5%: the old search materialised every match) |
+
+### Tests
+
+`tests/test_symbol_search.cpp` keeps the pre-A10 algorithm as an oracle (score every name, push every match,
+`stable_sort`, truncate) and checks that the new search returns exactly the same list (file, index, score) for
+random queries (prefixes, substrings, subsequences, qualified, empty, whitespace, case changes, limits 1 to
+1,000,000) over a 200,000-symbol synthetic index, a small tie-heavy index and the sample project, with 1 and 4
+threads. Further tests cover cancellation, index mutations, concurrent searches and writers, asynchronous
+delivery and superseding in the engine, `findSymbols` returning before the fast tier is done, and tie order after
+a file is removed and re-added. The suite also passes under ASan+UBSan; under ThreadSanitizer the only reports
+are the pre-existing `compileCommands_` race (see `docs/ARCHITECTURE.md`), none in the search or engine code.
+
 ## Historical numbers (from the plan, quiet machine, 8755-file Godot)
 
 | Workspace | Launch to interactive | Launch to first TU parsed | `def` after parse | Fast index |
@@ -196,6 +289,6 @@ From the post-Wave 1 run above.
 |---|---|---|
 | Startup to interactive, cold <= 3 s | pass (0.06 s) | pass (1.93 s) |
 | Startup to interactive, warm <= 1 s | pass (0.05 s) | pass (0.33 s) |
-| Symbol search, fast tier <= 50 ms | pass (< 0.01 ms) | pass, but tight: 30-48 ms (`Node3D` 47.8 ms median) |
+| Symbol search, fast tier <= 50 ms | pass (< 0.01 ms) | pass after A10: 1-12 ms in-process on a loaded machine (was 30-250 ms; see the A10 section), `Editor::findSymbols` returns in < 0.05 ms |
 | Editor memory <= 500 MB | pass (6 MiB) | pass (374 MiB cold, 200 MiB warm) |
 | Keystroke-to-paint <= 8 ms | n/a until B1/B2 | n/a until B1/B2 |

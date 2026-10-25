@@ -443,6 +443,24 @@ int runBench(int argc, char** argv) {
     }
     rep.phase("symFast[" + q + "]Ms", median(fastT));
     rep.count("symFast[" + q + "]Results", static_cast<double>(fastN));
+    {
+      // The path the UI takes (A10): findSymbols must return at once; the fast tier arrives later on the pump thread.
+      std::vector<double> callT, firstT;
+      for (int i = 0; i < runs; ++i) {
+        bool got = false;
+        double firstMs = -1;
+        auto t = BenchClock::now();
+        ed.findSymbols(q, [&](Confidence, const std::vector<SymbolLocation>&, const std::string&) {
+          if (!got) firstMs = msSince(t);
+          got = true;
+        });
+        callT.push_back(msSince(t));
+        ed.waitFor([&] { return got; }, 30000);
+        if (got) firstT.push_back(firstMs);
+      }
+      rep.phase("symCall[" + q + "]Ms", median(callT));
+      if (!firstT.empty()) rep.phase("symFirst[" + q + "]Ms", median(firstT));
+    }
     if (haveClangd) {
       std::vector<double> authT;
       size_t authN = 0;

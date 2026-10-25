@@ -47,6 +47,41 @@ thread.
   `"watchFiles": false` in `.tenfold/workspace.json`.
 * `SemanticEngine` has a small **timer thread** that implements the result
   budget (below).
+* `SemanticEngine` also has a lazily started **symbol thread** (A10). It
+  runs the fast-tier scan of `workspaceSymbols` so `Editor::findSymbols`
+  returns immediately; the scan itself fans out over `std::thread`s (up to
+  the hardware concurrency, max 8) that live only for the duration of one
+  query. A newer `workspaceSymbols` call supersedes older ones (see below).
+
+### What is thread-safe (A10)
+
+| API | Thread-safety |
+|---|---|
+| `FastIndex::search`, `lookup`, `fileSymbols`, `fileCount`, `symbolCount`, `allIncludes`, `exportFiles`, `generation`, `prepareSearch` | Any thread, concurrently with each other and with mutations (shared lock). `search` may spawn worker threads itself and accepts a `cancelled()` predicate (polled between scan blocks, must be thread-safe) that aborts the scan and returns an empty vector. |
+| `FastIndex::indexFiles*`, `importFiles`, `updateFile`, `removeFile`, `clear` | Any thread, mutually exclusive with everything else (unique lock). glibc's rwlock prefers readers, so a writer waits for a *continuous* stream of searches to pause; real queries are sparse, tests that hammer `search` in a loop should yield. |
+| `FastIndex::fuzzyScore` | Pure, any thread. |
+| `SemanticEngine::workspaceSymbols` | **Any thread, asynchronous.** Returns at once; callbacks run on the symbol thread, the timer thread or the clangd reader thread (not the caller's). A newer call supersedes every older one: the older scan is cancelled and its callbacks (approximate, authoritative, error) are never invoked. After `stop()` the callback fires once, inline, with an error. |
+| `SemanticEngine::approximateSymbols`, `approximateDefinitions` (the latter reads a `Document`, so only on that document's thread) | Synchronous; `approximateSymbols` is safe on any thread but is the cost of a full scan (use it from benchmarks, tests, workers, not from the UI thread). |
+| `SemanticEngine::fileChanged`, `fileRemoved`, `watchedFileChanged`, `indexFilesAsync`, `refreshCompileCommands`, `status`, `waitFor*` | Any thread (as before). |
+| Everything else on `SemanticEngine` (`goto*`, `hover`, `completion`, `didOpen/Change/Save/Close`, `restartClangd`, ...) | Editor thread, as before. `gotoDefinition` & co. compute their approximate tier synchronously from `FastIndex::lookup` (one hash lookup, `defFirstApproxMs` is ~0.03 ms on Godot), so they stay on the caller thread. `completion` without clangd calls `FastIndex::search` synchronously (now ~1-10 ms on Godot). |
+
+### Fast-tier symbol search (A10)
+
+`FastIndex::search` ranks by (score desc, name asc, insertion order) and keeps
+only the best `limit` results in per-thread bounded heaps, merged at the end;
+nothing proportional to the number of matches is materialised or sorted. Cheap
+prefilters run before `fuzzyScore`: plain queries use a flat table of the name
+nodes with a 32-bit case-insensitive character mask per name (built lazily,
+rebuilt only when a name is added or erased, warmed by
+`FastIndex::prepareSearch()` after indexing), qualified (`a::b`) queries scan
+file by file with a per-symbol mask of `scope::name` (built lazily per file).
+The scan is cut into blocks handed out by an atomic counter, which is also
+where the `cancelled()` predicate is polled.
+
+Pre-existing, not touched by A10: `SemanticEngine::compileCommands_` is
+rewritten by the engine worker while `compileCommands()` can be read from
+another thread; ThreadSanitizer reports it in
+`watch_compile_commands_location_change_restarts_clangd_only_then`.
 
 ## The two-tier query policy
 
@@ -62,6 +97,13 @@ Goal: never miss, never block.
    "verifying…" hint) and later the authoritative one, which replaces it.
 4. If clangd is not running or fails, the approximate answer is delivered
    with the error string, so the user still gets something.
+
+   `workspaceSymbols` is the one query whose approximate tier is a scan of
+   the whole index, so it is computed on the engine's symbol thread, not on
+   the caller (A10): the budget clock (and the clangd request) start when
+   that scan finishes (about 1-10 ms on Godot), and a superseded query never
+   delivers anything. The single-name lookups behind `gotoDefinition` and
+   friends cost well under a millisecond and stay synchronous.
 5. While clangd's background index is incomplete, a definition answer that
    stops at a declaration is **augmented** with fast-index definitions of
    the same name (flagged Approximate), because clangd cannot see other

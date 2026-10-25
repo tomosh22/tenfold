@@ -184,6 +184,11 @@ class SemanticEngine {
   void gotoTypeDefinition(const Document& doc, Position pos, LocationsCallback cb);
   void findReferences(const Document& doc, Position pos, LocationsCallback cb);
   void findImplementations(const Document& doc, Position pos, LocationsCallback cb);
+  // Asynchronous and thread-safe: returns immediately. The approximate tier is computed on a dedicated symbol
+  // thread (parallel scan of the FastIndex), the callbacks run on that thread / the timer thread / the clangd
+  // reader thread (Editor::findSymbols post()s them to the pump thread). A newer workspaceSymbols call SUPERSEDES
+  // every older one: the older query stops scanning and its callback is never invoked (at most one query is
+  // ever pending). After stop() the callback is invoked once, inline, with an error.
   void workspaceSymbols(const std::string& query, LocationsCallback cb);
   void documentSymbols(const Document& doc, LocationsCallback cb);
   void switchSourceHeader(const Document& doc, Callback<std::filesystem::path> cb);
@@ -250,6 +255,8 @@ class SemanticEngine {
   void startFastIndex();
   void saveFastIndex();
   void timerLoop();
+  void symbolLoop();
+  void workspaceSymbolsBudgeted(const std::string& query, std::vector<SymbolLocation> approx, LocationsCallback cb);
   void log(const std::string& msg) const;
 
   // Encoding conversion helpers.
@@ -291,6 +298,20 @@ class SemanticEngine {
   std::condition_variable workCv_;
   std::deque<std::function<void()>> work_;
   bool workStop_ = false;
+
+  // Symbol-search thread: runs the (parallel) fast-tier scan of workspaceSymbols off the caller's thread.
+  // symPending_ holds at most one job (the newest); symGen_ is bumped by every call and polled by the scan.
+  struct SymbolJob {
+    uint64_t gen = 0;
+    std::string query;
+    LocationsCallback cb;
+  };
+  std::thread symThread_;
+  std::mutex symMu_;
+  std::condition_variable symCv_;
+  std::unique_ptr<SymbolJob> symPending_;
+  bool symStop_ = false;
+  std::atomic<uint64_t> symGen_{0};
 
   std::thread indexThread_;
   std::atomic<bool> fastDone_{false};

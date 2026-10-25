@@ -352,6 +352,9 @@ void SemanticEngine::startFastIndex() {
         " symbols, " + std::to_string(fastStats_.bytes / 1024) + " KiB lexed (" + std::to_string(fastStats_.relexed) +
         " relexed, " + std::to_string(fastStats_.reused) + " cached, " + std::to_string(fastStats_.dropped) +
         " dropped) in " + std::to_string(fastStats_.seconds) + "s");
+    // Warm the symbol-search structures (not part of the reported index time; a query that arrives first builds
+    // them itself).
+    fast_.prepareSearch();
     // Persist now (cold start) and then every fastIndexSaveSeconds while dirty; once more at shutdown.
     std::unique_lock<std::mutex> lk(saveMu_);
     while (saveRun_) {
@@ -366,6 +369,10 @@ bool SemanticEngine::start(std::string* error) {
   {
     std::lock_guard<std::mutex> lk(workMu_);
     workStop_ = false;
+  }
+  {
+    std::lock_guard<std::mutex> lk(symMu_);
+    symStop_ = false;
   }
   timerRun_ = true;
   timer_ = std::thread([this] { timerLoop(); });
@@ -384,6 +391,14 @@ void SemanticEngine::stop() {
   }
   workCv_.notify_all();
   if (worker_.joinable()) worker_.join();
+  {
+    std::lock_guard<std::mutex> lk(symMu_);
+    symStop_ = true;
+    symPending_.reset();
+    ++symGen_;  // abort a scan in progress
+  }
+  symCv_.notify_all();
+  if (symThread_.joinable()) symThread_.join();
   // Clear the flag under mu_: timerLoop checks it and then waits while holding mu_, so an unlocked store can
   // land between its check and its wait and the notification is lost (shutdown hangs forever).
   bool timerWasRunning;
@@ -863,7 +878,48 @@ void SemanticEngine::findReferences(const Document& doc, Position pos, Locations
 }
 
 void SemanticEngine::workspaceSymbols(const std::string& query, LocationsCallback cb) {
-  std::vector<SymbolLocation> approx = approximateSymbols(query);
+  auto job = std::make_unique<SymbolJob>();
+  job->query = query;
+  job->cb = std::move(cb);
+  {
+    std::lock_guard<std::mutex> lk(symMu_);
+    if (!symStop_) {
+      job->gen = ++symGen_;          // from here on every older query is superseded
+      symPending_ = std::move(job);  // an older job that never started is dropped
+      if (!symThread_.joinable()) symThread_ = std::thread([this] { symbolLoop(); });
+      symCv_.notify_one();
+      return;
+    }
+  }
+  job->cb(Confidence::Approximate, {}, "semantic engine stopped");
+}
+
+void SemanticEngine::symbolLoop() {
+  for (;;) {
+    std::unique_ptr<SymbolJob> job;
+    {
+      std::unique_lock<std::mutex> lk(symMu_);
+      symCv_.wait(lk, [&] { return symStop_ || symPending_; });
+      if (symStop_) return;
+      job = std::move(symPending_);
+    }
+    const uint64_t gen = job->gen;
+    auto superseded = [this, gen] { return symGen_.load(std::memory_order_acquire) != gen; };
+    std::vector<SymbolLocation> approx;
+    for (auto& m : fast_.search(job->query, 200, superseded)) approx.push_back(fromFast(m));
+    if (superseded()) continue;
+    // Late results of a query that was superseded meanwhile (clangd answer, budget timer) are dropped too.
+    LocationsCallback cb = [this, gen, inner = std::move(job->cb)](Confidence c, std::vector<SymbolLocation> locs,
+                                                                   const std::string& err) {
+      if (symGen_.load(std::memory_order_acquire) != gen) return;
+      inner(c, std::move(locs), err);
+    };
+    workspaceSymbolsBudgeted(job->query, std::move(approx), std::move(cb));
+  }
+}
+
+void SemanticEngine::workspaceSymbolsBudgeted(const std::string& query, std::vector<SymbolLocation> approx,
+                                              LocationsCallback cb) {
   deliverWithBudget(std::move(approx), std::move(cb), [this, query](auto done) {
     LspClient* c = clangd();
     if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
