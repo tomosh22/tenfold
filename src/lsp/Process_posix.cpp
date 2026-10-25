@@ -28,15 +28,28 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
   // default in the child below, so spawned programs keep normal pipeline behaviour.)
   static std::once_flag ignoreSigpipe;
   std::call_once(ignoreSigpipe, [] { ::signal(SIGPIPE, SIG_IGN); });
+  // Every descriptor is close-on-exec: another thread may fork a different child at the same moment, and a child that
+  // inherited this child's stdout pipe would keep it open, so our reader would never see EOF after this child exits.
+  // (dup2 onto 0/1/2 in the child clears the flag on those.)
+  auto makePipe = [](int fds[2]) {
+#ifdef __linux__
+    return ::pipe2(fds, O_CLOEXEC) == 0;
+#else
+    if (::pipe(fds) != 0) return false;
+    ::fcntl(fds[0], F_SETFD, FD_CLOEXEC);
+    ::fcntl(fds[1], F_SETFD, FD_CLOEXEC);
+    return true;
+#endif
+  };
   int inPipe[2], outPipe[2];
-  if (::pipe(inPipe) != 0 || ::pipe(outPipe) != 0) {
+  if (!makePipe(inPipe) || !makePipe(outPipe)) {
     if (error) *error = std::strerror(errno);
     return false;
   }
   int errFd = -1;
   if (options.mergeStderr) errFd = -2;  // dup'd from the stdout pipe in the child
-  else if (!stderrLog.empty()) errFd = ::open(stderrLog.c_str(), O_WRONLY | O_CREAT | O_TRUNC, 0644);
-  if (errFd == -1) errFd = ::open("/dev/null", O_WRONLY);
+  else if (!stderrLog.empty()) errFd = ::open(stderrLog.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0644);
+  if (errFd == -1) errFd = ::open("/dev/null", O_WRONLY | O_CLOEXEC);
 
   std::vector<std::string> argvStorage;
   argvStorage.push_back(exe);
