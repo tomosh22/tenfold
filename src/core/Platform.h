@@ -21,6 +21,10 @@ inline int currentProcessId() {
 }
 
 // popen() through the platform shell (sh -c / cmd /c). Read the output, then closeShellPipe().
+// Only for short, rarely used probes (cmake configure, xcrun). On Windows _popen creates its child with
+// bInheritHandles=TRUE and no handle list, so a Process::start running on another thread at the same moment can leak
+// its child-side pipe ends into that shell for as long as it lives (Process::start itself is safe against other
+// Process::start calls). On POSIX all pipes are close-on-exec. Use Process for anything long-lived or concurrent.
 inline FILE* openShellPipe(const std::string& cmd, const char* mode) {
 #ifdef _WIN32
   // cmd /c strips one pair of outer quotes, so wrap the whole command to keep quoted arguments intact.

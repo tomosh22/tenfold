@@ -179,24 +179,49 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
     return fail("SetInformationJobObject");
   }
 
-  STARTUPINFOW si{};
-  si.cb = sizeof si;
-  si.dwFlags = STARTF_USESTDHANDLES;
-  si.hStdInput = inRead;
-  si.hStdOutput = outWrite;
-  si.hStdError = options.mergeStderr ? outWrite : errH;
+  STARTUPINFOEXW si{};
+  si.StartupInfo.cb = sizeof si;
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  si.StartupInfo.hStdInput = inRead;
+  si.StartupInfo.hStdOutput = outWrite;
+  si.StartupInfo.hStdError = options.mergeStderr ? outWrite : errH;
+
+  // The child ends of the pipes (and the stderr log) are inheritable from creation until we close them below. A
+  // CreateProcess on another thread with bInheritHandles would inherit them and keep the pipes open, so the reader
+  // would never see EOF. Restrict inheritance to exactly the three standard handles. Duplicates make CreateProcess
+  // fail with ERROR_INVALID_PARAMETER (stdout == stderr when merged), so the list is de-duplicated.
+  HANDLE inherit[3];
+  DWORD nInherit = 0;
+  for (HANDLE h : {si.StartupInfo.hStdInput, si.StartupInfo.hStdOutput, si.StartupInfo.hStdError})
+    if (h && std::find(inherit, inherit + nInherit, h) == inherit + nInherit) inherit[nInherit++] = h;
+  SIZE_T attrSize = 0;
+  ::InitializeProcThreadAttributeList(nullptr, 1, 0, &attrSize);
+  std::vector<char> attrStorage(attrSize);
+  si.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrStorage.data());
+  bool attrInit = false;
+  auto failJob = [&](const char* what) {
+    DWORD e = ::GetLastError();
+    if (attrInit) ::DeleteProcThreadAttributeList(si.lpAttributeList);
+    ::CloseHandle(job);
+    ::SetLastError(e);
+    return fail(what);
+  };
+  if (attrSize == 0 || !::InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attrSize))
+    return failJob("InitializeProcThreadAttributeList");
+  attrInit = true;
+  if (!::UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST, inherit,
+                                   nInherit * sizeof(HANDLE), nullptr, nullptr))
+    return failJob("UpdateProcThreadAttribute");
+
   PROCESS_INFORMATION pi{};
   std::wstring wcwd = cwd.empty() ? std::wstring() : cwd.wstring();
   // Suspended so the child is in the job before it can spawn anything.
-  BOOL ok = ::CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
-                             CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED, env.data(),
-                             wcwd.empty() ? nullptr : wcwd.c_str(), &si, &pi);
-  if (!ok) {
-    DWORD e = ::GetLastError();
-    ::CloseHandle(job);
-    ::SetLastError(e);
-    return fail("CreateProcess");
-  }
+  BOOL ok =
+      ::CreateProcessW(nullptr, cmd.data(), nullptr, nullptr, TRUE,
+                       CREATE_NO_WINDOW | CREATE_UNICODE_ENVIRONMENT | CREATE_SUSPENDED | EXTENDED_STARTUPINFO_PRESENT,
+                       env.data(), wcwd.empty() ? nullptr : wcwd.c_str(), &si.StartupInfo, &pi);
+  if (!ok) return failJob("CreateProcess");
+  ::DeleteProcThreadAttributeList(si.lpAttributeList);
   // Failure to join a job (e.g. already in a non-nestable job) is not fatal.
   ::AssignProcessToJobObject(job, pi.hProcess);
   ::ResumeThread(pi.hThread);
