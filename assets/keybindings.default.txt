@@ -28,6 +28,9 @@ Alt+O = Editor.SwitchHeaderSource
 # --- File and application ---
 Ctrl+S = File.Save
 Ctrl+Q = App.Quit
+Ctrl+F4 = Workbench.CloseTab
+# Command palette: every command by name, with its key binding. Provisional like all bindings here.
+Ctrl+Shift+P = App.CommandPalette
 
 # --- Pickers and search ---
 Ctrl+, = Search.SymbolSearch
@@ -62,7 +65,8 @@ Ctrl+F10 = Debug.RunToCursor
 Ctrl+Alt+Break = Debug.BreakAll
 Ctrl+Alt+B = Debug.ShowBreakpoints
 # Debug.EditCondition has no default key; run it from the command list.
-# Debug.OpenInVisualStudio and Build.SelectConfiguration have no default key either; example (uncomment, or put in
+# Debug.OpenInVisualStudio, Build.SelectConfiguration and Clangd.Restart have no default key either (all are in the
+# command palette); example (uncomment, or put in
 # your own keybindings.txt):
 # Ctrl+Alt+V = Debug.OpenInVisualStudio
 

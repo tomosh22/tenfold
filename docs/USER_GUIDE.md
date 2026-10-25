@@ -15,15 +15,26 @@ Contents: [Installing](#installing) - [Opening a workspace](#opening-a-workspace
 [Logs and crash reports](#logs-and-crash-reports) - [Troubleshooting](#troubleshooting) -
 [What does not exist yet](#what-does-not-exist-yet) - [Provisional and unverified](#provisional-and-unverified)
 
-## Read this first: three things that can lose work
+## Read this first: unsaved work
 
-* **Quitting never asks.** Ctrl+Q and closing the window exit at once. Unsaved edits are gone; tenfold has no
-  autosave and no crash recovery of buffers.
-* **Closing a tab never asks.** A tab with unsaved edits closes, but the edited document stays in memory for the rest
-  of the session; opening the file again shows the unsaved text. Save (Ctrl+S) before you quit.
-* **A file that changes on disk is not reloaded.** If a checkout, a branch switch or a code generator rewrites a file
-  you have open, tenfold keeps showing its old text and a later save overwrites the new content. Close the tab (if it
-  has no unsaved edits) and open the file again to pick up the disk version. `Vcs.RevertFile` does reload.
+tenfold has no autosave and no crash recovery of buffers, so the prompts below are the only safety net.
+
+* **Quitting asks.** Ctrl+Q (`App.Quit`) and closing the window list the documents with unsaved edits and offer
+  **Save All / Don't Save / Cancel** (one document: **Save / Don't Save / Cancel**). Enter is Save, Escape is Cancel.
+  If a save fails (a read-only Perforce file, for example) tenfold stays open and the status bar says why. This includes
+  edited documents that no longer have a tab.
+* **Closing a tab asks** when it is the last view of a document with unsaved edits (the tab's x, middle click or
+  `Workbench.CloseTab`, Ctrl+F4). Don't Save closes the document and drops the edits. A second view of the same document (a
+  split) closes without asking.
+* **Files that change on disk are reloaded** when they have no unsaved edits (a checkout, a branch switch or a code
+  generator rewrote them); carets, scroll position and navigation history keep their place. A file with unsaved edits
+  asks **Reload (lose my changes) / Keep my version** (Keep is the default choice). A file deleted on disk keeps its
+  buffer; its tab says `(deleted)` and the status bar `deleted on disk`.
+
+All three follow Visual Studio, because 10x's behaviour is not confirmed (OPEN_QUESTIONS #5), and each has a setting:
+`editor.confirmUnsaved` (default `true`; `false` skips every question: closing a tab then keeps the edited document in
+memory without a tab, and quitting discards it) and `editor.reloadExternalChanges` (`auto`, `prompt`, `never`; see
+[Settings](#settings-files)).
 
 ## Installing
 
@@ -142,13 +153,16 @@ How the interface shows which is which:
 | Completion | Greyed items and a side note `approximate (clangd not running)`. | Normal items with their return type and documentation. |
 | Hover | A line `approximate (clangd not running)` under the text. | Text from clangd. |
 | Go to Definition / Declaration (F12, Ctrl+F12) with a single answer | **No mark.** tenfold jumps at once, even on an approximate answer. If the authoritative answer is a different place it jumps again. Both jumps are in the navigation history, so Back returns. | The same jump, once. |
-| Status bar | `clangd: off` (not running, restarting, or given up), `clangd: starting`, `clangd: indexing 42%`, `clangd: ready`; `fast index: indexing` then `fast index: N files`. | |
+| Status bar | `clangd: off` (not running), `clangd: starting`, `clangd: indexing 42%`, `clangd: ready`; while clangd is being restarted or has given up the engine's own text replaces these: `clangd restarting (2)...`, `clangd stopped: crashed 5 times`; `fast index: indexing` then `fast index: N files`. | |
 
 Find References and the clangd-only features (diagnostics, semantic colours of identifiers, signature help) have
 no approximate tier: they come from clangd or they are not shown. Without clangd, the colours are the lexer's.
 
-The status bar does not tell you that the compile flags are a guess. To see why a result is approximate or how clangd
-was configured for the current file, run `Help.ShowCompileCommand` (below) or read
+While clangd runs on a **guessed compile database** (no solution, CMake project or `compile_commands.json` was found, or a
+database tenfold generated earlier from such a guess is cached) the status bar adds **`flags: heuristic`** next to the
+clangd text. Clicking it runs `Help.ShowCompileCommand`. A workspace whose flags come from a Visual Studio solution, CMake
+or an existing `compile_commands.json` shows nothing there. To see why a result is approximate or how clangd was
+configured for the current file, run `Help.ShowCompileCommand` (below) or read
 [Troubleshooting](#why-is-this-symbol-approximate).
 
 ### Seeing the compile command for a file
@@ -156,8 +170,9 @@ was configured for the current file, run `Help.ShowCompileCommand` (below) or re
 The diagnostic that answers "which flags does clangd use for this file?":
 
 * In the editor: the command **`Help.ShowCompileCommand`** ("Show Compile Command for Current File") opens a read-only
-  popup for the file in the current tab. Escape or a click outside closes it. It has **no default key**; bind one in
-  `keybindings.txt`, for example `Ctrl+Alt+F1 = Help.ShowCompileCommand` (there is no command palette or menu yet).
+  popup for the file in the current tab. Escape or a click outside closes it. It has **no default key**; run it from the
+  [command palette](#command-palette) (Ctrl+Shift+P), click `flags: heuristic` in the status bar, or bind a key in
+  `keybindings.txt`, for example `Ctrl+Alt+F1 = Help.ShowCompileCommand`.
 * From a shell: `tenfold-cli why <workspace folder> <file>` starts the engine on the workspace, opens the file,
   waits up to 15 s for clangd to finish parsing it (`--wait <ms>` changes that, `--no-clangd` skips clangd,
   `--clangd <path>` picks one) and prints the same report. The file is taken relative to the workspace folder. The exit
@@ -498,6 +513,8 @@ tests.)
 | `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator); `}` typed first on a line dedents. |
 | `editor.autoClosePairs` | `true` | bool | `( [ { " '` insert their closer, typing the closer steps over it, a selection is wrapped, Backspace between an empty pair removes both. |
 | `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). Off by default (VERIFY against 10x). |
+| `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
+| `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
 | `font.editor` | (empty) | font | Editor font as `family or path[, size in pt]`. Empty means unset: `font.fallbacks` are tried in order. A family name is matched against font file names in the system font folders (case and spaces ignored), so give a full path if it is not found. |
 | `font.fallbacks` | `Cascadia Mono, Consolas` | string | Comma-separated font names tried in order when `font.editor` is unset or not found; after the last one the platform's usual monospace font is used. |
 | `font.size` | `10` | float | Font size in points when `font.editor` does not carry one. |
@@ -631,7 +648,7 @@ Defaults today (`assets/keybindings.default.txt` is the authority):
 | Alt+Right, Ctrl+Shift+-, Mouse5 | `Nav.Forward` | Ctrl+F12 | `Editor.GotoDeclaration` |
 | Ctrl+Shift+Backspace | `Nav.LastEditLocation` | Shift+F12 | `Editor.FindReferences` |
 | Ctrl+S | `File.Save` | Alt+O | `Editor.SwitchHeaderSource` |
-| Ctrl+Q | `App.Quit` (no prompt) | Ctrl+P, Ctrl+O | `File.OpenFile` |
+| Ctrl+Q | `App.Quit` (asks about unsaved edits) | Ctrl+P, Ctrl+O | `File.OpenFile` |
 | Ctrl+, | `Search.SymbolSearch` | Ctrl+Shift+F | `Search.FindInWorkspace` |
 | F8 / Shift+F8 | `Search.NextResult` / `PrevResult` | Ctrl+Shift+M | `View.ShowDiagnostics` |
 | Ctrl+Shift+B | `Build.Build` | Ctrl+Break | `Build.Cancel` |
@@ -651,16 +668,27 @@ Defaults today (`assets/keybindings.default.txt` is the authority):
 | Ctrl+J | `Editor.JoinLines` | Ctrl+Shift+K | `Editor.DeleteLines` |
 | Ctrl+G | `Editor.GotoLine` | Ctrl+F / Ctrl+H | `Editor.Find` / `Editor.Replace` |
 | F3 / Shift+F3 | `Editor.FindNext` / `FindPrev` | Ctrl+F2, F2, Shift+F2, Ctrl+Shift+F2 | bookmark toggle, next, previous, list |
+| Ctrl+Shift+P | `App.CommandPalette` | Ctrl+F4 | `Workbench.CloseTab` |
 
 The arrow, Home / End, Page, Delete, Backspace, Enter and Tab keys and their Shift / Ctrl word and document variants are
 bound to the `Editor.Caret*`, `Editor.Select*` and editing commands in the `editor` context.
 
-Commands **without** a default key: `Help.ShowCompileCommand`, `Debug.EditCondition`, `Debug.OpenInVisualStudio`,
-`Build.SelectConfiguration`, `Editor.Indent`, `Editor.LineEndingLF`, `Editor.LineEndingCRLF`, and all `Vcs.*`
-(`NextChange PrevChange ToggleInlineDiff RevertHunk RevertFile DiffFileExternal RefreshStatus CheckOut`). There is no
-command palette or menu yet, so a command with no key can only be reached by binding one. The engine and the debugger,
-version control and build commands exist in the command registry under the names above; a command whose user interface
-is missing says `<name> is not available yet` in the status bar.
+Commands **without** a default key: `Help.ShowCompileCommand`, `Clangd.Restart`, `Debug.EditCondition`,
+`Debug.OpenInVisualStudio`, `Build.SelectConfiguration`, `Editor.Indent`, `Editor.LineEndingLF`, `Editor.LineEndingCRLF`,
+and all `Vcs.*` (`NextChange PrevChange ToggleInlineDiff RevertHunk RevertFile DiffFileExternal RefreshStatus CheckOut`).
+They are reachable from the [command palette](#command-palette) (Ctrl+Shift+P); there is no menu yet. A command whose
+user interface is missing says `<name> is not available yet` in the status bar.
+
+### Command palette
+
+**Ctrl+Shift+P** (`App.CommandPalette`; a provisional key like all defaults, OPEN_QUESTIONS #1) opens a list of every
+command: the human name, the command id (dim) and its current key binding on the right (the first one when there are
+several; a command with no key shows none). Type to filter: the query is matched fuzzily against the name, else the id
+(`restart clangd`, `vcsrevertf`), tighter and earlier matches first. Enter closes the palette and runs the command as its
+key would; Escape closes it. A command that cannot run right now (no file open, ...) is greyed out and Enter says so in the
+status bar. Not listed: commands that need an argument to do anything (`Workbench.FocusPanel`, which is bound to Alt+1..4)
+and the palette itself. `Build.Build` is listed and runs the detected build; a custom build command still needs a key
+binding with an argument.
 
 ## Logs and crash reports
 
@@ -736,11 +764,13 @@ Run `Help.ShowCompileCommand` on the file. Read the `Compile flags` line first, 
 A clangd that exits unexpectedly is restarted automatically after 0.5 s, then 1, 2, 4 ... up to 30 s between attempts,
 and the open documents are re-sent to the new one. While it is down the fast index answers alone (everything
 approximate). A clangd that runs for a minute before dying starts the count again; after **5 fast crashes in a row** tenfold
-gives up (`clangd stopped: crashed 5 times` in the log). The status bar shows only `clangd: off` during all of this, then
-`starting` / `ready` after a restart. The messages are in `.tenfold\log.txt` (`clangd restarting`, crash counts, the exit)
+gives up. The status bar shows the engine's text during all of this (`clangd restarting (2)...`, then
+`clangd stopped: crashed 5 times` when it gave up), and `starting` / `ready` again after a restart. The same messages are in `.tenfold\log.txt` (`clangd restarting`, crash counts, the exit)
 and clangd's own complaints in `.tenfold\clangd.log`. A clangd that crashes on every file usually has a bad flag:
-look at the command in the report. There is no menu command to restart clangd; **restarting tenfold** works, and so does
-switching the Visual Studio configuration (it restarts clangd against the regenerated database). `clangdExtraArgs`
+look at the command in the report. **`Clangd.Restart`** ("Restart clangd", in the command palette) restarts clangd now: it resets the
+crash count, re-sends the open documents and says `clangd restarted` (or why not) in the status bar; use it after
+fixing the flags or when clangd has stopped. Switching the Visual Studio configuration also restarts clangd against the
+regenerated database. `clangdExtraArgs`
 in `workspace.json` passes extra arguments to clangd.
 
 ### Visual Studio not found
@@ -787,15 +817,15 @@ unverified items in the next sections; the log and the output of those two comma
 * **Settings did not apply.** The status bar message lists file and line of the first problems; fix and save, they
   reload. A `.tenfold` folder created after tenfold started is not watched until the next start.
 * **A key does nothing.** The key map is read at start, and a command whose UI is missing says so in the status bar. An
-  editor key does not work while a popup list is open (the `picker` context).
+  editor key does not work while a popup list is open (the `picker` context). The command palette finds a command by name
+  and shows the key it has.
 
 ## What does not exist yet
 
-* Opening a folder from the window, menus, a command palette, a recent-workspaces list, drag and drop.
-* A save prompt on close or quit, autosave, reloading of files changed on disk.
+* Opening a folder from the window, menus, a recent-workspaces list, drag and drop.
+* Autosave and recovery of unsaved buffers after a crash.
 * GUI for code actions / fix-its, rename, formatting, call and type hierarchy, inlay hints, folding, the document outline.
-* Showing in the window that compile flags are a guess, or that clangd is restarting; a restart-clangd command; an
-  "open log" command.
+* An "open log" command.
 * Scripting (the Python API of 10x is deliberately not implemented, OPEN_QUESTIONS #11), `.10x` workspace import (not
   wanted, #12), Unreal Engine awareness.
 * 10x's key bindings (OPEN_QUESTIONS #1).

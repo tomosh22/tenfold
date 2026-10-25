@@ -1321,3 +1321,44 @@ focuses the view of the active tab after every tab/panel switch or reveal, so ke
 `tenfold-ui <workspace> [file]` is this editor. The single-file `EditorShell` of B2a was dropped (a Workbench with one
 tab is the same thing); `--shell` (B3a widget demo, still key-driven through EditorApp) and `--demo` (renderer scene)
 remain.
+
+### Safety and visibility (P2, `src/ui/features/{UnsavedPrompt,ExternalChanges,CommandPalette}.*`, `Workbench`, `EditorApp`)
+
+* **Unsaved changes** (`UnsavedPrompt`): a modal `ListPopup` without an input (the revert confirmation's shape): title
+  "Save changes to a.cpp?" and the rows Save / Don't Save / Cancel; with several dirty documents "Save changes to N
+  documents?", Save All / Don't Save / Cancel and the document names as dim rows below. Enter takes the first row, Escape
+  and a click outside are Cancel. Save goes through `Editor::save` per document and stops at the first failure: the error
+  ("Cannot save src/a.cpp: file is read-only ...") goes to the status bar, nothing proceeds, documents already written stay
+  saved. Three entry points: `Workbench::requestCloseTab` (the tab's x and middle click through `Panel::onCloseRequested`,
+  and `Workbench.CloseTab`) calls the `Workbench::confirmClose` hook EditorApp installs when the tab is the *last view* of
+  a dirty document (`isLastViewOfDirty`; another view of it, or a clean document, closes at once) and continues with
+  `closeTab(id, discard)`: Don't Save closes the document in the Editor too (`releaseDocument(path, discard)`), so no hidden
+  dirty document is left behind; the programmatic `closeTab(id)` keeps its old meaning (dirty documents stay open).
+  `EditorApp::requestQuit()` (App.Quit, and the window's close event: `src/ui_app/main.cpp` calls it instead of quitting
+  directly) lists every dirty document of the Editor, tabs or not; `quitRequested()` turns true only when the user agreed
+  or nothing is dirty. Setting `editor.confirmUnsaved` (default on) switches all three off; the tab close then parks the
+  document as before. `File.Save` is bound in EditorApp to report the engine's reason instead of "Save failed".
+* **External changes** (`ExternalChanges`): owns the single `Editor::onExternalChange` slot (pump thread = UI thread).
+  Mode from `editor.reloadExternalChanges` (`auto` | `prompt` | `never`; unknown text is `auto`). `auto` + clean document:
+  `Editor::reloadFromDisk` at once (only the differing lines are replaced, so carets, scroll and history entries follow the
+  engine's rules; a message names the file). Otherwise the file is queued and a prompt (Reload [(lose my changes) when
+  dirty] / Keep my version, the latter the default for a dirty document) opens from `tick` when no other modal is up; a
+  prompt that another popup closed (`closePickers`) is asked again, Escape means Keep. The engine notifies once per distinct
+  on-disk content, so Keep does not nag. Deleted files are not reported by the engine (`checkExternalChange` ignores
+  unreadable files), so `tick` polls `std::filesystem::exists` of every open document once a second:
+  `Workbench::setFileMissing` appends " (deleted)" to the tab titles and `Workbench::refreshStatus` fills the `disk` segment
+  ("deleted on disk"); the buffer stays and saving recreates the file.
+* **clangd visibility**: `Workbench::refreshStatus` shows `Editor::clangdStatusText()` in the `clangd` segment when it is
+  not empty (restarting / stopped), else the on/off/starting/indexing/ready text. The `flags` segment (declared after
+  `clangd`; EditorApp binds its click to `Help.ShowCompileCommand`) reads `SemanticEngine::status().compdbSource` (a cheap
+  snapshot, unlike `compileCommandInfo`, which matches every database entry) and shows "flags: heuristic" for `heuristic`
+  and `generated(cached)` while clangd runs; with clangd off the `clangd: off` text already says everything is approximate
+  (and the existing goldens, whose workspaces are heuristic, stay byte-identical). `Clangd.Restart` calls
+  `Editor::restartClangd` (blocks for the handshake) and reports "clangd restarted" or the engine's error.
+* **Command palette** (`CommandPalette`, App.CommandPalette): `ListPopup` with an input over `CommandRegistry::all()`
+  restricted to commands with a handler, minus the palette and `Workbench.FocusPanel` (argument required; `Build.Build`
+  stays and runs without one). Row: name (fuzzy-matched characters highlighted), id (dim), first key binding
+  (`EditorApp::bindingFor`: global bindings first, then any context). Ranking: name or id, whichever matches tighter
+  (`fuzzyMatchPositions`, blanks in the query ignored), ties by name; no query: by name. A command whose `enabled()` is
+  false is dim and Enter reports it. Accept closes the popup first, then runs the command through `runCommandId`, so
+  popups the command opens replace the palette cleanly and the key context is the one of the focused widget.

@@ -28,6 +28,13 @@ editor.autoIndent = true
 editor.autoClosePairs = true
 editor.trimTrailingWhitespace = false
 
+# Unsaved changes and files changed on disk (OPEN_QUESTIONS #5; the defaults follow Visual Studio where 10x is unknown).
+# confirmUnsaved: closing the last tab of a modified file, closing the window and App.Quit ask Save / Don't Save / Cancel.
+editor.confirmUnsaved = true
+# reloadExternalChanges: auto (reload a file that changed on disk unless it has unsaved edits, then ask), prompt (always
+# ask) or never (leave the buffer alone, only say so in the status bar).
+editor.reloadExternalChanges = auto
+
 # Unset: the app discovers a monospace font, trying font.fallbacks in order (OPEN_QUESTIONS #7).
 font.editor =
 font.fallbacks = Cascadia Mono, Consolas
