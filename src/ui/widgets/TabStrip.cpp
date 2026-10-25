@@ -309,7 +309,11 @@ void TabStrip::paint(PaintContext& ctx) {
     if (active)
       ctx.fill(intersect({full.x, full.y + full.h - th.accentHeight, full.w, th.accentHeight}, b), th.tabAccent);
     ctx.fill(intersect({full.x + full.w - 1, full.y, 1, full.h}, b), th.tabStripBackground);  // 1px separator
-    ctx.text(full.x + th.padding, textY, g.shown, active || hot ? th.text : th.textDim, r);
+    ctx.text(full.x + th.padding, textY, g.shown,
+             active ? Theme::orElse(th.tabActiveText, th.text)
+             : hot  ? th.text
+                    : Theme::orElse(th.tabInactiveText, th.textDim),
+             r);
     if (!g.slot) continue;
     const RectF slot{full.x + full.w - th.padding / 2 - slotW, full.y, slotW, full.h};
     const bool closeHot = hot && hoverClose_ && !t.pinned;

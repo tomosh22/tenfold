@@ -750,11 +750,18 @@ embedded `assets/settings.default.txt` (CMake-generated header), `<user config d
 Undo grouping stays in `.tenfold/workspace.json` (A5). Themes use the same grammar with `color.<ui::Theme member>`
 and `token.<kind>[.<modifier>]` keys (lexical kinds plus the clangd legend names); `ui::Theme::tokenColor` walks the
 fallback chain (`method.static` -> `method` -> `function` -> `identifier` -> `color.text`). Built-in `dark` (reproduces
-`Theme::darkDefault()`; a neutral placeholder, TODO until OPEN_QUESTIONS #7) and `light` are embedded; a theme name also
+`Theme::darkDefault()`; a neutral placeholder, kept for the goldens), `light` and `vs-dark` (the application default,
+`ui.theme = vs-dark`: Visual Studio 2022 Dark, B7b) are embedded; a theme name also
 resolves to `.tenfold/themes/<name>.txt` or `<user dir>/themes/<name>.txt`. `SettingsService` loads both, watches the
 user dir and `<workspace>/.tenfold` (if it exists) with `FileWatcher`, and on a change sets a flag (plus an optional
 thread-safe `wake` callback); the UI thread calls `poll()`, which reloads, fires `onChanged` / `onThemeChanged`, and
 `applyTo(RootWidget&, scale)` swaps the theme (repaint). `editorSettings()` gives TextView its subset in one call.
+The optional colour keys (`editorBackground`, `currentLineFill`, `currentLineBorder`, `selectionActive`,
+`selectionInactive`, `findHighlight`, `findHighlightCurrent`, `editorCaret`, `tabActiveText`, `tabInactiveText`,
+`popupBackground`, `popupBorder`) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
+so `dark` and `light` and their goldens are unchanged; only `vs-dark` sets them. `vs-dark.txt` lists in its header the
+values that are recalled rather than sampled. Control-flow keyword and string-escape colours need lexer kinds that do
+not exist yet, and per-state status bar colours need a debugger state; neither has a key.
 
 user's 10x key map is known (OPEN_QUESTIONS #1). `EditorApp` (below) wires it into the app.
 ### Workbench (`src/ui/shell`, B3b)

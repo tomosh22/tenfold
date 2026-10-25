@@ -52,6 +52,22 @@ struct Theme {
   Color buildError{1.0f, 0.478f, 0.271f, 1};      // #ff7a45
   Color buildWarning{0.784f, 0.847f, 0.290f, 1};  // #c8d84a
 
+  // Optional colours (B7b). Fully transparent (the default) means "keep the built-in look", so the dark and light
+  // themes paint exactly as before; a theme that sets one (alpha > 0) overrides it.
+  Color editorBackground{0, 0, 0, 0};      // text area; unset = panelBackground
+  Color currentLineFill{0, 0, 0, 0};       // current-line band; unset = panelBackground mixed 5% towards text
+  Color currentLineBorder{0, 0, 0, 0};     // 1px outline of the current-line band; unset = none
+  Color selectionActive{0, 0, 0, 0};       // editor selection in the focused view; unset = tabAccent at 38%
+  Color selectionInactive{0, 0, 0, 0};     // editor selection in an unfocused view; unset = not drawn
+  Color findHighlight{0, 0, 0, 0};         // find / replace matches; unset = dirtyMarker at 30%
+  Color findHighlightCurrent{0, 0, 0, 0};  // the current match; unset = dirtyMarker at 65%
+  Color editorCaret{0, 0, 0, 0};           // editor caret in the focused view; unset = text
+  Color tabActiveText{0, 0, 0, 0};         // title of the active tab; unset = text
+  Color tabInactiveText{0, 0, 0, 0};       // title of an inactive, un-hovered tab; unset = textDim
+  Color popupBackground{0, 0, 0, 0};       // pickers, completion list, find box; unset = tabInactive
+  Color popupBorder{0, 0, 0, 0};           // their 1px border; unset = splitterHot
+  static Color orElse(const Color& c, const Color& fallback) { return c.a > 0 ? c : fallback; }
+
   // Token colours by name: lexical kinds ("keyword", "comment", ...) and clangd semantic token types ("method"), each
   // optionally narrowed by a modifier ("method.static"). Filled by the theme loader; empty means "use text".
   std::map<std::string, Color> tokens;

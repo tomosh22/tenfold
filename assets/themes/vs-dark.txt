@@ -1,0 +1,100 @@
+# tenfold "vs-dark": Visual Studio 2022 default Dark theme (OPEN_QUESTIONS #7: "as close to Visual Studio as possible").
+# The application default (ui.theme = vs-dark). Same file format as settings.default.txt; only color.* and token.* keys.
+#
+# The values below are from memory of VS 2022's stock Dark palette, not sampled from a screenshot. Correct them by
+# copying this file to <user config dir>/themes/vs-dark.txt (or <workspace>/.tenfold/themes/) and editing.
+# Values I am LESS SURE of (marked "[?]" inline too):
+#   * Chrome: panelBackground / popupBackground #252526 (VS 2022 may use #1F1F1F), tabStripBackground and tabInactive
+#     #2D2D30, tabHover #3E3E40, the blue filled active tab #007ACC, splitter / panelBorder #3F3F46, scrollbar track
+#     #3E3E42 and thumb #686868, closeHover #E81123, dirtyMarker #DCDCAA.
+#   * Editor: current-line outline #464646, selection #264F78 (inactive #3A3D41), find highlight #613315 (current
+#     #8A4B1E), bracket match, line numbers #2B91AF, whitespace dots, column guide, caret, build error / warning marks.
+#   * Squiggles: warning green #4CAF50 and info #75BEFF are approximations (VS draws info as a grey dotted line).
+#   * Tokens: function / method #DCDCAA, field / property / variable / parameter #C8C8C8, enum #B8D7A3, template
+#     parameter and concept #4EC9B0, string #D69D85, punctuation #DCDCDC, macro #BD63C5, comment #57A64A.
+# Not expressible yet (no lexer / widget support, so no key): control-flow keywords (VS #D8A0DF, e.g. if / for /
+# return are coloured like every keyword here), string escape sequences (VS #FFD68F), per-state status bar colours
+# (VS turns the bar orange while debugging; there is no debugger state yet), user-defined literals, XML doc tags.
+
+# --- IDE chrome ---------------------------------------------------------------------------------------------------
+color.background = #1F1F1F
+color.panelBackground = #252526
+color.tabStripBackground = #2D2D30
+color.tabActive = #007ACC
+color.tabInactive = #2D2D30
+color.tabHover = #3E3E40
+# VS accent blue (light variant) so the 2px line under the blue active tab stays visible; also search-hit text.
+color.tabAccent = #1C97EA
+color.tabInsert = #007ACC
+color.text = #F1F1F1
+color.textDim = #999999
+color.dirtyMarker = #DCDCAA
+color.closeHover = #E81123
+color.splitter = #3F3F46
+color.splitterHot = #007ACC
+color.statusBackground = #007ACC
+color.statusText = #FFFFFF
+color.statusHover = #1C97EA
+color.panelBorder = #3F3F46
+color.scrollbarTrack = #3E3E42
+color.scrollbarThumb = #686868
+color.tabActiveText = #FFFFFF
+color.tabInactiveText = #D0D0D0
+color.popupBackground = #252526
+color.popupBorder = #3F3F46
+# Selected row in pickers / completion list / find box buttons.
+color.selection = #094771
+
+# --- Editor -------------------------------------------------------------------------------------------------------
+color.editorBackground = #1E1E1E
+color.gutterBackground = #1E1E1E
+color.gutterText = #2B91AF
+# VS draws the current line as an outline only: fill = background, 1px border #464646.
+color.currentLine = #282828
+color.currentLineFill = #1E1E1E
+color.currentLineBorder = #464646
+color.selectionActive = #264F78
+color.selectionInactive = #3A3D41
+color.caret = #F1F1F1
+color.editorCaret = #F1F1F1
+color.columnGuide = #3F3F46
+color.whitespace = #4A4A4A
+color.diagnosticError = #F14C4C
+color.diagnosticWarning = #4CAF50
+color.diagnosticInfo = #75BEFF
+color.buildError = #FF8C00
+color.buildWarning = #D7BA7D
+color.matchMarker = #D7BA7D
+color.bracketMatch = #8C8C8C59
+color.findHighlight = #613315
+color.findHighlightCurrent = #8A4B1E
+
+# --- Token colours (lexical kinds, then clangd semantic types / modifiers) -------------------------------------------
+token.keyword = #569CD6
+token.identifier = #DCDCDC
+token.number = #B5CEA8
+token.string = #D69D85
+token.char = #D69D85
+token.comment = #57A64A
+token.preprocessor = #9B9B9B
+token.operator = #B4B4B4
+token.punctuation = #DCDCDC
+token.namespace = #C8C8C8
+token.type = #4EC9B0
+token.class = #4EC9B0
+token.struct = #4EC9B0
+token.interface = #4EC9B0
+token.enum = #B8D7A3
+token.enumMember = #B8D7A3
+token.typeParameter = #4EC9B0
+token.concept = #4EC9B0
+token.function = #DCDCAA
+token.method = #DCDCAA
+token.function.static = #DCDCAA
+token.method.static = #DCDCAA
+token.property = #C8C8C8
+token.property.static = #C8C8C8
+token.variable = #C8C8C8
+token.variable.static = #C8C8C8
+token.parameter = #C8C8C8
+token.macro = #BD63C5

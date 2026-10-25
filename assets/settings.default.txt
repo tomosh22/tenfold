@@ -30,11 +30,11 @@ editor.trimTrailingWhitespace = false
 
 # Unset: the app discovers a monospace font, trying font.fallbacks in order (OPEN_QUESTIONS #7).
 font.editor =
-font.fallbacks = Consolas, JetBrains Mono
-font.size = 11
+font.fallbacks = Cascadia Mono, Consolas
+font.size = 10
 
-# Theme name: workspace .tenfold/themes/<name>.txt, then user themes/<name>.txt, then built-in (dark, light).
-ui.theme = dark
+# Theme name: workspace .tenfold/themes/<name>.txt, then user themes/<name>.txt, then built-in (dark, light, vs-dark).
+ui.theme = vs-dark
 
 # Show "<- 3 | 1 ->" back/forward counts in the status bar.
 nav.statusCounts = false

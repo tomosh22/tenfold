@@ -178,7 +178,7 @@ TEST(theme_parse_and_errors) {
 }
 
 TEST(theme_shipped_files_complete) {
-  for (const char* name : {"dark", "light"}) {
+  for (const char* name : {"dark", "light", "vs-dark"}) {
     std::string text(builtinThemeText(name));
     CHECK(!text.empty());
     CHECK_EQ(text, readAsset((std::string("themes/") + name + ".txt").c_str()));
@@ -190,6 +190,8 @@ TEST(theme_shipped_files_complete) {
     for (auto& k : requiredThemeKeys()) CHECK(keys.count(k));
   }
   CHECK(readAsset("themes/dark.txt").find("TODO") != std::string::npos);
+  // The application default is the Visual Studio dark theme (OPEN_QUESTIONS #7).
+  CHECK(std::string(defaultSettingsText()).find("\nui.theme = vs-dark\n") != std::string::npos);
   // The dark theme reproduces today's hard-coded colours.
   std::vector<SettingsDiag> d;
   Theme dark = loadTheme("dark", {}, {}, d);
@@ -203,6 +205,39 @@ TEST(theme_shipped_files_complete) {
   CHECK(!near(light.background, def.background));
   loadTheme("nonexistent", {}, {}, d);
   CHECK_EQ(d.size(), size_t(1));
+}
+
+// vs-dark must define every key the theme system knows (colours, optional colours, lexical and common semantic
+// tokens, static member variants) so nothing silently falls back to the placeholder palette.
+TEST(theme_vs_dark_resolves_every_key) {
+  const std::string text(builtinThemeText("vs-dark"));
+  CHECK(!text.empty());
+  CHECK_EQ(text, readAsset("themes/vs-dark.txt"));
+  std::vector<SettingsDiag> d;
+  Theme t = loadTheme("vs-dark", {}, {}, d);
+  CHECK(d.empty());  // no unknown keys, bad colours or duplicates
+  std::set<std::string> keys;
+  parseKeyValueLines(text, "vs-dark", d,
+                     [&](int, std::string_view k, std::string_view) { keys.insert(std::string(k)); });
+  for (auto& n : themeColorNames()) CHECK(keys.count("color." + n));  // optional ones too
+  for (auto& k : requiredThemeKeys()) CHECK(keys.count(k));
+  for (const char* k :
+       {"token.struct", "token.interface", "token.method.static", "token.property", "token.variable.static"})
+    CHECK(keys.count(k));
+  for (auto& n : themeOptionalColorNames()) CHECK(keys.count("color." + n));
+  // Every key resolves to its own colour, not the base fallback.
+  CHECK(near(t.statusBackground, {0, 122 / 255.f, 204 / 255.f, 1}));
+  CHECK(near(t.editorBackground, {30 / 255.f, 30 / 255.f, 30 / 255.f, 1}));
+  CHECK(near(t.tokenColor("keyword"), {86 / 255.f, 156 / 255.f, 214 / 255.f, 1}));
+  CHECK(near(t.tokenColor("class"), {78 / 255.f, 201 / 255.f, 176 / 255.f, 1}));
+  CHECK(near(t.tokenColor("method", {"static"}), {220 / 255.f, 220 / 255.f, 170 / 255.f, 1}));
+  CHECK(near(t.tokenColor("macro"), {189 / 255.f, 99 / 255.f, 197 / 255.f, 1}));
+  CHECK(near(t.tokenColor("comment"), {87 / 255.f, 166 / 255.f, 74 / 255.f, 1}));
+  CHECK(t.editorBackground.a > 0 && t.currentLineBorder.a > 0 && t.selectionInactive.a > 0 && t.popupBorder.a > 0 &&
+        t.tabActiveText.a > 0 && t.findHighlightCurrent.a > 0);
+  // dark / light leave the optional colours unset, so they paint as before.
+  Theme dark = loadTheme("dark", {}, {}, d);
+  CHECK(dark.editorBackground.a == 0 && dark.currentLineFill.a == 0 && dark.selectionActive.a == 0);
 }
 
 TEST(settings_hot_reload) {

@@ -255,7 +255,8 @@ if(TENFOLD_BUILD_UI)
   file(WRITE "${CMAKE_BINARY_DIR}/generated/DefaultKeyBindings.inc" "R\"TFKB(${_tf_default_keys})TFKB\"\n")
   # Default settings and the two shipped themes are embedded the same way.
   foreach(_tf_emb "settings.default.txt|DefaultSettings.inc|TFST" "themes/dark.txt|DefaultThemeDark.inc|TFTD"
-                  "themes/light.txt|DefaultThemeLight.inc|TFTL")
+                  "themes/light.txt|DefaultThemeLight.inc|TFTL"
+                  "themes/vs-dark.txt|DefaultThemeVsDark.inc|TFTV")
     string(REPLACE "|" ";" _tf_emb "${_tf_emb}")
     list(GET _tf_emb 0 _tf_src)
     list(GET _tf_emb 1 _tf_dst)

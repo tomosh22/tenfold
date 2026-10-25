@@ -567,6 +567,108 @@ void goldenCase(const char* name, bool rich) {
 TEST(golden_b2b_lexical_colours) { goldenCase("b2b_lexical", false); }
 TEST(golden_b2b_semantic_squiggles_guide_whitespace) { goldenCase("b2b_semantic", true); }
 
+// B7b: a representative C++ file in the vs-dark theme: lexical kinds, semantic types and modifiers (made from a
+// word list), current line outline, selection, find matches, bracket match and the three squiggle severities.
+TEST(golden_vs_dark_editor) {
+  auto* gl = uitest::glFixture();
+  if (!gl) {
+    std::cerr << "    SKIP: no display/OpenGL 3.3 (run under xvfb-run -a)\n";
+    return;
+  }
+  const std::string font = dejavuMono();
+  if (font.empty()) {
+    std::cerr << "    SKIP golden: DejaVuSansMono not installed; goldens are only comparable with the same font\n";
+    return;
+  }
+  std::string err;
+  auto tr = gfx::TextRenderer::create(font, 15.0f, 1.0f, &err);
+  REQUIRE(tr != nullptr);
+  const std::string src =
+      "#include <string>\n"
+      "#define MAX_ITEMS 16\n"
+      "\n"
+      "namespace shapes {\n"
+      "enum class Kind { Circle, Square };\n"
+      "\n"
+      "// Base class of all shapes.\n"
+      "class Shape {\n"
+      " public:\n"
+      "  static int count;\n"
+      "  virtual double area(double scale) const = 0;\n"
+      "  int sides = 4;\n"
+      "};\n"
+      "\n"
+      "template <typename T> T clamp(T value, T hi) {\n"
+      "  const char* label = \"area\\n\";\n"
+      "  for (int i = 0; i < MAX_ITEMS; ++i) {\n"
+      "    if (value > hi) return hi * 0.5f + 'x';\n"
+      "  }\n"
+      "  Kind k = Kind::Circle;\n"
+      "  return value;\n"
+      "}\n"
+      "}  // namespace shapes\n";
+  Fx2 f(src, "vs.cpp", 800, 480, std::move(tr));
+  std::vector<SettingsDiag> d;
+  f.root->setTheme(loadTheme("vs-dark", {}, {}, d));
+  CHECK(d.empty());
+  LspSemanticTokensLegend legend;
+  legend.types = {"namespace", "class",    "enum",      "enumMember", "function",     "method",
+                  "property",  "variable", "parameter", "macro",      "typeParameter"};
+  legend.modifiers = {"static", "declaration"};
+  struct W {
+    const char* word;
+    uint16_t type;
+    uint32_t mods;
+  };
+  const W words[] = {{"shapes", 0, 0},    {"Shape", 1, 0}, {"Kind", 2, 0},  {"Circle", 3, 0}, {"Square", 3, 0},
+                     {"count", 6, 1},     {"area", 5, 0},  {"scale", 8, 0}, {"sides", 6, 0},  {"clamp", 4, 0},
+                     {"T", 10, 0},        {"value", 8, 0}, {"hi", 8, 0},    {"label", 7, 0},  {"i", 7, 0},
+                     {"MAX_ITEMS", 9, 0}, {"k", 7, 0}};
+  std::vector<TokenSpan> spans;
+  const TextBuffer& b = f.doc->buffer();
+  for (int l = 0; l < b.lineCount(); ++l) {
+    const std::string& s = b.line(l);
+    if (!s.empty() && s[0] == '#') continue;
+    for (size_t i = 0; i < s.size();) {
+      if (!(std::isalpha(static_cast<unsigned char>(s[i])) || s[i] == '_')) {
+        ++i;
+        continue;
+      }
+      size_t j = i;
+      while (j < s.size() && (std::isalnum(static_cast<unsigned char>(s[j])) || s[j] == '_')) ++j;
+      const std::string w = s.substr(i, j - i);
+      const bool call = j < s.size() && s[j] == '(';
+      for (const W& e : words)
+        if (w == e.word && !(s.compare(0, 2, "//") == 0))
+          spans.push_back(
+              {l, static_cast<int>(i), static_cast<int>(j - i), call && e.type == 5 ? uint16_t(5) : e.type, e.mods});
+      i = j;
+    }
+  }
+  f.tv->setSemanticTokens(std::move(spans), legend);
+  Diagnostic e, w, n;
+  e.range = {{19, 9}, {19, 13}};
+  e.severity = 1;
+  w.range = {{15, 20}, {15, 26}};
+  w.severity = 2;
+  n.range = {{10, 9}, {10, 13}};
+  n.severity = 3;
+  f.ed->setDiagnostics(f.doc->path(), {e, w, n});
+  f.tv->setFindMatches({{{16, 6}, {16, 9}}, {{16, 24}, {16, 27}}}, 0);
+  f.ed->moveCursor({17, 8});
+  f.ed->setSelections({Selection{{11, 2}, {11, 9}}});  // selection head = current line (12)
+  f.tick();
+  f.text->releaseTexture(f.rec);
+  gfx::GlRenderer& r = *gl->renderer;
+  r.setOffscreen(true);
+  f.root->requestLayout();
+  f.root->render(r, f.w, f.h);
+  std::vector<uint8_t> px(static_cast<size_t>(f.w) * f.h * 4);
+  REQUIRE(r.readPixels(f.w, f.h, px.data()));
+  f.text->releaseTexture(r);
+  compareGolden("vs_dark_editor", px, f.w, f.h);
+}
+
 // ---- PERF ----
 
 namespace {
