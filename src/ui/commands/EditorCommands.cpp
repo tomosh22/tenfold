@@ -94,6 +94,23 @@ void registerEditorCommands(CommandRegistry& r) {
     c.editor->insertText("\t");
     return true;
   });
+  // Ctrl+Backspace / Ctrl+Delete: without a selection extend each caret by a word first, then delete.
+  for (bool left : {true, false})
+    addEd(r, left ? "Editor.DeleteWordLeft" : "Editor.DeleteWordRight", left ? "Delete Word Left" : "Delete Word Right",
+          [left](const CommandContext& c, std::string_view) {
+            bool any = false;
+            for (const Selection& s : c.editor->selections()) any = any || !s.empty();
+            if (!any) c.editor->moveCarets(left ? D::Left : D::Right, U::Word, true);
+            if (left) c.editor->backspace();
+            else c.editor->del();
+            return true;
+          });
+  addEd(r, "Editor.CollapseCarets", "Collapse to Primary Caret", [](const CommandContext& c, std::string_view) {
+    c.editor->collapseToPrimary();
+    return true;
+  });
+  addEd(r, "File.Save", "Save",
+        [](const CommandContext& c, std::string_view) { return c.editor->save(*c.editor->currentDocument()); });
   addEd(r, "Editor.Undo", "Undo", [](const CommandContext& c, std::string_view) { return c.editor->undo(); });
   addEd(r, "Editor.Redo", "Redo", [](const CommandContext& c, std::string_view) { return c.editor->redo(); });
   addEd(r, "Editor.SelectAll", "Select All", [](const CommandContext& c, std::string_view) {
@@ -122,6 +139,7 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Workbench.CycleMruNext", "Next Recent Document");
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");
+  addUi(r, "App.Quit", "Quit");
   addUi(r, "Editor.Copy", "Copy");
   addUi(r, "Editor.Cut", "Cut");
   addUi(r, "Editor.Paste", "Paste");

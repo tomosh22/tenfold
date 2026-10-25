@@ -174,6 +174,9 @@ class Editor {
   // insertText replaces selections. A single typed character (one code point) is coalesced with the preceding
   // typing into one step according to Workspace::Settings::undoGrouping / undoGroupPauseMs.
   void insertText(const std::string& text);
+  // One text per caret, in document order (texts.size() must equal selections().size(), else nothing happens): paste
+  // of N lines into N carets. One undo step.
+  void insertTextPerCaret(const std::vector<std::string>& texts);
   void backspace();
   void del();
   void deleteRange(Range r);

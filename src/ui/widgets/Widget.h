@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <memory>
 #include <string_view>
 #include <vector>
@@ -19,6 +20,10 @@
 // Paint order: PaintContext::fill() draws rects/lines immediately; PaintContext::text() is deferred and emitted after
 // the whole tree has painted. All text therefore draws on top of all rects (do not put a filled rect over text that
 // belongs to a widget painted earlier). A shell frame is thus one rect batch plus one glyph batch per text colour.
+// Overlay layer: Widget::paintOverlay() runs for the whole tree after the glyphs were emitted, so rects drawn there
+// (text carets) land on top of all text. Use it sparingly: it costs one extra rect batch per frame.
+// Timers: the app calls RootWidget::tick(nowMs) after handling events; widgets that animate (caret blink, smooth
+// scroll) return how many ms until they want the next tick from onTick() and mark themselves dirty when it changed.
 namespace tf::ui {
 
 using gfx::Color;
@@ -73,8 +78,10 @@ class Widget {
   bool contains(float x, float y) const { return visible_ && ui::contains(bounds_, x, y); }
 
   // ---- painting ----
-  void paintTree(PaintContext& ctx);  // paint(), then children in order, skipped when invisible
-  void markDirty();                   // request a redraw (propagates to the root)
+  void paintTree(PaintContext& ctx);         // paint(), then children in order, skipped when invisible
+  void paintOverlayTree(PaintContext& ctx);  // paintOverlay() of visible widgets, parents first
+  void markDirty();                          // request a redraw (propagates to the root)
+  int tickTree(int64_t nowMs);               // onTick() of visible widgets; min wait in ms, -1 = nothing pending
 
   // ---- input ----
   // Deepest visible descendant (or this) containing the point; children later in the list are on top. Null if none.
@@ -94,6 +101,8 @@ class Widget {
 
  protected:
   virtual void paint(PaintContext&) {}
+  virtual void paintOverlay(PaintContext&) {}
+  virtual int onTick(int64_t /*nowMs*/) { return -1; }  // ms until the next wanted tick, -1 = none
   virtual void onLayout() {}
   const Theme& theme() const;  // the root's theme (a default one while detached)
 
@@ -123,6 +132,9 @@ class RootWidget : public Widget {
   // the nearest focusable ancestor-or-self. Key/Text events go to the focused widget and bubble up. Mouse events also
   // maintain hover (onHover). Returns handled.
   bool dispatch(const InputEvent& e);
+
+  // Advances animations; returns the ms until the next tick is needed (-1 = none). Call after dispatching events.
+  int tick(int64_t nowMs) { return tickTree(nowMs); }
 
   bool dirty() const { return dirty_; }
   void clearDirty() { dirty_ = false; }
