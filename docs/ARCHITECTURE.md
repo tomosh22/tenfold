@@ -229,6 +229,52 @@ fast editor must:
   Shift+F4 continues from there.
 * **UI (C1-UI)**: see "Build panel and bottom dock" under the Workbench section.
 
+## Debugger (C2a, `src/debug`)
+
+The engine side of the Visual Studio debugger integration (OPEN_QUESTIONS #9). No window, render or COM code lives
+here; the Visual Studio backend (C2b, `VsDebugger_win32.cpp`) and the UI (C2c) plug into it.
+
+* **`Breakpoints`** is the store: one breakpoint per (file, 0-based line) with `enabled` and `condition`. It follows
+  edits with the same `onLinesReplaced` / `onFileRenamed` contract and shifting rule as `Bookmarks` (the `Editor`
+  forwards the document's line-change notification to both), is persisted in `.tenfold/breakpoints.json`
+  (`{"version":1,"breakpoints":{"<relative path>":[{"line","enabled","condition"}]}}`, loaded with the first
+  document or `start()`, saved when it changed and on `save()` / `shutdown()`), has a generation counter and a change
+  handler (used by the session).
+* **`Debugger`** is the abstract backend (`start`, `startWithoutDebugging`, `stop`, `restart`, `breakAll`, `stepOver`,
+  `stepInto`, `stepOut`, `runToCursor`, `setBreakpoint`, `removeBreakpoint`, `connect(workspace + solution)` /
+  `disconnect`, `poll()` returning a `DebugSnapshot {mode, currentStatement, breakpoints, lastError}`). Every call
+  returns `DebugResult {ok, error}`; nothing throws across it. Modes: `Disconnected`, `Design`, `Running`, `Break`.
+  `cancel()` is the only method that may be called from another thread (to unblock a call at shutdown).
+* **`DebugSession`** (`Editor::debug()`) owns the backend and one **worker thread**. Threading rules:
+  * The backend is only ever called on the worker, one call at a time (so a COM apartment is safe); the backend
+    object is also destroyed on the worker thread.
+  * Commands are queued from the main thread and return immediately; the worker also polls the backend, every
+    100 ms while Running / Break and every 1000 ms otherwise (`setPollIntervals` for tests). A poll runs right after
+    a command when the queue is empty. Snapshots are posted only when they differ from the last posted one.
+  * Everything reaches the main thread through `Editor::post()`; state (`mode()`, `currentStatement()`,
+    `lastError()`, `status()`, `generation()`) changes only inside `pump()`.
+  * Shutdown (`Editor::shutdown()` / destructor) stops the worker, calls `Debugger::cancel()`, waits at most
+    `setShutdownTimeout()` (3 s) and, if a backend call still does not return, **abandons** the thread: it owns its
+    state through a `shared_ptr`, posts nothing (the poster is cleared) and tidies up when the call finally returns.
+    The Editor never hangs on a stuck debugger.
+* **Two-way breakpoint sync.** The session remembers what the backend was last told (`known_`). Any change of
+  `Breakpoints` (toggle, condition, a moved line, a rename) is diffed against it and pushed as `removeBreakpoint`s
+  first, then `setBreakpoint`s. A poll snapshot is applied to `Breakpoints` (the backend wins for state it reports)
+  only if the worker had executed every breakpoint command the main thread had queued when the snapshot was taken, so
+  a poll that overtook a push never undoes it; applying a snapshot is wrapped so the change handler does not push
+  it back (no echo). A failed `setBreakpoint` is reported and forgotten (the breakpoint stays in tenfold and is retried
+  with the next change); a `Disconnected` snapshot never deletes breakpoints. On connect everything in `Breakpoints`
+  is pushed and breakpoints only the backend has are adopted.
+* **Follow current statement.** Entering Break mode, or a new current statement while in Break, calls
+  `Editor::gotoLocation({file, {line, 0}}, ..., "debugger")` (so Back returns) when
+  `DebugSession::followCurrentStatement` (default true) is set. The statement is also exposed for the UI.
+* **Backend creation.** `Editor::setDebuggerFactory(fn)` installs the factory (Windows: the VS backend); `connect()`
+  (or the first command, which connects implicitly) calls it. Without a factory or `setBackend()` the session reports
+  "no debugger backend on this platform".
+* **`FakeDebugger`** (`src/debug/FakeDebugger.*`, compiled into `tenfold-tests` only) records calls with their thread,
+  scripts mode transitions, injects backend-side breakpoint changes / errors / blocked calls. Tests:
+  `tests/test_debug_breakpoints.cpp`, `tests/test_debug_session.cpp`.
+
 ## Navigation history
 
 `NavigationHistory` is a deque of `{Location, Kind, label}` plus a cursor.
