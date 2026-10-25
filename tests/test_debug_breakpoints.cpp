@@ -19,7 +19,8 @@ struct Dir {
   fs::path path;
   Dir() {
     static int counter = 0;
-    path = fs::temp_directory_path() /
+    std::error_code cec;
+    path = fs::weakly_canonical(fs::temp_directory_path(), cec) /
            ("tenfold_bp_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
             std::to_string(counter++));
     fs::create_directories(path);
@@ -248,4 +249,31 @@ TEST(bp_editor_edits_move_and_persist) {
   Editor second(d.path);
   second.open("a.cpp");
   CHECK((second.breakpoints().lines(doc->path()) == std::vector<int>{5, 9}));
+}
+
+TEST(bp_symlinked_spelling_is_the_same_file_and_persists_relative) {
+  Dir d;
+  const fs::path real = d.path / "real";
+  fs::create_directories(real);
+  const fs::path link = d.path / "link";
+  std::error_code ec;
+  fs::create_directory_symlink(real, link, ec);
+  if (ec) return;
+  Breakpoints b;
+  b.add(bp(link / "a.cpp", 3));
+  CHECK(b.has(real / "a.cpp", 3));
+  CHECK(!b.toggle(real / "a.cpp", 3));  // toggles the same breakpoint off
+  CHECK(b.empty());
+  b.add(bp(link / "a.cpp", 4, true, "x"));
+  b.onLinesReplaced(real / "a.cpp", 0, 0, 2);
+  CHECK((b.lines(link / "a.cpp") == std::vector<int>{5}));
+  const fs::path json = real / ".tenfold" / "breakpoints.json";
+  CHECK(b.save(json, real));
+  std::ifstream in(json);
+  std::stringstream ss;
+  ss << in.rdbuf();
+  CHECK(ss.str().find("\"a.cpp\"") != std::string::npos);  // relative although spelled through the link
+  Breakpoints c;
+  CHECK(c.load(json, real));
+  CHECK(c.has(link / "a.cpp", 5));
 }

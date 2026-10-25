@@ -5,9 +5,14 @@
 #include <map>
 #include <optional>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 namespace tf {
+
+// Identity of a file for breakpoints, the same canonical key the Editor uses for documents (symlinks resolved, so
+// macOS /var vs /private/var, Windows 8.3 names; on Windows also case and separators ignored). Thread-safe.
+std::string breakpointFileKey(const std::filesystem::path& file);
 
 // One line breakpoint. Lines are 0-based like every Position in the engine; backends convert.
 struct Breakpoint {
@@ -44,6 +49,9 @@ class Breakpoints {
   void onLinesReplaced(const std::filesystem::path& file, int startLine, int endLine, int newLineCount);
   void onFileRenamed(const std::filesystem::path& from, const std::filesystem::path& to);
 
+  // breakpointFileKey with a cache (main thread only): the key every lookup here and in DebugSession uses.
+  const std::string& fileKey(const std::filesystem::path& file) const;
+
   // Bumped by every change (views repaint their gutters when it moves).
   uint64_t generation() const { return gen_; }
   // Called (synchronously, after the change) by every mutation that changed something. One handler.
@@ -60,7 +68,8 @@ class Breakpoints {
     std::map<int, Breakpoint> bps;  // by line
   };
   void changed();
-  std::map<std::string, Entry> files_;  // key: pathKey(file)
+  mutable std::unordered_map<std::string, std::string> keyCache_;  // spelling -> key
+  std::map<std::string, Entry> files_;                             // key: pathKey(file)
   bool dirty_ = false;
   uint64_t gen_ = 0;
   std::function<void()> handler_;

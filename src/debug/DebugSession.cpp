@@ -35,7 +35,9 @@ bool sameSnapshot(const DebugSnapshot& a, const DebugSnapshot& b) {
     return false;
   for (size_t i = 0; i < a.breakpoints.size(); ++i) {
     const Breakpoint &x = a.breakpoints[i], &y = b.breakpoints[i];
-    if (!pathsEqual(x.file, y.file) || x.line != y.line || !sameProps(x, y)) return false;
+    if ((x.file != y.file && breakpointFileKey(x.file) != breakpointFileKey(y.file)) || x.line != y.line ||
+        !sameProps(x, y))
+      return false;
   }
   return true;
 }
@@ -503,7 +505,7 @@ void DebugSession::applySnapshot(const DebugSnapshot& s, uint64_t epoch, uint64_
 
 void DebugSession::adoptBackendBreakpoints(const std::vector<Breakpoint>& backend) {
   std::map<Key, Breakpoint> snap;
-  for (const Breakpoint& b : backend) snap[{pathKey(b.file), b.line}] = b;
+  for (const Breakpoint& b : backend) snap[{ed_.breakpoints().fileKey(b.file), b.line}] = b;
   std::vector<std::pair<Key, Breakpoint>> upserts;
   std::vector<Key> removed;
   for (const auto& [k, b] : known_) {
@@ -532,7 +534,7 @@ void DebugSession::adoptBackendBreakpoints(const std::vector<Breakpoint>& backen
 void DebugSession::pushBreakpoints() {
   if (!connected_ || applying_ || !impl_) return;
   std::map<Key, Breakpoint> cur;
-  for (const Breakpoint& b : ed_.breakpoints().all()) cur[{pathKey(b.file), b.line}] = b;
+  for (const Breakpoint& b : ed_.breakpoints().all()) cur[{ed_.breakpoints().fileKey(b.file), b.line}] = b;
   std::vector<Breakpoint> removals, sets;
   for (const auto& [k, b] : known_)
     if (!cur.count(k)) removals.push_back(b);
@@ -552,7 +554,7 @@ void DebugSession::pushBreakpoints() {
           if (r.ok) return;
           // Not applied: forget we told the backend, so a later diff retries and a snapshot does not mistake the
           // missing breakpoint for a deletion made on the backend side.
-          auto it = known_.find({pathKey(b.file), b.line});
+          auto it = known_.find({ed_.breakpoints().fileKey(b.file), b.line});
           if (it != known_.end() && sameProps(it->second, b)) known_.erase(it);
         },
         Kind::Breakpoint);
