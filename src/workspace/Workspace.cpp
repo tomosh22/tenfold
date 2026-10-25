@@ -211,6 +211,50 @@ std::vector<fs::path> Workspace::solutionFiles() const {
   return out;
 }
 
+std::vector<compdb::SolutionConfiguration> Workspace::vsConfigurations() const {
+  std::vector<compdb::SolutionConfiguration> out;
+  for (auto& sln : solutionFiles()) {
+    for (auto& c : compdb::solutionConfigurations(sln))
+      if (std::find(out.begin(), out.end(), c) == out.end()) out.push_back(c);
+  }
+  return out;
+}
+
+compdb::SolutionConfiguration Workspace::activeVsConfiguration() const {
+  return compdb::pickSolutionConfiguration(vsConfigurations(), settings_.vsConfiguration, settings_.vsPlatform);
+}
+
+bool Workspace::setVsConfiguration(const std::string& name, std::string* error) {
+  compdb::SolutionConfiguration want = compdb::parseSolutionConfiguration(name);
+  auto available = vsConfigurations();
+  if (!available.empty()) {
+    const compdb::SolutionConfiguration* found = nullptr;
+    for (auto& c : available) {
+      if (want.platform.empty() ? lower(c.configuration) == lower(want.configuration) : c == want) {
+        found = &c;
+        break;
+      }
+    }
+    if (!found) {
+      if (error) {
+        *error = "unknown configuration '" + name + "'; available:";
+        for (auto& c : available) *error += " " + c.name();
+      }
+      return false;
+    }
+    want = *found;
+  } else if (want.platform.empty()) {
+    want.platform = settings_.vsPlatform;
+  }
+  if (want.configuration.empty()) {
+    if (error) *error = "empty configuration name";
+    return false;
+  }
+  settings_.vsConfiguration = want.configuration;
+  settings_.vsPlatform = want.platform;
+  return saveSettings(error);
+}
+
 bool Workspace::hasCMake() const {
   std::error_code ec;
   return fs::is_regular_file(root_ / "CMakeLists.txt", ec);

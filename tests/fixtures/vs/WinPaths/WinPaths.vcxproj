@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <SdkRoot>C:\Program Files (x86)\Sdk\</SdkRoot>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>C:\SDK\include;D:\other\..\inc;\\server\share\inc;..\rel\inc;.\here;$(SdkRoot)include;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <ForcedIncludeFiles>C:\fi\forced.h;rel\fi.h</ForcedIncludeFiles>
+      <AdditionalOptions>/FI"C:\Program Files\x\y.h" /I C:\a\b "/DNAME=a b" %(AdditionalOptions)</AdditionalOptions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="C:\src\abs.cpp" />
+    <ClCompile Include="src\sub\..\rel.cpp" />
+    <ClCompile Include="..\shared\outside.cpp" />
+  </ItemGroup>
+</Project>

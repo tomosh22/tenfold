@@ -30,6 +30,7 @@ void usage() {
   std::cerr
       << "usage: tenfold-cli <workspace-root> [options]\n"
          "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
+         "       tenfold-cli vsconfig <workspace-root> [--list | --set Debug|x64]\n"
          "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
@@ -125,6 +126,34 @@ int runBuild(int argc, char** argv) {
     std::cout << ": " << sev << (m.code.empty() ? "" : " [" + m.code + "]") << ": " << m.text << "\n";
   }
   return result.startFailed ? 1 : result.exitCode;
+}
+
+// Lists the solution configurations of a workspace (the active one is marked) or selects one; the choice is saved
+// in <root>/.tenfold/workspace.json, which the editor and the build read.
+int runVsConfig(int argc, char** argv) {
+  if (argc < 3) {
+    usage();
+    return 2;
+  }
+  Workspace ws(argv[2]);
+  ws.loadSettings();
+  std::string set;
+  for (int i = 3; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--set" && i + 1 < argc) set = argv[++i];
+  }
+  if (!set.empty()) {
+    std::string err;
+    if (!ws.setVsConfiguration(set, &err)) {
+      std::cerr << err << "\n";
+      return 1;
+    }
+  }
+  const auto list = ws.vsConfigurations();
+  if (list.empty()) std::cout << "no solution configurations found in " << ws.root().string() << "\n";
+  const auto active = ws.activeVsConfiguration();
+  for (auto& c : list) std::cout << (c == active ? "* " : "  ") << c.name() << "\n";
+  return 0;
 }
 
 int runCompdb(int argc, char** argv) {
@@ -501,6 +530,7 @@ int main(int argc, char** argv) {
   }
   if (std::strcmp(argv[1], "compdb") == 0) return runCompdb(argc, argv);
   if (std::strcmp(argv[1], "build") == 0) return runBuild(argc, argv);
+  if (std::strcmp(argv[1], "vsconfig") == 0) return runVsConfig(argc, argv);
   if (std::strcmp(argv[1], "bench") == 0) return runBench(argc, argv);
 
   Editor::Options opt;

@@ -35,17 +35,79 @@ namespace compdb {
 std::optional<std::filesystem::path> fromCMake(const std::filesystem::path& root, const std::filesystem::path& buildDir,
                                                std::string* log = nullptr);
 
+// One entry of the solution's "Configuration|Platform" list (e.g. "Debug" + "x64", "Release" + "Any CPU").
+struct SolutionConfiguration {
+  std::string configuration;
+  std::string platform;
+  std::string name() const { return configuration + "|" + platform; }
+  bool operator==(const SolutionConfiguration& o) const;  // case-insensitive, like MSBuild
+  bool operator!=(const SolutionConfiguration& o) const { return !(*this == o); }
+};
+
 struct VcxprojOptions {
+  // Project configuration used by fromVcxproj. fromSolution treats these as the requested *solution* configuration
+  // and maps it per project (see pickSolutionConfiguration / readSolution).
   std::string configuration = "Debug";
   std::string platform = "x64";
-  std::filesystem::path solutionDir;  // for $(SolutionDir); defaults to project dir
+  std::filesystem::path solutionDir;   // for $(SolutionDir); defaults to project dir
+  std::filesystem::path solutionFile;  // for $(SolutionPath)/$(SolutionName); set by fromSolution
   std::map<std::string, std::string> extraProperties;
+  // Environment variables are visible as properties (lowest priority). `environment` entries win over the process
+  // environment; `useProcessEnvironment = false` makes the evaluation hermetic (tests).
+  std::map<std::string, std::string> environment;
+  bool useProcessEnvironment = true;
+  // Directory.Build.props / Directory.Build.targets are imported the way MSBuild does (nearest file walking up).
+  bool directoryBuildFiles = true;
+  // Defines that MSBuild/cl add implicitly (_WIN32, _WIN64, _DEBUG, _DLL, _MT, UNICODE, _MBCS). See ARCHITECTURE.md.
+  bool implicitDefines = true;
 };
-// Projects referenced by a .sln (absolute paths, .vcxproj only).
+
+// A project listed in a .sln.
+struct SolutionProject {
+  std::string name;
+  std::string guid;  // upper-case, with braces
+  std::string typeGuid;
+  std::filesystem::path path;  // absolute, lexically normalised
+  bool isVcxproj() const;
+};
+// What a solution maps a solution configuration to for one project.
+struct SolutionProjectConfiguration {
+  std::string configuration;  // the project's own configuration / platform ("Debug", "Win32")
+  std::string platform;
+  bool build = false;  // .Build.0 present: the project is part of the build in this configuration
+};
+struct SolutionInfo {
+  std::filesystem::path path;
+  std::vector<SolutionProject> projects;
+  std::vector<SolutionConfiguration> configurations;  // GlobalSection(SolutionConfigurationPlatforms), in file order
+  // True when the file has a GlobalSection(ProjectConfigurationPlatforms). Without one (hand-written solutions) every
+  // project is built in the selected configuration under the same name.
+  bool hasProjectConfigurationMap = false;
+  // guid -> lower-case "config|platform" of the solution -> mapping (.ActiveCfg / .Build.0 lines).
+  std::map<std::string, std::map<std::string, SolutionProjectConfiguration>> projectConfigurations;
+  // The mapping for `project` in `solutionConfig`; nullopt when the solution does not map it (project skipped).
+  std::optional<SolutionProjectConfiguration> mapping(const SolutionProject& project,
+                                                      const SolutionConfiguration& solutionConfig) const;
+};
+SolutionInfo readSolution(const std::filesystem::path& sln, std::string* error = nullptr);
+std::vector<SolutionConfiguration> solutionConfigurations(const std::filesystem::path& sln,
+                                                          std::string* error = nullptr);
+// Choose the active configuration from `available`: an exact (case-insensitive) match of configuration+platform; else
+// Debug|x64; else the first entry. With nothing available the request is returned unchanged. `exact` (optional) tells
+// whether the request itself was found.
+SolutionConfiguration pickSolutionConfiguration(const std::vector<SolutionConfiguration>& available,
+                                                const std::string& configuration, const std::string& platform,
+                                                bool* exact = nullptr);
+// Parse "Debug|x64" (the platform may be missing: "Debug").
+SolutionConfiguration parseSolutionConfiguration(const std::string& name);
+
+// Projects referenced by a .sln (absolute paths, .vcxproj only; ignores the configuration mapping).
 std::vector<std::filesystem::path> projectsInSolution(const std::filesystem::path& sln, std::string* error = nullptr);
-// Evaluate a .vcxproj (following local .props imports) into compile commands.
+// Evaluate a .vcxproj (following .props imports, Directory.Build.props/targets) into compile commands.
 std::vector<CompileCommand> fromVcxproj(const std::filesystem::path& vcxproj, const VcxprojOptions& opt,
                                         std::string* error = nullptr);
+// Evaluate every project the solution builds in the configuration picked from `opt` (pickSolutionConfiguration),
+// each with its mapped project configuration/platform. Projects the solution does not build there are skipped.
 std::vector<CompileCommand> fromSolution(const std::filesystem::path& sln, const VcxprojOptions& opt,
                                          std::string* error = nullptr);
 
@@ -95,7 +157,9 @@ std::string queryDriverArg(const std::filesystem::path& clExe);
 // clangd arguments contributed by a known MSVC toolchain (empty if none).
 std::vector<std::string> msvcClangdArgs(const std::filesystem::path& clExe);
 
-// MSBuild-style property expansion: "$(Name)" -> value (unknown -> "").
+// MSBuild-style property expansion: "$(Name)" -> value (unknown -> ""). Names are case-insensitive. A few property
+// functions are understood ([MSBuild]::EnsureTrailingSlash, NormalizeDirectory, GetDirectoryNameOfFileAbove, ...);
+// anything else ($(Registry:...), $(x.Replace(..))) expands to "".
 std::string expandProperties(const std::string& s, const std::map<std::string, std::string>& props);
 // MSBuild condition evaluation for the common forms: 'a'=='b', 'a'!='b', Exists('x'), and/or/!.
 bool evaluateCondition(const std::string& cond, const std::map<std::string, std::string>& props,

@@ -7,6 +7,8 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
+#include <memory>
 #include <set>
 #include <sstream>
 
@@ -174,32 +176,13 @@ std::optional<fs::path> fromCMake(const fs::path& root, const fs::path& buildDir
 }
 
 // ---------------------------------------------------------------------------
-// MSBuild property / condition evaluation
+// String-level path helpers. The MSBuild files of a Windows project name paths with backslashes and drive
+// letters; these helpers treat them the same on every host (fs::path on Linux would see "C:\x" as relative).
 // ---------------------------------------------------------------------------
 
-std::string expandProperties(const std::string& s, const std::map<std::string, std::string>& props) {
-  std::string out;
-  out.reserve(s.size());
-  for (size_t i = 0; i < s.size(); ++i) {
-    if (s[i] == '$' && i + 1 < s.size() && s[i + 1] == '(') {
-      size_t close = s.find(')', i + 2);
-      if (close == std::string::npos) {
-        out += s.substr(i);
-        break;
-      }
-      std::string name = s.substr(i + 2, close - i - 2);
-      // Property functions like $(Foo.Replace(...)) are not supported; leave empty.
-      auto it = props.find(name);
-      if (it != props.end()) out += it->second;
-      i = close;
-      continue;
-    }
-    out += s[i];
-  }
-  return out;
-}
-
 namespace {
+
+constexpr char kPoison = '\x01';  // stands for "this value could not be resolved"; entries holding it are dropped
 
 std::string trim(std::string s) {
   while (!s.empty() && std::isspace(static_cast<unsigned char>(s.back()))) s.pop_back();
@@ -213,10 +196,77 @@ std::string lower(std::string s) {
   return s;
 }
 
+bool poisoned(const std::string& s) { return s.find(kPoison) != std::string::npos; }
+
 // Normalise a Windows-style path fragment for use on the host.
 std::string hostPath(std::string p) {
   std::replace(p.begin(), p.end(), '\\', '/');
   return p;
+}
+
+bool isDriveRooted(const std::string& p) {
+  return p.size() >= 2 && std::isalpha(static_cast<unsigned char>(p[0])) && p[1] == ':';
+}
+
+// "/x", "\x", "\\server\share" and "C:..." are absolute (rooted) in the MSBuild world, on every host.
+bool isAbsolutePathStr(const std::string& p) { return !p.empty() && (p[0] == '/' || p[0] == '\\' || isDriveRooted(p)); }
+
+// Forward slashes, "." / ".." / duplicate separators collapsed, prefix ("/", "//", "C:/") preserved, no trailing slash.
+std::string normalizePathStr(const std::string& in) {
+  std::string p = hostPath(in);
+  std::string prefix;
+  size_t i = 0;
+  if (p.rfind("//", 0) == 0) {
+    prefix = "//";
+    i = 2;
+  } else if (!p.empty() && p[0] == '/') {
+    prefix = "/";
+    i = 1;
+  } else if (isDriveRooted(p)) {
+    prefix = p.substr(0, 2);
+    i = 2;
+    if (i < p.size() && p[i] == '/') {
+      prefix += "/";
+      ++i;
+    }
+  }
+  const bool rooted = !prefix.empty() && prefix.back() == '/';
+  std::vector<std::string> seg;
+  while (i <= p.size()) {
+    size_t j = p.find('/', i);
+    if (j == std::string::npos) j = p.size();
+    std::string s = p.substr(i, j - i);
+    i = j + 1;
+    if (s.empty() || s == ".") continue;
+    if (s == "..") {
+      if (!seg.empty() && seg.back() != "..") seg.pop_back();
+      else if (!rooted) seg.push_back(s);
+      continue;
+    }
+    seg.push_back(std::move(s));
+  }
+  std::string out = prefix;
+  for (size_t k = 0; k < seg.size(); ++k) {
+    if (k) out += '/';
+    out += seg[k];
+  }
+  if (out.empty()) out = ".";
+  return out;
+}
+
+std::string joinPathStr(const std::string& base, const std::string& rel) {
+  if (isAbsolutePathStr(rel)) return normalizePathStr(rel);
+  return normalizePathStr(base.empty() ? rel : base + "/" + rel);
+}
+
+bool endsWithSlash(const std::string& s) { return !s.empty() && (s.back() == '/' || s.back() == '\\'); }
+
+std::string parentDirStr(const std::string& p) {
+  std::string n = normalizePathStr(p);
+  size_t k = n.find_last_of('/');
+  if (k == std::string::npos) return ".";
+  if (k == 0) return "/";
+  return n.substr(0, k);
 }
 
 std::vector<std::string> splitSemis(const std::string& s) {
@@ -232,12 +282,290 @@ std::vector<std::string> splitSemis(const std::string& s) {
   return out;
 }
 
+// Command-line splitting with Windows rules: backslashes are literal unless they precede a double quote.
+std::vector<std::string> splitWindowsArgs(const std::string& cmd) {
+  std::vector<std::string> out;
+  std::string cur;
+  bool inArg = false, inQuote = false;
+  for (size_t i = 0; i < cmd.size(); ++i) {
+    char c = cmd[i];
+    if (c == '\\') {
+      size_t n = 0;
+      while (i < cmd.size() && cmd[i] == '\\') ++n, ++i;
+      if (i < cmd.size() && cmd[i] == '"') {
+        cur.append(n / 2, '\\');
+        if (n % 2) cur += '"';
+        else inQuote = !inQuote;
+        inArg = true;
+      } else {
+        cur.append(n, '\\');
+        inArg = true;
+        --i;
+        continue;
+      }
+      continue;
+    }
+    if (c == '"') {
+      inQuote = !inQuote;
+      inArg = true;
+      continue;
+    }
+    if (std::isspace(static_cast<unsigned char>(c)) && !inQuote) {
+      if (inArg) {
+        out.push_back(cur);
+        cur.clear();
+        inArg = false;
+      }
+      continue;
+    }
+    cur += c;
+    inArg = true;
+  }
+  if (inArg) out.push_back(cur);
+  return out;
+}
+
+// '*' and '?' wildcards within one path segment.
+bool wildcardMatch(const std::string& pat, const std::string& s) {
+  size_t p = 0, i = 0, star = std::string::npos, mark = 0;
+  while (i < s.size()) {
+    if (p < pat.size() && (pat[p] == '?' || std::tolower(static_cast<unsigned char>(pat[p])) ==
+                                                std::tolower(static_cast<unsigned char>(s[i])))) {
+      ++p, ++i;
+    } else if (p < pat.size() && pat[p] == '*') {
+      star = p++;
+      mark = i;
+    } else if (star != std::string::npos) {
+      p = star + 1;
+      i = ++mark;
+    } else return false;
+  }
+  while (p < pat.size() && pat[p] == '*') ++p;
+  return p == pat.size();
+}
+
+void globInto(const std::string& dir, const std::vector<std::string>& segs, size_t k, std::vector<std::string>& out) {
+  std::error_code ec;
+  if (k == segs.size()) return;
+  const std::string& seg = segs[k];
+  const bool last = k + 1 == segs.size();
+  if (seg == "**") {
+    globInto(dir, segs, k + 1, out);
+    for (auto& e : fs::directory_iterator(fs::path(dir), ec))
+      if (e.is_directory(ec)) globInto(e.path().generic_string(), segs, k, out);
+    return;
+  }
+  if (seg.find_first_of("*?") == std::string::npos) {
+    std::string next = dir + "/" + seg;
+    if (last) {
+      if (fs::exists(fs::path(next), ec)) out.push_back(next);
+    } else globInto(next, segs, k + 1, out);
+    return;
+  }
+  std::vector<std::string> names;
+  for (auto& e : fs::directory_iterator(fs::path(dir), ec)) {
+    std::string n = e.path().filename().string();
+    if (wildcardMatch(seg, n) && (last ? e.is_regular_file(ec) : e.is_directory(ec))) names.push_back(n);
+  }
+  std::sort(names.begin(), names.end());
+  for (auto& n : names) {
+    if (last) out.push_back(dir + "/" + n);
+    else globInto(dir + "/" + n, segs, k + 1, out);
+  }
+}
+
+// Expands a (possibly wildcarded) include path relative to `baseDir`; a plain path is returned as is (it need not
+// exist).
+std::vector<std::string> expandInclude(const std::string& baseDir, const std::string& include) {
+  std::string full = joinPathStr(baseDir, include);
+  if (full.find_first_of("*?") == std::string::npos) return {full};
+  std::string root;
+  std::vector<std::string> segs;
+  size_t i = 0;
+  if (full.rfind("//", 0) == 0) i = 2, root = "/";
+  else if (!full.empty() && full[0] == '/') i = 1, root = "";
+  else if (isDriveRooted(full)) i = full.size() > 2 && full[2] == '/' ? 3 : 2, root = full.substr(0, 2);
+  std::string cur = full.substr(i);
+  size_t pos = 0;
+  while (pos <= cur.size()) {
+    size_t j = cur.find('/', pos);
+    if (j == std::string::npos) j = cur.size();
+    if (j > pos) segs.push_back(cur.substr(pos, j - pos));
+    pos = j + 1;
+  }
+  std::vector<std::string> out;
+  globInto(root, segs, 0, out);
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// MSBuild property / condition evaluation
+// ---------------------------------------------------------------------------
+
+struct EvalCtx {
+  std::map<std::string, std::string> props;  // keys lower-case (MSBuild property names are case-insensitive)
+  std::map<std::string, std::string> env;    // injected environment variables (win over the process environment)
+  bool processEnv = false;
+};
+
+enum class Missing { Empty, Poison };
+
+std::string expandEx(const std::string& s, const EvalCtx& cx, Missing miss);
+
+std::string prop(const EvalCtx& cx, const std::string& lowName) {
+  auto it = cx.props.find(lowName);
+  return it == cx.props.end() ? std::string() : it->second;
+}
+
+// Position of the ')' closing the "$(" whose body starts at `from`, ignoring parentheses inside quotes.
+size_t matchingParen(const std::string& s, size_t from) {
+  int depth = 1;
+  char quote = 0;
+  for (size_t i = from; i < s.size(); ++i) {
+    char c = s[i];
+    if (quote) {
+      if (c == quote) quote = 0;
+      continue;
+    }
+    if (c == '\'' || c == '`') quote = c;
+    else if (c == '(') ++depth;
+    else if (c == ')' && --depth == 0) return i;
+  }
+  return std::string::npos;
+}
+
+std::vector<std::string> splitArgs(const std::string& s) {
+  std::vector<std::string> out;
+  std::string cur;
+  int depth = 0;
+  char quote = 0;
+  for (char c : s) {
+    if (quote) {
+      cur += c;
+      if (c == quote) quote = 0;
+      continue;
+    }
+    if (c == '\'' || c == '`' || c == '"') {
+      quote = c;
+      cur += c;
+    } else if (c == '(') {
+      ++depth, cur += c;
+    } else if (c == ')') {
+      --depth, cur += c;
+    } else if (c == ',' && depth == 0) {
+      out.push_back(trim(cur));
+      cur.clear();
+    } else cur += c;
+  }
+  if (!trim(cur).empty() || !out.empty()) out.push_back(trim(cur));
+  return out;
+}
+
+std::string unquote(const std::string& s) {
+  if (s.size() >= 2 && (s.front() == '\'' || s.front() == '`' || s.front() == '"') && s.back() == s.front())
+    return s.substr(1, s.size() - 2);
+  return s;
+}
+
+std::string fileAboveDir(const std::string& startDir, const std::string& file) {
+  std::string dir = normalizePathStr(startDir);
+  std::error_code ec;
+  for (int guard = 0; guard < 64; ++guard) {
+    if (fs::exists(fs::path(dir + "/" + file), ec)) return dir;
+    std::string up = parentDirStr(dir);
+    if (up == dir || up == ".") break;
+    dir = up;
+  }
+  return {};
+}
+
+std::string evalMacro(const std::string& bodyIn, const EvalCtx& cx, Missing miss) {
+  const std::string poison(1, kPoison);
+  std::string body = trim(bodyIn);
+  if (body.empty()) return poison;
+  if (body[0] == '[') {  // static property function
+    size_t colons = body.find("]::");
+    size_t open = body.find('(');
+    if (colons == std::string::npos || open == std::string::npos || body.back() != ')') return poison;
+    std::string fn = lower(body.substr(0, open));
+    std::vector<std::string> args;
+    for (auto& a : splitArgs(body.substr(open + 1, body.size() - open - 2))) {
+      std::string v = expandEx(unquote(a), cx, miss);
+      if (poisoned(v)) return poison;
+      args.push_back(std::move(v));
+    }
+    const std::string thisDir = hostPath(prop(cx, "msbuildthisfiledirectory"));
+    const std::string projDir = hostPath(prop(cx, "msbuildprojectdirectory"));
+    if (fn == "[msbuild]::ensuretrailingslash" && args.size() == 1)
+      return args[0].empty() || endsWithSlash(args[0]) ? args[0] : args[0] + "/";
+    if ((fn == "[msbuild]::normalizedirectory" || fn == "[msbuild]::normalizepath") && !args.empty()) {
+      std::string acc;
+      for (auto& a : args) acc = acc.empty() ? a : isAbsolutePathStr(a) ? a : acc + "/" + a;
+      std::string r = joinPathStr(projDir, acc);
+      return fn == "[msbuild]::normalizedirectory" ? r + "/" : r;
+    }
+    if (fn == "[msbuild]::getdirectorynameoffileabove" && args.size() == 2)
+      return fileAboveDir(joinPathStr(thisDir, args[0]), args[1]);
+    if (fn == "[msbuild]::getpathoffileabove" && !args.empty()) {
+      std::string start = args.size() > 1 ? joinPathStr(thisDir, args[1]) : parentDirStr(thisDir);
+      std::string d = fileAboveDir(start, args[0]);
+      return d.empty() ? std::string() : d + "/" + args[0];
+    }
+    if (fn == "[system.io.path]::combine" && !args.empty()) {
+      std::string acc;
+      for (auto& a : args)
+        acc = acc.empty() || isAbsolutePathStr(a) ? a : (endsWithSlash(acc) ? acc + a : acc + "/" + a);
+      return acc;
+    }
+    if (fn == "[system.io.path]::getfullpath" && args.size() == 1) return joinPathStr(projDir, args[0]);
+    if (fn == "[system.io.path]::getdirectoryname" && args.size() == 1) return parentDirStr(args[0]);
+    return poison;  // other functions are not evaluated
+  }
+  if (lower(body.substr(0, 9)) == "registry:") return poison;
+  if (body.find('(') != std::string::npos) return poison;  // $(Name.Method(...)) instance functions
+  std::string low = lower(body);
+  auto it = cx.props.find(low);
+  if (it != cx.props.end()) return it->second;
+  auto e = cx.env.find(body);
+  if (e != cx.env.end()) return e->second;
+  if (cx.processEnv) {
+    if (const char* v = std::getenv(body.c_str())) return v;
+  }
+  return miss == Missing::Poison ? poison : std::string();
+}
+
+std::string expandEx(const std::string& s, const EvalCtx& cx, Missing miss) {
+  if (s.find("$(") == std::string::npos) return s;
+  std::string out;
+  out.reserve(s.size());
+  for (size_t i = 0; i < s.size(); ++i) {
+    if (s[i] == '$' && i + 1 < s.size() && s[i + 1] == '(') {
+      size_t close = matchingParen(s, i + 2);
+      if (close == std::string::npos) {
+        out += s.substr(i);
+        break;
+      }
+      out += evalMacro(s.substr(i + 2, close - i - 2), cx, miss);
+      i = close;
+      continue;
+    }
+    out += s[i];
+  }
+  return out;
+}
+
+EvalCtx ctxFromMap(const std::map<std::string, std::string>& props) {
+  EvalCtx cx;
+  for (auto& [k, v] : props) cx.props[lower(k)] = v;
+  return cx;
+}
+
 // Recursive-descent evaluator for MSBuild conditions.
 struct CondParser {
   const std::string& s;
   size_t i = 0;
-  const std::map<std::string, std::string>& props;
-  const fs::path& base;
+  const EvalCtx& cx;
+  const std::string base;
 
   void ws() {
     while (i < s.size() && std::isspace(static_cast<unsigned char>(s[i]))) ++i;
@@ -254,16 +582,30 @@ struct CondParser {
   std::string atom() {
     ws();
     if (i < s.size() && s[i] == '\'') {
-      size_t e = s.find('\'', i + 1);
-      if (e == std::string::npos) e = s.size();
+      // The closing quote is the first one outside a $( ... ) macro.
+      size_t e = i + 1;
+      int depth = 0;
+      for (; e < s.size(); ++e) {
+        if (s[e] == '$' && e + 1 < s.size() && s[e + 1] == '(') ++depth, ++e;
+        else if (s[e] == ')' && depth > 0) --depth;
+        else if (s[e] == '\'' && depth == 0) break;
+      }
       std::string v = s.substr(i + 1, e - i - 1);
       i = std::min(e + 1, s.size());
-      return expandProperties(v, props);
+      return expandEx(v, cx, Missing::Empty);
     }
     size_t st = i;
     while (i < s.size() && !std::isspace(static_cast<unsigned char>(s[i])) && s[i] != ')' && s[i] != '=' && s[i] != '!')
       ++i;
-    return expandProperties(s.substr(st, i - st), props);
+    return expandEx(s.substr(st, i - st), cx, Missing::Empty);
+  }
+  void skipOpenParen() {
+    ws();
+    if (i < s.size() && s[i] == '(') ++i;
+  }
+  void skipCloseParen() {
+    ws();
+    if (i < s.size() && s[i] == ')') ++i;
   }
   bool primary() {
     ws();
@@ -274,27 +616,22 @@ struct CondParser {
     if (i < s.size() && s[i] == '(') {
       ++i;
       bool v = orExpr();
-      ws();
-      if (i < s.size() && s[i] == ')') ++i;
+      skipCloseParen();
       return v;
     }
     if (kw("exists")) {
-      ws();
-      if (i < s.size() && s[i] == '(') ++i;
+      skipOpenParen();
       std::string p = atom();
-      ws();
-      if (i < s.size() && s[i] == ')') ++i;
-      fs::path fp = hostPath(p);
+      skipCloseParen();
+      if (p.empty() || poisoned(p)) return false;
       std::error_code ec;
-      return fs::exists(fp.is_absolute() ? fp : base / fp, ec);
+      return fs::exists(fs::path(joinPathStr(base, p)), ec);
     }
     if (kw("hastrailingslash")) {
-      ws();
-      if (i < s.size() && s[i] == '(') ++i;
+      skipOpenParen();
       std::string p = atom();
-      ws();
-      if (i < s.size() && s[i] == ')') ++i;
-      return !p.empty() && (p.back() == '\\' || p.back() == '/');
+      skipCloseParen();
+      return endsWithSlash(p);
     }
     std::string a = atom();
     ws();
@@ -320,72 +657,213 @@ struct CondParser {
   }
 };
 
-}  // namespace
-
-bool evaluateCondition(const std::string& cond, const std::map<std::string, std::string>& props,
-                       const fs::path& baseDir) {
+bool evalCondition(const std::string& cond, const EvalCtx& cx, const std::string& baseDir) {
   if (trim(cond).empty()) return true;
-  CondParser p{cond, 0, props, baseDir};
+  CondParser p{cond, 0, cx, baseDir};
   return p.orExpr();
 }
 
+}  // namespace
+
+std::string expandProperties(const std::string& s, const std::map<std::string, std::string>& props) {
+  std::string out = expandEx(s, ctxFromMap(props), Missing::Empty);
+  out.erase(std::remove(out.begin(), out.end(), kPoison), out.end());  // unresolvable functions expand to ""
+  return out;
+}
+
+bool evaluateCondition(const std::string& cond, const std::map<std::string, std::string>& props,
+                       const fs::path& baseDir) {
+  return evalCondition(cond, ctxFromMap(props), baseDir.generic_string());
+}
+
 // ---------------------------------------------------------------------------
-// .sln / .vcxproj
+// .sln
 // ---------------------------------------------------------------------------
 
-std::vector<fs::path> projectsInSolution(const fs::path& sln, std::string* error) {
-  std::vector<fs::path> out;
+bool SolutionConfiguration::operator==(const SolutionConfiguration& o) const {
+  return lower(configuration) == lower(o.configuration) && lower(platform) == lower(o.platform);
+}
+
+bool SolutionProject::isVcxproj() const { return lower(path.extension().string()) == ".vcxproj"; }
+
+SolutionConfiguration parseSolutionConfiguration(const std::string& name) {
+  size_t bar = name.find('|');
+  if (bar == std::string::npos) return {trim(name), ""};
+  return {trim(name.substr(0, bar)), trim(name.substr(bar + 1))};
+}
+
+SolutionConfiguration pickSolutionConfiguration(const std::vector<SolutionConfiguration>& available,
+                                                const std::string& configuration, const std::string& platform,
+                                                bool* exact) {
+  SolutionConfiguration want{configuration, platform};
+  if (exact) *exact = false;
+  if (available.empty()) return want;
+  for (auto& c : available)
+    if (c == want) {
+      if (exact) *exact = true;
+      return c;
+    }
+  for (auto& c : available)
+    if (lower(c.configuration) == "debug" && lower(c.platform) == "x64") return c;
+  return available.front();
+}
+
+std::optional<SolutionProjectConfiguration> SolutionInfo::mapping(const SolutionProject& project,
+                                                                  const SolutionConfiguration& solutionConfig) const {
+  if (!hasProjectConfigurationMap) {
+    SolutionProjectConfiguration pc;
+    pc.configuration = solutionConfig.configuration;
+    pc.platform = solutionConfig.platform;
+    pc.build = true;
+    return pc;
+  }
+  auto it = projectConfigurations.find(project.guid);
+  if (it == projectConfigurations.end()) return std::nullopt;
+  auto m = it->second.find(lower(solutionConfig.name()));
+  if (m == it->second.end()) return std::nullopt;
+  return m->second;
+}
+
+SolutionInfo readSolution(const fs::path& sln, std::string* error) {
+  SolutionInfo info;
+  info.path = sln;
   std::ifstream in(sln);
   if (!in) {
     if (error) *error = "cannot open " + sln.string();
-    return out;
+    return info;
   }
+  const std::string dir = hostPath(sln.parent_path().generic_string());
   std::string line;
-  fs::path dir = sln.parent_path();
+  enum class Section { None, SolutionConfigs, ProjectConfigs } section = Section::None;
+  bool first = true;
   while (std::getline(in, line)) {
-    // Project("{GUID}") = "Name", "rel\path.vcxproj", "{GUID}"
-    if (line.rfind("Project(", 0) != 0) continue;
+    if (first && line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3);  // UTF-8 BOM
+    first = false;
+    line = trim(line);
+    if (line.rfind("Project(", 0) == 0) {
+      // Project("{TYPE-GUID}") = "Name", "rel\path.vcxproj", "{GUID}"
+      size_t eq = line.find('=');
+      if (eq == std::string::npos) continue;
+      std::vector<std::string> parts;
+      size_t p = 0;
+      while (true) {
+        size_t q1 = line.find('"', p);
+        if (q1 == std::string::npos) break;
+        size_t q2 = line.find('"', q1 + 1);
+        if (q2 == std::string::npos) break;
+        parts.push_back(line.substr(q1 + 1, q2 - q1 - 1));
+        p = q2 + 1;
+      }
+      if (parts.size() < 4) continue;  // type guid, name, path, project guid
+      SolutionProject pr;
+      pr.typeGuid = parts[0];
+      pr.name = parts[1];
+      pr.path = fs::path(joinPathStr(dir, parts[2]));
+      std::string g = parts[3];
+      for (auto& c : g) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+      pr.guid = g;
+      info.projects.push_back(std::move(pr));
+      continue;
+    }
+    if (line.rfind("GlobalSection(", 0) == 0) {
+      if (line.rfind("GlobalSection(SolutionConfigurationPlatforms)", 0) == 0) section = Section::SolutionConfigs;
+      else if (line.rfind("GlobalSection(ProjectConfigurationPlatforms)", 0) == 0) {
+        section = Section::ProjectConfigs;
+        info.hasProjectConfigurationMap = true;
+      } else section = Section::None;
+      continue;
+    }
+    if (line.rfind("EndGlobalSection", 0) == 0) {
+      section = Section::None;
+      continue;
+    }
     size_t eq = line.find('=');
     if (eq == std::string::npos) continue;
-    std::vector<std::string> parts;
-    size_t p = eq;
-    while (true) {
-      size_t q1 = line.find('"', p);
-      if (q1 == std::string::npos) break;
-      size_t q2 = line.find('"', q1 + 1);
-      if (q2 == std::string::npos) break;
-      parts.push_back(line.substr(q1 + 1, q2 - q1 - 1));
-      p = q2 + 1;
+    std::string lhs = trim(line.substr(0, eq)), rhs = trim(line.substr(eq + 1));
+    if (section == Section::SolutionConfigs) {
+      SolutionConfiguration sc = parseSolutionConfiguration(lhs);
+      if (sc.platform.empty()) continue;
+      if (std::find(info.configurations.begin(), info.configurations.end(), sc) == info.configurations.end())
+        info.configurations.push_back(std::move(sc));
+    } else if (section == Section::ProjectConfigs) {
+      // {GUID}.Debug|x64.ActiveCfg = Debug|x64      {GUID}.Debug|x64.Build.0 = Debug|x64
+      if (lhs.empty() || lhs[0] != '{') continue;
+      size_t close = lhs.find('}');
+      if (close == std::string::npos || close + 1 >= lhs.size() || lhs[close + 1] != '.') continue;
+      std::string guid = lhs.substr(0, close + 1);
+      for (auto& c : guid) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+      std::string rest = lhs.substr(close + 2);
+      bool active = false, build = false;
+      const std::string a = ".ActiveCfg", b = ".Build.0";
+      if (rest.size() > a.size() && rest.compare(rest.size() - a.size(), a.size(), a) == 0) {
+        active = true;
+        rest.resize(rest.size() - a.size());
+      } else if (rest.size() > b.size() && rest.compare(rest.size() - b.size(), b.size(), b) == 0) {
+        build = true;
+        rest.resize(rest.size() - b.size());
+      } else continue;  // Deploy.0 and friends
+      SolutionConfiguration target = parseSolutionConfiguration(rhs);
+      auto& pc = info.projectConfigurations[guid][lower(rest)];
+      if (active) {
+        pc.configuration = target.configuration;
+        pc.platform = target.platform;
+      } else if (build) {
+        pc.build = true;
+        if (pc.configuration.empty()) {
+          pc.configuration = target.configuration;
+          pc.platform = target.platform;
+        }
+      }
     }
-    if (parts.size() < 2) continue;
-    fs::path rel = hostPath(parts[1]);
-    if (lower(rel.extension().string()) != ".vcxproj") continue;
-    out.push_back(fs::weakly_canonical(dir / rel));
   }
+  return info;
+}
+
+std::vector<SolutionConfiguration> solutionConfigurations(const fs::path& sln, std::string* error) {
+  return readSolution(sln, error).configurations;
+}
+
+std::vector<fs::path> projectsInSolution(const fs::path& sln, std::string* error) {
+  std::vector<fs::path> out;
+  std::string err;
+  SolutionInfo info = readSolution(sln, &err);
+  if (!err.empty() && error) *error = err;
+  for (auto& p : info.projects)
+    if (p.isVcxproj()) out.push_back(fs::weakly_canonical(p.path));
   return out;
 }
+
+// ---------------------------------------------------------------------------
+// .vcxproj evaluation (MSBuild passes: properties and imports, item definitions, items)
+// ---------------------------------------------------------------------------
 
 namespace {
 
 struct ProjectState {
-  std::map<std::string, std::string> props;
-  // ClCompile item-definition metadata (merged across groups).
-  std::map<std::string, std::string> clMeta;
+  EvalCtx cx;
+  std::string projectDir;                     // string-level, forward slashes
+  std::map<std::string, std::string> clMeta;  // ItemDefinitionGroup ClCompile metadata (merged across groups)
+  struct Scope {
+    const xml::Node* node;
+    std::string dir;   // directory of the file the node came from
+    std::string file;  // that file (for $(MSBuildThisFile...) when the node is evaluated in pass 2 / 3)
+  };
+  std::vector<std::unique_ptr<xml::Node>> roots;  // keeps the imported documents alive
+  std::vector<Scope> defGroups, itemGroups;       // pass 1 output, in import order
   struct Item {
-    fs::path file;
-    std::map<std::string, std::string> meta;
-    bool excluded = false;
+    std::string file;
+    std::map<std::string, std::string> meta;  // raw values; may still contain %(Name) references
   };
   std::vector<Item> items;
   std::set<std::string> visited;
   std::string error;
+  bool dirProps = false, dirTargets = false;
 };
 
-// Resolve "%(Name)" self-references by substituting the current metadata value.
-std::string mergeMeta(const std::string& value, const std::string& name,
-                      const std::map<std::string, std::string>& current) {
+// Substitute "%(name)" in `value` by `replacement`.
+std::string substituteMeta(const std::string& value, const std::string& name, const std::string& replacement) {
+  const std::string token = "%(" + name + ")";
   std::string out;
-  std::string token = "%(" + name + ")";
   size_t pos = 0;
   while (true) {
     size_t f = value.find(token, pos);
@@ -394,96 +872,151 @@ std::string mergeMeta(const std::string& value, const std::string& name,
       break;
     }
     out += value.substr(pos, f - pos);
-    auto it = current.find(name);
-    if (it != current.end()) out += it->second;
+    out += replacement;
     pos = f + token.size();
   }
-  // Drop any other %(...) references we can't resolve.
-  std::string clean;
-  for (size_t i = 0; i < out.size(); ++i) {
-    if (out[i] == '%' && i + 1 < out.size() && out[i + 1] == '(') {
-      size_t c = out.find(')', i);
+  return out;
+}
+
+// Any other %(...) reference cannot be resolved: it poisons the entry that holds it.
+std::string poisonMetaRefs(const std::string& v) {
+  std::string out;
+  for (size_t i = 0; i < v.size(); ++i) {
+    if (v[i] == '%' && i + 1 < v.size() && v[i + 1] == '(') {
+      size_t c = v.find(')', i);
       if (c == std::string::npos) break;
+      out += kPoison;
       i = c;
       continue;
     }
-    clean += out[i];
+    out += v[i];
   }
-  return clean;
+  return out;
 }
 
-void processProject(const fs::path& file, ProjectState& st, const fs::path& projectDir);
+void importFile(const std::string& path, ProjectState& st);
 
-void processNode(const xml::Node& n, ProjectState& st, const fs::path& fileDir, const fs::path& projectDir) {
+std::string importPathOf(const xml::Node& c, ProjectState& st) {
+  return expandEx(c.attr("Project"), st.cx, Missing::Poison);
+}
+
+void importProject(const std::string& projectAttr, ProjectState& st, const std::string& fileDir) {
+  if (projectAttr.empty() || poisoned(projectAttr)) return;  // $(VCTargetsPath)\Microsoft.Cpp.props and the like
+  std::error_code ec;
+  for (auto& p : expandInclude(fileDir, projectAttr))
+    if (fs::is_regular_file(fs::path(p), ec)) importFile(p, st);
+}
+
+void importDirectoryBuild(ProjectState& st, const char* fileName) {
+  std::string dir = st.projectDir;
+  std::error_code ec;
+  for (int guard = 0; guard < 64; ++guard) {
+    std::string cand = dir + "/" + fileName;
+    if (fs::is_regular_file(fs::path(cand), ec)) {
+      importFile(cand, st);
+      return;
+    }
+    std::string up = parentDirStr(dir);
+    if (up == dir || up == ".") return;
+    dir = up;
+  }
+}
+
+void collect(const xml::Node& n, ProjectState& st, const std::string& fileDir, const std::string& filePath, bool root) {
   for (auto& childPtr : n.children) {
     const xml::Node& c = *childPtr;
-    std::string cond = c.attr("Condition");
-    if (!cond.empty() && !evaluateCondition(cond, st.props, fileDir)) continue;
-
+    const std::string cond = c.attr("Condition");
     if (c.name == "PropertyGroup") {
+      if (!cond.empty() && !evalCondition(cond, st.cx, fileDir)) continue;
       for (auto& pp : c.children) {
         std::string pc = pp->attr("Condition");
-        if (!pc.empty() && !evaluateCondition(pc, st.props, fileDir)) continue;
-        st.props[pp->name] = expandProperties(trim(pp->text), st.props);
+        if (!pc.empty() && !evalCondition(pc, st.cx, fileDir)) continue;
+        st.cx.props[lower(pp->name)] = expandEx(trim(pp->text), st.cx, Missing::Poison);
       }
     } else if (c.name == "ItemDefinitionGroup") {
-      if (const xml::Node* cl = c.child("ClCompile")) {
-        for (auto& m : cl->children) {
-          std::string mc = m->attr("Condition");
-          if (!mc.empty() && !evaluateCondition(mc, st.props, fileDir)) continue;
-          std::string v = expandProperties(trim(m->text), st.props);
-          st.clMeta[m->name] = mergeMeta(v, m->name, st.clMeta);
-        }
-      }
+      st.defGroups.push_back({&c, fileDir, filePath});  // Condition is evaluated against the final properties (pass 2)
     } else if (c.name == "ItemGroup") {
-      for (auto& it : c.childrenNamed("ClCompile")) {
-        std::string inc = it->attr("Include");
-        if (inc.empty()) continue;
-        ProjectState::Item item;
-        fs::path rel = hostPath(expandProperties(inc, st.props));
-        item.file = rel.is_absolute() ? rel : projectDir / rel;
-        for (auto& m : it->children) {
-          std::string mc = m->attr("Condition");
-          if (!mc.empty() && !evaluateCondition(mc, st.props, fileDir)) continue;
-          std::string v = expandProperties(trim(m->text), st.props);
-          if (m->name == "ExcludedFromBuild") {
-            item.excluded = lower(v) == "true";
-            continue;
-          }
-          item.meta[m->name] = v;
-        }
-        st.items.push_back(std::move(item));
-      }
+      st.itemGroups.push_back({&c, fileDir, filePath});  // ... and pass 3
     } else if (c.name == "Import") {
-      std::string proj = hostPath(expandProperties(c.attr("Project"), st.props));
-      if (proj.empty() || proj.find("$(") != std::string::npos) continue;  // unresolvable (VCTargetsPath etc.)
-      fs::path p = fs::path(proj).is_absolute() ? fs::path(proj) : fileDir / proj;
-      std::error_code ec;
-      if (fs::is_regular_file(p, ec)) processProject(fs::weakly_canonical(p, ec), st, projectDir);
-    } else if (c.name == "ImportGroup" || c.name == "Choose" || c.name == "When" || c.name == "Otherwise") {
-      processNode(c, st, fileDir, projectDir);
+      if (!cond.empty() && !evalCondition(cond, st.cx, fileDir)) continue;
+      std::string proj = importPathOf(c, st);
+      const std::string rawProj = lower(c.attr("Project"));
+      if (root && !st.dirProps && rawProj.find("microsoft.cpp.default.props") != std::string::npos) {
+        // Microsoft.Common.props (pulled in by Microsoft.Cpp.Default.props) imports Directory.Build.props first.
+        st.dirProps = true;
+        importDirectoryBuild(st, "Directory.Build.props");
+      }
+      // The toolset's own files are never evaluated: their content is the toolchain's business (clangd's
+      // --query-driver), and they rely on properties and functions that are not available here.
+      if (rawProj.find("vctargetspath") != std::string::npos || rawProj.find("msbuildtoolspath") != std::string::npos ||
+          rawProj.find("msbuildbinpath") != std::string::npos ||
+          rawProj.find("msbuildextensionspath") != std::string::npos)
+        continue;
+      importProject(proj, st, fileDir);
+    } else if (c.name == "ImportGroup") {
+      if (!cond.empty() && !evalCondition(cond, st.cx, fileDir)) continue;
+      collect(c, st, fileDir, filePath, false);
+    } else if (c.name == "Choose") {
+      if (!cond.empty() && !evalCondition(cond, st.cx, fileDir)) continue;
+      const xml::Node* chosen = nullptr;
+      for (auto& w : c.children) {
+        if (w->name == "When" && evalCondition(w->attr("Condition"), st.cx, fileDir)) {
+          chosen = w.get();
+          break;
+        }
+      }
+      if (!chosen) {
+        for (auto& w : c.children)
+          if (w->name == "Otherwise") chosen = w.get();
+      }
+      if (chosen) collect(*chosen, st, fileDir, filePath, false);
     }
   }
 }
 
-void processProject(const fs::path& file, ProjectState& st, const fs::path& projectDir) {
-  std::string key = file.generic_string();
+void importFile(const std::string& path, ProjectState& st) {
+  std::string key = normalizePathStr(path);
   if (st.visited.count(key)) return;
   st.visited.insert(key);
   std::string err;
-  auto root = xml::parseFile(file.string(), &err);
-  if (!root) {
-    st.error += file.string() + ": " + err + "\n";
+  auto doc = xml::parseFile(key, &err);
+  if (!doc) {
+    st.error += key + ": " + err + "\n";
     return;
   }
-  st.props["MSBuildThisFileDirectory"] = file.parent_path().generic_string() + "/";
-  st.props["MSBuildThisFile"] = file.filename().string();
-  processNode(*root, st, file.parent_path(), projectDir);
+  const std::string dir = parentDirStr(key);
+  const std::string prevDir = prop(st.cx, "msbuildthisfiledirectory");
+  const std::string prevFile = prop(st.cx, "msbuildthisfile");
+  st.cx.props["msbuildthisfiledirectory"] = dir + "/";
+  st.cx.props["msbuildthisfile"] = key.substr(key.find_last_of('/') + 1);
+  st.cx.props["msbuildthisfilefullpath"] = key;
+  const xml::Node* rootNode = doc.get();
+  st.roots.push_back(std::move(doc));
+  collect(*rootNode, st, dir, key, false);
+  st.cx.props["msbuildthisfiledirectory"] = prevDir;
+  st.cx.props["msbuildthisfile"] = prevFile;
 }
 
-bool isSourceExt(const fs::path& p) {
-  std::string e = lower(p.extension().string());
-  return e == ".cpp" || e == ".cc" || e == ".cxx" || e == ".c" || e == ".cu" || e == ".mm" || e == ".m";
+// MSBuild evaluates item definitions and items in the context of the file they are written in.
+void enterScope(ProjectState& st, const ProjectState::Scope& g) {
+  st.cx.props["msbuildthisfiledirectory"] = g.dir + "/";
+  st.cx.props["msbuildthisfile"] = g.file.substr(g.file.find_last_of('/') + 1);
+  st.cx.props["msbuildthisfilefullpath"] = g.file;
+}
+
+bool isSourceExt(const std::string& path) {
+  std::string e = lower(fs::path(path).extension().string());
+  return e == ".cpp" || e == ".cc" || e == ".cxx" || e == ".c" || e == ".cu" || e == ".mm" || e == ".m" ||
+         e == ".ixx" || e == ".cppm";
+}
+
+bool isTrue(const std::string& v) { return lower(trim(v)) == "true"; }
+
+void defineOnce(std::vector<std::string>& defs, const std::string& d) {
+  const std::string name = d.substr(0, d.find('='));
+  for (auto& e : defs)
+    if (e.substr(0, e.find('=')) == name) return;
+  defs.push_back(d);
 }
 
 }  // namespace
@@ -492,78 +1025,288 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
   std::vector<CompileCommand> out;
   std::error_code ec;
   fs::path proj = fs::weakly_canonical(vcxproj, ec);
-  fs::path projectDir = proj.parent_path();
+  const fs::path projectDirPath = proj.parent_path();
   ProjectState st;
-  st.props["Configuration"] = opt.configuration;
-  st.props["Platform"] = opt.platform;
-  st.props["ProjectDir"] = projectDir.generic_string() + "/";
-  st.props["ProjectName"] = proj.stem().string();
-  st.props["ProjectFileName"] = proj.filename().string();
-  st.props["ProjectPath"] = proj.generic_string();
-  st.props["ProjectExt"] = proj.extension().string();
-  fs::path slnDir = opt.solutionDir.empty() ? projectDir : opt.solutionDir;
-  st.props["SolutionDir"] = slnDir.generic_string() + "/";
-  st.props["MSBuildProjectDirectory"] = projectDir.generic_string();
-  st.props["MSBuildProjectName"] = proj.stem().string();
-  st.props["PlatformTarget"] = lower(opt.platform) == "win32" ? "x86" : opt.platform;
-  for (auto& [k, v] : opt.extraProperties) st.props[k] = v;
+  st.cx.env = opt.environment;
+  st.cx.processEnv = opt.useProcessEnvironment;
+  st.projectDir = normalizePathStr(projectDirPath.generic_string());
+  const std::string projPath = normalizePathStr(proj.generic_string());
+  const std::string platformLow = lower(opt.platform);
+  auto& P = st.cx.props;
+  P["configuration"] = opt.configuration;
+  P["platform"] = opt.platform;
+  P["projectdir"] = st.projectDir + "/";
+  P["projectname"] = proj.stem().string();
+  P["projectfilename"] = proj.filename().string();
+  P["projectpath"] = projPath;
+  P["projectext"] = proj.extension().string();
+  const std::string slnDir =
+      opt.solutionDir.empty() ? st.projectDir : normalizePathStr(opt.solutionDir.generic_string());
+  P["solutiondir"] = slnDir + "/";
+  if (!opt.solutionFile.empty()) {
+    const std::string slnPath = normalizePathStr(opt.solutionFile.generic_string());
+    P["solutionpath"] = slnPath;
+    P["solutionfilename"] = opt.solutionFile.filename().string();
+    P["solutionname"] = opt.solutionFile.stem().string();
+    P["solutionext"] = opt.solutionFile.extension().string();
+  }
+  P["msbuildprojectdirectory"] = st.projectDir;
+  P["msbuildprojectname"] = proj.stem().string();
+  P["msbuildprojectfile"] = proj.filename().string();
+  P["msbuildprojectfullpath"] = projPath;
+  P["msbuildprojectextension"] = proj.extension().string();
+  P["platformtarget"] = platformLow == "win32" ? "x86" : opt.platform;
+  P["outdir"] = slnDir + "/" + (platformLow == "win32" ? "" : opt.platform + "/") + opt.configuration + "/";
+  P["intdir"] = (platformLow == "win32" ? "" : opt.platform + "/") + opt.configuration + "/";
+  P["targetname"] = proj.stem().string();
+  for (auto& [k, v] : opt.extraProperties) P[lower(k)] = v;
 
-  processProject(proj, st, projectDir);
+  // Pass 1: properties and imports, in document order (the project body between Directory.Build.props and .targets).
+  {
+    std::string err;
+    auto doc = xml::parseFile(projPath, &err);
+    if (!doc) {
+      if (error) *error = projPath + ": " + err + "\n";
+      return out;
+    }
+    st.visited.insert(projPath);
+    st.cx.props["msbuildthisfiledirectory"] = st.projectDir + "/";
+    st.cx.props["msbuildthisfile"] = proj.filename().string();
+    st.cx.props["msbuildthisfilefullpath"] = projPath;
+    const xml::Node* rootNode = doc.get();
+    st.roots.push_back(std::move(doc));
+    // Directory.Build.props goes in where Microsoft.Cpp.Default.props sits; a project without that import (hand-made
+    // or SDK-style) gets it at the very top.
+    bool hasDefaultProps = false;
+    for (auto& c : rootNode->children) {
+      if (c->name == "Import" && lower(c->attr("Project")).find("microsoft.cpp.default.props") != std::string::npos)
+        hasDefaultProps = true;
+    }
+    if (opt.directoryBuildFiles) {
+      if (!hasDefaultProps) {
+        st.dirProps = true;
+        importDirectoryBuild(st, "Directory.Build.props");
+      }
+    } else {
+      st.dirProps = true;  // suppress the import in collect()
+    }
+    collect(*rootNode, st, st.projectDir, projPath, true);
+    st.cx.props["msbuildthisfiledirectory"] = st.projectDir + "/";
+    st.cx.props["msbuildthisfile"] = proj.filename().string();
+    if (opt.directoryBuildFiles) importDirectoryBuild(st, "Directory.Build.targets");
+  }
+
+  // Pass 2: item definitions with the final property values.
+  for (auto& g : st.defGroups) {
+    enterScope(st, g);
+    const std::string cond = g.node->attr("Condition");
+    if (!cond.empty() && !evalCondition(cond, st.cx, g.dir)) continue;
+    for (auto* cl : g.node->childrenNamed("ClCompile")) {
+      const std::string cc = cl->attr("Condition");
+      if (!cc.empty() && !evalCondition(cc, st.cx, g.dir)) continue;
+      for (auto& m : cl->children) {
+        const std::string mc = m->attr("Condition");
+        if (!mc.empty() && !evalCondition(mc, st.cx, g.dir)) continue;
+        std::string v = expandEx(trim(m->text), st.cx, Missing::Poison);
+        auto cur = st.clMeta.find(m->name);
+        st.clMeta[m->name] = poisonMetaRefs(substituteMeta(v, m->name, cur == st.clMeta.end() ? "" : cur->second));
+      }
+    }
+  }
+
+  // Pass 3: items.
+  for (auto& g : st.itemGroups) {
+    enterScope(st, g);
+    const std::string cond = g.node->attr("Condition");
+    if (!cond.empty() && !evalCondition(cond, st.cx, g.dir)) continue;
+    for (auto* it : g.node->childrenNamed("ClCompile")) {
+      const std::string ic = it->attr("Condition");
+      if (!ic.empty() && !evalCondition(ic, st.cx, g.dir)) continue;
+      const std::string inc = it->attr("Include");
+      if (inc.empty()) continue;  // Update= / Remove= are not supported
+      std::map<std::string, std::string> rawMeta;
+      for (auto& m : it->children) {
+        const std::string mc = m->attr("Condition");
+        if (!mc.empty() && !evalCondition(mc, st.cx, g.dir)) continue;
+        std::string v = expandEx(trim(m->text), st.cx, Missing::Poison);
+        auto cur = rawMeta.find(m->name);
+        if (cur != rawMeta.end()) v = substituteMeta(v, m->name, cur->second);
+        rawMeta[m->name] = v;
+      }
+      for (auto& entry : splitSemis(expandEx(inc, st.cx, Missing::Poison))) {
+        if (poisoned(entry)) continue;
+        for (auto& file : expandInclude(st.projectDir, entry)) {
+          ProjectState::Item item;
+          item.file = file;
+          item.meta = rawMeta;
+          st.items.push_back(std::move(item));
+        }
+      }
+    }
+  }
   if (!st.error.empty() && error) *error = st.error;
 
   auto metaOf = [&](const ProjectState::Item& item, const std::string& name) {
+    auto b = st.clMeta.find(name);
+    const std::string base = b == st.clMeta.end() ? "" : b->second;
     auto it = item.meta.find(name);
-    std::string base = st.clMeta.count(name) ? st.clMeta.at(name) : "";
     if (it == item.meta.end()) return base;
-    std::map<std::string, std::string> cur{{name, base}};
-    return mergeMeta(it->second, name, cur);
+    return poisonMetaRefs(substituteMeta(it->second, name, base));
+  };
+  auto listOf = [&](const ProjectState::Item& item, const std::string& name) {
+    std::vector<std::string> l;
+    for (auto& e : splitSemis(metaOf(item, name)))
+      if (!poisoned(e)) l.push_back(e);
+    return l;
+  };
+  auto propList = [&](const std::string& lowName) {
+    std::vector<std::string> l;
+    for (auto& e : splitSemis(prop(st.cx, lowName)))
+      if (!poisoned(e)) l.push_back(e);
+    return l;
   };
 
+  const std::string charSet = lower(prop(st.cx, "characterset"));
+  const bool debugLibs = isTrue(prop(st.cx, "usedebuglibraries"));
+  const bool is64 = platformLow == "x64" || platformLow == "arm64" || platformLow == "arm64ec";
+
   for (auto& item : st.items) {
-    if (item.excluded || !isSourceExt(item.file)) continue;
+    if (!isSourceExt(item.file)) continue;
+    if (isTrue(metaOf(item, "ExcludedFromBuild"))) continue;
     CompileCommand cmd;
-    cmd.directory = projectDir;
-    cmd.file = fs::weakly_canonical(item.file, ec);
-    auto& a = cmd.arguments;
+    cmd.directory = projectDirPath;
+    {
+      fs::path f(item.file);
+      cmd.file = f.is_absolute() ? fs::weakly_canonical(f, ec) : f;
+    }
+    const std::string compileAs = lower(metaOf(item, "CompileAs"));
+    const std::string ext = lower(fs::path(item.file).extension().string());
+    bool isC = ext == ".c";
+    if (compileAs == "compileasc") isC = true;
+    else if (compileAs.rfind("compileascpp", 0) == 0) isC = false;
+
+    std::vector<std::string> a;
     a.push_back("clang-cl");
-    std::string stdv = metaOf(item, "LanguageStandard");
-    if (stdv == "stdcpp14") a.push_back("/std:c++14");
-    else if (stdv == "stdcpp17") a.push_back("/std:c++17");
-    else if (stdv == "stdcpp20") a.push_back("/std:c++20");
-    else if (stdv == "stdcpplatest") a.push_back("/std:c++latest");
-    else a.push_back("/std:c++17");
-    a.push_back("/EHsc");
+    const std::string stdv = lower(metaOf(item, "LanguageStandard"));
+    const std::string stdc = lower(metaOf(item, "LanguageStandard_C"));
+    if (!isC) {
+      if (stdv == "stdcpp14") a.push_back("/std:c++14");
+      else if (stdv == "stdcpp17") a.push_back("/std:c++17");
+      else if (stdv == "stdcpp20") a.push_back("/std:c++20");
+      else if (stdv == "stdcpp23" || stdv == "stdcpp23preview" || stdv == "stdcpplatest") a.push_back("/std:c++latest");
+      else a.push_back("/std:c++17");
+      const std::string eh = lower(metaOf(item, "ExceptionHandling"));
+      if (eh == "" || eh == "sync") a.push_back("/EHsc");
+      else if (eh == "async") a.push_back("/EHa");
+      else if (eh == "synccthrow") a.push_back("/EHs");
+      // "false": no /EH
+    } else {
+      if (stdc == "stdc11") a.push_back("/std:c11");
+      else if (stdc == "stdc17") a.push_back("/std:c17");
+      else if (stdc == "stdclatest") a.push_back("/std:clatest");
+    }
     a.push_back("/nologo");
-    if (lower(opt.platform) == "x64") a.push_back("-m64");
-    else if (lower(opt.platform) == "win32") a.push_back("-m32");
-    for (auto& inc : splitSemis(metaOf(item, "AdditionalIncludeDirectories"))) {
-      if (inc.find("$(") != std::string::npos || inc.find("%(") != std::string::npos) continue;
-      fs::path ip = hostPath(inc);
-      a.push_back("/I" + (ip.is_absolute() ? ip : projectDir / ip).lexically_normal().generic_string());
+    if (platformLow == "x64") a.push_back("-m64");
+    else if (platformLow == "win32" || platformLow == "x86") a.push_back("-m32");
+    else if (platformLow == "arm64") a.push_back("--target=aarch64-pc-windows-msvc");
+
+    // Include directories: /I in project order, then IncludePath (cl searches those after /I via INCLUDE), then the
+    // external ones as system directories.
+    auto addDirs = [&](const char* flag, const std::vector<std::string>& dirs) {
+      for (auto& d : dirs) a.push_back(std::string(flag) + joinPathStr(st.projectDir, d));
+    };
+    addDirs("/I", listOf(item, "AdditionalIncludeDirectories"));
+    addDirs("/I", propList("includepath"));
+    {
+      std::vector<std::string> ext = propList("externalincludepath");
+      for (auto& e : listOf(item, "ExternalIncludePath")) ext.push_back(e);
+      for (auto& e : listOf(item, "AdditionalExternalIncludeDirectories")) ext.push_back(e);
+      addDirs("/imsvc", ext);
     }
-    for (auto& def : splitSemis(metaOf(item, "PreprocessorDefinitions"))) {
-      if (def.find("%(") != std::string::npos) continue;
-      a.push_back("/D" + def);
-    }
-    for (auto& fi : splitSemis(metaOf(item, "ForcedIncludeFiles"))) {
-      if (fi.find("%(") != std::string::npos) continue;
-      a.push_back("/FI" + hostPath(fi));
-    }
-    std::string rtti = metaOf(item, "RuntimeTypeInfo");
-    if (lower(rtti) == "false") a.push_back("/GR-");
+    const std::string extWarn = lower(metaOf(item, "ExternalWarningLevel"));
+    if (extWarn == "turnoffallwarnings" || extWarn == "level0") a.push_back("-Wno-system-headers");
+    else if (extWarn.rfind("level", 0) == 0 && extWarn.size() == 6) a.push_back("-Wsystem-headers");
+
+    // Runtime library: explicit, else what the toolset derives from UseDebugLibraries.
     std::string rtl = metaOf(item, "RuntimeLibrary");
-    if (rtl == "MultiThreadedDebugDLL") a.push_back("/MDd");
-    else if (rtl == "MultiThreadedDLL") a.push_back("/MD");
-    else if (rtl == "MultiThreadedDebug") a.push_back("/MTd");
-    else if (rtl == "MultiThreaded") a.push_back("/MT");
-    std::string extra = metaOf(item, "AdditionalOptions");
-    for (auto& e : splitCommand(extra)) {
-      if (e.find("%(") == std::string::npos && e != "%(AdditionalOptions)") a.push_back(e);
+    if (rtl.empty()) rtl = debugLibs ? "MultiThreadedDebugDLL" : "MultiThreadedDLL";
+    const std::string rtlLow = lower(rtl);
+    const bool rtlDebug = rtlLow == "multithreadeddebugdll" || rtlLow == "multithreadeddebug";
+    const bool rtlDll = rtlLow == "multithreadeddebugdll" || rtlLow == "multithreadeddll";
+    const bool rtlKnown = rtlDebug || rtlDll || rtlLow == "multithreaded";
+
+    // Defines: PreprocessorDefinitions as written, then what cl/MSBuild add on their own, then /U.
+    std::vector<std::string> defs;
+    for (auto& d : listOf(item, "PreprocessorDefinitions")) defs.push_back(d);
+    if (opt.implicitDefines) {
+      defineOnce(defs, "_WIN32");
+      if (is64) defineOnce(defs, "_WIN64");
+      if (rtlKnown) {
+        if (rtlDebug) defineOnce(defs, "_DEBUG");
+        if (rtlDll) defineOnce(defs, "_DLL");
+        defineOnce(defs, "_MT");
+      }
+      if (charSet == "unicode") {
+        defineOnce(defs, "UNICODE");
+        defineOnce(defs, "_UNICODE");
+      } else if (charSet == "multibyte") {
+        defineOnce(defs, "_MBCS");
+      }
     }
-    if (lower(item.file.extension().string()) == ".c") a.push_back("/TC");
-    else a.push_back("/TP");
+    for (auto& d : defs) a.push_back("/D" + d);
+    for (auto& u : listOf(item, "UndefinePreprocessorDefinitions")) a.push_back("/U" + u);
+
+    // Precompiled header (/Yu, /Yc): parse with the header forced in, as the build effectively does.
+    const std::string pch = lower(metaOf(item, "PrecompiledHeader"));
+    std::string pchHeader = trim(metaOf(item, "PrecompiledHeaderFile"));
+    if ((pch == "use" || pch == "create") && !pchHeader.empty() && !poisoned(pchHeader)) {
+      std::string resolved = hostPath(pchHeader);
+      if (!isAbsolutePathStr(pchHeader)) {
+        std::vector<std::string> dirs{parentDirStr(item.file), st.projectDir};
+        for (auto& d : listOf(item, "AdditionalIncludeDirectories")) dirs.push_back(joinPathStr(st.projectDir, d));
+        for (auto& d : dirs) {
+          std::string cand = joinPathStr(d, pchHeader);
+          if (fs::exists(fs::path(cand), ec)) {
+            resolved = cand;
+            break;
+          }
+        }
+      } else {
+        resolved = normalizePathStr(pchHeader);
+      }
+      // Only the forced include: clang-cl's /Yu makes the parser skip everything before the through header (a whole
+      // file that does not include it), and clangd has no .pch to load anyway.
+      a.push_back("/FI" + resolved);
+    }
+    for (auto& fi : listOf(item, "ForcedIncludeFiles"))
+      a.push_back("/FI" + (isAbsolutePathStr(fi) ? normalizePathStr(fi) : hostPath(fi)));
+
+    if (!isC) {
+      if (lower(metaOf(item, "RuntimeTypeInfo")) == "false") a.push_back("/GR-");
+      if (lower(metaOf(item, "TreatWChar_tAsBuiltInType")) == "false") a.push_back("/Zc:wchar_t-");
+    }
+    if (isTrue(metaOf(item, "ConformanceMode"))) a.push_back("/permissive-");
+    if (isTrue(metaOf(item, "UseStandardPreprocessor"))) a.push_back("/Zc:preprocessor");
+    if (rtlLow == "multithreadeddebugdll") a.push_back("/MDd");
+    else if (rtlLow == "multithreadeddll") a.push_back("/MD");
+    else if (rtlLow == "multithreadeddebug") a.push_back("/MTd");
+    else if (rtlLow == "multithreaded") a.push_back("/MT");
+    {
+      const std::string simd = lower(metaOf(item, "EnableEnhancedInstructionSet"));
+      if (simd == "advancedvectorextensions") a.push_back("/arch:AVX");
+      else if (simd == "advancedvectorextensions2") a.push_back("/arch:AVX2");
+      else if (simd == "advancedvectorextensions512") a.push_back("/arch:AVX512");
+      else if (simd == "streamingsimdextensions" && !is64) a.push_back("/arch:SSE");
+      else if (simd == "streamingsimdextensions2" && !is64) a.push_back("/arch:SSE2");
+      if (isTrue(metaOf(item, "OpenMPSupport"))) a.push_back("/openmp");
+    }
+    for (auto& e : splitWindowsArgs(metaOf(item, "AdditionalOptions"))) {
+      if (!poisoned(e)) a.push_back(e);
+    }
+    a.push_back(isC ? "/TC" : "/TP");
     a.push_back("/c");
     a.push_back(cmd.file.generic_string());
+    cmd.arguments = std::move(a);
     out.push_back(std::move(cmd));
   }
   return out;
@@ -573,17 +1316,28 @@ std::vector<CompileCommand> fromSolution(const fs::path& sln, const VcxprojOptio
   std::vector<CompileCommand> out;
   VcxprojOptions opt = optIn;
   std::error_code ec;
-  if (opt.solutionDir.empty()) opt.solutionDir = fs::weakly_canonical(sln, ec).parent_path();
+  opt.solutionFile = fs::weakly_canonical(sln, ec);
+  if (opt.solutionDir.empty()) opt.solutionDir = opt.solutionFile.parent_path();
   std::string err;
-  for (auto& p : projectsInSolution(sln, &err)) {
-    if (!fs::is_regular_file(p, ec)) {
-      err += "missing project " + p.string() + "\n";
+  SolutionInfo info = readSolution(sln, &err);
+  const SolutionConfiguration active =
+      pickSolutionConfiguration(info.configurations, optIn.configuration, optIn.platform);
+  for (auto& p : info.projects) {
+    if (!p.isVcxproj()) continue;
+    auto map = info.mapping(p, active);
+    if (!map || !map->build) continue;  // not part of this configuration's build
+    fs::path path = fs::weakly_canonical(p.path, ec);
+    if (!fs::is_regular_file(path, ec)) {
+      err += "missing project " + path.string() + "\n";
       continue;
     }
+    VcxprojOptions po = opt;
+    po.configuration = map->configuration;
+    po.platform = map->platform;
     std::string perr;
-    auto cmds = fromVcxproj(p, opt, &perr);
+    auto cmds = fromVcxproj(path, po, &perr);
     err += perr;
-    out.insert(out.end(), cmds.begin(), cmds.end());
+    out.insert(out.end(), std::make_move_iterator(cmds.begin()), std::make_move_iterator(cmds.end()));
   }
   if (error) *error = err;
   return out;
