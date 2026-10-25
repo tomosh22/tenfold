@@ -279,6 +279,8 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   lo.serverPath = resolved;
   lo.rootPath = ws_.root();
   lo.logFile = opt_.logDir / "clangd.log";
+  log("clangd: starting " + resolved + " (compile commands: " + compdbSource + ", stderr: " + lo.logFile.string() +
+      ")");
   lo.args = {"--compile-commands-dir=" + compdbPath.parent_path().string(),
              "--background-index",
              "--pch-storage=memory",

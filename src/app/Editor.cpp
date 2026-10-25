@@ -149,8 +149,12 @@ void readVcsSettings(const fs::path& file, VcsManager::Options& o) {
 }  // namespace
 
 Editor::Editor(fs::path root, Options opt) : ws_(std::move(root)), opt_(std::move(opt)), nav_(opt_.navigation) {
-  if (!opt_.semantic.log) opt_.semantic.log = opt_.log;
-  if (!opt_.vcs.log) opt_.vcs.log = opt_.log;
+  // D3: every subsystem's messages also go to the local log file; the injected callbacks keep working.
+  const auto userLog = opt_.log;
+  opt_.log = Log::tee("editor", userLog);
+  opt_.semantic.log = Log::tee("clangd", opt_.semantic.log ? opt_.semantic.log : userLog);
+  opt_.vcs.log = Log::tee("vcs", opt_.vcs.log ? opt_.vcs.log : userLog);
+  Log::setWorkspace(ws_.root());
   readVcsSettings(ws_.cacheDir() / "workspace.json", opt_.vcs);
   vcs_ = std::make_unique<VcsManager>(*this, opt_.vcs);
   ws_.loadSettings();
@@ -1340,6 +1344,9 @@ bool Editor::build(const BuildOverrides& overrides, BuildLines onLines, BuildDon
       buildRunning_ = false;
       lastBuild_ = res;
     }
+    if (opt_.log)
+      opt_.log("build: finished, exit code " + std::to_string(res.exitCode) + ", " + std::to_string(res.errors) +
+               " error(s)");
     if (onDone) onDone(res);
   };
   // The previous build's queued output is dropped by the session check; its done callback still runs.

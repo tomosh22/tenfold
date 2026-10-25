@@ -35,6 +35,7 @@ add_library(tenfold_core STATIC
   src/core/Document.cpp
   src/core/PathUtil.cpp
   src/core/CrashHandler.cpp
+  src/core/Log.cpp
   src/nav/NavigationHistory.cpp
   ${TENFOLD_PROCESS_SRC}
   src/lsp/JsonRpc.cpp
@@ -71,6 +72,13 @@ if(WIN32)
   target_link_libraries(tenfold_core PUBLIC ole32 oleaut32 uuid)
 endif()
 target_compile_options(tenfold_core PRIVATE ${TENFOLD_WARN_CORE})
+# Commit recorded in the session header of the local log (core/Log.cpp); "unknown" outside a checkout.
+execute_process(COMMAND git rev-parse --short HEAD WORKING_DIRECTORY ${CMAKE_SOURCE_DIR}
+  OUTPUT_VARIABLE TENFOLD_GIT_COMMIT OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(NOT TENFOLD_GIT_COMMIT)
+  set(TENFOLD_GIT_COMMIT unknown)
+endif()
+target_compile_definitions(tenfold_core PRIVATE "TENFOLD_GIT_COMMIT=\"${TENFOLD_GIT_COMMIT}\"")
 
 # Regex find-in-files. The literal search path never needs PCRE2; without it a
 # regex query returns the error "regex support not built".
@@ -131,6 +139,7 @@ add_executable(tenfold-tests
   tests/test_build.cpp
   tests/test_symbol_search.cpp
   tests/test_crash.cpp
+  tests/test_log.cpp
   tests/test_debug_breakpoints.cpp
   tests/test_debug_session.cpp
   tests/test_vs_debugger.cpp

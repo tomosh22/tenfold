@@ -132,6 +132,48 @@ Tests (`tests/test_crash.cpp`) use `tenfold-test-helper` (`tests/test_helper_mai
 N requests (exit or SIGSEGV), on its first launches, or hangs on a method, and a child that installs the handler and
 crashes.
 
+### Local log file (D3)
+
+`src/core/Log.{h,cpp}` is the only diagnostic channel: a local, rotated text log, no telemetry and no upload.
+
+* Format: `2026-10-25T12:34:56.789Z I t3 clangd: message` (UTC with ms, level E/W/I/D, a small per-thread number,
+  category). A multi-line message is one record whose continuation lines are indented four spaces. Categories in use:
+  `clangd`, `index`, `vcs`, `build`, `watch`, `editor`, `log`; `debug` and `ui` are reserved for their subsystems.
+* Where: `<workspace>/.tenfold/log.txt` once an `Editor` exists (its constructor calls `Log::setWorkspace`; the
+  `.tenfold` directory is already excluded from scans and watching), else `<user data dir>/tenfold/log.txt` (same
+  base directory as the crash reports). `Log::setWorkspace` flushes pending records to the old file and moves on.
+  The file is created by the first record, so a disabled or silent run leaves nothing behind. `Editor::logFilePath()`
+  gives the UI the path for a future "Open log" command; `tenfold-cli log [<root>] [--tail N]` prints it (path on
+  stderr, lines on stdout; no root means the user-level log). It only reads.
+* Rotation: `log.txt` -> `log.1.txt` -> `log.2.txt` (`LogConfig::keep` = 3 files, `maxBytes` = 5 MB each). Rotation
+  happens at line boundaries, so a file never exceeds the limit (except for one single line larger than it). An existing
+  file's size is picked up at open, so restarts continue where they left off.
+* Level: `LogConfig::level` (Info by default); the environment variable `TENFOLD_LOG=error|warn|info|debug|off` wins
+  over it (and over `Log::setLevel`). Off means no file at all. `Log::enabled(level)` is a single relaxed atomic load;
+  `TF_LOG_DEBUG(cat, msg)` does not evaluate `msg` when filtered out.
+* Threading: any thread may log. `write()` formats the record outside any lock, appends it to a buffer under a short
+  mutex and returns. A writer thread drains the buffer every 500 ms, at once after an Error and when 64 KB are pending,
+  doing all disk I/O under a separate `ioMu` (lock order: `ioMu` -> `mu`; the buffer lock is never held across I/O).
+  `flush()`, `setWorkspace()`, `setFile()` and `shutdown()` are the only calls that touch the disk on the caller. If the
+  disk stalls and 8 MB accumulate, further records are counted and a "dropped N" record follows later.
+* Lifetime: `Log::init()` in the mains (CLI, GUI), `Log::shutdown()` flushes, joins the writer and is also registered
+  with `atexit`. The state is leaked on purpose, and after `shutdown()` every call is a no-op, so logging from a static
+  destructor cannot crash. `init` after `shutdown` works (tests).
+* Wiring: the `Options::log` callbacks stay as they are (tests inject them). `Editor`'s constructor wraps them with
+  `Log::tee(category, userCallback)`: the message goes to the log (category routed by prefix: `vcs: `, `fast index`,
+  `file watcher: `, `build: `, `compile database`, `clangd`; Warn for "failed/could not/crashed", Error for
+  "giving up") and then to the injected callback if any. The same wrapper is given to `SemanticEngine::Options::log`,
+  `VcsManager::Options::log` and `FileWatcher`, so clangd start (with its path and the `clangd.log` stderr file), the
+  compile-commands source, the active Visual Studio configuration, clangd crash/restart events (D2), build start/finish
+  and the VCS provider all reach the file. The session header records the commit (`TENFOLD_GIT_COMMIT`, configure time),
+  platform, pid and workspace root.
+* Crash handler: `Log` tells `CrashHandler` the current path (`setCrashLogPath`, a fixed buffer); the POSIX report
+  gets a `log: <path>` line, Windows gets a `crash-<pid>-<tick>.txt` next to the minidump. The handler does not flush the
+  log, because that takes a mutex and allocates, which is not async-signal-safe; records from the last flush interval
+  (at most about 500 ms, except Errors which are flushed immediately) can be missing after a crash.
+* Not yet logging: `DebugSession`/`BuildRunner`/`FastIndex` have no log callback of their own; the editor-level events
+  around them (build start/finish) are logged, subsystem-internal ones are a follow-up.
+
 ## The two-tier query policy
 
 Goal: never miss, never block.
