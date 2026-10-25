@@ -150,6 +150,7 @@ add_executable(tenfold-tests
   tests/test_vcs_git.cpp
   tests/test_vcs_manager.cpp
   tests/test_vcs_p4.cpp
+  tests/test_compile_info.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -258,6 +259,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/DiagnosticsPanel.cpp
     src/ui/features/VcsUi.cpp
     src/ui/features/DiffTool.cpp
+    src/ui/features/CompileInfo.cpp
     src/ui/view/Viewport.cpp
     src/ui/view/Layout.cpp
     src/ui/view/Highlighter.cpp
@@ -333,6 +335,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_b8.cpp
     tests/ui/test_wrap.cpp
     tests/ui/test_debugger_ui.cpp
+    tests/ui/test_compile_info_ui.cpp
     src/debug/FakeDebugger.cpp  # test support (the scripted backend of the debugger UI tests)
     tests/ui/test_vcs_ui.cpp
   )

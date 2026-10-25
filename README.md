@@ -25,6 +25,16 @@ graphical front end (GPU text rendering, tabs, panels, key bindings) is the
 next milestone; everything here is UI-agnostic so it can sit on top without
 changes. See `docs/ARCHITECTURE.md` and `docs/FEATURE_PARITY.md`.
 
+## Getting started
+
+Unpack a package (Windows `.zip`, Linux `.tar.gz` / AppImage; clangd is bundled) and open a workspace folder:
+`bin/tenfold-ui <folder>` (a folder with a Visual Studio `.sln`, a `compile_commands.json`, a CMake project, or just
+sources). **`docs/USER_GUIDE.md`** is the guide for people coming from 10x and Visual Studio: installing, the two-tier
+results (instant approximate, then clangd's authoritative), navigation history, Visual Studio solution and debugger
+integration, Perforce and Git, settings, themes, key bindings, logs, and troubleshooting. If a symbol looks wrong or
+approximate, `tenfold-cli why <folder> <file>` (or the `Help.ShowCompileCommand` command in the editor) prints the
+compile command clangd uses for that file.
+
 ## Build and test
 
 Requirements: a C++20 compiler (GCC 13 / Clang 18 tested), CMake 3.20+,

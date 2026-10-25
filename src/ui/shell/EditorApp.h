@@ -13,6 +13,7 @@
 #include "ui/features/BookmarkList.h"
 #include "ui/features/BreakpointList.h"
 #include "ui/features/BuildPanel.h"
+#include "ui/features/CompileInfo.h"
 #include "ui/features/CompletionPopup.h"
 #include "ui/features/DiagnosticsPanel.h"
 #include "ui/features/FileSearch.h"
@@ -74,6 +75,7 @@ class EditorApp {
   BookmarkList& bookmarkList() { return *bookmarkList_; }
   // C2c: breakpoint list (Debug.ShowBreakpoints) and the condition input (Debug.EditCondition).
   BreakpointList& breakpointList() { return *breakpointList_; }
+  CompileInfo& compileInfo() { return *compileInfo_; }  // D4: Help.ShowCompileCommand
   CompletionPopup& completion() { return *completion_; }
   HoverTooltip& hover() { return *hover_; }
   SignatureHelp& signatureHelp() { return *sigHelp_; }
@@ -153,6 +155,7 @@ class EditorApp {
   std::unique_ptr<BreakpointList> breakpointList_;
   uint64_t debugErrorGen_ = 0;
   std::string debugErrorShown_;
+  std::unique_ptr<CompileInfo> compileInfo_;
   std::unique_ptr<CompletionPopup> completion_;
   std::unique_ptr<HoverTooltip> hover_;
   std::unique_ptr<SignatureHelp> sigHelp_;

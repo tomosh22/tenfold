@@ -307,6 +307,41 @@ class Editor {
   // the background; `applied` (optional) runs on the pump thread once clangd was restarted, so a front end can refresh.
   bool selectVsConfiguration(const std::string& name, std::string* error = nullptr, std::function<void()> applied = {});
 
+  // --- diagnostics: the compile command clangd uses for a file (D4, "why is this symbol approximate?") ---
+  struct CompileCommandInfo {
+    std::filesystem::path file;  // as asked (made absolute against the workspace root)
+    bool engineStarted = false;  // false before start(): nothing below is known
+    // Where the compile database came from, as the engine reports it: existing (a compile_commands.json found in the
+    // workspace), cmake, vcxproj (generated from the .sln), heuristic (generated guess), generated(cached), none.
+    std::string source;
+    std::string sourceText;              // one sentence for people
+    std::filesystem::path databasePath;  // the compile_commands.json clangd reads
+    size_t databaseEntries = 0;
+    std::filesystem::path solution;          // the first .sln in the workspace root; empty without one
+    std::string vsConfiguration;             // the active "Debug|x64" when there is a solution, else empty
+    bool vsConfigurationUsed = false;        // true when the database was generated for that configuration
+    bool listed = false;                     // the database has an entry for this very file
+    std::filesystem::path directory;         // working directory of that entry
+    std::vector<std::string> argv;           // the entry's arguments (compiler first); empty when not listed
+    std::vector<std::string> sharedFlags;    // flags clangd adds to every file (heuristic mode, clangd config)
+    std::vector<std::string> fallbackFlags;  // what clangd uses for a file the database does not list
+    std::string msvcToolchain;               // cl.exe used for clangd's --query-driver (vcxproj / Windows heuristic)
+    // clangd
+    std::string clangdExe, clangdSource, clangdVersion;  // clangdSource: setting | bundled | PATH
+    bool clangdRunning = false;                          // started and initialised
+    std::string clangdStatus;                            // the health text ("clangd restarting (2)..."), may be empty
+    bool open = false;                                   // the file is open in a Document, so clangd has been sent it
+    bool ready = false;                                  // clangd finished parsing it (its status is idle)
+    // "authoritative": navigation in this file is answered by clangd; "approximate": only the fast index answers
+    // (clangd is not running, or still parsing this file); "not open": the file is not open in the editor.
+    std::string confidence;
+    std::string confidenceText;  // one sentence for people
+    // The report as plain text; lines are wrapped at `width` columns when it is > 0.
+    std::string text(int width = 0) const;
+  };
+  // Never throws, never blocks on clangd; the Document is not opened by this call. Call it on the editor thread.
+  CompileCommandInfo compileCommandInfo(const std::filesystem::path& file);
+
   // --- build (C1) ---
   // Runs the workspace build (see detectBuildCommand: settings / overrides, else msbuild / cmake --build / make) in
   // the background; a running build is cancelled and replaced. Output lines and the final result arrive via post()

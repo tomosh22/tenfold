@@ -842,6 +842,39 @@ other warning switches (clangd's diagnostics are its own), `StructMemberAlignmen
 add through `AdditionalOptions` if wanted), `ProjectReference` include propagation, `PlatformToolset`-dependent defaults,
 instance property functions (`$(x.Replace(...))`), numeric condition operators.
 
+## Compile-command diagnostics (D4)
+
+"Why is this symbol approximate?" is answered by `Editor::compileCommandInfo(path)`, which returns a plain
+`Editor::CompileCommandInfo` and never blocks on clangd. It reads only snapshots that already exist:
+
+* `SemanticEngine::status()`: `compdbSource` (`existing` | `cmake` | `vcxproj` | `heuristic` | `generated(cached)` |
+  `none`), `compdbPath`, `compdbEntries`, the clangd executable / source / version, and whether clangd is initialised;
+  `clangdStatusText()` for a restart message.
+* `SemanticEngine::compileCommands()`: the immutable snapshot of the database. The entry for the file is found by
+  `pathKey(weakly_canonical(...))`, so spelling, separators and (on Windows) case do not matter. `listed` is false for
+  headers and for sources the database does not cover (a project excluded in the active configuration); then `argv`
+  is empty, and the report says that clangd borrows a similar entry's command (its own choice, invisible here) or uses
+  the fallback flags, which are exactly the `fallbackFlags` given to clangd: `-std=<cppStandard>` and `-I<root>`.
+* `Workspace`: the first `.sln` of the root and `activeVsConfiguration()`; `vsConfigurationUsed` is true only when the
+  source is `vcxproj` (a `compile_commands.json` or CMake takes precedence over the solution).
+* `.tenfold/clangd-config/clangd/config.yaml`: the `CompileFlags.Add` list the engine writes in heuristic mode where
+  clangd honours `XDG_CONFIG_HOME` (the shared `-I` flags). It is read whatever the current source is, because clangd
+  reads it whatever the source is: the engine only rewrites it for a heuristic database or when it is missing, so an
+  old heuristic config can outlive a switch to another source.
+* `Editor::document(path)` and `SemanticEngine::fileReady(path)` for "clangd has been given the file" and "clangd's file
+  status is idle" (parsed). The report's confidence is `authoritative` (clangd running, file open and parsed),
+  `approximate` (clangd not running, or still parsing the open file), or `not open`.
+
+`CompileCommandInfo::text(width)` formats the report (wrapped at `width` columns when positive; the argv is quoted for
+display). Users of it: `tenfold-cli why <root> <file> [--clangd p] [--no-clangd] [--wait ms]` (starts the engine, opens
+the file, waits for clangd to parse it, prints `text(100)`), and the UI feature `CompileInfo`
+(`src/ui/features/CompileInfo.*`, command `Help.ShowCompileCommand`, bound by `EditorApp` with the other pickers): a
+modal input-less `ListPopup` with one row per line of `text(76)`; Escape closes. The command has no default key (there
+is no command palette yet, so the user binds one). Tests: `tests/test_compile_info.cpp` (the Visual Studio `Multi`
+fixture in two configurations, an existing `compile_commands.json`, a heuristic workspace, an unstarted editor, and a
+real clangd; plus the check that the user guide's settings table matches `assets/settings.default.txt`) and
+`tests/ui/test_compile_info_ui.cpp`.
+
 ## Portability
 
 Everything is standard C++20 except `src/lsp/Process.cpp` (fork/exec and

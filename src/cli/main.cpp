@@ -35,6 +35,8 @@ void usage() {
          "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
          "       tenfold-cli vsconfig <workspace-root> [--list | --set Debug|x64]\n"
          "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
+         "       tenfold-cli why <workspace-root> <file> [--clangd <path>] [--no-clangd] [--wait <ms>]\n"
+         "                         (prints the compile command clangd uses for <file>, relative to the root)\n"
          "       tenfold-cli log [<workspace-root>] [--tail N]   (prints the local log; no root: the user-level log)\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
@@ -158,6 +160,39 @@ int runVsConfig(int argc, char** argv) {
   if (list.empty()) std::cout << "no solution configurations found in " << ws.root().string() << "\n";
   const auto active = ws.activeVsConfiguration();
   for (auto& c : list) std::cout << (c == active ? "* " : "  ") << c.name() << "\n";
+  return 0;
+}
+
+// "Why is this symbol approximate?": starts the engine on the workspace, opens the file and prints where its compile
+// flags come from, the exact command, and whether clangd has parsed the file (Editor::compileCommandInfo).
+int runWhy(int argc, char** argv) {
+  if (argc < 4) {
+    usage();
+    return 2;
+  }
+  Editor::Options opt;
+  int waitMs = 15000;
+  for (int i = 4; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--clangd" && i + 1 < argc) opt.semantic.clangdPath = argv[++i];
+    else if (a == "--no-clangd") opt.semantic.useClangd = false;
+    else if (a == "--wait" && i + 1 < argc) waitMs = std::max(0, std::stoi(argv[++i]));
+    else {
+      usage();
+      return 2;
+    }
+  }
+  Editor ed(argv[2], opt);
+  std::string err;
+  if (!ed.start(&err)) std::cerr << "warning: " << err << " (continuing without clangd)\n";
+  const fs::path file = fs::path(argv[3]).is_absolute() ? fs::path(argv[3]) : ed.workspace().root() / argv[3];
+  if (!ed.open(file, &err)) {
+    std::cerr << (err.empty() ? "cannot open " + file.string() : err) << "\n";
+    return 1;
+  }
+  if (ed.semantic().clangd()) ed.waitFor([&] { return ed.semantic().fileReady(file); }, waitMs);
+  std::cout << ed.compileCommandInfo(file).text(100);
+  ed.shutdown();
   return 0;
 }
 
@@ -579,6 +614,7 @@ int main(int argc, char** argv) {
   if (std::strcmp(argv[1], "compdb") == 0) return runCompdb(argc, argv);
   if (std::strcmp(argv[1], "build") == 0) return runBuild(argc, argv);
   if (std::strcmp(argv[1], "vsconfig") == 0) return runVsConfig(argc, argv);
+  if (std::strcmp(argv[1], "why") == 0) return runWhy(argc, argv);
   if (std::strcmp(argv[1], "bench") == 0) return runBench(argc, argv);
 
   Editor::Options opt;
