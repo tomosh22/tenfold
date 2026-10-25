@@ -54,6 +54,11 @@ add_library(tenfold_core STATIC
   src/build/AnsiStrip.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
+  src/vcs/Vcs.cpp
+  src/vcs/VcsExec.cpp
+  src/vcs/LineDiff.cpp
+  src/vcs/GitProvider.cpp
+  src/vcs/VcsManager.cpp
 )
 target_include_directories(tenfold_core PUBLIC src third_party)
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
@@ -120,6 +125,9 @@ add_executable(tenfold-tests
   tests/test_debug_breakpoints.cpp
   tests/test_debug_session.cpp
   src/debug/FakeDebugger.cpp  # test support
+  tests/test_vcs_diff.cpp
+  tests/test_vcs_git.cpp
+  tests/test_vcs_manager.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.

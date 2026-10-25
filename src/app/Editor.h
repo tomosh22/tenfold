@@ -23,6 +23,7 @@
 #include "nav/NavigationHistory.h"
 #include "search/TextSearch.h"
 #include "semantic/SemanticEngine.h"
+#include "vcs/VcsManager.h"
 #include "workspace/FileWatcher.h"
 #include "workspace/Workspace.h"
 
@@ -40,6 +41,7 @@ class Editor {
   struct Options {
     SemanticEngine::Options semantic;
     NavigationHistory::Options navigation;
+    VcsManager::Options vcs;  // C3a: providers, debounce; Options::enabled = false switches version control off
     std::function<void(const std::string&)> log;
     int watchPollMs = 2000;          // scan interval when the file watcher has to poll
     bool watchForcePolling = false;  // use the polling backend even where native events exist
@@ -70,6 +72,9 @@ class Editor {
   const std::string& clangdStatusText() const { return clangdStatus_; }
   // The "Restart clangd" command: blocks for the handshake, re-opens the open documents, resets the crash count.
   bool restartClangd(std::string* error = nullptr);
+  // Version control (C3a): provider detection, per-file status, diff hunks against the committed text. Valid from
+  // construction; its worker starts with the first open document.
+  VcsManager& vcs() { return *vcs_; }
 
   // --- documents ---
   Document* open(const std::filesystem::path& path, std::string* error = nullptr);
@@ -361,6 +366,8 @@ class Editor {
   std::unique_ptr<SemanticEngine> semantic_;
   std::string clangdStatus_;
   NavigationHistory nav_;
+  std::unique_ptr<VcsManager> vcs_;
+  bool reloading_ = false;  // reloadFromDisk is replacing the buffer: not a user edit (VcsManager must not see it)
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;
   Location lastEdit_;              // see lastEditLocation()
