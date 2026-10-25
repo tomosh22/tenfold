@@ -314,6 +314,47 @@ here; the Visual Studio backend (C2b, `VsDebugger_win32.cpp`) and the UI (C2c) p
 * **`FakeDebugger`** (`src/debug/FakeDebugger.*`, compiled into `tenfold-tests` only) records calls with their thread,
   scripts mode transitions, injects backend-side breakpoint changes / errors / blocked calls. Tests:
   `tests/test_debug_breakpoints.cpp`, `tests/test_debug_session.cpp`.
+### Visual Studio backend (C2b, Windows)
+
+`src/debug/VsDebugger_win32.cpp` (factory `createVisualStudioDebugger()`, installed by `src/ui_app/main.cpp` on
+`_WIN32` through `Editor::setDebuggerFactory`; other platforms keep "no debugger backend") implements `Debugger` on
+Visual Studio's automation model (EnvDTE) with late-bound `IDispatch` only: no `#import`, no generated headers, so it
+builds with MSVC, clang-cl and mingw-w64. COM headers appear only in the `_win32` files; the pure helpers (moniker
+parsing, version order, path normalisation, line / mode conversion, HRESULT classes) live in `VsDteUtil.*` and are
+unit-tested on every platform. `ComDispatch_win32.*` holds the RAII `Bstr` / `Variant` / `Dispatch` wrappers and the
+Running Object Table enumeration.
+
+* **Threading.** Every call, and the destructor, runs on the `DebugSession` worker. `connect()` calls
+  `CoInitializeEx(COINIT_APARTMENTTHREADED)` and registers an `IMessageFilter`; the destructor releases the DTE
+  object, unregisters the filter and calls `CoUninitialize`. The filter retries calls Visual Studio rejects as busy
+  (`RPC_E_CALL_REJECTED`, `RPC_E_SERVERCALL_RETRYLATER`) every 100 ms for up to 15 s per call. `cancel()` sets an
+  atomic flag that the filter and the devenv launch wait check, so shutdown never hangs.
+* **Connecting.** The ROT is enumerated for monikers `!VisualStudio.DTE.<ver>:<pid>` (any version, newest first). The
+  instance whose `Solution.FullName` equals the workspace solution (case-insensitive, separators, `.`/`..`, `\\?\`
+  normalised) wins. Otherwise `devenv.exe "<sln>"` is launched (`vswhere.exe -latest -property productPath` under
+  `%ProgramFiles(x86)%\Microsoft Visual Studio\Installer`; `TENFOLD_DEVENV` overrides the path) and the ROT is polled
+  for up to 90 s until an instance has loaded that solution. Without a solution the newest running instance is used
+  and `DebugSnapshot::lastError` carries a note saying so. A dead instance (`RPC_E_DISCONNECTED`,
+  `RPC_S_SERVER_UNAVAILABLE`, ...) turns the next poll into `Disconnected`; the next command reconnects.
+* **Commands.** start / continue `Debugger.Go(false)`; Ctrl+F5 `ExecuteCommand("Debug.StartWithoutDebugging")`;
+  stop `Debugger.Stop(false)` (a success in design mode); restart `ExecuteCommand("Debug.Restart")`; break all
+  `Debugger.Break(false)`; steps `StepOver/StepInto/StepOut(false)`; run to cursor opens the file at the line
+  (`ItemOperations.OpenFile`, `TextSelection.GotoLine`) and then `ExecuteCommand("Debug.RunToCursor")` (that command
+  works on the active editor's caret; `Debugger.RunToCursor` takes no position).
+* **Breakpoints.** `Debugger.Breakpoints.Add(, File, Line, Column, Condition, ConditionType)` (lines 1-based in VS,
+  0-based here), `Breakpoint.Enabled`, `Breakpoint.Delete`. A changed condition deletes and re-adds (it is read-only
+  in EnvDTE). Idempotent; removing a missing one succeeds. Breakpoints without a file (function breakpoints) are
+  ignored.
+* **poll().** `CurrentMode` (1 design, 2 break, 3 run), `CurrentStackFrame.FileName` / `LineNumber` in Break mode (a
+  frame without source gives no current statement; only when the frame cannot be read at all does it fall back to
+  `ActiveDocument.FullName` + `Selection.CurrentLine`), and the whole breakpoint list.
+* **Open in Visual Studio at the caret.** `Debugger::openInEditor(file, line, column)` is an optional virtual
+  (default: not supported) implemented here; C2c wires it to a command.
+* **Tests.** `tests/test_vs_debugger.cpp`: helpers everywhere; on Windows the wrappers against
+  `Scripting.Dictionary`; `vsdte_integration` only with `TENFOLD_VS_DTE_TEST=1` (creates a tiny solution, launches
+  devenv, breakpoint / start / step / VS-side breakpoint / stop, then `DTE.Quit`). The CI job `windows-vs-debugger`
+  (non-blocking) runs it on `windows-2022`.
+
 ## Version control (C3a, `src/vcs`)
 
 Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it. Nothing in `src/vcs`

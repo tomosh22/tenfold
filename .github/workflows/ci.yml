@@ -303,3 +303,49 @@ jobs:
             b9_*.png
             *.actual.png
           if-no-files-found: ignore
+
+  # C2b: drives a real Visual Studio 2022 (preinstalled on windows-2022) through EnvDTE. Non-blocking: this is the
+  # only place the backend meets a real devenv.exe. Only the vsdte tests run; vsdte_integration needs the env var.
+  windows-vs-debugger:
+    name: windows-vs-debugger
+    runs-on: windows-2022
+    timeout-minutes: 40
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ninja (pip)
+        shell: bash
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: MSVC developer environment
+        uses: ilammy/msvc-dev-cmd@v1.13.0
+        with:
+          arch: x64
+
+      - name: Configure
+        shell: bash
+        run: cmake --preset msvc
+
+      - name: Build tenfold-tests
+        shell: bash
+        run: cmake --build --preset msvc --parallel --target tenfold-tests
+
+      - name: Visual Studio installation
+        shell: pwsh
+        run: |
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property productPath
+          & "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe" -latest -property catalog_productDisplayVersion
+
+      - name: Helper tests and Visual Studio integration test
+        shell: bash
+        env:
+          TENFOLD_VS_DTE_TEST: "1"
+        run: ./build/msvc/tenfold-tests.exe vsdte

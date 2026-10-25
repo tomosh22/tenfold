@@ -12,6 +12,9 @@
 #include <vector>
 
 #include "app/Editor.h"
+#ifdef _WIN32
+#include "debug/VsDebugger_win32.h"
+#endif
 #include "core/CrashHandler.h"
 #include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
@@ -201,6 +204,9 @@ int main(int argc, char** argv) {
     demoRoot = std::move(sd);
   } else if (!demo) {  // the editor: <workspace> [file], the file relative to the workspace or to the cwd
     editor = std::make_unique<Editor>(fs::absolute(workspace));
+#ifdef _WIN32
+    editor->setDebuggerFactory([] { return createVisualStudioDebugger(); });  // C2b: Visual Studio via EnvDTE
+#endif
     bench = std::make_unique<ui::Workbench>(*text, *editor, theme);
     const bool restored = bench->restoreLayout();
     if (!file.empty()) {
