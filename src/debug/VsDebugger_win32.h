@@ -2,6 +2,7 @@
 #include <memory>
 
 #include "debug/Debugger.h"
+#include "debug/VsDteUtil.h"
 
 namespace tf {
 
@@ -12,6 +13,9 @@ namespace tf {
 // Threading: the backend is created on any thread but every call, and the destructor, must come from one thread (the
 // DebugSession worker): connect() initialises an apartment-threaded COM apartment there and the destructor
 // uninitialises it.
-std::unique_ptr<Debugger> createVisualStudioDebugger();
+//
+// `policy` bounds how long a call is retried while Visual Studio is busy: commandMs (default 15 s) for commands and
+// connect, pollMs (default 1 s) for the whole of one poll(), which then fails with "Visual Studio is busy".
+std::unique_ptr<Debugger> createVisualStudioDebugger(const VsBusyPolicy& policy = {});
 
 }  // namespace tf

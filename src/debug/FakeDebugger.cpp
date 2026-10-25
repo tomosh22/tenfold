@@ -77,6 +77,19 @@ void FakeDebugger::State::release() {
   cv.notify_all();
 }
 
+void FakeDebugger::State::setNoInstance(bool b) {
+  {
+    Lock lk(mu);
+    noInstance_ = b;
+  }
+  cv.notify_all();
+}
+
+std::vector<bool> FakeDebugger::State::connectLaunchFlags() const {
+  Lock lk(mu);
+  return connectFlags_;
+}
+
 void FakeDebugger::State::ignoreCancel(bool b) {
   Lock lk(mu);
   ignoreCancel_ = b;
@@ -210,6 +223,11 @@ DebugResult FakeDebugger::connect(const DebugWorkspaceInfo& workspace) {
   if (!r.ok) return r;
   {
     Lock lk(st_->mu);
+    st_->connectFlags_.push_back(workspace.launchIfMissing);
+    if (st_->noInstance_) {
+      if (!workspace.launchIfMissing) return DebugResult::noInstance("no debugger instance has the solution open");
+      st_->noInstance_ = false;  // launched
+    }
     st_->workspace_ = workspace;
     if (st_->mode_ == DebugMode::Disconnected) st_->mode_ = DebugMode::Design;
   }
@@ -237,6 +255,10 @@ DebugResult FakeDebugger::runToCursor(const std::filesystem::path& file, int lin
   }
   st_->cv.notify_all();
   return r;
+}
+
+DebugResult FakeDebugger::openInEditor(const std::filesystem::path& file, int line, int column) {
+  return st_->enter("openInEditor", file.generic_string() + ":" + std::to_string(line) + ":" + std::to_string(column));
 }
 
 DebugResult FakeDebugger::setBreakpoint(const Breakpoint& bp) {

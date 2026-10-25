@@ -1,6 +1,7 @@
 #include "debug/ComDispatch_win32.h"
 
 #include <algorithm>
+#include <cctype>
 
 namespace tf::com {
 
@@ -204,6 +205,30 @@ class Ptr {
   T* p_ = nullptr;
 };
 }  // namespace
+
+std::vector<std::string> enumerateRotNames() {
+  std::vector<std::string> names;
+  Ptr<IRunningObjectTable> rot;
+  if (FAILED(GetRunningObjectTable(0, rot.put()))) return names;
+  Ptr<IEnumMoniker> en;
+  if (FAILED(rot->EnumRunning(en.put()))) return names;
+  Ptr<IBindCtx> bc;
+  if (FAILED(CreateBindCtx(0, bc.put()))) return names;
+  for (;;) {
+    Ptr<IMoniker> mk;
+    ULONG got = 0;
+    if (en->Next(1, mk.put(), &got) != S_OK || got == 0) break;
+    LPOLESTR name = nullptr;
+    if (FAILED(mk->GetDisplayName(bc.get(), nullptr, &name)) || !name) continue;
+    std::string display = narrow(name, wcslen(name));
+    CoTaskMemFree(name);
+    std::string lower = display;
+    for (char& c : lower) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (lower.find("visualstudio") != std::string::npos || lower.find("devenv") != std::string::npos)
+      names.push_back(display);
+  }
+  return names;
+}
 
 std::vector<DteInstance> enumerateDteInstances() {
   std::vector<DteInstance> found;

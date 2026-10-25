@@ -45,6 +45,16 @@ DebugMode modeFromDte(long dbgDebugMode);
 bool isServerBusyHr(long hr);  // RPC_E_CALL_REJECTED, RPC_E_SERVERCALL_RETRYLATER: retry later
 bool isServerDeadHr(long hr);  // RPC_E_DISCONNECTED, RPC_S_SERVER_UNAVAILABLE, ...: the instance is gone
 
+// How long calls are retried while Visual Studio rejects them as busy (RPC_E_SERVERCALL_RETRYLATER).
+struct VsBusyPolicy {
+  int commandMs = 15000;  // per call of a command / connect
+  int pollMs = 1000;      // the whole of one poll(): a VS stuck in a modal dialog must not delay queued commands
+};
+
+// The message filter's decision for a rejected call: the delay in ms before the retry, or -1 to give up. `elapsedMs`
+// is how long the call has been pending, `pastDeadline` is set when the poll window is over.
+long retryDelayMs(bool retryLater, unsigned long elapsedMs, unsigned long limitMs, bool pastDeadline, bool cancelled);
+
 // First non-empty line of vswhere's output, trimmed; empty when there is none.
 std::string firstOutputLine(const std::string& output);
 

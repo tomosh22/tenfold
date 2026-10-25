@@ -43,6 +43,9 @@ class Workspace {
     // User-overridable; when empty it is discovered and then persisted here.
     std::string msvcToolchain;
     bool watchFiles = true;  // keep index / history / documents in sync with the file system
+    // Editor::start() attaches to a Visual Studio that already has the solution open (never launches one), so
+    // breakpoints toggled in tenfold reach it. JSON key "debug.attachAtStartup".
+    bool debugAttachAtStartup = true;
     // Typing undo policy (OPEN_QUESTIONS #3): "word" joins consecutive typed characters into one undo step
     // (ended by whitespace, a pause, or a caret move); "char" makes every typed character its own step.
     std::string undoGrouping = "word";

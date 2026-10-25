@@ -46,6 +46,10 @@ class FakeDebugger : public Debugger {
     void blockOn(const std::string& method, int timeoutMs = 10000);
     void release();  // unblocks the blocked calls and stops blocking
     void ignoreCancel(bool b);
+    // "No instance" mode: connect() with launchIfMissing == false answers DebugResult::noInstance(); a connect that
+    // may launch starts the instance (the mode ends). `connectLaunchFlags()` lists launchIfMissing of every connect.
+    void setNoInstance(bool b);
+    std::vector<bool> connectLaunchFlags() const;
 
     // --- inspection (any thread) ---
     std::vector<Call> calls() const;
@@ -77,6 +81,8 @@ class FakeDebugger : public Debugger {
     bool released_ = false, cancelled_ = false, ignoreCancel_ = false, destroyed_ = false;
     int blocked_ = 0;
     DebugWorkspaceInfo workspace_;
+    bool noInstance_ = false;
+    std::vector<bool> connectFlags_;
   };
 
   FakeDebugger() : st_(std::make_shared<State>()) {}
@@ -96,6 +102,7 @@ class FakeDebugger : public Debugger {
   DebugResult stepInto() override;
   DebugResult stepOut() override;
   DebugResult runToCursor(const std::filesystem::path& file, int line) override;
+  DebugResult openInEditor(const std::filesystem::path& file, int line, int column) override;
   DebugResult setBreakpoint(const Breakpoint& bp) override;
   DebugResult removeBreakpoint(const std::filesystem::path& file, int line) override;
   DebugResult poll(DebugSnapshot& out) override;

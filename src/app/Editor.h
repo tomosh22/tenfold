@@ -271,8 +271,11 @@ class Editor {
   // backend on this platform".
   void setDebuggerFactory(std::function<std::unique_ptr<Debugger>()> f) { debug_->setFactory(std::move(f)); }
   bool toggleBreakpoint();  // at the primary caret's line; true when now set
-  void loadBreakpoints();   // once per Editor; a missing file is fine
-  void saveBreakpoints();   // no-op unless something changed
+  // Opens the current file in the debugger backend's editor (Visual Studio) at the primary caret. Queued like the
+  // debugging commands; false (and DebugSession::lastError()) when there is no document or no backend.
+  bool openInVisualStudio();
+  void loadBreakpoints();  // once per Editor; a missing file is fine
+  void saveBreakpoints();  // no-op unless something changed
 
   // Injectable time source (milliseconds, monotonic) for the typing-pause boundary.
   void setClock(std::function<int64_t()> clock) { opt_.clock = std::move(clock); }
