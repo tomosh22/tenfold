@@ -35,8 +35,7 @@ std::vector<std::string> sampleLines() {
 
 }  // namespace
 
-TEST(text_view_golden_b1_text) {
-  SKIP_IF_NO_GL(fx);
+RENDERER_TEST(text_view_golden_b1_text) {
   const std::string font = dejavuMono();
   if (font.empty()) {
     std::cerr << "    SKIP golden: DejaVuSansMono not installed (discovered: \"" << discoverMonospaceFont("")
@@ -49,9 +48,7 @@ TEST(text_view_golden_b1_text) {
   const std::vector<std::string> lines = sampleLines();
   REQUIRE(lines.size() > 10u);
 
-  GlRenderer& r = *fx->renderer;
   const int w = 800, h = 600;
-  r.setOffscreen(true);
   tr->draw(r, w, h, lines, 0);
   r.endFrame();
   std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
@@ -60,6 +57,7 @@ TEST(text_view_golden_b1_text) {
 
   const std::string path = TENFOLD_SOURCE_DIR "/tests/golden/b1_text.png";
   if (uitest::updateGoldens) {
+    if (be != uitest::Backend::Gl) return;  // goldens are defined by the GL backend
     REQUIRE(writePngFile(path, px.data(), w, h));
     std::cerr << "    golden updated: " << path << "\n";
     return;
@@ -79,10 +77,13 @@ TEST(text_view_golden_b1_text) {
     if (d > 3) ++bad;
     worst = std::max(worst, d);
   }
-  const size_t allowed = golden.size() / 4 / 500;  // 0.2%
+  const size_t allowed = golden.size() / 4 / (be == uitest::Backend::Gl ? 500 : 200);  // 0.2% GL, 0.5% D3D11
+  std::cerr << "    golden diff: " << bad << " of " << golden.size() / 4 << " pixels > 3, max channel diff " << worst
+            << "\n";
   if (bad > allowed) {
-    writePngFile("b1_text.actual.png", px.data(), w, h);
-    std::cerr << "    " << bad << " pixels differ (max channel diff " << worst << "); wrote b1_text.actual.png\n";
+    const char* out = be == uitest::Backend::Gl ? "b1_text.actual.png" : "b1_text.d3d11.actual.png";
+    writePngFile(out, px.data(), w, h);
+    std::cerr << "    " << bad << " pixels differ (max channel diff " << worst << "); wrote " << out << "\n";
   }
   CHECK(bad <= allowed);
 }

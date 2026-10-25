@@ -1,6 +1,6 @@
-// tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH]
+// tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] [--renderer=gl|d3d11]
 //   default: the editor (Workbench of TextView tabs, key bindings, layout.json); --shell: the B3a widget demo;
-//   --demo: the renderer scene
+//   --demo: the renderer scene; --renderer: graphics backend (default d3d11 on Windows when built in, else gl)
 #include <algorithm>
 #include <chrono>
 #include <cstdio>
@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "app/Editor.h"
+#include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/GlRenderer.h"
 #include "ui/gfx/PngWrite.h"
@@ -72,6 +73,11 @@ int64_t nowMs() {
 int main(int argc, char** argv) {
   std::string workspace, file, shot;
   bool demo = false, shell = false;
+#ifdef TENFOLD_HAVE_D3D11
+  bool useD3d11 = true;
+#else
+  bool useD3d11 = false;
+#endif
   int width = 1024, height = 640;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
@@ -79,6 +85,21 @@ int main(int argc, char** argv) {
     } else if (!std::strcmp(argv[i], "--size") && i + 1 < argc) {
       if (std::sscanf(argv[++i], "%dx%d", &width, &height) != 2 || width < 1 || height < 1) {
         std::fprintf(stderr, "bad --size (expected WxH)\n");
+        return 2;
+      }
+    } else if (!std::strncmp(argv[i], "--renderer=", 11)) {
+      const char* v = argv[i] + 11;
+      if (!std::strcmp(v, "gl")) {
+        useD3d11 = false;
+      } else if (!std::strcmp(v, "d3d11")) {
+#ifdef TENFOLD_HAVE_D3D11
+        useD3d11 = true;
+#else
+        std::fprintf(stderr, "tenfold-ui: --renderer=d3d11 is not available in this build\n");
+        return 2;
+#endif
+      } else {
+        std::fprintf(stderr, "bad --renderer (expected gl or d3d11)\n");
         return 2;
       }
     } else if (!std::strcmp(argv[i], "--demo")) {
@@ -91,7 +112,8 @@ int main(int argc, char** argv) {
       file = argv[i];
     } else {
       std::fprintf(stderr,
-                   "usage: tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH]\n");
+                   "usage: tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] "
+                   "[--renderer=gl|d3d11]\n");
       return 2;
     }
   }
@@ -102,17 +124,42 @@ int main(int argc, char** argv) {
   wo.height = height;
   wo.hidden = !shot.empty();
   wo.vsync = shot.empty();
+  wo.openGl = !useD3d11;
   std::string err;
   auto win = ui::Window::create(wo, &err);
-  if (!win || !gfx::gl::load(&ui::Window::glProc, &err)) {
+  if (!win || (!useD3d11 && !gfx::gl::load(&ui::Window::glProc, &err))) {
     std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
     return 1;
   }
-  auto renderer = gfx::GlRenderer::create(&err);
+  std::unique_ptr<gfx::Renderer> renderer;
+  gfx::GlRenderer* glRenderer = nullptr;
+  gfx::D3d11Renderer* d3dRenderer = nullptr;
+  if (useD3d11) {
+#ifdef TENFOLD_HAVE_D3D11
+    gfx::D3d11Renderer::Options ro;
+    ro.hwnd = shot.empty() ? win->nativeHandle() : nullptr;  // screenshots render offscreen: no swap chain
+    ro.vsync = shot.empty();
+    auto d3d = gfx::D3d11Renderer::create(ro, &err);
+    if (d3d) {
+      std::fprintf(stderr, "tenfold-ui: Direct3D 11 on %s%s\n", d3d->adapterName().c_str(),
+                   d3d->isWarp() ? " (WARP)" : "");
+      d3dRenderer = d3d.get();
+      renderer = std::move(d3d);
+    }
+#endif
+  } else {
+    auto gl = gfx::GlRenderer::create(&err);
+    glRenderer = gl.get();
+    renderer = std::move(gl);
+  }
   if (!renderer) {
     std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
     return 1;
   }
+  auto presentFrame = [&] {
+    if (d3dRenderer) d3dRenderer->present();
+    else win->swap();
+  };
   std::unique_ptr<Editor> editor;  // editor mode only; the --shell demo owns its own
   const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
 
@@ -177,7 +224,8 @@ int main(int argc, char** argv) {
   };
 
   if (!shot.empty()) {
-    renderer->setOffscreen(true);
+    if (glRenderer) glRenderer->setOffscreen(true);
+    if (d3dRenderer) d3dRenderer->setOffscreen(true);
     if (app) app->tick(nowMs());
     drawFrame(width, height, -100, -100);
     std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
@@ -207,7 +255,7 @@ int main(int argc, char** argv) {
       int pw, ph;
       win->sizePx(pw, ph);
       drawFrame(pw, ph, mx, my);
-      win->swap();
+      presentFrame();
       dirty = false;
     }
     events.clear();
