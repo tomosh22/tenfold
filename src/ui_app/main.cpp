@@ -13,6 +13,7 @@
 
 #include "app/Editor.h"
 #include "core/CrashHandler.h"
+#include "core/Log.h"
 #include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/GlRenderer.h"
@@ -73,6 +74,7 @@ int64_t nowMs() {
 
 int main(int argc, char** argv) {
   tf::installCrashHandler();
+  tf::Log::init();  // local diagnostic log (TENFOLD_LOG=debug|info|warn|error|off); flushed again by its atexit hook
   std::string workspace, file, shot;
   bool demo = false, shell = false;
 #ifdef TENFOLD_HAVE_D3D11
@@ -286,5 +288,6 @@ int main(int argc, char** argv) {
   // Shutdown order: the workbench saves layout.json, then the Editor shuts down.
   if (bench) bench->saveLayout();
   if (editor) editor->shutdown();
+  tf::Log::shutdown();
   return 0;
 }

@@ -18,4 +18,10 @@ std::filesystem::path defaultCrashDir();
 // directory is available (the handler is then not installed). Nothing is ever uploaded.
 bool installCrashHandler(const std::filesystem::path& dir = {});
 
+// D3: tells the handler where the diagnostic log (core/Log.h) is so the crash report can name it ("log: <path>";
+// on Windows a crash-<pid>-<tick>.txt next to the minidump). Only the path is recorded: the handler never flushes
+// the log, because that takes locks and allocates, which is not async-signal-safe, so up to one flush interval
+// (500 ms) of records can be missing after a crash. An empty path clears it.
+void setCrashLogPath(const std::filesystem::path& logFile);
+
 }  // namespace tf

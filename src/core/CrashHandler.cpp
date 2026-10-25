@@ -62,11 +62,14 @@ using MiniDumpWriteDumpFn = BOOL(WINAPI*)(HANDLE, DWORD, HANDLE, MINIDUMP_TYPE, 
                                           PMINIDUMP_USER_STREAM_INFORMATION, PMINIDUMP_CALLBACK_INFORMATION);
 MiniDumpWriteDumpFn g_writeDump = nullptr;
 volatile LONG g_inHandler = 0;
+wchar_t g_logPath[MAX_PATH * 2];
+volatile LONG g_logPathValid = 0;
 
 void writeDump(EXCEPTION_POINTERS* ep) {
   if (!g_writeDump || InterlockedExchange(&g_inHandler, 1)) return;
   wchar_t path[MAX_PATH * 2 + 64];
-  wsprintfW(path, L"%s\\crash-%lu-%lu.dmp", g_dir, GetCurrentProcessId(), GetTickCount());
+  const DWORD tick = GetTickCount();
+  wsprintfW(path, L"%s\\crash-%lu-%lu.dmp", g_dir, GetCurrentProcessId(), tick);
   HANDLE f = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
   if (f == INVALID_HANDLE_VALUE) return;
   MINIDUMP_EXCEPTION_INFORMATION mei;
@@ -77,6 +80,20 @@ void writeDump(EXCEPTION_POINTERS* ep) {
               static_cast<MINIDUMP_TYPE>(MiniDumpWithDataSegs | MiniDumpWithIndirectlyReferencedMemory),
               ep ? &mei : nullptr, nullptr, nullptr);
   CloseHandle(f);
+  if (g_logPathValid) {  // sidecar naming the diagnostic log: WriteFile and a UTF-8 conversion only
+    wsprintfW(path, L"%s\\crash-%lu-%lu.txt", g_dir, GetCurrentProcessId(), tick);
+    HANDLE t = CreateFileW(path, GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (t != INVALID_HANDLE_VALUE) {
+      char utf8[MAX_PATH * 6 + 16];
+      int n = WideCharToMultiByte(CP_UTF8, 0, g_logPath, -1, utf8, sizeof utf8 - 2, nullptr, nullptr);
+      DWORD w = 0;
+      static const char kLabel[] = "log: ";
+      WriteFile(t, kLabel, sizeof kLabel - 1, &w, nullptr);
+      if (n > 1) WriteFile(t, utf8, static_cast<DWORD>(n - 1), &w, nullptr);
+      WriteFile(t, "\r\n", 2, &w, nullptr);
+      CloseHandle(t);
+    }
+  }
 }
 
 LONG WINAPI unhandledFilter(EXCEPTION_POINTERS* ep) {
@@ -94,6 +111,8 @@ void abortHandler(int) {
 char g_dir[4096];
 alignas(16) char g_altStack[65536];
 volatile sig_atomic_t g_inHandler = 0;
+char g_logPath[4096];
+volatile sig_atomic_t g_logPathValid = 0;
 
 // Async-signal-safe helpers: no allocation, no stdio.
 size_t putStr(char* out, size_t pos, const char* s) {
@@ -158,6 +177,10 @@ void crashSignal(int sig, siginfo_t* info, void*) {
       writeNum(fd, static_cast<unsigned long long>(::getpid()), 10);
       writeStr(fd, "\nfault address: 0x");
       writeNum(fd, info ? reinterpret_cast<unsigned long long>(info->si_addr) : 0, 16);
+      if (g_logPathValid) {
+        writeStr(fd, "\nlog: ");
+        writeStr(fd, g_logPath);
+      }
       writeStr(fd, "\nbacktrace:\n");
 #ifdef TF_HAVE_BACKTRACE
       void* frames[64];
@@ -177,6 +200,23 @@ void crashSignal(int sig, siginfo_t* info, void*) {
 #endif
 
 }  // namespace
+
+void setCrashLogPath(const fs::path& logFile) {
+  std::error_code ec;
+#ifdef _WIN32
+  g_logPathValid = 0;
+  std::wstring w = logFile.empty() ? std::wstring() : fs::absolute(logFile, ec).native();
+  if (w.empty() || w.size() >= sizeof(g_logPath) / sizeof(g_logPath[0])) return;
+  std::memcpy(g_logPath, w.c_str(), (w.size() + 1) * sizeof(wchar_t));
+  g_logPathValid = 1;
+#else
+  g_logPathValid = 0;
+  std::string p = logFile.empty() ? std::string() : fs::absolute(logFile, ec).string();
+  if (p.empty() || p.size() >= sizeof g_logPath) return;
+  std::memcpy(g_logPath, p.c_str(), p.size() + 1);
+  g_logPathValid = 1;
+#endif
+}
 
 bool installCrashHandler(const fs::path& dirIn) {
   fs::path dir = dirIn.empty() ? defaultCrashDir() : dirIn;

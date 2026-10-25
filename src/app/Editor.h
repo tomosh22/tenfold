@@ -16,6 +16,7 @@
 #include "build/BuildRunner.h"
 #include "build/ErrorParser.h"
 #include "core/Document.h"
+#include "core/Log.h"
 #include "core/Selection.h"
 #include "debug/Breakpoints.h"
 #include "debug/DebugSession.h"
@@ -65,6 +66,12 @@ class Editor {
 
   Workspace& workspace() { return ws_; }
   SemanticEngine& semantic() { return *semantic_; }
+  // The diagnostic log file (D3) for an "Open log" command: the file records go to while logging runs,
+  // else <workspace>/.tenfold/log.txt. It may not exist yet.
+  std::filesystem::path logFilePath() const {
+    auto p = Log::filePath();
+    return p.empty() ? Log::workspaceLogPath(ws_.root()) : p;
+  }
   bool started() const { return semantic_ != nullptr; }  // semantic() is only valid after start()
   NavigationHistory& navigation() { return nav_; }
   // --- clangd lifecycle (crash recovery is automatic, see SemanticEngine) ---

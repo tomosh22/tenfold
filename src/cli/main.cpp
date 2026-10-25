@@ -20,6 +20,7 @@
 
 #include "app/Editor.h"
 #include "core/CrashHandler.h"
+#include "core/Log.h"
 #include "semantic/CompileCommands.h"
 
 using namespace tf;
@@ -33,6 +34,7 @@ void usage() {
          "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
          "       tenfold-cli vsconfig <workspace-root> [--list | --set Debug|x64]\n"
          "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
+         "       tenfold-cli log [<workspace-root>] [--tail N]   (prints the local log; no root: the user-level log)\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
          "options:\n"
@@ -522,10 +524,48 @@ int runBench(int argc, char** argv) {
   return 0;
 }
 
+// Prints <root>/.tenfold/log.txt (or the user-level log without a root), or its last N lines. The path goes to
+// stderr so stdout can be piped. TENFOLD_LOG=debug|info|warn|error|off sets what the tools record.
+int runLog(int argc, char** argv) {
+  fs::path root;
+  size_t tail = 0;
+  for (int i = 2; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--tail" && i + 1 < argc) {
+      try {
+        tail = static_cast<size_t>(std::max(0, std::stoi(argv[++i])));
+      } catch (...) {
+        usage();
+        return 2;
+      }
+    } else if (root.empty() && a.rfind("--", 0) != 0) {
+      root = a;
+    } else {
+      usage();
+      return 2;
+    }
+  }
+  const fs::path file = root.empty() ? Log::userLogPath() : Log::workspaceLogPath(root);
+  if (file.empty()) {
+    std::cerr << "log: no user data directory found\n";
+    return 1;
+  }
+  std::error_code ec;
+  if (!fs::exists(file, ec)) {
+    std::cerr << "log: no log file at " << file.string() << "\n";
+    return 1;
+  }
+  std::cerr << "log file: " << file.string() << "\n";
+  for (const std::string& l : Log::tailLines(file, tail)) std::cout << l << "\n";
+  return 0;
+}
+
 }  // namespace
 
 int main(int argc, char** argv) {
   tf::installCrashHandler();
+  if (argc >= 2 && std::strcmp(argv[1], "log") == 0) return runLog(argc, argv);  // reads the log, never writes it
+  tf::Log::init();
   if (argc < 2) {
     usage();
     return 2;
