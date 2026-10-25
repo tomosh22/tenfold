@@ -4,6 +4,8 @@
 #include <cctype>
 #include <cstdlib>
 
+#include "build/AnsiStrip.h"
+
 namespace tf {
 
 namespace {
@@ -27,21 +29,6 @@ bool startsWithNoCase(std::string_view s, std::string_view prefix) {
 
 bool endsWithNoCase(std::string_view s, std::string_view suffix) {
   return s.size() >= suffix.size() && startsWithNoCase(s.substr(s.size() - suffix.size()), suffix);
-}
-
-// Removes ANSI escape sequences (gcc -fdiagnostics-color).
-std::string stripAnsi(std::string_view s) {
-  std::string out;
-  out.reserve(s.size());
-  for (size_t i = 0; i < s.size(); ++i) {
-    if (s[i] == '\x1b' && i + 1 < s.size() && s[i + 1] == '[') {
-      i += 2;
-      while (i < s.size() && !isAlpha(s[i])) ++i;
-      continue;
-    }
-    out += s[i];
-  }
-  return out;
 }
 
 // "  1>" / "12>" / "1:7>" MSBuild node prefix.
@@ -344,7 +331,7 @@ bool ErrorParser::parseIncludeChain(std::string_view s) {
 }
 
 bool ErrorParser::parseLine(std::string_view raw, BuildMessage* out) {
-  std::string line = stripAnsi(raw);
+  std::string line = stripAnsiEscapes(raw);
   while (!line.empty() && (line.back() == '\r' || line.back() == '\n')) line.pop_back();
   if (parseIncludeChain(line)) return false;
   std::string_view s = stripNodePrefix(line);

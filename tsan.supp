@@ -1,0 +1,7 @@
+# ThreadSanitizer suppressions for tenfold-tests (CI job linux-gcc-tsan, see .github/workflows/ci.yml).
+#
+# Policy: an entry is only allowed for a third-party / libstdc++ / libc false positive, and must carry a comment
+# naming the report, why it is a false positive and the upstream issue. Races in our own code are fixed, never
+# listed here.
+#
+# The A11 full-suite runs (gcc 13, -fsanitize=thread -O1) produced no reports, so there are no entries.

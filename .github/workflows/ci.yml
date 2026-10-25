@@ -104,6 +104,39 @@ jobs:
         shell: bash
         run: ctest --preset "${{ matrix.preset }}" --timeout 300
 
+  # ThreadSanitizer on the engine suite only (the UI tests stay out: Mesa / SDL are noisy under TSan).
+  # tsan.supp lists third-party false positives, each justified; races in our own code are fixed, not suppressed.
+  linux-gcc-tsan:
+    name: linux-gcc-tsan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clangd and Ninja (pip)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "clangd==${CLANGD_VERSION}" "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: Configure
+        env:
+          CC: gcc
+          CXX: g++
+        run: cmake --preset tsan
+
+      - name: Build
+        run: cmake --build --preset tsan --parallel --target tenfold-tests
+
+      - name: Engine tests under ThreadSanitizer
+        env:
+          TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1 suppressions=${{ github.workspace }}/tsan.supp
+        run: ./build/tsan/tenfold-tests
+
   format:
     name: clang-format (changed files)
     runs-on: ubuntu-24.04

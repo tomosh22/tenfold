@@ -606,9 +606,9 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
                                                       (f.dir.path / "src/a.cpp").generic_string() + "\"]}]");
   CHECK(f.ed->waitFor(
       [&] {
-        return f.ed->semantic().compileCommands().size() == 1 &&
-               f.ed->semantic().compileCommands()[0].arguments.size() > 1 &&
-               f.ed->semantic().compileCommands()[0].arguments[1] == "-std=c++17";
+        return f.ed->semantic().compileCommands()->size() == 1 &&
+               (*f.ed->semantic().compileCommands())[0].arguments.size() > 1 &&
+               (*f.ed->semantic().compileCommands())[0].arguments[1] == "-std=c++17";
       },
       5000));
   f.ed->waitFor([] { return false; }, 600);

@@ -44,6 +44,7 @@ add_library(tenfold_core STATIC
   src/search/TextSearch.cpp
   src/workspace/FileWatcher.cpp
   src/app/Editor.cpp
+  src/build/AnsiStrip.cpp
   src/build/ErrorParser.cpp
   src/build/BuildRunner.cpp
 )

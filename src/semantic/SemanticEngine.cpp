@@ -203,12 +203,39 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     compdbPath_ = std::move(compdbPath);
     compdbSource_ = std::move(compdbSource);
     sharedFlags_ = std::move(sharedFlags);
-    compileCommands_ = std::move(cmds);
+    compileCommands_ = std::make_shared<const std::vector<CompileCommand>>(std::move(cmds));
   }
   return locationChanged;
 }
 
+std::shared_ptr<LspClient> SemanticEngine::client() const {
+  std::lock_guard<std::mutex> lk(clientMu_);
+  return clangd_;
+}
+
+std::shared_ptr<LspClient> SemanticEngine::clangd() const {
+  auto c = client();
+  return c && c->initialized() ? c : nullptr;
+}
+
+std::shared_ptr<LspClient> SemanticEngine::takeClient() {
+  std::lock_guard<std::mutex> lk(clientMu_);
+  return std::move(clangd_);
+}
+
+std::shared_ptr<const std::vector<CompileCommand>> SemanticEngine::compileCommands() const {
+  std::lock_guard<std::mutex> lk(mu_);
+  return compileCommands_ ? compileCommands_ : std::make_shared<const std::vector<CompileCommand>>();
+}
+
 bool SemanticEngine::startClangd(std::string* error) {
+  fs::path compdbPath;
+  std::string compdbSource;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    compdbPath = compdbPath_;
+    compdbSource = compdbSource_;
+  }
   std::string exe = opt_.clangdPath.empty() ? ws_.settings().clangdPath : opt_.clangdPath;
   if (exe.empty()) exe = "clangd";
   std::string resolved =
@@ -221,7 +248,7 @@ bool SemanticEngine::startClangd(std::string* error) {
   lo.serverPath = resolved;
   lo.rootPath = ws_.root();
   lo.logFile = opt_.logDir / "clangd.log";
-  lo.args = {"--compile-commands-dir=" + compdbPath_.parent_path().string(),
+  lo.args = {"--compile-commands-dir=" + compdbPath.parent_path().string(),
              "--background-index",
              "--pch-storage=memory",
              "--header-insertion=never",
@@ -232,9 +259,9 @@ bool SemanticEngine::startClangd(std::string* error) {
              "--log=error",
              "-j=" + std::to_string(std::max(2u, std::thread::hardware_concurrency()))};
 #ifdef _WIN32
-  const bool wantMsvcArgs = compdbSource_ == "vcxproj" || compdbSource_ == "heuristic";
+  const bool wantMsvcArgs = compdbSource == "vcxproj" || compdbSource == "heuristic";
 #else
-  const bool wantMsvcArgs = compdbSource_ == "vcxproj";
+  const bool wantMsvcArgs = compdbSource == "vcxproj";
 #endif
   if (wantMsvcArgs) {
     // MSVC system headers: let clangd ask cl.exe. The toolchain is user-overridable and persisted.
@@ -262,16 +289,16 @@ bool SemanticEngine::startClangd(std::string* error) {
     lo.trace = [this](const std::string& dir, const Json& j) { log(dir + " " + j.dump().substr(0, 400)); };
   }
 
-  clangd_ = std::make_unique<LspClient>();
-  clangd_->onFileStatus([this](const std::string& uri, const std::string& state) {
+  auto c = std::make_shared<LspClient>();
+  c->onFileStatus([this](const std::string& uri, const std::string& state) {
     {
       std::lock_guard<std::mutex> lk(mu_);
       fileStatus_[uri] = state;
     }
     cv_.notify_all();
   });
-  clangd_->onIndexProgress([this](const IndexProgress&) { cv_.notify_all(); });
-  clangd_->onDiagnostics([this](const std::string& uri, int, std::vector<LspDiagnostic> ds) {
+  c->onIndexProgress([this](const IndexProgress&) { cv_.notify_all(); });
+  c->onDiagnostics([this](const std::string& uri, int, std::vector<LspDiagnostic> ds) {
     std::function<void(const fs::path&, std::vector<Diagnostic>)> h;
     {
       std::lock_guard<std::mutex> lk(mu_);
@@ -293,7 +320,7 @@ bool SemanticEngine::startClangd(std::string* error) {
     }
     h(file, std::move(out));
   });
-  clangd_->onApplyEdit([this](const std::string& label, const Json& edit) {
+  c->onApplyEdit([this](const std::string& label, const Json& edit) {
     std::function<void(const std::string&, FileEdits)> h;
     {
       std::lock_guard<std::mutex> lk(mu_);
@@ -301,20 +328,23 @@ bool SemanticEngine::startClangd(std::string* error) {
     }
     if (h) h(label, editsFromServer(edit));
   });
-  clangd_->onLogMessage([this](int, const std::string& m) { log("clangd: " + m); });
-  clangd_->onDisconnect([this] {
+  c->onLogMessage([this](int, const std::string& m) { log("clangd: " + m); });
+  c->onDisconnect([this] {
     log("clangd exited");
     cv_.notify_all();
   });
 
   std::string err;
-  if (!clangd_->start(lo, &err)) {
+  if (!c->start(lo, &err)) {
     if (error) *error = err;
     log("failed to start clangd: " + err);
-    clangd_.reset();
     return false;
   }
-  log("clangd started: " + clangd_->serverVersion() + ", offsetEncoding=" + clangd_->offsetEncoding());
+  {
+    std::lock_guard<std::mutex> lk(clientMu_);
+    clangd_ = c;
+  }
+  log("clangd started: " + c->serverVersion() + ", offsetEncoding=" + c->offsetEncoding());
   return true;
 }
 
@@ -416,20 +446,17 @@ void SemanticEngine::stop() {
   }
   saveCv_.notify_all();
   if (indexThread_.joinable()) indexThread_.join();
-  if (clangd_) {
-    clangd_->stop();
-    clangd_.reset();
-  }
+  if (auto old = takeClient()) old->stop();
 }
 
 SemanticEngine::Status SemanticEngine::status() const {
   Status s;
-  if (clangd_) {
-    s.clangdRunning = clangd_->alive();
-    s.clangdInitialized = clangd_->initialized();
-    s.clangdVersion = clangd_->serverVersion();
-    s.offsetEncoding = clangd_->offsetEncoding();
-    s.clangdIndex = clangd_->indexProgress();
+  if (auto c = client()) {
+    s.clangdRunning = c->alive();
+    s.clangdInitialized = c->initialized();
+    s.clangdVersion = c->serverVersion();
+    s.offsetEncoding = c->offsetEncoding();
+    s.clangdIndex = c->indexProgress();
   }
   s.fastIndexDone = fastDone_;
   s.fastRelexed = fastStats_.relexed;
@@ -441,7 +468,7 @@ SemanticEngine::Status SemanticEngine::status() const {
     std::lock_guard<std::mutex> lk(mu_);
     s.compdbSource = compdbSource_;
     s.compdbPath = compdbPath_;
-    s.compdbEntries = compileCommands_.size();
+    s.compdbEntries = compileCommands_ ? compileCommands_->size() : 0;
   }
   return s;
 }
@@ -452,15 +479,16 @@ bool SemanticEngine::waitForFastIndex(int timeoutMs) const {
 }
 
 bool SemanticEngine::waitForClangdIndex(int timeoutMs) const {
-  if (!clangd_) return false;
+  auto c = client();
+  if (!c) return false;
   auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
   std::unique_lock<std::mutex> lk(mu_);
   while (true) {
-    auto p = clangd_->indexProgress();
+    auto p = c->indexProgress();
     if (p.percentage == 100 && !p.active) return true;
-    if (!clangd_->alive()) return false;
+    if (!c->alive()) return false;
     if (cv_.wait_until(lk, deadline) == std::cv_status::timeout) {
-      auto q = clangd_->indexProgress();
+      auto q = c->indexProgress();
       return q.percentage == 100 && !q.active;
     }
   }
@@ -473,7 +501,7 @@ bool SemanticEngine::fileReady(const fs::path& file) const {
 }
 
 bool SemanticEngine::waitForFile(const fs::path& file, int timeoutMs) const {
-  if (!clangd_) return false;
+  if (!client()) return false;
   std::string uri = pathToUri(file);
   std::unique_lock<std::mutex> lk(mu_);
   return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] {
@@ -564,12 +592,11 @@ bool SemanticEngine::restartClangd(std::string* error) {
       st.data.clear();
     }
   }
-  if (clangd_) {
-    clangd_->stop();
-    clangd_.reset();
-  }
+  if (auto old = takeClient()) old->stop();
   if (!startClangd(error)) return false;
-  for (auto* d : docs) clangd_->didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().text());
+  auto nc = client();
+  if (!nc) return false;
+  for (auto* d : docs) nc->didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().text());
   return true;
 }
 
@@ -578,13 +605,15 @@ bool SemanticEngine::restartClangd(std::string* error) {
 // ---------------------------------------------------------------------------
 
 Position SemanticEngine::toServer(const Document& doc, Position p) const {
-  if (!clangd_ || clangd_->offsetEncoding() == "utf-8") return p;
+  auto c = client();
+  if (!c || c->offsetEncoding() == "utf-8") return p;
   p = doc.buffer().clamp(p);
   return {p.line, TextBuffer::utf8ToUtf16Column(doc.buffer().line(p.line), p.column)};
 }
 
 Position SemanticEngine::posFromServer(const std::string& uri, Position p) const {
-  if (clangd_ && clangd_->offsetEncoding() != "utf-8" && p.column > 0) {
+  auto c = client();
+  if (c && c->offsetEncoding() != "utf-8" && p.column > 0) {
     std::string line;
     const Document* doc = nullptr;
     {
@@ -627,14 +656,14 @@ void SemanticEngine::didOpen(Document& doc) {
     openDocs_[doc.uri()] = &doc;
   }
   fast_.updateFile(doc.path(), doc.buffer().text());
-  if (auto* c = clangd()) c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().text());
+  if (auto c = clangd()) c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().text());
   scheduleTokens(doc);
 }
 
 void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
   // Keep the fast index fresh (cheap: single file re-lex).
   fast_.updateFile(doc.path(), doc.buffer().text());
-  if (auto* c = clangd()) {
+  if (auto c = clangd()) {
     if (c->offsetEncoding() == "utf-8") {
       c->didChangeIncremental(doc.uri(), doc.version(), {{change.removed, change.newText}});
     } else {
@@ -645,7 +674,7 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
 }
 
 void SemanticEngine::didSave(Document& doc) {
-  if (auto* c = clangd()) c->didSave(doc.uri());
+  if (auto c = clangd()) c->didSave(doc.uri());
 }
 
 void SemanticEngine::didClose(Document& doc) {
@@ -658,7 +687,7 @@ void SemanticEngine::didClose(Document& doc) {
     std::lock_guard<std::mutex> lk(tokMu_);
     tokens_.erase(doc.uri());
   }
-  if (auto* c = clangd()) c->didClose(doc.uri());
+  if (auto c = clangd()) c->didClose(doc.uri());
 }
 
 // ---------------------------------------------------------------------------
@@ -770,7 +799,7 @@ void SemanticEngine::deliverWithBudget(
   st->approx = std::move(approx);
   st->cb = std::move(cb);
 
-  LspClient* c = clangd();
+  auto c = clangd();
   if (!c) {
     // No authority available: approximate is all we have.
     st->approxDelivered = true;
@@ -808,7 +837,7 @@ void SemanticEngine::locationQuery(
   std::string uri = doc.uri();
   Position sp = toServer(doc, pos);
   deliverWithBudget(std::move(approx), std::move(cb), [this, uri, sp, issue](auto done) {
-    LspClient* c = clangd();
+    auto c = clangd();
     if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
     issue(*c, uri, sp, [this, done](std::vector<LspLocation> ls, const std::string& err) {
       done(fromServer(ls, Confidence::Authoritative), err);
@@ -817,8 +846,9 @@ void SemanticEngine::locationQuery(
 }
 
 void SemanticEngine::augmentWithFastDefinitions(const std::string& name, std::vector<SymbolLocation>& locs) const {
-  if (name.empty() || !clangd_) return;
-  IndexProgress p = clangd_->indexProgress();
+  auto c = client();
+  if (name.empty() || !c) return;
+  IndexProgress p = c->indexProgress();
   if (p.percentage == 100 && !p.active) return;  // index complete: clangd's answer is final
   // Is any authoritative result already a definition (per the fast index)?
   for (auto& l : locs) {
@@ -870,7 +900,7 @@ void SemanticEngine::findImplementations(const Document& doc, Position pos, Loca
 
 void SemanticEngine::findReferences(const Document& doc, Position pos, LocationsCallback cb) {
   // No approximate tier for references (a text search would be misleading); go straight to clangd.
-  LspClient* c = clangd();
+  auto c = clangd();
   if (!c) return cb(Confidence::Approximate, {}, "clangd not running");
   c->references(doc.uri(), toServer(doc, pos), true, [this, cb](std::vector<LspLocation> ls, const std::string& err) {
     cb(Confidence::Authoritative, fromServer(ls, Confidence::Authoritative), err);
@@ -921,7 +951,7 @@ void SemanticEngine::symbolLoop() {
 void SemanticEngine::workspaceSymbolsBudgeted(const std::string& query, std::vector<SymbolLocation> approx,
                                               LocationsCallback cb) {
   deliverWithBudget(std::move(approx), std::move(cb), [this, query](auto done) {
-    LspClient* c = clangd();
+    auto c = clangd();
     if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
     c->workspaceSymbols(query, [this, done](std::vector<LspWorkspaceSymbol> syms, const std::string& err) {
       std::vector<SymbolLocation> out;
@@ -952,7 +982,7 @@ void SemanticEngine::documentSymbols(const Document& doc, LocationsCallback cb) 
   }
   std::string uri = doc.uri();
   deliverWithBudget(std::move(approx), std::move(cb), [this, uri](auto done) {
-    LspClient* c = clangd();
+    auto c = clangd();
     if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
     c->documentSymbols(uri, [this, uri, done](std::vector<LspDocumentSymbol> syms, const std::string& err) {
       std::vector<SymbolLocation> out;
@@ -975,7 +1005,7 @@ void SemanticEngine::documentSymbols(const Document& doc, LocationsCallback cb) 
 }
 
 void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> cb) {
-  if (auto* c = clangd()) {
+  if (auto c = clangd()) {
     c->switchSourceHeader(doc.uri(), [cb](std::string uri, const std::string& err) {
       cb(uri.empty() ? fs::path() : uriToPath(uri), err);
     });
@@ -995,7 +1025,7 @@ void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> 
 // ---------------------------------------------------------------------------
 
 void SemanticEngine::hover(const Document& doc, Position pos, Callback<std::string> cb) {
-  if (auto* c = clangd()) {
+  if (auto c = clangd()) {
     c->hover(doc.uri(), toServer(doc, pos), std::move(cb));
     return;
   }
@@ -1009,7 +1039,7 @@ void SemanticEngine::hover(const Document& doc, Position pos, Callback<std::stri
 }
 
 void SemanticEngine::completion(const Document& doc, Position pos, Callback<std::vector<LspCompletionItem>> cb) {
-  if (auto* c = clangd()) {
+  if (auto c = clangd()) {
     c->completion(doc.uri(), toServer(doc, pos), std::move(cb));
     return;
   }
@@ -1029,7 +1059,7 @@ void SemanticEngine::completion(const Document& doc, Position pos, Callback<std:
 }
 
 void SemanticEngine::signatureHelp(const Document& doc, Position pos, Callback<LspSignatureHelp> cb) {
-  if (auto* c = clangd()) {
+  if (auto c = clangd()) {
     c->signatureHelp(doc.uri(), toServer(doc, pos), std::move(cb));
     return;
   }
@@ -1038,7 +1068,7 @@ void SemanticEngine::signatureHelp(const Document& doc, Position pos, Callback<L
 
 void SemanticEngine::rename(const Document& doc, Position pos, const std::string& newName,
                             Callback<std::map<fs::path, std::vector<std::pair<Range, std::string>>>> cb) {
-  LspClient* c = clangd();
+  auto c = clangd();
   if (!c) return cb({}, "clangd not running");
   c->rename(doc.uri(), toServer(doc, pos), newName, [this, cb](Json edit, const std::string& err) {
     if (!err.empty()) return cb({}, err);
@@ -1056,8 +1086,8 @@ void SemanticEngine::onDiagnostics(std::function<void(const fs::path&, std::vect
 // ---------------------------------------------------------------------------
 
 template <class T>
-LspClient* SemanticEngine::requireClangd(const Callback<T>& cb) {
-  LspClient* c = clangd();
+std::shared_ptr<LspClient> SemanticEngine::requireClangd(const Callback<T>& cb) {
+  auto c = clangd();
   if (!c) cb(T{}, "clangd not running");
   return c;
 }
@@ -1096,7 +1126,8 @@ void SemanticEngine::runLater(int delayMs, std::function<void()> fn) {
 // ---- semantic tokens ----
 
 LspSemanticTokensLegend SemanticEngine::tokenLegend() const {
-  return clangd_ && clangd_->initialized() ? clangd_->semanticTokensLegend() : LspSemanticTokensLegend{};
+  auto c = clangd();
+  return c ? c->semanticTokensLegend() : LspSemanticTokensLegend{};
 }
 
 SemanticEngine::TokenStats SemanticEngine::tokenStats() const {
@@ -1105,7 +1136,8 @@ SemanticEngine::TokenStats SemanticEngine::tokenStats() const {
 }
 
 std::vector<TokenSpan> SemanticEngine::decodeTokens(const std::string& uri, const std::vector<uint32_t>& d) const {
-  const bool utf16 = clangd_ && clangd_->offsetEncoding() != "utf-8";
+  auto c = client();
+  const bool utf16 = c && c->offsetEncoding() != "utf-8";
   const Document* doc = nullptr;
   if (utf16) {
     std::lock_guard<std::mutex> lk(mu_);
@@ -1139,7 +1171,7 @@ std::vector<TokenSpan> SemanticEngine::decodeTokens(const std::string& uri, cons
 }
 
 void SemanticEngine::requestTokens(const std::string& uri, Callback<std::vector<TokenSpan>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   if (!c->supportsSemanticTokens()) return cb({}, "clangd does not provide semantic tokens");
   // Folds a reply into the stored state and delivers the decoded spans. False: a delta that does not fit.
@@ -1233,7 +1265,7 @@ void SemanticEngine::scheduleTokens(const Document& doc) {
 // ---- simple per-document queries ----
 
 void SemanticEngine::inlayHints(const Document& doc, Range range, Callback<std::vector<LspInlayHint>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   std::string uri = doc.uri();
   c->inlayHints(uri, toServer(doc, range), [this, uri, cb](std::vector<LspInlayHint> hs, const std::string& err) {
@@ -1243,7 +1275,7 @@ void SemanticEngine::inlayHints(const Document& doc, Range range, Callback<std::
 }
 
 void SemanticEngine::foldingRanges(const Document& doc, Callback<std::vector<LspFoldingRange>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   std::string uri = doc.uri();
   c->foldingRanges(uri, [this, uri, cb](std::vector<LspFoldingRange> rs, const std::string& err) {
@@ -1256,7 +1288,7 @@ void SemanticEngine::foldingRanges(const Document& doc, Callback<std::vector<Lsp
 }
 
 void SemanticEngine::documentHighlights(const Document& doc, Position pos, Callback<std::vector<LspHighlight>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   std::string uri = doc.uri();
   c->documentHighlights(uri, toServer(doc, pos), [this, uri, cb](std::vector<LspHighlight> hs, const std::string& err) {
@@ -1266,7 +1298,7 @@ void SemanticEngine::documentHighlights(const Document& doc, Position pos, Callb
 }
 
 void SemanticEngine::formatDocument(const Document& doc, Callback<TextEditList> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   std::string uri = doc.uri();
   c->formatting(uri, [this, uri, cb](std::vector<LspTextEdit> es, const std::string& err) {
@@ -1277,7 +1309,7 @@ void SemanticEngine::formatDocument(const Document& doc, Callback<TextEditList> 
 }
 
 void SemanticEngine::formatRange(const Document& doc, Range range, Callback<TextEditList> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   std::string uri = doc.uri();
   c->rangeFormatting(uri, toServer(doc, range), [this, uri, cb](std::vector<LspTextEdit> es, const std::string& err) {
@@ -1302,7 +1334,7 @@ HierarchyItem SemanticEngine::hierarchyItemFromServer(const LspHierarchyItem& it
 }
 
 void SemanticEngine::prepareCallHierarchy(const Document& doc, Position pos, Callback<std::vector<HierarchyItem>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->callHierarchyPrepare(doc.uri(), toServer(doc, pos),
                           [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
@@ -1313,7 +1345,7 @@ void SemanticEngine::prepareCallHierarchy(const Document& doc, Position pos, Cal
 }
 
 void SemanticEngine::prepareTypeHierarchy(const Document& doc, Position pos, Callback<std::vector<HierarchyItem>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->typeHierarchyPrepare(doc.uri(), toServer(doc, pos),
                           [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
@@ -1324,7 +1356,7 @@ void SemanticEngine::prepareTypeHierarchy(const Document& doc, Position pos, Cal
 }
 
 void SemanticEngine::incomingCalls(const HierarchyItem& item, Callback<std::vector<CallEdge>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->callHierarchyCalls(item.server, true, [this, cb](std::vector<LspCall> cs, const std::string& e) {
     std::vector<CallEdge> out;
@@ -1338,7 +1370,7 @@ void SemanticEngine::incomingCalls(const HierarchyItem& item, Callback<std::vect
 }
 
 void SemanticEngine::outgoingCalls(const HierarchyItem& item, Callback<std::vector<CallEdge>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   std::string uri = item.server.uri;
   c->callHierarchyCalls(item.server, false, [this, uri, cb](std::vector<LspCall> cs, const std::string& e) {
@@ -1353,7 +1385,7 @@ void SemanticEngine::outgoingCalls(const HierarchyItem& item, Callback<std::vect
 }
 
 void SemanticEngine::supertypes(const HierarchyItem& item, Callback<std::vector<HierarchyItem>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->typeHierarchyItems(item.server, true, [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
     std::vector<HierarchyItem> out;
@@ -1363,7 +1395,7 @@ void SemanticEngine::supertypes(const HierarchyItem& item, Callback<std::vector<
 }
 
 void SemanticEngine::subtypes(const HierarchyItem& item, Callback<std::vector<HierarchyItem>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->typeHierarchyItems(item.server, false, [this, cb](std::vector<LspHierarchyItem> is, const std::string& e) {
     std::vector<HierarchyItem> out;
@@ -1375,7 +1407,7 @@ void SemanticEngine::subtypes(const HierarchyItem& item, Callback<std::vector<Hi
 // ---- code actions, commands, watched files ----
 
 void SemanticEngine::codeActions(const Document& doc, Range range, Callback<std::vector<CodeAction>> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->codeActions(doc.uri(), toServer(doc, range), [this, cb](std::vector<LspCodeAction> as, const std::string& err) {
     std::vector<CodeAction> out;
@@ -1396,13 +1428,13 @@ void SemanticEngine::codeActions(const Document& doc, Range range, Callback<std:
 }
 
 void SemanticEngine::executeCommand(const std::string& command, Json arguments, Callback<Json> cb) {
-  LspClient* c = requireClangd(cb);
+  auto c = requireClangd(cb);
   if (!c) return;
   c->executeCommand(command, std::move(arguments), std::move(cb));
 }
 
 void SemanticEngine::watchedFileChanged(const fs::path& file, int type) {
-  LspClient* c = clangd();
+  auto c = clangd();
   if (!c) return;
   std::string uri = pathToUri(file);
   {

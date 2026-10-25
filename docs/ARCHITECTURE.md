@@ -62,7 +62,7 @@ thread.
 | `FastIndex::fuzzyScore` | Pure, any thread. |
 | `SemanticEngine::workspaceSymbols` | **Any thread, asynchronous.** Returns at once; callbacks run on the symbol thread, the timer thread or the clangd reader thread (not the caller's). A newer call supersedes every older one: the older scan is cancelled and its callbacks (approximate, authoritative, error) are never invoked. After `stop()` the callback fires once, inline, with an error. |
 | `SemanticEngine::approximateSymbols`, `approximateDefinitions` (the latter reads a `Document`, so only on that document's thread) | Synchronous; `approximateSymbols` is safe on any thread but is the cost of a full scan (use it from benchmarks, tests, workers, not from the UI thread). |
-| `SemanticEngine::fileChanged`, `fileRemoved`, `watchedFileChanged`, `indexFilesAsync`, `refreshCompileCommands`, `status`, `waitFor*` | Any thread (as before). |
+| `SemanticEngine::fileChanged`, `fileRemoved`, `watchedFileChanged`, `indexFilesAsync`, `refreshCompileCommands`, `status`, `waitFor*`, `compileCommands`, `clangd` (A11: snapshot accessors, see below) | Any thread (as before). |
 | Everything else on `SemanticEngine` (`goto*`, `hover`, `completion`, `didOpen/Change/Save/Close`, `restartClangd`, ...) | Editor thread, as before. `gotoDefinition` & co. compute their approximate tier synchronously from `FastIndex::lookup` (one hash lookup, `defFirstApproxMs` is ~0.03 ms on Godot), so they stay on the caller thread. `completion` without clangd calls `FastIndex::search` synchronously (now ~1-10 ms on Godot). |
 
 ### Fast-tier symbol search (A10)
@@ -78,10 +78,19 @@ file by file with a per-symbol mask of `scope::name` (built lazily per file).
 The scan is cut into blocks handed out by an atomic counter, which is also
 where the `cancelled()` predicate is polled.
 
-Pre-existing, not touched by A10: `SemanticEngine::compileCommands_` is
-rewritten by the engine worker while `compileCommands()` can be read from
-another thread; ThreadSanitizer reports it in
-`watch_compile_commands_location_change_restarts_clangd_only_then`.
+### Engine robustness (A11): ThreadSanitizer and the shared state it found
+
+A10 found two pre-existing races with `-fsanitize=thread`; A11 fixed them at the source and added the
+`linux-gcc-tsan` CI job (preset `tsan`, gcc, Debug, `-fsanitize=thread -O1`, the whole `tenfold-tests` suite,
+`halt_on_error=1`, suppressions in `tsan.supp`, which is empty: every report was ours and was fixed).
+
+| State | Was | Now |
+|---|---|---|
+| `SemanticEngine::compileCommands_` | a plain vector rewritten by the engine worker (`prepareCompileCommands`) while `compileCommands()` returned a reference to it on other threads | an immutable `shared_ptr<const vector<CompileCommand>>`, swapped under `mu_`. `compileCommands()` returns a snapshot (never null) that stays valid and unchanging while the worker publishes a newer one. |
+| `SemanticEngine::clangd_` | a `unique_ptr` read by `clangd()` / `status()` / `toServer()` / the symbol thread while `restartClangd()` / `stop()` on another thread reset it | a `shared_ptr` guarded by the leaf mutex `clientMu_`; `clangd()` (initialised client or null) and `client()` return a snapshot. A request in flight keeps the old client alive until it completes; `restartClangd()` stops the old client (its pending requests fail fast) and publishes the new one only after it started. |
+| `compdbPath_` / `compdbSource_` read in `startClangd` | read without `mu_` while the worker rewrote them | copied under `mu_` at the top of `startClangd`. |
+
+`clientMu_` is never held across a call into `LspClient`, so it cannot take part in a lock cycle.
 
 ## The two-tier query policy
 
@@ -211,7 +220,13 @@ fast editor must:
   are stored per file apart from clangd's (`buildDiagnostics(file)` vs
   `diagnostics(file)`), so a UI can colour them differently. Message line
   numbers are those of the build time; they are not remapped when the buffer is
-  edited afterwards.
+  edited afterwards. Every output line goes through `tf::stripAnsiEscapes`
+  (`src/build/AnsiStrip.*`: CSI colour codes and OSC hyperlinks from
+  `-fdiagnostics-color` / `-fdiagnostics-urls`) before `ErrorParser` sees it,
+  and the build panel uses the same helper to render lines; the `onLines`
+  callback still receives the raw text. `setBuildCursor(index)` moves the F4
+  cursor to a message (a click on a build-panel line), so the next F4 /
+  Shift+F4 continues from there.
 
 ## Navigation history
 

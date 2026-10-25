@@ -510,7 +510,7 @@ TEST(lsp_did_change_watched_files_for_unopened_files) {
   Fx f(dir.path, true, /*polling=*/true);
   REQUIRE(f.ok);
   REQUIRE(f.openReady(dir.path / "src/main.cpp") != nullptr);
-  LspClient* c = f.ed.semantic().clangd();
+  auto c = f.ed.semantic().clangd();
   REQUIRE(c != nullptr);
   auto has = [&](const fs::path& p, int type) {
     for (auto& e : c->sentFileEvents())

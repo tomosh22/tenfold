@@ -26,6 +26,14 @@ tools/bench.sh --large /path/to/godot --file scene/3d/node_3d.cpp:171:45 --sym N
   `findInFiles`, ...) are added by calling `rep.phase("name", ms)` in `runBench`; no script change is needed.
   To give a new phase a budget column, add it to `BUDGETS` in `bench_workspace.py`.
 
+### Timing asserts in the test suites (A11)
+
+Wall-clock budgets are flaky on loaded or shared machines, so unit tests never assert on elapsed time unless
+that is the test's point. `renderer_perf_visible_region` (`tests/ui/test_renderer.cpp`, the 2 ms CPU per frame
+target) always prints its `PERF:` lines but only fails the build when `TENFOLD_ENFORCE_PERF=1` is set in the
+environment; use that on a quiet machine (`TENFOLD_ENFORCE_PERF=1 xvfb-run -a ./build-ui/tenfold-ui-tests
+renderer_perf`). Without it, a missed budget prints `PERF: over the 2 ms budget (not enforced ...)`.
+
 ### Phases
 
 | Key | Meaning |
