@@ -206,14 +206,14 @@ TEST(app_unbound_ui_commands_say_not_available_and_escape_does_not_quit) {
 }
 
 TEST(app_keybinding_file_errors_show_in_status_bar_and_other_bindings_work) {
-  Env env("# comment\nCtrl+Shift+Bogus = Editor.Undo\nCtrl+J = Editor.CaretDocEnd\nF5 Foo\n");
+  Env env("# comment\nCtrl+Shift+Bogus = Editor.Undo\nCtrl+Shift+J = Editor.CaretDocEnd\nF5 Foo\n");
   CHECK(!env.app->diagnostics().empty());
   const std::string m = env.status("message");
   CHECK(m.find("keybindings.txt:2") != std::string::npos);
   CHECK(m.find("more") != std::string::npos);  // two bad lines: "(+1 more)"
   CHECK_EQ(m, formatDiag(env.app->diagnostics()[0]) + " (+1 more)");
   env.bench->openFile("a.cpp");
-  CHECK(env.key(Key('J'), ModCtrl));                // the good user binding
+  CHECK(env.key(Key('J'), ModCtrl | ModShift));     // the good user binding
   CHECK_EQ(env.ed->selections()[0].head.line, 10);  // the last line is the empty one after the final newline
   CHECK(env.key(Key('S'), ModCtrl));                // a default binding
   env.type("!");

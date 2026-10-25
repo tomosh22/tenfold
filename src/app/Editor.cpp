@@ -104,6 +104,20 @@ Position wordLeft(const TextBuffer& b, Position p) {
   while (c > 0 && charClass(l, c - 1) == k) --c;
   return {p.line, c};
 }
+// The pairs the editor closes by itself: parentheses, brackets, braces, double and single quotes.
+bool isPair(char open, char close) {
+  return (open == '(' && close == ')') || (open == '[' && close == ']') || (open == '{' && close == '}') ||
+         (open == '"' && close == '"') || (open == '\'' && close == '\'');
+}
+
+// `p` moved forward over the first `bytes` bytes of `text`.
+Position advanceBy(Position p, const std::string& text, size_t bytes) {
+  for (size_t i = 0; i < bytes && i < text.size(); ++i) {
+    if (text[i] == '\n') p = {p.line + 1, 0};
+    else ++p.column;
+  }
+  return p;
+}
 }  // namespace
 
 Editor::Editor(fs::path root) : Editor(std::move(root), Options()) {}
@@ -146,6 +160,7 @@ bool Editor::start(std::string* error) {
 }
 
 void Editor::shutdown() {
+  saveBookmarks();
   buildRunner_.reset();  // kills a running build and joins its reader before the queue goes away
   buildRunning_ = false;
   for (auto& h : searches_) h.cancel();
@@ -183,12 +198,17 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
   // lookup key is canonicalised and normalised, so cursor/history paths round-trip.
   fs::path path = pathIn.is_absolute() ? pathIn : ws_.root() / pathIn;
   if (Document* d = document(path)) return d;
+  if (!bookmarksLoaded_) {  // first document: bring the persisted bookmarks in (a missing file is fine)
+    bookmarksLoaded_ = true;
+    bookmarks_.load(ws_.cacheDir() / "bookmarks.json", ws_.root());
+  }
   auto doc = std::make_unique<Document>(path);
   if (!doc->loadFromDisk(error)) return nullptr;
   Document* raw = doc.get();
   raw->addListener([this](Document& d, const Document::Change& ch) {
     int newLines = 1 + static_cast<int>(std::count(ch.newText.begin(), ch.newText.end(), '\n'));
     nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
     if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
       int& ln = lastEdit_.pos.line;
       if (ln > ch.removed.end.line) {
@@ -227,7 +247,27 @@ bool Editor::close(const fs::path& path) {
 }
 
 bool Editor::save(Document& doc, std::string* error) {
+  if (editing_.trimTrailingWhitespace) {
+    std::vector<Document::BatchEdit> trims;  // one undo step; the carets of the current document are carried along
+    const TextBuffer& b = doc.buffer();
+    for (int l = 0; l < b.lineCount(); ++l) {
+      const std::string& s = b.line(l);
+      size_t e = s.size();
+      while (e > 0 && (s[e - 1] == ' ' || s[e - 1] == '\t')) --e;
+      if (e < s.size()) trims.push_back({{{l, static_cast<int>(e)}, {l, static_cast<int>(s.size())}}, {}});
+    }
+    if (!trims.empty()) {
+      if (&doc == current_) {
+        runLineEdits(std::move(trims));
+      } else {
+        doc.beginGroup();
+        doc.replaceMany(std::move(trims));
+        doc.endGroup();
+      }
+    }
+  }
   if (!doc.saveToDisk(error)) return false;
+  saveBookmarks();
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
   if (semantic_) semantic_->didSave(doc);
   return true;
@@ -393,6 +433,7 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           fs::path to = ev.path / f.lexically_relative(ev.oldPath);
           ws_.noteFileRenamed(f, to);
           nav_.onFileRenamed(f, to);
+          bookmarks_.onFileRenamed(f, to);
           semantic_->fileRemoved(f);
           semantic_->watchedFileChanged(f, 3);
           semantic_->watchedFileChanged(to, 1);
@@ -402,6 +443,7 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
       } else {
         ws_.noteFileRenamed(ev.oldPath, ev.path);
         nav_.onFileRenamed(ev.oldPath, ev.path);
+        bookmarks_.onFileRenamed(ev.oldPath, ev.path);
         semantic_->watchedFileChanged(ev.oldPath, 3);
         semantic_->watchedFileChanged(ev.path, 1);
         touched(ev.path);  // editors save by renaming a temp file over the target
@@ -924,11 +966,27 @@ void Editor::applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious) {
   Document& doc = *current_;
   doc.beginGroup(carets_, joinPrevious);
   std::vector<Document::BatchEdit> batch(n);
-  for (size_t k = 0; k < n; ++k) batch[k] = {edits[order[k]].range, std::move(edits[order[k]].text)};
+  std::vector<std::string> placed(n);  // texts of edits that position their caret inside the inserted text
+  for (size_t k = 0; k < n; ++k) {
+    CaretEdit& ce = edits[order[k]];
+    if (ce.headOffset != std::string::npos || ce.anchorOffset != std::string::npos) placed[k] = ce.text;
+    batch[k] = {ce.range, std::move(ce.text)};
+  }
   inEdit_ = true;
   const std::vector<Range> after = doc.replaceMany(std::move(batch));
   inEdit_ = false;
-  for (size_t k = 0; k < n; ++k) carets_[order[k]] = caretAt(after[k].end);
+  for (size_t k = 0; k < n; ++k) {
+    const CaretEdit& ce = edits[order[k]];
+    if (ce.headOffset == std::string::npos && ce.anchorOffset == std::string::npos) {
+      carets_[order[k]] = caretAt(after[k].end);
+      continue;
+    }
+    const Position head =
+        ce.headOffset == std::string::npos ? after[k].end : advanceBy(after[k].start, placed[k], ce.headOffset);
+    const Position anchor =
+        ce.anchorOffset == std::string::npos ? head : advanceBy(after[k].start, placed[k], ce.anchorOffset);
+    carets_[order[k]] = {anchor, head};
+  }
   wants_.assign(n, -1);
   normalizeCarets();
   doc.endGroup(carets_);
@@ -939,18 +997,25 @@ void Editor::insertText(const std::string& text) {
   if (!current_ || carets_.empty()) return;
   const bool anySelection = std::any_of(carets_.begin(), carets_.end(), [](const Selection& s) { return !s.empty(); });
   if (text.empty() && !anySelection) return;
+  std::vector<CaretEdit> edits;
+  edits.reserve(carets_.size());
+  for (const Selection& s : carets_) edits.push_back({s.range(), text});
+  typeEdits(std::move(edits), text);
+}
+
+// One edit per caret; `typed` is the keystroke they stem from. A single typed code point is coalesced with the
+// preceding typing into one undo step according to Workspace::Settings::undoGrouping / undoGroupPauseMs.
+void Editor::typeEdits(std::vector<CaretEdit> edits, const std::string& typed) {
+  const bool anySelection = std::any_of(carets_.begin(), carets_.end(), [](const Selection& s) { return !s.empty(); });
   const Workspace::Settings& st = ws_.settings();
-  const bool coalesce = isSingleCodepoint(text) && st.undoGrouping != "char";
+  const bool coalesce = isSingleCodepoint(typed) && st.undoGrouping != "char";
   const int64_t now = nowMs();
   const bool join = coalesce && !anySelection && typingOpen_ && typingDoc_ == current_ &&
                     typingVersion_ == current_->version() && typingCarets_ == carets_ &&
                     now - typingTime_ <= st.undoGroupPauseMs && current_->canUndo();
-  std::vector<CaretEdit> edits;
-  edits.reserve(carets_.size());
-  for (const Selection& s : carets_) edits.push_back({s.range(), text});
   applyCaretEdits(std::move(edits), join);
   if (coalesce) {
-    typingOpen_ = !(text.size() == 1 && isBlank(text[0]));  // whitespace joins the step, then closes it
+    typingOpen_ = !(typed.size() == 1 && isBlank(typed[0]));  // whitespace joins the step, then closes it
     typingDoc_ = current_;
     typingVersion_ = current_->version();
     typingTime_ = now;
@@ -983,6 +1048,11 @@ void Editor::backspace() {
       const Position p = s.head;
       if (p.column > 0) r.start = {p.line, prevCharStart(b.line(p.line), p.column)};
       else if (p.line > 0) r.start = {p.line - 1, static_cast<int>(b.line(p.line - 1).size())};
+      // Between an empty auto-closed pair ("(|)", "\"|\""): delete both characters.
+      const std::string& l = b.line(p.line);
+      if (editing_.autoClosePairs && p.column > 0 && p.column < static_cast<int>(l.size()) &&
+          isPair(l[static_cast<size_t>(p.column) - 1], l[static_cast<size_t>(p.column)]))
+        r.end = {p.line, p.column + 1};
     }
     edits.push_back({r, {}});
   }

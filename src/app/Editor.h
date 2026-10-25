@@ -11,6 +11,7 @@
 #include <string>
 #include <vector>
 
+#include "app/Bookmarks.h"
 #include "build/BuildRunner.h"
 #include "build/ErrorParser.h"
 #include "core/Document.h"
@@ -200,6 +201,50 @@ class Editor {
   void replaceRange(Range r, const std::string& text);
   bool undo();
   bool redo();
+  // --- editing conveniences (B8) ---
+  // Every command below edits at every caret and forms ONE undo step. The behaviours that could differ from 10x
+  // (OPEN_QUESTIONS #8) are switched by EditingOptions; the UI fills them from the editor.* settings.
+  struct EditingOptions {
+    bool autoIndent = true;               // Enter copies / extends the indentation; '}' dedents
+    bool autoClosePairs = true;           // ( [ { " ' close themselves, skip-over, wrap selections, pair backspace
+    bool detectIndent = true;             // take the indent unit from the document's first lines
+    std::string indentUnit = "    ";      // "\t" or N spaces; the fallback when detection finds nothing
+    bool trimTrailingWhitespace = false;  // on save()
+  };
+  EditingOptions& editing() { return editing_; }
+  const EditingOptions& editing() const { return editing_; }
+  // The indent unit used for `doc`: detected from its first lines (editing().detectIndent) or the setting.
+  std::string indentUnitFor(const Document& doc) const;
+  // Typed text (the UI's text input): auto-close / skip-over / wrap-selection for ( [ { " ', dedent for '}' as the
+  // first non-blank character; everything else is insertText. Pasted text must use insertText.
+  void typeText(const std::string& text);
+  // Enter: new line with the previous line's indentation (+1 level after '{', '(', '[' or an operator; `{|}` opens
+  // a block with the closer on its own line). Plain "\n" when autoIndent is off.
+  void insertNewline();
+  void insertTab();           // Tab: a selection over several lines -> indentLines(), else the indent unit
+  void indentLines();         // one indent unit on every line touched by a caret
+  void outdentLines();        // removes one unit (or less) from the same lines
+  void toggleLineComment();   // "//" at the lines' minimum indentation; uncomments when every non-blank line has it
+  void toggleBlockComment();  // /* */ around each selection (a caret: around its line's text); unwraps when wrapped
+  void duplicate();           // selection -> copy right after it (selected); caret -> the line below
+  void moveLines(bool down);  // lines touched by carets swap with the neighbour line
+  void joinLines();           // line + next line (selection: all its lines), leading blanks of the next -> one space
+  void deleteLines();         // lines touched by carets, line break included
+  bool gotoLine(int line, int column = 1, std::string* error = nullptr);  // 1-based, through gotoLocation
+  // Line ending of `doc` (LF / CRLF): marks the document dirty; not an undo step.
+  void setLineEnding(Document& doc, LineEnding e);
+  // Find / replace in the current document. Matches come from TextSearch's matcher (regex needs PCRE2; matches are
+  // clipped to their first line). `error` carries "invalid regex: ..." and the like.
+  std::vector<Range> findInDocument(const SearchOptions& opts, std::string* error = nullptr);
+  // Replaces every match (one undo step, carets follow); returns the count. Regex group references are not expanded.
+  size_t replaceAll(const SearchOptions& opts, const std::string& replacement, std::string* error = nullptr);
+  // Bookmarks (line based, follow edits, persisted in .tenfold/bookmarks.json when they change and on save()).
+  Bookmarks& bookmarks() { return bookmarks_; }
+  bool toggleBookmark();                            // at the primary caret's line; true when now set
+  bool gotoBookmark(bool forward);                  // next / previous across files (wraps), via gotoLocation
+  bool gotoBookmarkItem(const Bookmarks::Item& b);  // via gotoLocation, column 0
+  void saveBookmarks();                             // no-op unless something changed
+
   // Injectable time source (milliseconds, monotonic) for the typing-pause boundary.
   void setClock(std::function<int64_t()> clock) { opt_.clock = std::move(clock); }
 
@@ -241,6 +286,8 @@ class Editor {
   struct CaretEdit {
     Range range;
     std::string text;
+    // Where the caret ends up, as byte offsets into `text` (npos = its end); anchorOffset npos = same as the head.
+    size_t headOffset = std::string::npos, anchorOffset = std::string::npos;
   };
   void setCurrent(Document* d, Position p);
   void setPrimaryOnly(Position p);
@@ -252,6 +299,12 @@ class Editor {
     if (current_) lastEdit_ = cursor_;
   }
   void applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious);
+  void typeEdits(std::vector<CaretEdit> edits, const std::string& typed);  // insertText's undo coalescing
+  // Batch edits (sorted, disjoint) as one undo step. `carets` maps the batch result to the new caret set and sets
+  // the index of the primary in it; without it every caret is carried through the edits.
+  using CaretFn = std::function<std::vector<Selection>(const std::vector<Range>& after, size_t& primary)>;
+  void runLineEdits(std::vector<Document::BatchEdit> edits, const CaretFn& carets = {});
+  std::vector<std::pair<int, int>> selectedLineBlocks() const;  // merged inclusive line ranges touched by carets
   int64_t nowMs() const;
   void breakTyping() { typingOpen_ = false; }
   void startWatching();
@@ -294,6 +347,9 @@ class Editor {
   int typingVersion_ = 0;
   int64_t typingTime_ = 0;
   std::vector<Selection> typingCarets_;
+  EditingOptions editing_;
+  Bookmarks bookmarks_;
+  bool bookmarksLoaded_ = false;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
   std::vector<SearchHandle> searches_;
 

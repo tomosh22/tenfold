@@ -17,6 +17,16 @@ editor.tabWidth = 4
 editor.columnGuide = 0
 editor.showWhitespace = false
 
+# Editing conveniences (B8, OPEN_QUESTIONS #8: VERIFY WITH USER, every default below is a guess about 10x).
+# indentUnit: "tab" or the number of spaces of one indent level; used when detectIndent finds nothing in the file.
+editor.indentUnit = 4
+editor.detectIndent = true
+# Enter copies the previous line's indentation (one level deeper after { ( [ or an operator); '}' dedents.
+editor.autoIndent = true
+# ( [ { " ' close themselves, typing the closer skips over it, selections are wrapped, Backspace removes empty pairs.
+editor.autoClosePairs = true
+editor.trimTrailingWhitespace = false
+
 # Unset: the app discovers a monospace font, trying font.fallbacks in order (OPEN_QUESTIONS #7).
 font.editor =
 font.fallbacks = Consolas, JetBrains Mono

@@ -309,6 +309,33 @@ in `.tenfold/workspace.json`; time comes from an injectable clock
 (`Editor::Options::clock` / `setClock`, milliseconds). This is a default
 pending OPEN_QUESTIONS #3.
 
+**Editing conveniences (B8, `src/app/EditorEditing.cpp`, `src/app/Bookmarks.*`).** Everything is an `Editor` method that
+edits at every caret and forms ONE undo step; the behaviours that could differ from 10x live in `Editor::EditingOptions`
+(`autoIndent`, `autoClosePairs`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`; the UI fills them from the
+`editor.*` settings, OPEN_QUESTIONS #8). Two entry points exist for text: `insertText` stays raw (paste, completion,
+tests) and `typeText` is what the view calls for typed characters (auto-close `( [ { " '`, typing over the closer
+that is already there, wrapping a selection, `}` as the first non-blank character dedenting to the line of the `{` it
+closes; everything else falls through to `insertText`, so the typing coalescer is unchanged: both go through
+`typeEdits`). `insertNewline` copies the indentation, adds one unit after a line ending in `{ ( [` or a binary
+operator (`+ - * / % & | ^ = ? <<`, not `++ -- */`), returns one unit when a continued statement ends with `;`, splits
+`{|}` into three lines and trims the blanks around the break. `indentUnitFor(doc)` detects tabs vs. the most common
+indentation step of the first 400 lines. Line commands (`indentLines/outdentLines`, `toggleLineComment`, `moveLines`,
+`joinLines`, `deleteLines`, `trim on save`, `replaceAll`) compute a sorted batch and go through
+`Editor::runLineEdits` -> `Document::replaceMany` (A5b's single-pass path), carrying carets with `mapThrough`
+(positions inside a replaced range go to its start; at a pure insertion the start of a selection stays before it);
+`toggleBlockComment`, `duplicate` and the typing commands are per-caret edits through `applyCaretEdits`, which now
+accepts per-edit caret/anchor offsets inside the inserted text (`CaretEdit::headOffset/anchorOffset`). A selection that
+ends at column 0 does not touch that last line. `findInDocument` / `replaceAll` run TextSearch's matcher on the buffer
+text (a synthetic one-file `SearchInput` with an override), so literal / whole-word / PCRE2 semantics are identical to
+find in files; regex group references in the replacement are not expanded.
+
+`Bookmarks` keeps sorted line sets per file (key `pathKey`), moves them with the same rule as
+`NavigationHistory::onLinesReplaced` (the Editor's document listener feeds both), is persisted as
+`.tenfold/bookmarks.json` (`{"version":1,"bookmarks":{"<path relative to the root>":[line,...]}}`, 0-based lines; loaded
+when the first document opens, saved on toggle, on `save()` and on shutdown) and navigates by (path, line) across files
+with wrap-around; `gotoBookmark` / `gotoBookmarkItem` go through `gotoLocation`. `generation()` lets views repaint
+their gutter flags.
+
 The line vector is simple and plenty fast for files up to hundreds of MB;
 a piece table can replace it later behind the same interface if needed.
 
@@ -611,6 +638,30 @@ caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpip
 * **Measured** (Release, llvmpipe, 100k lines, 1920x1080, one caret): keystroke-to-paint 0.12 ms plain vs 0.15 ms
   coloured (p99 below 0.4 ms); cold first paint 1-2 ms at the top (glyph atlas cold too), 0.5 ms when scrolled to line
   90000 (provisional), exact pass finished in the background in ~60 one-ms ticks.
+
+### Editing conveniences UI (B8, `src/ui/features/{FindReplace,GoToLine,BookmarkList}.*`)
+
+* **FindReplace** (`Editor.Find` Ctrl+F, `Editor.Replace` Ctrl+H, `Editor.FindNext/FindPrev` F3 / Shift+F3): a
+  non-modal top-layer bar at the top right of the editor with a find field, an optional replace field and the toggles
+  case (Alt+C), whole word (Alt+W), regex (Alt+R). Typing searches synchronously through `Editor::findInDocument` and
+  selects the first match at or after where the search started; every match is highlighted in the visible lines
+  (`TextView::setFindMatches`, behind the text, the current one stronger) and fills the scrollbar's search lane in
+  place of the find-in-files markers until the bar closes. Enter / Shift+Enter step (far moves go through
+  `Editor::moveCursor`, so Back returns); in the replace field Enter replaces the selected match and moves on, Ctrl+Enter
+  replaces all (one undo step); Tab switches fields; Escape closes and returns the focus to the view. The bar re-searches
+  when the document changes (`tick`). Keys reach it because the focused InputLine bubbles unhandled keys to the bar.
+* **GoToLine** (`Editor.GotoLine`, Ctrl+G): a one-row modal ListPopup; `42` or `42:7`, Enter -> `Editor::gotoLine`
+  (`gotoLocation`, so it is in the navigation history); numbers past the end clamp to the last line.
+* **BookmarkList** (`Editor.ListBookmarks`, Ctrl+Shift+F2): modal list of every bookmark (line text, `path:line`),
+  the input filters, Enter -> `gotoBookmarkItem`. Toggle / next / previous (Ctrl+F2, F2, Shift+F2) are engine commands.
+  TextView draws a small accent-coloured flag at the left edge of a bookmarked line's gutter.
+* **Settings** (`assets/settings.default.txt`): `editor.indentUnit` (`tab` or a number of spaces, default 4),
+  `editor.detectIndent` (true), `editor.autoIndent` (true), `editor.autoClosePairs` (true),
+  `editor.trimTrailingWhitespace` (false). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
+* Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
+  lines indents them. Encoding is UTF-8 only (the status bar shows `UTF-8` and the line ending; `Editor.LineEndingLF` /
+  `Editor.LineEndingCRLF` switch the line ending written on save). TODO: other encodings need detection and conversion
+  that must not be invented without a decision.
 
 ### EditorApp: input to commands (`src/ui/shell/EditorApp.*`, B-INT)
 

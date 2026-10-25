@@ -76,9 +76,27 @@ void TextView::setSemanticTokens(std::vector<TokenSpan> spans, const LspSemantic
 }
 
 void TextView::setSearchMarkers(const std::vector<Range>& matches) {
+  searchLines_.clear();
+  searchLines_.reserve(matches.size());
+  for (const Range& r : matches) searchLines_.push_back(r.start.line);
+  updateSearchLane();
+}
+
+void TextView::setFindMatches(std::vector<Range> matches, int current) {
+  findMatches_ = std::move(matches);
+  findCurrent_ = current;
+  updateSearchLane();
+  markDirty();
+}
+
+void TextView::updateSearchLane() {
+  if (findMatches_.empty()) {
+    sb_->setMarkers(Scrollbar::Lane::Search, searchLines_);
+    return;
+  }
   std::vector<int> lines;
-  lines.reserve(matches.size());
-  for (const Range& r : matches) lines.push_back(r.start.line);
+  lines.reserve(findMatches_.size());
+  for (const Range& r : findMatches_) lines.push_back(r.start.line);
   sb_->setMarkers(Scrollbar::Lane::Search, std::move(lines));
 }
 
@@ -235,6 +253,10 @@ bool TextView::syncState() {
   const bool cur = isCurrent();
   const int ver = d ? d->version() : -1;
   const bool docChanged = d != seenDoc_, selChanged = cur && editor_.selections() != seenSel_;
+  if (editor_.bookmarks().generation() != bookmarkGen_) {
+    bookmarkGen_ = editor_.bookmarks().generation();
+    markDirty();
+  }
   const uint64_t sig = diagnosticSignature();
   if (sig != diagSig_ || docChanged) {  // clangd published new diagnostics (or another document)
     diagSig_ = sig;
@@ -320,6 +342,22 @@ void TextView::paint(PaintContext& ctx) {
     if (gx >= clip.x && gx < clip.x + clip.w) ctx.fill({gx, clip.y, 1, clip.h}, th.columnGuide);
   }
 
+  if (!findMatches_.empty()) {  // find / replace matches of the visible lines, behind the text
+    Color hit = th.dirtyMarker, now = th.dirtyMarker;
+    hit.a = 0.30f;
+    now.a = 0.65f;
+    auto it = std::lower_bound(findMatches_.begin(), findMatches_.end(), first,
+                               [](const Range& r, int line) { return r.end.line < line; });
+    for (; it != findMatches_.end() && it->start.line < last; ++it) {
+      if (it->start.line != it->end.line) continue;  // matches are clipped to their first line
+      const std::string& text = buf.line(it->start.line);
+      const float x0 = L.xForByte(text, static_cast<size_t>(it->start.column)),
+                  x1 = L.xForByte(text, static_cast<size_t>(it->end.column));
+      const RectF rc =
+          intersect({textX + x0, b.y + L.lineTop(it->start.line, sy), std::max(x1 - x0, cw / 2), lh}, clip);
+      if (rc.w > 0) ctx.fill(rc, static_cast<int>(it - findMatches_.begin()) == findCurrent_ ? now : hit);
+    }
+  }
   const bool cur = isCurrent();
   if (cur) {
     const std::vector<Selection>& sels = editor_.selections();
@@ -350,8 +388,13 @@ void TextView::paint(PaintContext& ctx) {
                               b.y + L.lineTop(p.line, sy), cw, lh},
                              clip),
                    th.bracketMatch);
+  bookmarkLines_ = editor_.bookmarks().lines(d->path());
   for (int i = first; i < last; ++i) {
     const float y = b.y + L.lineTop(i, sy);
+    if (std::binary_search(bookmarkLines_.begin(), bookmarkLines_.end(), i)) {  // bookmark: a flag in the gutter
+      const float m = std::max(4.0f, std::floor(cw * 0.7f));
+      ctx.fill({b.x + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
+    }
     number_ = std::to_string(i + 1);
     ctx.text(b.x + gw - cw - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText, gutterClip);
     if (colour)
@@ -513,7 +556,7 @@ bool TextView::onEvent(const InputEvent& e) {
       break;
     case InputType::Text:
       if (!isCurrent()) activate();
-      if (!e.text.empty()) editor_.insertText(e.text);
+      if (!e.text.empty()) editor_.typeText(e.text);
       handled = !e.text.empty();
       break;
     default: break;
