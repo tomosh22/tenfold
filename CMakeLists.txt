@@ -58,6 +58,7 @@ add_library(tenfold_core STATIC
   src/vcs/VcsExec.cpp
   src/vcs/LineDiff.cpp
   src/vcs/GitProvider.cpp
+  src/vcs/PerforceProvider.cpp
   src/vcs/VcsManager.cpp
 )
 target_include_directories(tenfold_core PUBLIC src third_party)
@@ -129,6 +130,7 @@ add_executable(tenfold-tests
   tests/test_vcs_diff.cpp
   tests/test_vcs_git.cpp
   tests/test_vcs_manager.cpp
+  tests/test_vcs_p4.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -136,6 +138,12 @@ add_executable(tenfold-test-helper tests/test_helper_main.cpp)
 target_link_libraries(tenfold-test-helper PRIVATE tenfold_core)
 target_compile_options(tenfold-test-helper PRIVATE ${TENFOLD_WARN})
 add_dependencies(tenfold-tests tenfold-test-helper)
+# Fake `p4` used by tests/test_vcs_p4.cpp.
+add_executable(tenfold-fake-p4 tests/fake_p4_main.cpp)
+target_link_libraries(tenfold-fake-p4 PRIVATE tenfold_core)
+target_compile_options(tenfold-fake-p4 PRIVATE ${TENFOLD_WARN})
+add_dependencies(tenfold-tests tenfold-fake-p4)
+target_compile_definitions(tenfold-tests PRIVATE TENFOLD_FAKE_P4="$<TARGET_FILE:tenfold-fake-p4>")
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_TEST_HELPER="$<TARGET_FILE:tenfold-test-helper>")
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME unit COMMAND tenfold-tests)

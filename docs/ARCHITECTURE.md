@@ -347,9 +347,46 @@ includes a UI header; it depends on `core` and `lsp/Process.h` (and on `app/Edit
   kind}` with 0-based line indices; `hunkBaseLines` returns the deleted / replaced base lines for an inline display
   and `revertHunkEdit` the one `Document::replace` that restores them.
 * **`VcsManager`** (`Editor::vcs()`): picks the first provider whose `detect()` accepts the workspace root
-  (`Options::providers`, default Git only; C3b adds Perforce there). Per open document it keeps the base lines (split
+  (`Options::providers`; default Perforce, then Git, narrowed by the workspace setting below). Per open document it keeps the base lines (split
   on the worker, shared immutably), the last hunks and the document version they belong to. A new file in the index
   has an empty base (the whole file is one Added hunk); an untracked file has no base and no hunks.
+
+### Perforce (C3b, `PerforceProvider`)
+
+`p4` (or `vcs.p4Path`) is always run as `p4 -ztag ...` with the workspace directory as cwd, so P4CONFIG / P4CLIENT /
+P4PORT / P4USER resolve exactly as in the user's shell. Paths are separate arguments with `% @ # *` escaped.
+
+* **detect**: `p4 -ztag -F %clientRoot% info` (3 s timeout; `null` / `*unknown*` = no client) and `p4 -ztag where
+  <dir>/...` (needs a `depotFile` that is not an exclusion). Any failure (no `p4`, server down, directory outside the
+  client view) is a quick `false`, cached for 15 s per executable and directory so Git-only users with `p4` installed
+  do not pay the timeout again.
+* **status(files)**: one `p4 -ztag fstat -T depotFile,clientFile,headRev,haveRev,action,movedFile,unresolved,
+  headAction,headType,type <files>` (100 files per call). `unresolved` is Conflicted; `action` edit / integrate /
+  other is CheckedOut, add / branch Added, delete / move/delete Deleted, move/add Renamed (`movedFile` is mapped to a
+  local path with `p4 where`); no `action`: no record is Untracked (Unknown when p4 says "not under client's root" /
+  "not in client view" or the file does not exist), a head revision deleted is Untracked, otherwise read-only on disk
+  is ReadOnlyNotCheckedOut and writable Unmodified. Empty list (workspace-wide): `p4 -ztag fstat -Ro ... <root>/...`
+  (opened files only; unlike `p4 opened` it reports local paths). A writable, un-opened file whose content changed
+  (for example a `+w` filetype) reads Unmodified: finding that needs `p4 reconcile`, which is not used.
+* **baseText**: `p4 -ztag fstat` (type, action, haveRev), then `p4 print -q <file>#have`. Added / branched / moved-in
+  files, files not in the depot and binary-ish types (`binary`, `ubinary`, `utf16`, `apple`, `resource`, `symlink`,
+  with or without `+modifiers`) have no textual base (nullopt, empty error). Bytes are returned as printed; line
+  endings are ignored by the diff as for Git.
+* **revert**: refused with "not opened" unless `fstat` shows an `action`; then `p4 revert <file>`.
+* **beforeFirstEdit (auto-checkout)**: in the depot and not opened (or opened but read-only) -> `p4 edit <file>`, then
+  `fstat` again: the file must be opened AND writable on disk, the exit code alone is not trusted (an exclusive lock
+  is a warning). The editor never changes file attributes itself. Failure returns false with p4's message
+  (`VcsManager::onError`); the edit stays in the buffer. Files not in the depot, deleted at the head or not synced are
+  left alone; `p4 add` is never run automatically (`PerforceProvider::add` exists for the UI to call).
+* **Saving a read-only file**: `Editor::save` checks the file's write permission first and fails with
+  "`<name>` is read-only (not checked out in Perforce; run p4 edit, or revert the edit)" instead of a bare "cannot
+  write".
+
+Provider choice: `Options::provider` (`auto` | `perforce` | `git` | `none`), filled from
+`.tenfold/workspace.json` `{"vcs": {"provider": "...", "p4Path": "..."}}` (flat `"vcs.provider"` / `"vcs.p4Path"` keys
+work too) when the caller left it at `auto`. `auto` tries Perforce first and falls back to Git when no client maps
+the workspace or the server is down; `none` switches version control off. Tests use a fake `p4`
+(`tests/fake_p4_main.cpp`, state in a JSON file); no real server is involved.
 
 ### Threading (VCS)
 
