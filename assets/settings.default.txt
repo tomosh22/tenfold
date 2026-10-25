@@ -6,8 +6,9 @@
 # Later layers override earlier ones: this file, <user config dir>/settings.txt, <workspace>/.tenfold/settings.txt.
 # Undo grouping (undoGrouping, undoGroupPauseMs) lives in <workspace>/.tenfold/workspace.json, not here.
 
-editor.smoothScroll = true
-editor.wordWrap = false
+# OPEN_QUESTIONS #4 (answered): soft word wrap on, smooth scrolling off.
+editor.smoothScroll = false
+editor.wordWrap = true
 editor.caretBlink = true
 editor.caretBlinkMs = 530
 editor.highlightCurrentLine = true

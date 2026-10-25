@@ -143,7 +143,7 @@ TEST(b8_defaults_parse_clean_and_bind_the_new_commands) {
   CHECK(s.getBool("editor.autoClosePairs"));
   CHECK(s.getBool("editor.detectIndent"));
   CHECK(!s.getBool("editor.trimTrailingWhitespace"));
-  CHECK(!s.getBool("editor.wordWrap"));
+  CHECK(s.getBool("editor.wordWrap"));  // OPEN_QUESTIONS #4: soft wrap on by default
   CHECK_EQ(s.getString("editor.indentUnit"), std::string("4"));
 
   KeyMap map;

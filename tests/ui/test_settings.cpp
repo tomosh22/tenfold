@@ -114,23 +114,24 @@ TEST(settings_error_classes_with_line_numbers) {
 TEST(settings_layering_and_changed_keys) {
   Settings s;
   CHECK_EQ(s.getInt("editor.tabWidth"), 4);
-  CHECK(s.getBool("editor.smoothScroll"));
+  CHECK(!s.getBool("editor.smoothScroll"));  // OPEN_QUESTIONS #4: off by default
+  CHECK(s.getBool("editor.wordWrap"));       // and soft wrap on
   std::vector<std::set<std::string>> calls;
   s.onChanged([&](const std::set<std::string>& k) { calls.push_back(k); });
-  s.loadTexts("editor.tabWidth = 2\neditor.wordWrap = true\n", "editor.tabWidth = 8\n");
+  s.loadTexts("editor.tabWidth = 2\neditor.wordWrap = false\n", "editor.tabWidth = 8\n");
   CHECK_EQ(s.getInt("editor.tabWidth"), 8);  // workspace beats user
-  CHECK(s.getBool("editor.wordWrap"));       // user beats default
+  CHECK(!s.getBool("editor.wordWrap"));      // user beats default
   REQUIRE(calls.size() == 1);
   CHECK((calls[0] == std::set<std::string>{"editor.tabWidth", "editor.wordWrap"}));
-  s.loadTexts("editor.tabWidth = 2\neditor.wordWrap = true\n", "editor.tabWidth = 8\n");
+  s.loadTexts("editor.tabWidth = 2\neditor.wordWrap = false\n", "editor.tabWidth = 8\n");
   CHECK_EQ(calls.size(), size_t(1));  // nothing changed: no notification
-  s.loadTexts("editor.wordWrap = true\n", "");
+  s.loadTexts("editor.wordWrap = false\n", "");
   REQUIRE(calls.size() == 2);
   CHECK((calls[1] == std::set<std::string>{"editor.tabWidth"}));  // back to the default 4
   CHECK_EQ(s.getInt("editor.tabWidth"), 4);
   s.loadTexts("editor.bogus = 1\n", "");
   CHECK_EQ(s.diagnostics().size(), size_t(1));
-  CHECK(editorSettings(s).smoothScroll);
+  CHECK(!editorSettings(s).smoothScroll);
 }
 
 TEST(settings_defaults_complete_and_clean) {
@@ -231,7 +232,7 @@ TEST(settings_hot_reload) {
     }
     return false;
   };
-  writeFile(ws.path / ".tenfold" / "settings.txt", "editor.tabWidth = 8\neditor.wordWrap = true\n");
+  writeFile(ws.path / ".tenfold" / "settings.txt", "editor.tabWidth = 8\neditor.wordWrap = false\n");
   REQUIRE(waitFor(1));
   CHECK((calls[0] == std::set<std::string>{"editor.tabWidth", "editor.wordWrap"}));
   CHECK_EQ(svc.settings().getInt("editor.tabWidth"), 8);

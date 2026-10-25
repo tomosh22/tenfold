@@ -48,4 +48,4 @@ Defaults and settings (`editor.*` in `settings.txt`); key bindings are placehold
   Enter / F3 next, Shift+Enter / Shift+F3 previous, Replace and Replace All (one undo step), Escape closes.
 * Trailing whitespace: `editor.trimTrailingWhitespace`, off by default (VERIFY). Line endings LF / CRLF switch
   commands; encoding is UTF-8 only.
-* Not implemented: word wrap (now on by default per #4; task B2c), regex group references in Replace, non-UTF-8 encodings.
+* Not implemented: regex group references in Replace, non-UTF-8 encodings.

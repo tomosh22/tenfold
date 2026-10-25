@@ -115,7 +115,7 @@ struct Fx2 {
   }
 
   explicit Fx2(const std::string& content, const char* name = "a.cpp", int w_ = 640, int h_ = 280,
-               std::unique_ptr<gfx::TextRenderer> tr = nullptr, bool render = true)
+               std::unique_ptr<gfx::TextRenderer> tr = nullptr, bool render = true, bool wrap = false)
       : w(w_), h(h_) {
     static int counter = 0;
     dir = uitest::tempRoot() /
@@ -134,6 +134,7 @@ struct Fx2 {
     auto v = std::make_unique<TextView>(*ed);
     tv = v.get();
     tv->settings().smoothScroll = false;
+    tv->settings().wordWrap = wrap;  // the colour scenarios are written for unwrapped lines
     tv->settings().caretBlink = false;
     root->addChild(std::move(v));
     tv->setFocus();
@@ -601,7 +602,8 @@ TEST(perf_colouring_keystroke_to_paint_and_cold_first_paint_100k_lines) {
   // Keystroke-to-paint: same loop as the B2a PERF test, plain text vs colouring.
   double avg[2] = {0, 0}, p99[2] = {0, 0};
   for (int colour = 0; colour < 2; ++colour) {
-    Fx2 f(plain, colour ? "a.cpp" : "a.txt", 1920, 1080, gfx::TextRenderer::create(font, 15.0f, 1.0f, &err));
+    Fx2 f(plain, colour ? "a.cpp" : "a.txt", 1920, 1080, gfx::TextRenderer::create(font, 15.0f, 1.0f, &err), true,
+          true);  // word wrap on, the default
     InputEvent ev;
     ev.type = InputType::Text;
     ev.text = "a";
@@ -632,7 +634,7 @@ TEST(perf_colouring_keystroke_to_paint_and_cold_first_paint_100k_lines) {
   // Cold first paint: nothing lexed yet. At the top only the visible lines are lexed; far down the exact pass is
   // too far behind, so the visible lines are lexed provisionally and finished in the background.
   const std::string commented = bigCpp(true);
-  Fx2 f(commented, "a.cpp", 1920, 1080, std::move(tr0), false);
+  Fx2 f(commented, "a.cpp", 1920, 1080, std::move(tr0), false, true);
   auto t0 = clk::now();
   f.frame();
   const double top = ms(t0, clk::now());

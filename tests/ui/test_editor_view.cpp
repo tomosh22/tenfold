@@ -113,7 +113,8 @@ struct Fx {
     return gfx::TextRenderer::fromFonts(std::move(stack));
   }
 
-  explicit Fx(const std::string& content, int w_ = 640, int h_ = 280, std::unique_ptr<gfx::TextRenderer> tr = nullptr)
+  explicit Fx(const std::string& content, int w_ = 640, int h_ = 280, std::unique_ptr<gfx::TextRenderer> tr = nullptr,
+              bool wrap = false)
       : w(w_), h(h_) {
     static int counter = 0;
     dir = uitest::tempRoot() /
@@ -135,6 +136,7 @@ struct Fx {
     auto v = std::make_unique<TextView>(*ed);
     tv = v.get();
     tv->settings().smoothScroll = false;
+    tv->settings().wordWrap = wrap;  // the legacy scenarios here are written for unwrapped lines
     tv->settings().caretBlink = false;
     tv->settings().clock = [c] { return *c; };
     root->addChild(std::move(v));
@@ -607,7 +609,7 @@ TEST(textview_perf_keystroke_to_paint_100k_lines) {
     std::cerr << "    SKIP: " << err << "\n";
     return;
   }
-  Fx f(content, 1920, 1080, std::move(tr));
+  Fx f(content, 1920, 1080, std::move(tr), true);  // word wrap on, the default
   using clk = std::chrono::steady_clock;
   auto ms = [](clk::time_point a, clk::time_point b) {
     return std::chrono::duration<double, std::milli>(b - a).count();

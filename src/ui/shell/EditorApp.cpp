@@ -190,6 +190,7 @@ void EditorApp::applyEditorSettings() {
   applySettings(settings_->settings());
   forEachView([&](TextView& v) {
     v.applySettings(es);
+    if (wrapOverride_) v.setWordWrap(*wrapOverride_);
     v.settingsGen = settingsGen_;
   });
 }
@@ -219,7 +220,10 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
   });
   settingsToken_ = svc.settings().onChanged([this](const std::set<std::string>& keys) {
     bool font = false;
-    for (const std::string& k : keys) font |= k.rfind("font.", 0) == 0;
+    for (const std::string& k : keys) {
+      font |= k.rfind("font.", 0) == 0;
+      if (k == "editor.wordWrap") wrapOverride_.reset();  // the file has spoken again
+    }
     if (font && rebuildFont_) rebuildFont_();
     ++settingsGen_;
     applyEditorSettings();
@@ -321,6 +325,18 @@ void EditorApp::bindUiCommands() {
   registry_.bind(
       "Editor.Paste", [](const CommandContext& c, std::string_view) { return doPaste(*c.editor); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind("View.ToggleWordWrap", [this](const CommandContext&, std::string_view) {
+    bool on = true, seen = false;
+    forEachView([&](TextView& v) {
+      if (!seen || (v.isCurrent() && v.visible())) on = v.settings().wordWrap;
+      seen = true;
+    });
+    if (!seen) return false;
+    wrapOverride_ = !on;
+    forEachView([&](TextView& v) { v.setWordWrap(!on); });
+    setMessage(on ? "Word wrap off" : "Word wrap on", kMessageMs);
+    return true;
+  });
   if (!bench_) return;
   registry_.bind("File.OpenFile", [this](const CommandContext&, std::string_view) {
     closePickers();
@@ -464,6 +480,10 @@ void EditorApp::runCommandId(const std::string& id, const std::string& arg, cons
   CommandContext cc;
   cc.editor = &editor_;
   cc.context = ctx;
+  if (auto* tv = dynamic_cast<TextView*>(root_.focused()))
+    cc.moveCarets = [tv](Editor::Direction dir, Editor::Unit unit, bool extend) {
+      return tv->moveCaretsVisual(dir, unit, extend);
+    };
   const std::string& cmdId = id;
   if (cmdId.rfind("Editor.Goto", 0) == 0 || cmdId == "Editor.FindReferences") {
     // The answer may arrive twice (approximate, then authoritative); both feed the same picker. The Editor jumps by
@@ -503,6 +523,7 @@ int EditorApp::tick(int64_t nowMs) {
     forEachView([&](TextView& v) {  // views created since the last settings change (new tabs)
       if (v.settingsGen != settingsGen_) {
         v.applySettings(editorSettings(settings_->settings()));
+        if (wrapOverride_) v.setWordWrap(*wrapOverride_);
         v.settingsGen = settingsGen_;
       }
     });

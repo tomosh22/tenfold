@@ -16,6 +16,11 @@ class Viewport {
   // Move the target; with animate == false the view jumps there at once.
   void scrollTo(float x, float y, bool animate);
   void jumpTo(float x, float y) { scrollTo(x, y, false); }
+  // Moves the view and its target by dy pixels (the content above changed height: what is on screen stays).
+  void shiftY(float dy) {
+    y_ += dy;
+    ty_ += dy;
+  }
   bool animating() const { return x_ != tx_ || y_ != ty_; }
   // Advance the animation by dtMs (exponential approach, 60 ms time constant, snaps within half a pixel).
   // Returns true if the position changed.

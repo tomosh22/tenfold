@@ -385,6 +385,7 @@ TEST(navui_golden_back_dropdown) {
   gfx::GlRenderer& r = *fx->renderer;
   const int w = 760, h = 360;
   r.setOffscreen(true);
+  uitest::wrapOff(wb);
   wb.render(r, w, h);
   const RectF b = app.navigationUi()->buttonRect(Which::Back);
   InputEvent down = mouseEv(InputType::MouseDown, b.x + b.w / 2, b.y + b.h / 2, MouseButton::Right);
