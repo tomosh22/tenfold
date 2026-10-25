@@ -6,9 +6,9 @@
 #include <fstream>
 #include <mutex>
 #include <thread>
-#include <unistd.h>
 
 #include "app/Editor.h"
+#include "core/Platform.h"
 #include "test_main.h"
 #include "workspace/FileWatcher.h"
 
@@ -23,7 +23,7 @@ struct TempDir {
   TempDir() {
     static std::atomic<int> n{0};
     path = fs::temp_directory_path() /
-           ("tenfold_fw_" + std::to_string(::getpid()) + "_" + std::to_string(n++));
+           ("tenfold_fw_" + std::to_string(tf::currentProcessId()) + "_" + std::to_string(n++));
     fs::remove_all(path);
     fs::create_directories(path);
     std::error_code ec;

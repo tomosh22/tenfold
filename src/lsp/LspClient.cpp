@@ -1,10 +1,9 @@
 #include "lsp/LspClient.h"
 
-#include <unistd.h>
-
 #include <condition_variable>
 
 #include "core/Document.h"
+#include "core/Platform.h"
 
 namespace tf {
 
@@ -68,7 +67,7 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
   };
   Json initOpts = {{"clangdFileStatus", opt.clangdFileStatus}};
   if (!opt.fallbackFlags.empty()) initOpts["fallbackFlags"] = opt.fallbackFlags;
-  Json params = {{"processId", static_cast<int>(::getpid())},
+  Json params = {{"processId", currentProcessId()},
                  {"rootUri", opt.rootPath.empty() ? Json() : Json(pathToUri(opt.rootPath))},
                  {"rootPath", opt.rootPath.string()},
                  {"capabilities", caps},
