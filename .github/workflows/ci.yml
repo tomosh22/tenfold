@@ -304,13 +304,12 @@ jobs:
             *.actual.png
           if-no-files-found: ignore
 
-  # C2b: drives a real Visual Studio 2022 (preinstalled on windows-2022) through EnvDTE. Non-blocking: this is the
-  # only place the backend meets a real devenv.exe. Only the vsdte tests run; vsdte_integration needs the env var.
+  # C2b: drives a real Visual Studio 2022 (preinstalled on windows-2022) through EnvDTE: the only place the backend
+  # meets a real devenv.exe. Only the vsdte tests run; vsdte_integration needs the env var.
   windows-vs-debugger:
     name: windows-vs-debugger
     runs-on: windows-2022
     timeout-minutes: 40
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
@@ -431,7 +430,7 @@ jobs:
       - name: Smoke test (bundled clangd, no other clangd on PATH)
         shell: bash
         run: |
-          pkg="$(ls build-pkg/tenfold-*.zip build-pkg/tenfold-*.tar.gz 2>/dev/null | head -n1)"
+          pkg="$(ls build-pkg/tenfold-*.zip build-pkg/tenfold-*.tar.gz 2>/dev/null | head -n1 || true)"  # one pattern never matches
           echo "package: $pkg"
           tools/package/smoke-test.sh "$pkg" "$PWD"
 
