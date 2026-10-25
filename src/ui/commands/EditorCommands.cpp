@@ -76,7 +76,8 @@ void registerEditorCommands(CommandRegistry& r) {
       std::string name = std::string(extend ? "Select " : "Move Caret ") + cc.name;
       r.add({id, name,
              [cc, extend](const CommandContext& c, std::string_view) {
-               c.editor->moveCarets(cc.dir, cc.unit, extend);
+               if (!c.moveCarets || !c.moveCarets(cc.dir, cc.unit, extend))
+                 c.editor->moveCarets(cc.dir, cc.unit, extend);
                return true;
              },
              hasDocument});
@@ -197,6 +198,7 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Build.NextError", "Next Build Error");
   addUi(r, "Build.PrevError", "Previous Build Error");
   addUi(r, "View.ToggleBuildPanel", "Toggle Build Panel");
+  addUi(r, "View.ToggleWordWrap", "Toggle Word Wrap");
   addUi(r, "Workbench.CycleMruNext", "Next Recent Document");
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");

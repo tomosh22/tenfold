@@ -13,13 +13,14 @@
 #include "ui/view/Layout.h"
 #include "ui/view/Scrollbar.h"
 #include "ui/view/Viewport.h"
+#include "ui/view/WrapLayout.h"
 #include "ui/widgets/Widget.h"
 
 namespace tf::ui {
 
 // The editor view (B2a): shows one Document of an Editor with a line-number gutter, current-line highlight, every
 // selection (behind the text) and every caret (overlay layer, on top of the text), scrolls vertically and horizontally
-// (smoothly by default) and turns mouse / keyboard input into Editor commands. The view never changes carets or text
+// (smoothly when asked to) and turns mouse / keyboard input into Editor commands. The view never changes carets or text
 // itself: clicks go through Editor::setSelections / columnSelect, text through typeText (auto-close / auto-indent live
 // in the Editor), so undo groups, navigation history and LSP sync stay the Editor's business. Scroll state is the
 // view's own.
@@ -37,14 +38,20 @@ namespace tf::ui {
 // visible whitespace and the matching bracket of the caret ((){}[]; angle brackets are skipped: the lexer cannot
 // tell templates from comparisons).
 //
+// Soft word wrap (B2c, on by default): long lines wrap at the view width (WrapLayout owns the line <-> visual row
+// map). Everything that was per line is per visual row: scrolling and the scrollbar, hit testing, selections,
+// current-line highlight, squiggles, find marks and the caret. The gutter numbers a line on its first row; horizontal
+// scrolling is off. Caret Up / Down / PageUp / PageDown and Home / End move by visual row (moveCaretsVisual, which
+// EditorApp offers to the caret commands); everything else stays with the Editor.
+//
 // Dirtiness: input handling and onTick() compare the Editor state (document, version, selections) with what was last
 // drawn, so changes made elsewhere (LSP edits, Back/Forward, another view) repaint too. Drive onTick through
 // RootWidget::tick(nowMs) after each batch of events and wait for at most the returned ms (blink / scroll animation).
 class TextView : public Widget {
  public:
   struct Settings {
-    bool smoothScroll = true;  // OPEN_QUESTIONS #4 (verify with the user): default on
-    bool wordWrap = false;     // OPEN_QUESTIONS #4: default off. Reserved: wrapping is not implemented yet
+    bool smoothScroll = false;  // OPEN_QUESTIONS #4 (answered): off by default
+    bool wordWrap = true;       // OPEN_QUESTIONS #4 (answered): soft wrap on by default
     bool caretBlink = true;
     int caretBlinkMs = 530;
     bool highlightCurrentLine = true;
@@ -75,6 +82,15 @@ class TextView : public Widget {
   // none) and fills the scrollbar's search lane instead of the find-in-files markers until cleared (empty list).
   void setFindMatches(std::vector<Range> matches, int current);
   const std::vector<Range>& findMatches() const { return findMatches_; }
+  // Soft wrap on / off at run time (View.ToggleWordWrap); keeps the first visible line in place.
+  void setWordWrap(bool on);
+  bool wordWrapActive() const;  // wrap is on and the view has a document and a size
+  // The line <-> visual row map (bound to the current width), for tests and geometry users.
+  WrapLayout& wrapLayout() const;
+  // Moves every caret by visual row when wrap is on (Up / Down / PageUp / PageDown keep the x of the first move;
+  // LineStart / LineEnd go to the row's edge first, then the line's). False when wrap is off or the direction is
+  // not a row-wise one: the caller then uses Editor::moveCarets.
+  bool moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool extend);
   bool colouring() const;  // true for C/C++ files
   // The bracket at / before the primary caret and its partner (positions of the two bracket characters).
   std::optional<std::pair<Position, Position>> bracketMatch();
@@ -105,16 +121,34 @@ class TextView : public Widget {
   void onLayout() override;
 
  private:
+  // One visual row on screen: bytes [start, end) of `line`, drawn indent cells to the right of the text origin.
+  struct RowRef {
+    int line, row, vrow, start, end, indent;
+  };
   Layout geometry() const;
+  int wrapCols() const;
+  void syncWrap();
+  float scrollX() const;
+  float totalHeight() const;
+  void collectVisibleRows(std::vector<RowRef>& out) const;
+  std::pair<size_t, size_t> visibleRange(int line) const;  // indices into vis_ of the visible rows of `line`
+  // Calls fn(const RowRef&, x0, x1) for each visible row of `line` that bytes [b0, b1] touch; x are pixels from the
+  // text origin; withBreak adds the line break's cell after the last row.
+  template <class Fn>
+  void forSegments(int line, int b0, int b1, bool withBreak, Fn fn) const;
+  void setMarkLines(Scrollbar::Lane lane, std::vector<int> lines);
+  void pushMarkers();
+  void drawRowText(PaintContext& ctx, const RowRef& r, float textX, float y, const RectF& clip,
+                   const std::vector<gfx::ColorSpan>* spans);
   float scrollbarWidth() const;
   void bindListener(Document* d);
   void bindDocument();
   uint64_t diagnosticSignature() const;
   void updateDiagMarkers();
   void updateSearchLane();
-  void paintWhitespace(PaintContext& ctx, const Layout& L, const std::string& line, float textX, float y,
+  void paintWhitespace(PaintContext& ctx, const Layout& L, std::string_view line, float textX, float y,
                        const RectF& clip) const;
-  void paintSquiggles(PaintContext& ctx, const Layout& L, float sx, float sy, int first, int last);
+  void paintSquiggles(PaintContext& ctx, const Layout& L, float sx, float sy);
   int64_t now() const;
   bool syncState();
   float maxScrollY() const;
@@ -127,6 +161,14 @@ class TextView : public Widget {
   Settings settings_;
   Viewport vp_;
   Highlighter hl_;
+  mutable WrapLayout wrap_;
+  mutable std::vector<RowRef> vis_;  // the visible rows of the last collectVisibleRows
+  std::vector<int> markLines_[7];    // scrollbar markers as document lines (the bar gets visual rows)
+  uint32_t markGen_ = 0;
+  int syncedCols_ = -1, anchorLine_ = -1;
+  std::vector<Selection> prefSel_;  // carets as left by the last vertical move, with their x in cells
+  std::vector<int> prefCol_;
+  std::vector<gfx::ColorSpan> rowSpans_;
   Scrollbar* sb_ = nullptr;
   Document* listenDoc_ = nullptr;
   std::filesystem::path listenPath_;

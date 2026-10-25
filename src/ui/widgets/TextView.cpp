@@ -31,6 +31,9 @@ void TextView::bindDocument() {
   if (d == listenDoc_ && hl_.attached(d ? &d->buffer() : nullptr)) return;
   bindListener(d);
   hl_.attach(d ? &d->buffer() : nullptr);
+  wrap_.reset();
+  anchorLine_ = -1;
+  prefSel_.clear();
 }
 
 // Keeps one change listener on the bound document that feeds the highlighter. The document may have been closed
@@ -40,7 +43,10 @@ void TextView::bindListener(Document* d) {
   listenDoc_ = d;
   if (!d) return;
   listenPath_ = d->path();
-  listenId_ = d->addListener([this](Document&, const Document::Change& c) { hl_.onChange(c); });
+  listenId_ = d->addListener([this](Document&, const Document::Change& c) {
+    hl_.onChange(c);
+    wrap_.onChange(c);
+  });
 }
 
 bool TextView::colouring() const {
@@ -58,7 +64,6 @@ float TextView::scrollbarWidth() const { return root() ? std::round(root()->text
 
 void TextView::applySettings(const EditorSettings& s) {
   settings_.smoothScroll = s.smoothScroll;
-  settings_.wordWrap = s.wordWrap;
   settings_.caretBlink = s.caretBlink;
   settings_.caretBlinkMs = s.caretBlinkMs;
   settings_.highlightCurrentLine = s.highlightCurrentLine;
@@ -67,6 +72,7 @@ void TextView::applySettings(const EditorSettings& s) {
   settings_.columnGuide = s.columnGuide;
   settings_.showWhitespace = s.showWhitespace;
   if (root()) root()->text().setTabWidth(s.tabWidth);
+  setWordWrap(s.wordWrap);
   markDirty();
 }
 
@@ -91,13 +97,13 @@ void TextView::setFindMatches(std::vector<Range> matches, int current) {
 
 void TextView::updateSearchLane() {
   if (findMatches_.empty()) {
-    sb_->setMarkers(Scrollbar::Lane::Search, searchLines_);
+    setMarkLines(Scrollbar::Lane::Search, searchLines_);
     return;
   }
   std::vector<int> lines;
   lines.reserve(findMatches_.size());
   for (const Range& r : findMatches_) lines.push_back(r.start.line);
-  sb_->setMarkers(Scrollbar::Lane::Search, std::move(lines));
+  setMarkLines(Scrollbar::Lane::Search, std::move(lines));
 }
 
 uint64_t TextView::diagnosticSignature() const {
@@ -119,14 +125,135 @@ void TextView::updateDiagMarkers() {
     for (const Diagnostic& g : editor_.buildDiagnostics(d->path()))  // notes get no mark, like no squiggle
       if (g.severity <= 2) lanes[g.severity <= 1 ? 3 : 4].push_back(g.range.start.line);
   }
-  sb_->setMarkers(Scrollbar::Lane::Error, std::move(lanes[0]));
-  sb_->setMarkers(Scrollbar::Lane::Warning, std::move(lanes[1]));
-  sb_->setMarkers(Scrollbar::Lane::Info, std::move(lanes[2]));
-  sb_->setMarkers(Scrollbar::Lane::BuildError, std::move(lanes[3]));
-  sb_->setMarkers(Scrollbar::Lane::BuildWarning, std::move(lanes[4]));
+  setMarkLines(Scrollbar::Lane::Error, std::move(lanes[0]));
+  setMarkLines(Scrollbar::Lane::Warning, std::move(lanes[1]));
+  setMarkLines(Scrollbar::Lane::Info, std::move(lanes[2]));
+  setMarkLines(Scrollbar::Lane::BuildError, std::move(lanes[3]));
+  setMarkLines(Scrollbar::Lane::BuildWarning, std::move(lanes[4]));
 }
 
 Layout TextView::geometry() const { return Layout(root()->text().textLayout()); }
+
+// ---- soft wrap (B2c) ----
+
+// Wrap width in cells: the text area minus one cell, which keeps the caret at the end of a full row (and one hanging
+// space) inside the view. 0 = wrapping off.
+int TextView::wrapCols() const {
+  if (!settings_.wordWrap || !root() || !document() || bounds().w <= 0) return 0;
+  const Layout L = geometry();
+  const float visW = bounds().w - scrollbarWidth() - L.textOffset(document()->buffer().lineCount());
+  return std::max(1, static_cast<int>(std::floor(visW / L.cellWidth())) - 1);
+}
+
+WrapLayout& TextView::wrapLayout() const {
+  const Document* d = document();
+  const bool ok = d && root();
+  wrap_.bind(ok ? &d->buffer() : nullptr, ok ? &root()->text().textLayout() : nullptr, ok ? wrapCols() : 0);
+  return wrap_;
+}
+
+bool TextView::wordWrapActive() const { return wrapLayout().enabled(); }
+
+float TextView::scrollX() const { return wordWrapActive() ? 0.0f : std::floor(vp_.x()); }
+
+float TextView::totalHeight() const {
+  return root() ? static_cast<float>(wrapLayout().totalRows()) * root()->text().lineHeight() : 0.0f;
+}
+
+// Rebinds the wrap map to the current width. When the wrap width changed (resize, toggle, a wider gutter) the first
+// visible line stays where it is: every cached row count is gone, so lines above it count one row again.
+void TextView::syncWrap() {
+  if (!root() || !document()) return;
+  WrapLayout& W = wrapLayout();
+  const int cols = W.enabled() ? W.cols() : 0;
+  if (cols == syncedCols_) return;
+  const bool first = syncedCols_ < 0;
+  syncedCols_ = cols;
+  float y = vp_.y();
+  if (!first && anchorLine_ >= 0)
+    y = static_cast<float>(W.firstRowOf(std::min(anchorLine_, document()->buffer().lineCount() - 1))) *
+        root()->text().lineHeight();
+  vp_.jumpTo(cols > 0 ? 0.0f : vp_.x(), std::clamp(y, 0.0f, maxScrollY()));
+  markDirty();
+}
+
+void TextView::setWordWrap(bool on) {
+  if (settings_.wordWrap == on) return;
+  settings_.wordWrap = on;
+  syncWrap();
+  markDirty();
+}
+
+// The visible rows [floor(sy / lh), floor((sy + h) / lh)] as row references. Lines on screen are examined here, so
+// rows of lines nobody had looked at yet appear (and the scroll range grows) as they come into view.
+void TextView::collectVisibleRows(std::vector<RowRef>& out) const {
+  out.clear();
+  const Document* d = document();
+  if (!d || !root()) return;
+  WrapLayout& W = wrapLayout();
+  const float lh = root()->text().lineHeight(), sy = std::floor(vp_.y());
+  const int total = W.totalRows();
+  const int vr0 = std::clamp(static_cast<int>(std::floor(sy / lh)), 0, total);
+  const int vr1 = std::clamp(static_cast<int>(std::floor((sy + bounds().h) / lh)) + 1, vr0, total);
+  if (vr0 >= vr1) return;
+  int r0 = 0;
+  int line = W.lineOfRow(vr0, &r0);
+  const int n = d->buffer().lineCount();
+  int vrow = vr0;
+  for (bool firstLine = true; line < n && vrow < vr1; ++line, firstLine = false) {
+    for (int r = firstLine ? r0 : 0; vrow < vr1; ++r) {
+      const int end = W.rowEnd(line, r);  // scans, so the row count below is current
+      if (r >= W.rowsEstimate(line)) break;
+      out.push_back({line, r, vrow, W.rowStart(line, r), end, W.rowIndent(line, r)});
+      ++vrow;
+    }
+  }
+}
+
+std::pair<size_t, size_t> TextView::visibleRange(int line) const {
+  const auto lo = std::lower_bound(vis_.begin(), vis_.end(), line, [](const RowRef& r, int l) { return r.line < l; });
+  auto hi = lo;
+  while (hi != vis_.end() && hi->line == line) ++hi;
+  return {static_cast<size_t>(lo - vis_.begin()), static_cast<size_t>(hi - vis_.begin())};
+}
+
+template <class Fn>
+void TextView::forSegments(int line, int b0, int b1, bool withBreak, Fn fn) const {
+  const auto [lo, hi] = visibleRange(line);
+  const int n = static_cast<int>(document()->buffer().line(line).size());
+  const float cw = root()->text().cellWidth();
+  for (size_t i = lo; i < hi; ++i) {
+    const RowRef& r = vis_[i];
+    const bool last = r.end >= n;
+    const int a = std::max(b0, r.start), e = std::min(b1, r.end);
+    if (a > e) continue;
+    if (a == e) {
+      if (b0 < b1 && !(last && withBreak && e == n)) continue;  // only touches the row's edge
+      if (b0 == b1 && !last && a == r.end) continue;            // the caret position belongs to the next row
+    }
+    const float x0 = wrap_.xOf(line, r.row, a);
+    float x1 = wrap_.xOf(line, r.row, e);
+    if (last && withBreak) x1 += cw;
+    fn(r, x0, x1);
+  }
+}
+
+// Scrollbar markers come in as document lines; the bar works in visual rows, so they are converted (again whenever
+// the wrap map changed).
+void TextView::setMarkLines(Scrollbar::Lane lane, std::vector<int> lines) {
+  markLines_[static_cast<int>(lane)] = lines;
+  if (!wrap_.enabled()) {
+    sb_->setMarkers(lane, std::move(lines));
+    return;
+  }
+  for (int& l : lines) l = wrap_.firstRowOf(l);
+  sb_->setMarkers(lane, std::move(lines));
+}
+
+void TextView::pushMarkers() {
+  markGen_ = wrap_.generation();
+  for (int lane = 0; lane < 7; ++lane) setMarkLines(static_cast<Scrollbar::Lane>(lane), markLines_[lane]);
+}
 
 int64_t TextView::now() const {
   if (settings_.clock) return settings_.clock();
@@ -150,10 +277,10 @@ Position TextView::positionAt(float x, float y) const {
   const Document* d = document();
   if (!d || !root()) return {0, 0};
   const Layout L = geometry();
-  const TextBuffer& b = d->buffer();
-  const int line = L.lineAt(y - bounds().y, std::floor(vp_.y()), b.lineCount());
-  const float lx = x - (bounds().x + L.textOffset(b.lineCount())) + std::floor(vp_.x());
-  return {line, static_cast<int>(L.byteForX(b.line(line), lx))};
+  WrapLayout& W = wrapLayout();
+  const int vrow = static_cast<int>(std::floor((y - bounds().y + std::floor(vp_.y())) / L.lineHeight()));
+  const float lx = x - (bounds().x + L.textOffset(d->buffer().lineCount())) + scrollX();
+  return W.positionAt(vrow, lx);
 }
 
 RectF TextView::caretRect(Position p) const {
@@ -162,9 +289,11 @@ RectF TextView::caretRect(Position p) const {
   const Layout L = geometry();
   const TextBuffer& b = d->buffer();
   p = b.clamp(p);
+  WrapLayout& W = wrapLayout();
   const float w = std::max(1.0f, std::floor(L.cellWidth() / 6));
-  return {bounds().x + L.textOffset(b.lineCount()) - std::floor(vp_.x()) + L.xForByte(b.line(p.line), p.column),
-          bounds().y + L.lineTop(p.line, std::floor(vp_.y())), w, L.lineHeight()};
+  const int row = W.rowOfByte(p.line, p.column);
+  return {bounds().x + L.textOffset(b.lineCount()) - scrollX() + W.xOf(p.line, row, p.column),
+          bounds().y + L.lineTop(W.firstRowOf(p.line) + row, std::floor(vp_.y())), w, L.lineHeight()};
 }
 
 std::string TextView::positionText() const {
@@ -178,10 +307,11 @@ std::string TextView::positionText() const {
 float TextView::maxScrollY() const {
   const Document* d = document();
   if (!d || !root()) return 0;
-  return std::max(0.0f, static_cast<float>(d->buffer().lineCount()) * root()->text().lineHeight() - bounds().h * 0.5f);
+  return std::max(0.0f, totalHeight() - bounds().h * 0.5f);
 }
 
 void TextView::onLayout() {
+  syncWrap();
   const float sw = scrollbarWidth();
   sb_->layout({bounds().x + bounds().w - sw, bounds().y, sw, bounds().h});
   if (isCurrent()) editor_.setPageLines(visibleLineCount());
@@ -216,17 +346,24 @@ void TextView::ensureCaretVisible(bool animate) {
   const Position p = b.clamp(editor_.selections()[0].head);
   const float lh = L.lineHeight(), cw = L.cellWidth(), h = bounds().h;
   const float margin = std::max(0.0f, std::min(2 * lh, std::floor((h - lh) / 2)));
-  const float top = static_cast<float>(p.line) * lh;
+  WrapLayout& W = wrapLayout();
+  // The rows above the caret that can be on screen with it are examined first: its row index is only as good as the
+  // line heights above it.
+  for (int l = std::max(0, p.line - visibleLineCount()); W.enabled() && l < p.line; ++l) W.rowsEstimate(l);
+  const float top = static_cast<float>(W.visualRowOf(p)) * lh;
   float ty = vp_.targetY();
   if (top - margin < ty) ty = top - margin;
   else if (top + lh + margin > ty + h) ty = top + lh + margin - h;
   ty = std::clamp(ty, 0.0f, maxScrollY());
-  const float visW = bounds().w - scrollbarWidth() - L.textOffset(b.lineCount()),
-              cx = L.xForByte(b.line(p.line), p.column);
-  const float mx = std::min(3 * cw, visW / 4);
-  float tx = vp_.targetX();
-  if (cx - mx < tx) tx = cx - mx;
-  else if (cx + cw + mx > tx + visW) tx = cx + cw + mx - visW;
+  float tx = 0;
+  if (!W.enabled()) {
+    const float visW = bounds().w - scrollbarWidth() - L.textOffset(b.lineCount()),
+                cx = L.xForByte(b.line(p.line), p.column);
+    const float mx = std::min(3 * cw, visW / 4);
+    tx = vp_.targetX();
+    if (cx - mx < tx) tx = cx - mx;
+    else if (cx + cw + mx > tx + visW) tx = cx + cw + mx - visW;
+  }
   vp_.scrollTo(std::max(0.0f, tx), ty, animate && settings_.smoothScroll);
   markDirty();
 }
@@ -236,6 +373,11 @@ void TextView::scrollBy(float dx, float dy) {
   if (!d || !root()) return;
   const Layout L = geometry();
   const TextBuffer& b = d->buffer();
+  if (wordWrapActive()) {  // no horizontal scrolling while wrapping
+    vp_.scrollTo(0, std::clamp(vp_.targetY() + dy, 0.0f, maxScrollY()), settings_.smoothScroll);
+    markDirty();
+    return;
+  }
   int first, last;
   L.visibleLines(vp_.targetY(), bounds().h, b.lineCount(), first, last);
   float widest = 0;
@@ -272,12 +414,15 @@ bool TextView::syncState() {
     lastCaret_ = seenSel_[0].head;
     std::vector<int> lines;
     for (const Selection& s : seenSel_) lines.push_back(s.head.line);
-    sb_->setMarkers(Scrollbar::Lane::Caret, std::move(lines));
+    setMarkLines(Scrollbar::Lane::Caret, std::move(lines));
   } else {
     seenSel_.clear();
-    sb_->setMarkers(Scrollbar::Lane::Caret, {});
+    setMarkLines(Scrollbar::Lane::Caret, {});
   }
-  if (docChanged) vp_.jumpTo(0, 0);
+  if (docChanged) {
+    vp_.jumpTo(0, 0);
+    anchorLine_ = -1;
+  }
   if (cur) ensureCaretVisible(!docChanged);
   caretOn_ = true;
   activityMs_ = now();
@@ -314,6 +459,31 @@ int TextView::onTick(int64_t nowMs) {
   return wait;
 }
 
+void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, float y, const RectF& clip,
+                           const std::vector<gfx::ColorSpan>* spans) {
+  const std::string& line = document()->buffer().line(r.line);
+  const float x = textX + static_cast<float>(r.indent) * root()->text().cellWidth();
+  const bool whole = r.start == 0 && r.end >= static_cast<int>(line.size());
+  const std::string_view v =
+      whole ? std::string_view(line)
+            : std::string_view(line).substr(static_cast<size_t>(r.start), static_cast<size_t>(r.end - r.start));
+  if (!spans) {
+    ctx.text(x, y, v, ctx.theme.text, clip);
+    return;
+  }
+  if (whole) {
+    ctx.textRenderer.drawSpans(x, y, v, *spans, hl_.palette(), hl_.defaultColor(), clip);
+    return;
+  }
+  // A row of a wrapped line: the spans that touch it, relative to the row start.
+  rowSpans_.clear();
+  const uint32_t a = static_cast<uint32_t>(r.start), e = static_cast<uint32_t>(r.end);
+  auto it = std::partition_point(spans->begin(), spans->end(), [a](const gfx::ColorSpan& s) { return s.end <= a; });
+  for (; it != spans->end() && it->begin < e; ++it)
+    rowSpans_.push_back({std::max(it->begin, a) - a, std::min(it->end, e) - a, it->color});
+  ctx.textRenderer.drawSpans(x, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
+}
+
 void TextView::paint(PaintContext& ctx) {
   const RectF& b = bounds();
   const Theme& th = ctx.theme;
@@ -325,18 +495,35 @@ void TextView::paint(PaintContext& ctx) {
     hl_.setTheme(th);
     themeGen_ = root()->themeGeneration();
   }
+  syncWrap();
   const Layout L = geometry();
   const TextBuffer& buf = d->buffer();
   const int n = buf.lineCount();
-  const float lh = L.lineHeight(), cw = L.cellWidth(), sx = std::floor(vp_.x()), sy = std::floor(vp_.y());
+  const float lh = L.lineHeight(), cw = L.cellWidth();
+  WrapLayout& W = wrapLayout();
+  // Looking at the rows on screen teaches the wrap map their real height. When that moves the line that was at the
+  // top (it was scrolled to through rows that were only estimates) the view follows it, so the text does not jump.
+  const int anchor = anchorLine_ >= 0 && anchorLine_ < n && W.enabled() ? anchorLine_ : -1;
+  int anchorRow = anchor >= 0 ? W.firstRowOf(anchor) : 0;
+  collectVisibleRows(vis_);
+  for (int pass = 0; anchor >= 0 && pass < 3; ++pass) {
+    const int now = W.firstRowOf(anchor);
+    if (now == anchorRow) break;
+    vp_.shiftY(static_cast<float>(now - anchorRow) * lh);
+    anchorRow = now;
+    collectVisibleRows(vis_);
+  }
+  const float sx = scrollX(), sy = std::floor(vp_.y());
   const float gw = L.gutterWidth(n), textX = b.x + L.textOffset(n) - sx;
   const RectF clip = textArea(), gutterClip = intersect({b.x, b.y, gw, b.h}, b);
-  int first, last;
-  L.visibleLines(sy, b.h, n, first, last);
+  const int first = vis_.empty() ? 0 : vis_.front().line, last = vis_.empty() ? 0 : vis_.back().line + 1;
+  if (!vis_.empty()) anchorLine_ = first;
+  auto rowY = [&](const RowRef& r) { return b.y + L.lineTop(r.vrow, sy); };
   ctx.fill(gutterClip, th.gutterBackground);
   const bool colour = colouring();
   if (colour) hl_.prepare(first, last);
-  sb_->setMetrics(maxScrollY(), b.h, sy, n);
+  if (W.generation() != markGen_) pushMarkers();
+  sb_->setMetrics(maxScrollY(), b.h, sy, W.totalRows());
   if (settings_.columnGuide > 0) {
     const float gx = std::floor(textX + static_cast<float>(settings_.columnGuide) * cw);
     if (gx >= clip.x && gx < clip.x + clip.w) ctx.fill({gx, clip.y, 1, clip.h}, th.columnGuide);
@@ -350,21 +537,23 @@ void TextView::paint(PaintContext& ctx) {
                                [](const Range& r, int line) { return r.end.line < line; });
     for (; it != findMatches_.end() && it->start.line < last; ++it) {
       if (it->start.line != it->end.line) continue;  // matches are clipped to their first line
-      const std::string& text = buf.line(it->start.line);
-      const float x0 = L.xForByte(text, static_cast<size_t>(it->start.column)),
-                  x1 = L.xForByte(text, static_cast<size_t>(it->end.column));
-      const RectF rc =
-          intersect({textX + x0, b.y + L.lineTop(it->start.line, sy), std::max(x1 - x0, cw / 2), lh}, clip);
-      if (rc.w > 0) ctx.fill(rc, static_cast<int>(it - findMatches_.begin()) == findCurrent_ ? now : hit);
+      const bool current = static_cast<int>(it - findMatches_.begin()) == findCurrent_;
+      forSegments(it->start.line, it->start.column, it->end.column, false, [&](const RowRef& r, float x0, float x1) {
+        const RectF rc = intersect({textX + x0, rowY(r), std::max(x1 - x0, cw / 2), lh}, clip);
+        if (rc.w > 0) ctx.fill(rc, current ? now : hit);
+      });
     }
   }
   const bool cur = isCurrent();
   if (cur) {
     const std::vector<Selection>& sels = editor_.selections();
-    const int headLine = sels[0].head.line;
-    if (settings_.highlightCurrentLine && headLine >= first && headLine < last)
-      ctx.fill(intersect({clip.x, b.y + L.lineTop(headLine, sy), clip.w, lh}, clip),
-               mix(th.panelBackground, th.text, 0.05f));
+    const Position head = buf.clamp(sels[0].head);
+    if (settings_.highlightCurrentLine && head.line >= first && head.line < last) {
+      const int vrow = W.visualRowOf(head);
+      if (!vis_.empty() && vrow >= vis_.front().vrow && vrow <= vis_.back().vrow)
+        ctx.fill(intersect({clip.x, b.y + L.lineTop(vrow, sy), clip.w, lh}, clip),
+                 mix(th.panelBackground, th.text, 0.05f));
+    }
     Color selColor = th.tabAccent;
     selColor.a = 0.38f;
     for (const Selection& s : sels) {
@@ -372,40 +561,56 @@ void TextView::paint(PaintContext& ctx) {
       const Range r = s.range();
       if (r.end.line < first || r.start.line >= last) continue;
       for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); ++l) {
-        const std::string& text = buf.line(l);
-        const float x0 = l == r.start.line ? L.xForByte(text, static_cast<size_t>(r.start.column)) : 0,
-                    x1 = l == r.end.line ? L.xForByte(text, static_cast<size_t>(r.end.column)) : L.lineWidth(text) + cw;
-        const RectF rc = intersect({textX + x0, b.y + L.lineTop(l, sy), x1 - x0, lh}, clip);
-        if (rc.w > 0) ctx.fill(rc, selColor);
+        const int len = static_cast<int>(buf.line(l).size());
+        forSegments(l, l == r.start.line ? r.start.column : 0, l == r.end.line ? r.end.column : len, l != r.end.line,
+                    [&](const RowRef& row, float x0, float x1) {
+                      const RectF rc = intersect({textX + x0, rowY(row), x1 - x0, lh}, clip);
+                      if (rc.w > 0) ctx.fill(rc, selColor);
+                    });
       }
     }
   }
   if (cur)
     if (const auto m = bracketMatch())
       for (const Position& p : {m->first, m->second})
-        if (p.line >= first && p.line < last)
-          ctx.fill(intersect({textX + L.xForByte(buf.line(p.line), static_cast<size_t>(p.column)),
-                              b.y + L.lineTop(p.line, sy), cw, lh},
-                             clip),
-                   th.bracketMatch);
+        if (p.line >= first && p.line < last) {
+          const auto [lo, hi] = visibleRange(p.line);
+          const int len = static_cast<int>(buf.line(p.line).size());
+          for (size_t i = lo; i < hi; ++i) {
+            const RowRef& r = vis_[i];
+            if (p.column < r.start || (p.column >= r.end && r.end < len)) continue;
+            ctx.fill(intersect({textX + W.xOf(p.line, r.row, p.column), rowY(r), cw, lh}, clip), th.bracketMatch);
+          }
+        }
   bookmarkLines_ = editor_.bookmarks().lines(d->path());
-  for (int i = first; i < last; ++i) {
-    const float y = b.y + L.lineTop(i, sy);
-    if (std::binary_search(bookmarkLines_.begin(), bookmarkLines_.end(), i)) {  // bookmark: a flag in the gutter
-      const float m = std::max(4.0f, std::floor(cw * 0.7f));
-      ctx.fill({b.x + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
+  int spanLine = -1;
+  const std::vector<gfx::ColorSpan>* spans = nullptr;
+  for (const RowRef& r : vis_) {
+    const float y = rowY(r);
+    if (r.row == 0) {
+      if (std::binary_search(bookmarkLines_.begin(), bookmarkLines_.end(), r.line)) {  // bookmark: a flag in the gutter
+        const float m = std::max(4.0f, std::floor(cw * 0.7f));
+        ctx.fill({b.x + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
+      }
+      number_ = std::to_string(r.line + 1);
+      ctx.text(b.x + gw - cw - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText, gutterClip);
     }
-    number_ = std::to_string(i + 1);
-    ctx.text(b.x + gw - cw - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText, gutterClip);
-    if (colour)
-      ctx.textRenderer.drawSpans(textX, y, buf.line(i), hl_.colorSpans(i), hl_.palette(), hl_.defaultColor(), clip);
-    else ctx.text(textX, y, buf.line(i), th.text, clip);
-    if (settings_.showWhitespace) paintWhitespace(ctx, L, buf.line(i), textX, y, clip);
+    if (colour && r.line != spanLine) {
+      spanLine = r.line;
+      spans = &hl_.colorSpans(r.line);
+    }
+    drawRowText(ctx, r, textX, y, clip, colour ? spans : nullptr);
+    if (settings_.showWhitespace) {
+      const std::string& text = buf.line(r.line);
+      paintWhitespace(ctx, L,
+                      std::string_view(text).substr(static_cast<size_t>(r.start), static_cast<size_t>(r.end - r.start)),
+                      textX + static_cast<float>(r.indent) * cw, y, clip);
+    }
   }
 }
 
 // Dots for spaces and arrows for tabs, as rects / lines (no glyphs needed). Only the first 4000 bytes of a line.
-void TextView::paintWhitespace(PaintContext& ctx, const Layout& L, const std::string& s, float textX, float y,
+void TextView::paintWhitespace(PaintContext& ctx, const Layout& L, std::string_view s, float textX, float y,
                                const RectF& clip) const {
   const Color c = ctx.theme.whitespace;
   const float cw = L.cellWidth(), lh = L.lineHeight(), dot = std::max(1.0f, std::floor(cw / 6));
@@ -473,10 +678,12 @@ std::optional<std::pair<Position, Position>> TextView::bracketMatch() {
 }
 
 // Wavy underline under a diagnostic range: short line segments zig-zagging 2 px at the bottom of the line box.
-void TextView::paintSquiggles(PaintContext& ctx, const Layout& L, float sx, float sy, int first, int last) {
+void TextView::paintSquiggles(PaintContext& ctx, const Layout& L, float sx, float sy) {
   const Document* d = document();
   const TextBuffer& buf = d->buffer();
   const RectF clip = textArea();
+  if (vis_.empty()) return;
+  const int first = vis_.front().line, last = vis_.back().line + 1;
   const float x0 = bounds().x + L.textOffset(buf.lineCount()) - sx, cw = L.cellWidth(),
               amp = std::max(1.0f, std::round(L.lineHeight() / 8));
   const float step = std::max(2.0f, std::round(cw / 2));
@@ -490,45 +697,95 @@ void TextView::paintSquiggles(PaintContext& ctx, const Layout& L, float sx, floa
                         : g.severity == 2 ? ctx.theme.diagnosticWarning
                                           : ctx.theme.diagnosticInfo;
       for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); ++l) {
-        const std::string& text = buf.line(l);
-        const float a = L.xForByte(text, l == r.start.line ? static_cast<size_t>(r.start.column) : 0);
-        float e = L.xForByte(text, l == r.end.line ? static_cast<size_t>(r.end.column) : text.size());
-        if (e < a + cw) e = a + cw;  // empty range: one cell
-        const float yb = bounds().y + L.lineTop(l, sy) + L.lineHeight() - amp - 1;
-        bool up = false;
-        for (float x = a; x < e; x += step, up = !up) {
-          const float xe = std::min(x + step, e);
-          if (x0 + xe < clip.x || x0 + x > clip.x + clip.w) continue;
-          ctx.line(x0 + x, up ? yb : yb + amp, x0 + xe, up ? yb + amp : yb, 1, col);
-        }
+        const int len = static_cast<int>(buf.line(l).size());
+        forSegments(l, l == r.start.line ? r.start.column : 0, l == r.end.line ? r.end.column : len, false,
+                    [&](const RowRef& row, float a, float e) {
+                      if (e < a + cw) e = a + cw;  // empty range: one cell
+                      const float yb = bounds().y + L.lineTop(row.vrow, sy) + L.lineHeight() - amp - 1;
+                      bool up = false;
+                      for (float x = a; x < e; x += step, up = !up) {
+                        const float xe = std::min(x + step, e);
+                        if (x0 + xe < clip.x || x0 + x > clip.x + clip.w) continue;
+                        ctx.line(x0 + x, up ? yb : yb + amp, x0 + xe, up ? yb + amp : yb, 1, col);
+                      }
+                    });
       }
     }
 }
 
 // Carets go in the overlay layer: all text is emitted after all rects, so they would otherwise be hidden by it.
 void TextView::paintOverlay(PaintContext& ctx) {
-  if (document() && root()) {
-    int f, l;
-    geometry().visibleLines(std::floor(vp_.y()), bounds().h, document()->buffer().lineCount(), f, l);
-    paintSquiggles(ctx, geometry(), std::floor(vp_.x()), std::floor(vp_.y()), f, l);
-  }
-  if (!isCurrent() || !(caretOn_ || !settings_.caretBlink || !hasFocus())) return;
+  if (!document() || !root()) return;
+  collectVisibleRows(vis_);
   const Layout L = geometry();
   const TextBuffer& buf = document()->buffer();
-  const float sy = std::floor(vp_.y()), sx = std::floor(vp_.x());
-  int first, last;
-  L.visibleLines(sy, bounds().h, buf.lineCount(), first, last);
+  const float sy = std::floor(vp_.y()), sx = scrollX();
+  paintSquiggles(ctx, L, sx, sy);
+  if (!isCurrent() || !(caretOn_ || !settings_.caretBlink || !hasFocus()) || vis_.empty()) return;
+  const int first = vis_.front().line, last = vis_.back().line + 1;
   const RectF clip = textArea();
   const float w = std::max(1.0f, std::floor(L.cellWidth() / 6)), x0 = bounds().x + L.textOffset(buf.lineCount()) - sx;
   const Color c = hasFocus() ? ctx.theme.text : ctx.theme.textDim;
   for (const Selection& s : editor_.selections()) {
     const Position p = s.head;
     if (p.line < first || p.line >= last) continue;
-    const RectF rc = intersect({x0 + L.xForByte(buf.line(p.line), static_cast<size_t>(p.column)),
-                                bounds().y + L.lineTop(p.line, sy), w, L.lineHeight()},
-                               clip);
-    if (rc.w > 0) ctx.fill(rc, c);
+    const auto [lo, hi] = visibleRange(p.line);
+    const int len = static_cast<int>(buf.line(p.line).size());
+    for (size_t i = lo; i < hi; ++i) {
+      const RowRef& r = vis_[i];
+      if (p.column < r.start || (p.column >= r.end && r.end < len)) continue;
+      const RectF rc = intersect(
+          {x0 + wrap_.xOf(p.line, r.row, p.column), bounds().y + L.lineTop(r.vrow, sy), w, L.lineHeight()}, clip);
+      if (rc.w > 0) ctx.fill(rc, c);
+      break;
+    }
   }
+}
+
+// Caret keys by visual row (wrap on): Up / Down / PageUp / PageDown keep the x of the row they started from for as
+// long as only vertical moves follow; Home / End go to the row's start / end first and to the line's on a second
+// press. Same selection rules as Editor::moveCarets: `extend` keeps the anchors, the top of the document and the
+// bottom of the last line are the targets of Up / Down at the ends.
+bool TextView::moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool extend) {
+  using D = Editor::Direction;
+  const bool vertical = dir == D::Up || dir == D::Down || dir == D::PageUp || dir == D::PageDown;
+  if (!(vertical || dir == D::LineStart || dir == D::LineEnd) || !isCurrent() || !root() || !wordWrapActive())
+    return false;
+  const TextBuffer& b = document()->buffer();
+  WrapLayout& W = wrapLayout();
+  const float cw = root()->text().cellWidth();
+  std::vector<Selection> sels = editor_.selections();
+  const bool keep = vertical && prefSel_ == sels && prefCol_.size() == sels.size();
+  std::vector<int> cols(sels.size(), 0);
+  const bool up = dir == D::Up || dir == D::PageUp;
+  const int steps = (dir == D::PageUp || dir == D::PageDown || unit == Editor::Unit::Page) ? visibleLineCount() : 1;
+  for (size_t i = 0; i < sels.size(); ++i) {
+    Position h = b.clamp(sels[i].head);
+    const int row = W.rowOfByte(h.line, h.column);
+    if (vertical) {
+      cols[i] = keep ? prefCol_[i] : static_cast<int>(std::lround(W.xOf(h.line, row, h.column) / cw));
+      int line = h.line, r = row, moved = 0;
+      while (moved < steps && (up ? W.prevRow(line, r) : W.nextRow(line, r))) ++moved;
+      if (moved > 0) h = W.positionIn(line, r, static_cast<float>(cols[i]) * cw);
+      else if (up) h = {0, 0};  // already on the first / last row: the very start / end, as in Editor::moveCarets
+      else h = {line, static_cast<int>(b.line(line).size())};
+    } else if (dir == D::LineStart) {
+      const int start = W.rowStart(h.line, row);
+      h.column = h.column != start ? start : 0;
+    } else {
+      const int edge = W.rowLastCaret(h.line, row);
+      h.column = h.column != edge ? edge : static_cast<int>(b.line(h.line).size());
+    }
+    sels[i].head = h;
+    if (!extend) sels[i].anchor = h;
+  }
+  editor_.setSelections(sels);
+  prefSel_.clear();
+  if (vertical && editor_.selections() == sels) {
+    prefSel_ = sels;
+    prefCol_ = std::move(cols);
+  }
+  return true;
 }
 
 bool TextView::onEvent(const InputEvent& e) {

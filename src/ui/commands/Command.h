@@ -16,6 +16,9 @@ struct CommandContext {
   // jumps by itself when the answer is a single location; with several candidates only this callback sees them
   // (the UI shows a picker). Null: results are dropped.
   Editor::NavResult onNavResult;
+  // Caret movement by the view's own geometry (soft wrap: Up / Down / Home / End move by visual row). The caret
+  // commands try it first; true = handled, false or null = Editor::moveCarets does it.
+  std::function<bool(Editor::Direction, Editor::Unit, bool extend)> moveCarets;
 };
 
 using CommandHandler = std::function<bool(const CommandContext&, std::string_view arg)>;

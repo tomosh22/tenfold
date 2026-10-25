@@ -504,6 +504,7 @@ TEST(shell_golden_b3_shell) {
   auto tr = gfx::TextRenderer::create(font, 15.0f, 1.0f, &err);
   REQUIRE(tr != nullptr);
   ShellDemo shell(*tr, TENFOLD_SOURCE_DIR "/examples/sample_project");
+  uitest::wrapOff(shell);
   gfx::GlRenderer& r = *fx->renderer;
   const int w = 1024, h = 640;
   r.setOffscreen(true);

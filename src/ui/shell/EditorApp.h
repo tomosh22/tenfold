@@ -3,6 +3,7 @@
 #include <filesystem>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -43,7 +44,8 @@ class Settings;
 // (they close themselves when the caret leaves); no picker is open while they are. Everything else (text input,
 // mouse, keys without a binding) goes to the widget tree unchanged. With a Workbench the Build commands (C1-UI:
 // Build.Build [custom command], Build.Cancel, Build.NextError / PrevError, View.ToggleBuildPanel) drive a BuildPanel
-// in the bottom dock and the status bar "build" segment shows the last result.
+// in the bottom dock and the status bar "build" segment shows the last result. View.ToggleWordWrap flips soft wrap in
+// every view for the session; the caret movement commands offer the focused view the chance to move by visual row.
 //
 // `bench` may be null (any other RootWidget with TextViews, e.g. ShellDemo or a test); then the workbench commands
 // stay unbound and messages are only available through message(). Bindings come from loadKeyBindings(workspace root,
@@ -121,6 +123,7 @@ class EditorApp {
   int64_t expiry_ = 0;  // 0 = never
   std::unique_ptr<NavigationUi> nav_;
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
+  std::optional<bool> wrapOverride_;  // View.ToggleWordWrap: wins over editor.wordWrap until that setting changes
   SettingsService* settings_ = nullptr;
   float scale_ = 1.0f;
   int settingsGen_ = 1, settingsToken_ = 0;

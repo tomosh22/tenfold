@@ -7,8 +7,8 @@ namespace tf::ui {
 
 // Document geometry for a text view: where lines, the gutter and carets sit, and the byte <-> x mapping of one line.
 // All x <-> byte rules (tabs, wide characters, zero-width marks) come from gfx::TextLayout; nothing here re-derives
-// them. Every line currently occupies exactly one visual row (no soft wrap); keeping row/line conversions in this one
-// class is what lets wrapping be added later without touching the view.
+// them. Lines and y positions here are plain line / row counts: with soft wrap on, the view maps lines to visual rows
+// with WrapLayout first and passes row numbers where this class says "line".
 class Layout {
  public:
   explicit Layout(const gfx::TextLayout& tl) : tl_(&tl) {}

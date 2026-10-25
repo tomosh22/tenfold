@@ -386,6 +386,7 @@ TEST(workbench_golden_b3_workbench) {
   p0->setActive(p0->tabs().tabs()[1].id);
   wb.setActivePanel(p2);
   wb.sync();
+  uitest::wrapOff(wb);
   gfx::GlRenderer& r = *fx->renderer;
   const int w = 1024, h = 640;
   r.setOffscreen(true);

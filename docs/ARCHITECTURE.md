@@ -593,7 +593,7 @@ are emitted, so carets draw over text at the cost of one extra rect batch) and *
 `Widget::onTick`, which returns the ms until it next wants a tick; the app waits at most that long, so caret blink and
 smooth scrolling need no timer thread and an idle window sleeps).
 
-### TextView (B2a, `src/ui/widgets/TextView.*`, `src/ui/view/{Viewport,Layout}.*`)
+### TextView (B2a, `src/ui/widgets/TextView.*`, `src/ui/view/{Viewport,Layout,WrapLayout}.*`)
 
 The editor view over an `Editor&` and a `Document` (it follows `currentDocument()`, or is pinned to one document for
 tabs; `activate()` makes a pinned view's document current via `Editor::activateDocument` with the view's remembered
@@ -606,10 +606,52 @@ or text: mouse clicks, drags (`setSelections`, Alt-drag `columnSelect`), double/
 Ctrl- and Alt-click (add a caret) and all keys call `Editor`, so undo groups, navigation history and LSP sync stay
 correct. The view does not handle keys (`EditorApp` turns them into commands); it handles text input, the mouse and the wheel. Changes made
 elsewhere (another view, LSP edits, Back/Forward) are noticed by comparing document, version and selections on every
-event and tick, and the caret is scrolled into view. Settings: `smoothScroll` (default on) and `wordWrap` (default off,
-reserved, not implemented) per OPEN_QUESTIONS #4, `caretBlink`, `caretBlinkMs`, `highlightCurrentLine`, `wheelLines`.
+event and tick, and the caret is scrolled into view. Settings: `smoothScroll` (default off) and `wordWrap` (default
+on) per OPEN_QUESTIONS #4 (answered), `caretBlink`, `caretBlinkMs`, `highlightCurrentLine`, `wheelLines`.
 Measured keystroke-to-paint (key event, edit, sync, layout, paint recording; 100k lines, 1920x1080) is ~0.1 ms with one
 caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpipe submit is not representative.
+
+#### Soft word wrap (B2c, `src/ui/view/WrapLayout.*`)
+
+`editor.wordWrap` (default **on**; toggle `View.ToggleWordWrap`, Alt+Z, for the session in every view; a change of the
+setting in a file wins again) wraps lines at the view width. Everything the view did per line it now does per
+*visual row*: the scroll range and the scrollbar (thumb, marker lanes: markers are converted from lines to rows, again
+whenever the row map changed), hit testing (`positionAt`, `caretRect`), selection rects, the current-line highlight
+(the caret's row), find marks, bracket match, whitespace dots, squiggles and carets. The gutter numbers a line on its
+first row only (so does the bookmark flag). Horizontal scrolling is off while wrapping.
+
+* **Rules** (`WrapLayout`): a row holds at most `cols` cells, where `cols` is the text width in cells minus one (the
+  cell keeps the caret at the end of a full row, and one hanging space, inside the view). Cells are counted by
+  `gfx::TextLayout` (tabs, wide characters, control characters) from the *start of the row*, so a tab on a continuation
+  row is as wide as it would be on a line of its own. A row ends after the last space or tab that fits; one more space
+  may hang past the edge; a word that does not fit on a row of its own is cut at the last cell that fits (a character
+  wider than the row still gets a row). Continuation rows are indented by the leading whitespace of the line, at most
+  half the width. A caret position on the boundary between two rows belongs to the later row; the last caret position
+  of a row that is not the line's last is the start of its last cell (`rowLastCaret`), which is also what a click to the
+  right of the row and `End` yield.
+* **Cost model**: never a pass over the document. A line that fits one row is not stored at all (a cheap test: bytes
+  times the larger of tab width and 2 against `cols`, else one column lookup); a line that wraps keeps its row starts,
+  computed front to back only as far as somebody asked (rows on screen, the caret's row), plus a row count that is
+  exact once the whole line was scanned and an estimate before (`ceil(bytes / width)`). Lines nobody asked about count
+  as one row, so `totalRows()` / `firstRowOf(line)` are estimates for unseen lines and exact for the lines on screen,
+  which `TextView` examines before every paint (`collectVisibleRows`). The text above the first visible line may have
+  been counted as single rows; when looking at the rows on screen changes the first row of the top line (scrolling
+  up into unseen lines, a jump), the view shifts by the difference (`Viewport::shiftY`) so the text stays put; a caret
+  reveal first examines the lines that can share the screen with the caret. Scanning is a tight loop over printable
+  ASCII (one byte, one cell) and falls back to `TextLayout` cells otherwise: about 40 ms to scan 50 MB of one line, once.
+  An edit (`Document::Change`) erases the rows of the lines it replaces and shifts the entries after them; a one-line
+  edit keeps the rows whose break was decided entirely before the edit (a row's break reads up to one cell past its
+  width) and re-scans only from there, so typing at the end of a 50 MB line re-scans a few rows. A width or tab width
+  change drops everything (the first visible line stays where it is).
+* **Keys**: Up / Down / PageUp / PageDown step by visual row (`WrapLayout::nextRow` / `prevRow`, which look only at the
+  rows they pass) and keep the x of the first move for as long as only vertical moves follow (per caret, checked by
+  comparing the carets with what the view left behind); at the first / last row they go to the start / end of the
+  document like `Editor::moveCarets`. Home / End go to the row's start / end first and to the line's on a second press.
+  The Editor knows nothing about rows: `EditorApp::runCommandId` hands the focused view to the caret commands through
+  `CommandContext::moveCarets` (`TextView::moveCaretsVisual`, false when wrap is off or the direction is not a row-wise
+  one, then `Editor::moveCarets` runs as before). Add-caret-above / below, word and document moves stay line-based.
+* **Measured** (Release, llvmpipe, 1920x1080, wrap on): keystroke-to-paint 0.1-0.2 ms on the 100k-line file (1000 carets: about
+  0.6 ms), and 0.5-3 ms with one 50 MB line, almost all of it the Editor's own insert (`docs/BENCHMARKS.md`, B2c).
 
 #### Colouring, squiggles, scrollbar and decorations (B2b, `src/ui/view/{Highlighter,Scrollbar}.*`)
 

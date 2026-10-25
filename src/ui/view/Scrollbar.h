@@ -17,9 +17,10 @@ class Scrollbar : public Widget {
   // BuildError / BuildWarning (C1) share the diagnostics lane and are drawn under the clangd marks.
   enum class Lane { Search, Caret, Error, Warning, Info, BuildError, BuildWarning };
 
-  // scrollRange = maximum scroll offset, viewH = visible height, both in pixels; lines = document line count.
+  // scrollRange = maximum scroll offset, viewH = visible height, both in pixels; lines = the number of rows markers
+  // are placed in (document lines, or visual rows with soft wrap).
   void setMetrics(float scrollRange, float viewH, float scrollY, int lines);
-  void setMarkers(Lane lane, std::vector<int> lines);  // 0-based document lines, any order
+  void setMarkers(Lane lane, std::vector<int> lines);  // 0-based rows (see setMetrics), any order
   std::function<void(float scrollY, bool animate)> onScroll;
 
   RectF thumbRect() const;  // empty (w == 0) when there is nothing to scroll

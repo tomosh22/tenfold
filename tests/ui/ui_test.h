@@ -7,8 +7,15 @@
 #include "ui/gfx/GlRenderer.h"
 #include "ui/gfx/Renderer.h"
 #include "ui/platform/Window.h"
+#include "ui/widgets/TextView.h"
 
 namespace uitest {
+
+// Soft wrap is on by default; scenarios and goldens written for unwrapped lines pin it off in every view under `w`.
+inline void wrapOff(tf::ui::Widget& w) {
+  if (auto* v = dynamic_cast<tf::ui::TextView*>(&w)) v->settings().wordWrap = false;
+  for (const auto& c : w.children()) wrapOff(*c);
+}
 
 // The temp directory with 8.3 short names expanded (Windows runners return C:/Users/RUNNER~1/...). The Editor and
 // the file watcher canonicalise paths, so tests that compare against paths they built must start from the same form.

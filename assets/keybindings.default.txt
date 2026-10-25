@@ -45,6 +45,9 @@ F4 = Build.NextError
 Shift+F4 = Build.PrevError
 Ctrl+Alt+B = View.ToggleBuildPanel
 
+# --- View ---
+Alt+Z = View.ToggleWordWrap
+
 Alt+1 = Workbench.FocusPanel 1
 Alt+2 = Workbench.FocusPanel 2
 Alt+3 = Workbench.FocusPanel 3

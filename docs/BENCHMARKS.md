@@ -281,6 +281,38 @@ delivery and superseding in the engine, `findSymbols` returning before the fast 
 a file is removed and re-added. The suite also passes under ASan+UBSan; under ThreadSanitizer the only reports
 are the pre-existing `compileCommands_` race (see `docs/ARCHITECTURE.md`), none in the search or engine code.
 
+## B2c: soft word wrap, keystroke-to-paint with wrap on
+
+Release build (`build-ui`), llvmpipe, quiet machine (4 cores), `tenfold-ui-tests perf`, 1920x1080, DejaVu Sans Mono 15 px
+(about 200 cells per row). A key event is dispatched, the Editor edits, the view syncs, then layout + paint + glyph /
+rect recording run (the GL submit is not part of the number). "edit" is the key event up to the view sync (the
+Editor's edit and the view's change tracking), "paint" is layout + paint + record. Two runs, the second in brackets
+where it differs noticeably. Budget: 8 ms.
+
+| Scenario (wrap ON, the new default) | edit | paint | total avg | p99 |
+|---|---:|---:|---:|---:|
+| `textview_perf_keystroke_to_paint_100k_lines`, 100k lines, 1 caret (the B2a test, now with wrap on) | 0.004 ms | 0.09-0.12 ms | 0.10-0.13 ms | 0.17 ms |
+| same, 1000 carets | 0.25-0.32 ms | 0.30-0.39 ms | 0.55-0.70 ms | 0.9 ms |
+| 100k lines, every line fits one row (`wrapview_perf_...`) | 0.004 ms | 0.09-0.11 ms | 0.10-0.11 ms | 0.15-0.38 ms |
+| 100k lines, a third of them wrap to 2-3 rows | 0.004 ms | 0.13-0.19 ms | 0.14-0.20 ms | 0.20-0.82 ms |
+| same, caret at line 77777 (rows above it are estimates) | 0.01 ms | 0.16-0.32 ms | 0.16-0.33 ms | 0.4 ms |
+| one 50 MB line (50 MB of `tokenN ` words), caret at the start | 2.7-2.8 ms | 0.38 ms | 3.0-3.2 ms | 4.1-5.2 ms |
+| same, wrap off (for reference) | 2.8-2.9 ms | 0.03 ms | 2.9 ms | 3.7 ms |
+| 50 MB line, caret in the middle | 1.5 ms | 0.34-0.39 ms | 1.9-2.0 ms | 2.2-4.4 ms |
+| 50 MB line, caret at the end | 0.24-0.35 ms | 0.29-0.46 ms | 0.53-0.81 ms | 0.7-1.6 ms |
+
+* The 50 MB rows are dominated by the Editor's own cost of inserting into a 50 MB `std::string` (the "edit" column is the
+  same with wrap off); wrapping itself adds about 0.35 ms of paint, which is the glyphs of about 60 rows instead of
+  the few columns of one clipped row.
+* First time a caret goes deep into the line, the rows before it are scanned once: 16-25 ms for the first 25 MB (caret
+  in the middle), another 16-23 ms for the rest (caret at the end), so about 40 ms for the whole 50 MB. After that,
+  typing re-scans only a few rows (a 3 MB line: 0.001 ms to re-find the caret's row after typing at the end).
+* 50 x Up with the caret at the end of the 50 MB line, including a paint each: 0.25-0.35 ms per key.
+* Under ASan + UBSan (Debug) the same tests are 10-50x slower and the budget is not asserted there; the asserts
+  (`CHECK(avg < 8.0)`) only run in Release builds without sanitizers.
+* Not part of the number: `TextView::positionText()` (status bar "Ln, Col") is O(column) on the caret's line, as before
+  B2c, so with the caret at the end of the 50 MB line the status bar (not in these tests) pays for it.
+
 ## Historical numbers (from the plan, quiet machine, 8755-file Godot)
 
 | Workspace | Launch to interactive | Launch to first TU parsed | `def` after parse | Fast index |
@@ -299,4 +331,4 @@ From the post-Wave 1 run above.
 | Startup to interactive, warm <= 1 s | pass (0.05 s) | pass (0.33 s) |
 | Symbol search, fast tier <= 50 ms | pass (< 0.01 ms) | pass after A10: 1-12 ms in-process on a loaded machine (was 30-250 ms; see the A10 section), `Editor::findSymbols` returns in < 0.05 ms |
 | Editor memory <= 500 MB | pass (6 MiB) | pass (374 MiB cold, 200 MiB warm) |
-| Keystroke-to-paint <= 8 ms | n/a until B1/B2 | n/a until B1/B2 |
+| Keystroke-to-paint <= 8 ms | pass (B2a / B2c: 0.1-0.2 ms on a 100k-line file with wrap on, 0.5-3 ms on a 50 MB single line, see the B2c section) | not measured in the editor view |
