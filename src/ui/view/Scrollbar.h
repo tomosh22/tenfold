@@ -15,7 +15,21 @@ namespace tf::ui {
 class Scrollbar : public Widget {
  public:
   // BuildError / BuildWarning (C1) share the diagnostics lane and are drawn under the clangd marks.
-  enum class Lane { Search, Caret, Error, Warning, Info, BuildError, BuildWarning };
+  // DiffAdded / DiffModified / DiffDeleted (C3c) are the version-control change marks: a narrow stripe at the left edge
+  // of the track, drawn under the other lanes (which keep their positions).
+  enum class Lane {
+    Search,
+    Caret,
+    Error,
+    Warning,
+    Info,
+    BuildError,
+    BuildWarning,
+    DiffAdded,
+    DiffModified,
+    DiffDeleted
+  };
+  static constexpr int kLanes = 10;
 
   // scrollRange = maximum scroll offset, viewH = visible height, both in pixels; lines = the number of rows markers
   // are placed in (document lines, or visual rows with soft wrap).
@@ -38,7 +52,7 @@ class Scrollbar : public Widget {
   float range_ = 0, viewH_ = 0, scrollY_ = 0, dragOff_ = 0;
   int lines_ = 1;
   bool drag_ = false;
-  std::vector<int> marks_[7];
+  std::vector<int> marks_[kLanes];
 };
 
 }  // namespace tf::ui

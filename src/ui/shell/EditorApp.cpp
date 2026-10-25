@@ -110,6 +110,19 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
+  {
+    VcsUi::Hooks vh;
+    vh.activeView = [this]() -> TextView* {
+      if (auto* tv = dynamic_cast<TextView*>(root_.focused())) return tv;
+      TextView* found = nullptr;
+      forEachView([&](TextView& v) {
+        if (!found && v.isCurrent() && v.visible()) found = &v;
+      });
+      return found;
+    };
+    vh.message = [this](const std::string& text, int ttlMs) { setMessage(text, ttlMs); };
+    vcsUi_ = std::make_unique<VcsUi>(pickerEnv_, std::move(vh));
+  }
   registerEditorCommands(registry_);
   bindUiCommands();
   keys_ = loadKeyBindings(editor.workspace().root(), userDir, diags_);
@@ -145,6 +158,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 }
 
 EditorApp::~EditorApp() {
+  vcsUi_.reset();  // unhooks VcsManager::onError, closes its confirmation
   closePickers();  // their callbacks point into this object
   if (build_) {
     build_->onClose = nullptr;
@@ -236,7 +250,10 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
 
 // One path for settings: attachSettings and every change go through applyEditorSettings, which also feeds the picker
 // settings (applySettings stays public for callers without a SettingsService).
-void EditorApp::applySettings(const Settings& s) { pickerEnv_.preview = s.getBool("picker.preview"); }
+void EditorApp::applySettings(const Settings& s) {
+  pickerEnv_.preview = s.getBool("picker.preview");
+  vcsUi_->applySettings(s);
+}
 
 void EditorApp::closePickers() {
   symbols_->close();
@@ -246,6 +263,7 @@ void EditorApp::closePickers() {
   goToLine_->close();
   bookmarkList_->close();
   if (files_) files_->close();
+  if (vcsUi_) vcsUi_->closeConfirm();
 }
 
 void EditorApp::setNavStatusCounts(bool on) {
@@ -261,6 +279,7 @@ std::string EditorApp::shortcutFor(const std::string& command) const {
 }
 
 void EditorApp::bindUiCommands() {
+  vcsUi_->bind(registry_);
   registry_.bind(
       "Search.SymbolSearch",
       [this](const CommandContext&, std::string_view) {
@@ -449,6 +468,7 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     expiry_ = nowMs + ttlMs_;
     ttlMs_ = 0;
   }
+  if (e.type == InputType::FocusGained) vcsUi_->refreshOnFocus();  // the engine does not watch .git / the p4 client
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
     if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the Ctrl+Tab cycle is over
       cycling_ = false;
@@ -485,6 +505,9 @@ void EditorApp::runCommandId(const std::string& id, const std::string& arg, cons
       return tv->moveCaretsVisual(dir, unit, extend);
     };
   const std::string& cmdId = id;
+  if (cmdId == "Editor.CollapseCarets")  // Escape closes an open inline diff block first (C3c)
+    if (auto* tv = dynamic_cast<TextView*>(root_.focused()))
+      if (tv->closeInlineDiffs()) return;
   if (cmdId.rfind("Editor.Goto", 0) == 0 || cmdId == "Editor.FindReferences") {
     // The answer may arrive twice (approximate, then authoritative); both feed the same picker. The Editor jumps by
     // itself for a single definition/declaration, so only References lists one location.
@@ -519,6 +542,7 @@ int EditorApp::tick(int64_t nowMs) {
     ttlMs_ = 0;
   }
   if (bench_) bench_->sync();
+  vcsUi_->tick();
   if (settings_)
     forEachView([&](TextView& v) {  // views created since the last settings change (new tabs)
       if (v.settingsGen != settingsGen_) {

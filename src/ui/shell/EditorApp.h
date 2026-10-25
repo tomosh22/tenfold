@@ -23,6 +23,7 @@
 #include "ui/features/NavigationUi.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
+#include "ui/features/VcsUi.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/settings/Settings.h"
 #include "ui/shell/Workbench.h"
@@ -46,6 +47,8 @@ class Settings;
 // Build.Build [custom command], Build.Cancel, Build.NextError / PrevError, View.ToggleBuildPanel) drive a BuildPanel
 // in the bottom dock and the status bar "build" segment shows the last result. View.ToggleWordWrap flips soft wrap in
 // every view for the session; the caret movement commands offer the focused view the chance to move by visual row.
+// C3c: the Vcs.* commands (VcsUi) are bound here; Escape first closes the inline diff blocks of the focused view, a
+// regained window focus re-reads the version-control status, and VcsManager::onError messages reach the status bar.
 //
 // `bench` may be null (any other RootWidget with TextViews, e.g. ShellDemo or a test); then the workbench commands
 // stay unbound and messages are only available through message(). Bindings come from loadKeyBindings(workspace root,
@@ -72,6 +75,7 @@ class EditorApp {
   HoverTooltip& hover() { return *hover_; }
   SignatureHelp& signatureHelp() { return *sigHelp_; }
   BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
+  VcsUi& vcsUi() { return *vcsUi_; }           // C3c: Vcs.* commands, revert confirmation, external diff tool
   void closePickers();
 
   // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a
@@ -80,6 +84,9 @@ class EditorApp {
   // TextRenderer (RootWidget::setTextRenderer) and returns false when no font could be built. The app loop calls
   // `SettingsService::poll()` itself (on the wake the service posts).
   void attachSettings(SettingsService& svc, float displayScale = 1.0f, std::function<bool()> rebuildFont = {});
+
+  // Runs a command by id like a key binding would (the active key context, status-bar reporting of failures).
+  void runCommand(const std::string& id, const std::string& arg = {}) { runCommandId(id, arg, activeContext()); }
 
   // Returns true if the event was consumed (a binding, a swallowed chord stroke, or a widget).
   bool handleEvent(const InputEvent& e, int64_t nowMs);
@@ -143,6 +150,7 @@ class EditorApp {
   std::unique_ptr<CompletionPopup> completion_;
   std::unique_ptr<HoverTooltip> hover_;
   std::unique_ptr<SignatureHelp> sigHelp_;
+  std::unique_ptr<VcsUi> vcsUi_;
   BuildPanel* build_ = nullptr;  // owned by the Workbench's bottom dock
 };
 

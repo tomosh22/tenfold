@@ -878,6 +878,7 @@ TEST(pickers_golden_symbol_search_over_editor) {
   o.semantic.persistFastIndex = false;
   o.watchForcePolling = true;
   o.watchPollMs = 60000;
+  o.vcs.enabled = false;  // C3c: edits here must not grow change marks, tab markers or a status segment
   Editor ed(TENFOLD_SOURCE_DIR "/examples/sample_project", o);
   REQUIRE(ed.start(&err));
   waitForIndex(ed);

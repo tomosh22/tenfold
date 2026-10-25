@@ -11,6 +11,8 @@ float Layout::gutterWidth(int lineCount) const {
   return static_cast<float>(digits + 2) * cellWidth();
 }
 
+float Layout::diffStripWidth() const { return std::max(3.0f, std::round(cellWidth() * 0.4f)); }
+
 int Layout::lineAt(float yInView, float scrollY, int lineCount) const {
   const int l = static_cast<int>(std::floor((yInView + scrollY) / lineHeight()));
   return std::clamp(l, 0, std::max(0, lineCount - 1));

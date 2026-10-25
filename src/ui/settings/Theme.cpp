@@ -71,6 +71,16 @@ const std::vector<ColorMember>& colorMembers() {
       {"tabInactiveText", &Theme::tabInactiveText, true},
       {"popupBackground", &Theme::popupBackground, true},
       {"popupBorder", &Theme::popupBorder, true},
+      {"diffAdded", &Theme::diffAdded, true},
+      {"diffModified", &Theme::diffModified, true},
+      {"diffDeleted", &Theme::diffDeleted, true},
+      {"diffBlockBackground", &Theme::diffBlockBackground, true},
+      {"diffBlockText", &Theme::diffBlockText, true},
+      {"diffBlockHeader", &Theme::diffBlockHeader, true},
+      {"tabVcsModified", &Theme::tabVcsModified, true},
+      {"tabVcsAdded", &Theme::tabVcsAdded, true},
+      {"tabVcsCheckedOut", &Theme::tabVcsCheckedOut, true},
+      {"tabVcsReadOnly", &Theme::tabVcsReadOnly, true},
   };
   return m;
 }

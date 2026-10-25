@@ -373,7 +373,80 @@ through the Document for a background tab): one undo step.
 Refresh triggers: open, save, reload, `refreshStatus()` (also re-reads the base of every open document; the UI should
 call it when the window regains focus, because commits made outside the editor do not touch the files) and,
 debounced (1 s), file-watcher events for files that are not open. `generation()` changes whenever anything a view
-shows changed, `onChanged` says which file.
+shows changed, `onChanged` says which file. `checkOut(file, done)` (C3c) runs `beforeFirstEdit` on the worker on demand
+(explicit "check out" command) and then re-reads the file's status.
+
+### Version control UI (C3c, `src/ui/features/{VcsUi,DiffTool,VcsState}.*`, `TextView`, `src/ui/view/RowBlocks.*`)
+
+The UI is a client of `Editor::vcs()` only (hunks, base lines, `fileStatus`, `revertHunk` / `revertFile`, `onError`,
+`generation()`), so the Perforce provider (C3b) needs nothing here.
+
+* **Change strip** (`TextView::paintDiffStrip`, one self-contained helper plus `Layout::diffStripWidth/X`): a narrow
+  bar between the line numbers and the text, drawn from `vcs().hunks()` for the visible rows only (binary search into
+  the sorted hunks): added green, modified blue, and for deleted lines a small red wedge (1 px slices) centred on the
+  boundary above the line that now follows them (below the last visible row at the bottom edge). A wrapped line's mark
+  spans all its visual rows. The strip lies in the padding cell the gutter already reserves right of the numbers
+  (numbers end one cell before `gutterWidth`), so it adds **no gutter width**: text does not move when version control
+  becomes active and every existing golden stays byte-identical. The breakpoint lane (C2c) lives left of the numbers
+  and widens `gutterWidth`; the strip is positioned from `gutterWidth`'s right edge, so the two do not interact. The
+  scrollbar has three more marker lanes (`Lane::DiffAdded/Modified/Deleted`, a thin stripe at the left edge of the
+  track, drawn under the others; at most 1024 marks per hunk). Marks are the engine's last result; during the
+  debounce after an edit they sit where they were, then jump to the new answer.
+* **Inline diff block**: clicking the strip, or `Vcs.ToggleInlineDiff` at the caret, opens a block under the hunk
+  (`TextView::toggleInlineDiff`): a header row (what changed, a "Revert hunk" button, a close button) and the base
+  lines on a red tint (`diffBlockBackground`, text `diffBlockText`, dimmed rather than struck), with a red mark in the
+  strip column. Escape closes all blocks of the focused view (`EditorApp::runCommandId` intercepts
+  `Editor.CollapseCarets` first), as does the close button; "Revert hunk" goes through `VcsManager::revertHunk` (one
+  undo step) and the block goes with its hunk.
+* **How the block meets `WrapLayout`**: it does not. `WrapLayout` keeps counting only document rows (its cost model,
+  lazily scanned rows and estimates are untouched, and the Document never changes). A small value class,
+  `RowBlocks`, maps *wrap rows* to *display rows*: block `i` precedes the wrap row after its anchor line (`at`) and
+  occupies `rows` display rows, so `display(w) = w + rows of the blocks with at <= w` and `wrapRow(d)` is the inverse
+  (or says "inside block i"). `TextView` applies it at exactly the places that turn rows into pixels: total height and
+  the scrollbar's row count, `collectVisibleRows` (text rows get their display row, block rows are skipped), the
+  current-line band, `caretRect`, `ensureCaretVisible`, `positionAt` (a click in a block hits the line above it), the
+  scrollbar marker rows, the anchor kept at the top of the view and the horizontal-scroll width scan. Everything
+  per-row after that (selections, squiggles, find marks, carets) keeps working on `RowRef::vrow`, which is now a display
+  row. The map is rebuilt when the wrap generation, the blocks or the document version change; with no blocks every
+  function is the identity and the extra cost per frame is a null check. A block is an *overlay that reserves rows*:
+  the text below moves down by its height, nothing else about the layout changes. Opening or closing a block above the
+  first visible line shifts the scroll offset by the same rows, so the text does not jump, and a new block is
+  scrolled into view when its bottom would be below the window.
+* **Lifetime**: a block is identified by its hunk's base side (`baseStart`, `baseCount`, kind), its size (`newCount`)
+  and its base lines. Edits above it move its anchor line at once (Document change listener); when the recomputed hunks
+  arrive (`VcsManager::generation()`) it is re-placed on the matching hunk, or removed when none matches (the hunk
+  grew, shrank, was reverted or the base changed). Typing inside the hunk without changing its size keeps it.
+* **Commands** (`VcsUi`; registered by `registerEditorCommands`, bound by `EditorApp`, deliberately **unbound** in
+  `keybindings.default.txt`, which lists commented examples): `Vcs.NextChange` / `Vcs.PrevChange` (jump to the next /
+  previous hunk through `Editor::gotoLocation`, wrapping with a message), `Vcs.ToggleInlineDiff`, `Vcs.RevertHunk`,
+  `Vcs.RevertFile` (a modal two-row `ListPopup`, "Discard all changes" / "Cancel", default on the first row, then
+  `VcsManager::revertFile`), `Vcs.DiffFileExternal`, `Vcs.RefreshStatus`, `Vcs.CheckOut` (the explicit form of
+  Perforce's auto-checkout: `VcsManager::checkOut`, a small additive engine call that runs the provider's
+  `beforeFirstEdit` now and marks the open document as checked out so its first edit does not repeat it).
+* **External diff tool** (`DiffTool`): writes the committed text (document's line ending) and the buffer to
+  `<temp>/tenfold-diff/<run>/{base,current}/<file name>` (original name and extension), starts the tool through
+  `tf::Process` and keeps the object (never killed on exit; on Windows the job object still ends the child with the
+  editor) with `tick()` collecting it. `vcs.diffTool` empty = auto: p4merge from PATH (Windows: `p4merge.exe`, then
+  `%ProgramFiles%\Perforce\p4merge.exe`); a name is searched in PATH, a path is used as it is; nothing found -> status
+  bar message ("no diff tool found: install p4merge or set vcs.diffTool"). `vcs.diffToolArgs` (default
+  `"{base}" "{current}"`) is split like a command line and then `{base} {current} {file} {baseTitle} {currentTitle}` are
+  substituted per argument; for the default template and a tool called p4merge, `-nl <title> -nr <title>` are put in
+  front, the titles being `<file>#have` (Perforce) or `<file>@HEAD` (Git) on the left and `<file> (unsaved)` (or
+  `(working copy)` when the buffer is clean) on the right. A settings value in quotes loses its outer pair, so the default file doubles them and
+  the splitter repairs the common `"{a}" "{b}"` mistake. Temp directories are removed when a tool that ran at least 3 s
+  has exited; those of a tool that returned at once (a launcher handing over to a running instance) are swept after a
+  day.
+* **Status**: `Workbench::sync` sets a `TabStrip::VcsMark` per tab (`vcsTabMark`: a small square left of the title,
+  filled for modified / added / checked out, outlined for Perforce read-only, theme keys `tabVcs*`) and the left
+  status-bar segment `vcs` (`vcsStatusText`: "Git: modified", "P4: checked out", "P4: read-only — will check out on
+  edit", ...; empty for clean / unknown files, so the bar is unchanged when there is nothing to say).
+  `VcsManager::onError` messages ("Version control: ...", 12 s) appear in the `message` segment. A regained window focus
+  (`InputType::FocusGained`) calls `refreshStatus()`.
+* **Theme keys** (all optional, `Theme::orElse` fallbacks so `dark` / `light` still show marks; values for `vs-dark`):
+  `diffAdded`, `diffModified`, `diffDeleted`, `diffBlockBackground`, `diffBlockText`, `diffBlockHeader`,
+  `tabVcsModified`, `tabVcsAdded`, `tabVcsCheckedOut`, `tabVcsReadOnly`. Settings: `vcs.diffTool`, `vcs.diffToolArgs`.
+* **Measured** (Release, llvmpipe, 1920x1080, 100k-line file with 5 hunks and an open inline block): keystroke-to-paint
+  0.10 ms average, p99 0.14 ms (`vcs_perf_keystroke_to_paint_with_marks_100k_lines`; budget 8 ms).
 
 ## Navigation history
 
@@ -730,7 +803,7 @@ Every user action is a named `Command` (`Editor.GotoDefinition`, `Nav.Back`, ...
 `bool(const CommandContext&, string_view arg)`, optional `enabled()`), held in a `CommandRegistry` that can enumerate
 (command palette) and `run(id, arg, ctx)`; the result distinguishes `UnknownCommand`, `Disabled`, `Unbound` and
 `Failed`. `registerEditorCommands` registers what `Editor` can serve itself; UI-only commands (pickers, find in
-workspace, MRU cycling, clipboard, `Workbench.*`) are registered without a handler and report `Unbound` until the
+workspace, MRU cycling, clipboard, `Workbench.*`, `Vcs.*`) are registered without a handler and report `Unbound` until the
 front end calls `CommandRegistry::bind`. `KeyMap` is the binding table plus the chord state machine
 (`feed(chord, activeContext, nowMs)` returns Matched / Pending with "Ctrl+K..." text / NoMatch; a stroke that breaks a
 pending chord is swallowed, a pending chord expires after `timeoutMs`; context-scoped bindings beat `global`). Key
@@ -758,7 +831,9 @@ thread-safe `wake` callback); the UI thread calls `poll()`, which reloads, fires
 `applyTo(RootWidget&, scale)` swaps the theme (repaint). `editorSettings()` gives TextView its subset in one call.
 The optional colour keys (`editorBackground`, `currentLineFill`, `currentLineBorder`, `selectionActive`,
 `selectionInactive`, `findHighlight`, `findHighlightCurrent`, `editorCaret`, `tabActiveText`, `tabInactiveText`,
-`popupBackground`, `popupBorder`) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
+`popupBackground`, `popupBorder`, and the version-control keys `diffAdded`, `diffModified`, `diffDeleted`,
+`diffBlockBackground`, `diffBlockText`, `diffBlockHeader`, `tabVcsModified`, `tabVcsAdded`, `tabVcsCheckedOut`,
+`tabVcsReadOnly`, C3c) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
 so `dark` and `light` and their goldens are unchanged; only `vs-dark` sets them. `vs-dark.txt` lists in its header the
 values that are recalled rather than sampled. Control-flow keyword and string-escape colours need lexer kinds that do
 not exist yet, and per-state status bar colours need a debugger state; neither has a key.
@@ -834,6 +909,10 @@ Measured keystroke-to-paint (key event, edit, sync, layout, paint recording; 100
 caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpipe submit is not representative.
 
 #### Soft word wrap (B2c, `src/ui/view/WrapLayout.*`)
+
+(Version control, C3c: the change strip, the scrollbar change lanes and the inline diff block are in "Version control UI"
+above. The block reserves *display rows* through `RowBlocks`; `WrapLayout` itself still only knows document rows, and
+`RowRef::vrow` below is a display row whenever a block is open.)
 
 `editor.wordWrap` (default **on**; toggle `View.ToggleWordWrap`, Alt+Z, for the session in every view; a change of the
 setting in a file wins again) wraps lines at the view width. Everything the view did per line it now does per

@@ -126,3 +126,15 @@ Ctrl+F = Editor.Find
 Ctrl+H = Editor.Replace
 F3 = Editor.FindNext
 Shift+F3 = Editor.FindPrev
+
+# --- Version control (C3c) ---
+# Deliberately UNBOUND: the real key map comes from the user's 10x settings (OPEN_QUESTIONS #1). Examples to copy into
+# <config dir>/tenfold/keybindings.txt or <workspace>/.tenfold/keybindings.txt (remove the leading '# '):
+# [editor] Alt+Shift+Down = Vcs.NextChange
+# [editor] Alt+Shift+Up = Vcs.PrevChange
+# [editor] Alt+Shift+D = Vcs.ToggleInlineDiff
+# [editor] Alt+Shift+Z = Vcs.RevertHunk
+# Alt+Shift+R = Vcs.RevertFile
+# Alt+Shift+M = Vcs.DiffFileExternal
+# Alt+Shift+F5 = Vcs.RefreshStatus
+# Alt+Shift+E = Vcs.CheckOut

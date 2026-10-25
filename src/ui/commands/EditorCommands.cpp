@@ -199,6 +199,14 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Build.PrevError", "Previous Build Error");
   addUi(r, "View.ToggleBuildPanel", "Toggle Build Panel");
   addUi(r, "View.ToggleWordWrap", "Toggle Word Wrap");
+  addUi(r, "Vcs.NextChange", "Next Change");
+  addUi(r, "Vcs.PrevChange", "Previous Change");
+  addUi(r, "Vcs.ToggleInlineDiff", "Toggle Inline Diff");
+  addUi(r, "Vcs.RevertHunk", "Revert Change");
+  addUi(r, "Vcs.RevertFile", "Revert File...");
+  addUi(r, "Vcs.DiffFileExternal", "Diff File in External Tool");
+  addUi(r, "Vcs.RefreshStatus", "Refresh Version Control Status");
+  addUi(r, "Vcs.CheckOut", "Check Out (Perforce)");
   addUi(r, "Workbench.CycleMruNext", "Next Recent Document");
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");
