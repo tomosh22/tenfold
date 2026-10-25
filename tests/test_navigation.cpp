@@ -1,3 +1,9 @@
+#include <chrono>
+#include <filesystem>
+#include <fstream>
+#include <memory>
+
+#include "app/Editor.h"
 #include "nav/NavigationHistory.h"
 #include "test_main.h"
 
@@ -144,4 +150,103 @@ TEST(nav_back_from_live_position_far_from_last_entry) {
   p = h.forward(*p);
   CHECK(*p == L("b", 500));
   CHECK(!h.canGoForward());
+}
+
+namespace {
+namespace fs = std::filesystem;
+
+// An Editor over a temp workspace with three 40-line files (no semantic engine: never started).
+struct EdFx {
+  fs::path dir;
+  std::unique_ptr<Editor> ed;
+  EdFx() {
+    static int n = 0;
+    dir = fs::temp_directory_path() /
+          ("tf_navfx_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+           std::to_string(n++));
+    fs::create_directories(dir);
+    for (const char* f : {"a.cpp", "b.cpp", "c.cpp"}) {
+      std::ofstream out(dir / f);
+      for (int i = 0; i < 40; ++i) out << "int " << f[0] << i << ";\n";
+    }
+    ed = std::make_unique<Editor>(dir);
+  }
+  ~EdFx() {
+    ed.reset();
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+  }
+  Location at(const char* f, int line, int col = 0) const { return {dir / f, {line, col}}; }
+};
+}  // namespace
+
+TEST(nav_editor_def_def_back_back_forward) {
+  EdFx fx;
+  Editor& ed = *fx.ed;
+  REQUIRE(ed.gotoLocation(fx.at("a.cpp", 0)));
+  REQUIRE(ed.gotoLocation(fx.at("b.cpp", 5), nullptr, "foo"));
+  REQUIRE(ed.gotoLocation(fx.at("c.cpp", 20), nullptr, "bar"));
+  CHECK_EQ(ed.navigation().entries().size(), 3u);
+  CHECK(ed.back());
+  CHECK(ed.cursor() == fx.at("b.cpp", 5));
+  CHECK(ed.back());
+  CHECK(ed.cursor() == fx.at("a.cpp", 0));
+  CHECK(ed.forward());
+  CHECK(ed.cursor() == fx.at("b.cpp", 5));
+}
+
+TEST(nav_editor_go_to_history_entry_adds_no_entries) {
+  EdFx fx;
+  Editor& ed = *fx.ed;
+  ed.gotoLocation(fx.at("a.cpp", 0));
+  ed.gotoLocation(fx.at("b.cpp", 5), nullptr, "foo");
+  ed.gotoLocation(fx.at("c.cpp", 20), nullptr, "bar");
+  CHECK(!ed.goToHistoryEntry(3));
+  CHECK(ed.goToHistoryEntry(0));  // from the live position
+  CHECK(ed.cursor() == fx.at("a.cpp", 0));
+  CHECK_EQ(ed.navigation().entries().size(), 3u);
+  CHECK(ed.navigation().canGoForward());
+  CHECK(ed.goToHistoryEntry(2));  // all the way forward = back at the live position
+  CHECK(ed.cursor() == fx.at("c.cpp", 20));
+  CHECK(!ed.navigation().canGoForward());
+  CHECK(ed.goToHistoryEntry(1));
+  CHECK(ed.cursor() == fx.at("b.cpp", 5));
+  CHECK(ed.navigation().canGoForward() && ed.navigation().canGoBack());
+  CHECK_EQ(ed.navigation().entries().size(), 3u);
+  CHECK(ed.forward());  // plain Forward still works afterwards
+  CHECK(ed.cursor() == fx.at("c.cpp", 20));
+}
+
+TEST(nav_editor_last_edit_location_follows_edits_and_line_shifts) {
+  EdFx fx;
+  Editor& ed = *fx.ed;
+  CHECK(!ed.lastEditLocation().has_value());
+  ed.gotoLocation(fx.at("a.cpp", 8));
+  ed.moveCursor({8, 0});
+  ed.insertText("Z");
+  REQUIRE(ed.lastEditLocation().has_value());
+  CHECK(*ed.lastEditLocation() == fx.at("a.cpp", 8, 1));
+  ed.moveCursor({30, 0});  // moving is not editing
+  CHECK(*ed.lastEditLocation() == fx.at("a.cpp", 8, 1));
+  ed.insertText("\n");  // multi-line edit: the caret after it
+  CHECK(*ed.lastEditLocation() == fx.at("a.cpp", 31, 0));
+  ed.moveCursor({8, 1});
+  ed.insertText("Q");
+  CHECK(*ed.lastEditLocation() == fx.at("a.cpp", 8, 2));
+  ed.moveCursor({0, 0});
+  CHECK(ed.undo());  // undo is an edit too: it ends where the caret was put back
+  CHECK(*ed.lastEditLocation() == ed.cursor());
+  CHECK(ed.redo());
+  CHECK(*ed.lastEditLocation() == ed.cursor());
+  // A change that is not a user edit (external reload) only shifts it: 3 lines inserted above.
+  REQUIRE(ed.save(*ed.currentDocument()));
+  {
+    std::ifstream in(fx.dir / "a.cpp");
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.close();
+    std::ofstream out(fx.dir / "a.cpp", std::ios::binary);
+    out << "x\ny\nz\n" << text;
+  }
+  REQUIRE(ed.reloadFromDisk(*ed.currentDocument()));
+  CHECK(*ed.lastEditLocation() == fx.at("a.cpp", 11, 2));
 }
