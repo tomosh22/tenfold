@@ -110,6 +110,25 @@ class SemanticEngine {
   bool waitForFile(const std::filesystem::path& file, int timeoutMs) const;  // clangd AST ready
   bool fileReady(const std::filesystem::path& file) const;
 
+  // --- file-system changes (see FileWatcher; wired up by Editor) ---
+  // fileChanged / fileRemoved are thread-safe and cheap (one file). Files that
+  // are open in a Document are skipped unless `includeOpen`, because the
+  // in-memory text, not the disk, is what the index should reflect for those.
+  void fileChanged(const std::filesystem::path& file, bool includeOpen = false);
+  void fileRemoved(const std::filesystem::path& file, bool includeOpen = false);
+  // Re-lex many files on the engine's worker thread (renamed / created directories, rescans).
+  void indexFilesAsync(std::vector<std::filesystem::path> files);
+  // Re-run compile-command discovery on the worker thread (call after
+  // compile_commands.json / CMakeLists.txt changed). `done(locationChanged)`
+  // runs on the worker thread; clangd re-reads a database in place, so only
+  // call restartClangd() when the location changed. `sources`/`headers` are a
+  // snapshot of the workspace lists (taken on the caller's thread).
+  void refreshCompileCommands(std::vector<std::filesystem::path> sources, std::vector<std::filesystem::path> headers,
+                              std::function<void(bool locationChanged)> done = {});
+  // Restart clangd against the current compile database and re-open the open
+  // documents. Blocks for the clangd handshake; call from the editor thread.
+  bool restartClangd(std::string* error = nullptr);
+
   // Document lifecycle (forwarded to clangd and the fast index).
   void didOpen(Document& doc);
   void didChange(Document& doc, const Document::Change& change);
@@ -150,7 +169,11 @@ class SemanticEngine {
 
  private:
   struct Pending;
-  void prepareCompileCommands();
+  // Returns true if the directory holding the compile database changed.
+  bool prepareCompileCommands(const std::vector<std::filesystem::path>& sources,
+                              const std::vector<std::filesystem::path>& headers, bool reconfigure);
+  void runAsync(std::function<void()> task);
+  void workerLoop();
   bool startClangd(std::string* error);
   void startFastIndex();
   void saveFastIndex();
@@ -174,6 +197,13 @@ class SemanticEngine {
   std::string compdbSource_ = "none";
   std::filesystem::path compdbPath_;
   std::vector<std::string> sharedFlags_;  // flags applied to every file via clangd config
+
+  // Worker for file-system driven maintenance (reconfigure, bulk re-index).
+  std::thread worker_;
+  std::mutex workMu_;
+  std::condition_variable workCv_;
+  std::deque<std::function<void()>> work_;
+  bool workStop_ = false;
 
   std::thread indexThread_;
   std::atomic<bool> fastDone_{false};

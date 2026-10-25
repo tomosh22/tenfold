@@ -60,6 +60,7 @@ bool Workspace::loadSettings(std::string* error) {
   settings_.runCMake = j.value("runCMake", settings_.runCMake);
   settings_.msvcToolchain = j.value("msvcToolchain", settings_.msvcToolchain);
   settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
+  settings_.watchFiles = j.value("watchFiles", settings_.watchFiles);
   return true;
 }
 
@@ -78,6 +79,7 @@ bool Workspace::saveSettings(std::string* error) const {
   j["runCMake"] = settings_.runCMake;
   j["msvcToolchain"] = settings_.msvcToolchain;
   j["followSymlinks"] = settings_.followSymlinks;
+  j["watchFiles"] = settings_.watchFiles;
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
   std::ofstream out(cacheDir() / "workspace.json");
@@ -131,6 +133,46 @@ void Workspace::scan(std::function<void(size_t)> progress) {
   std::sort(sources_.begin(), sources_.end());
   std::sort(headers_.begin(), headers_.end());
   std::sort(others_.begin(), others_.end());
+}
+
+bool Workspace::noteFileAdded(const fs::path& p) {
+  std::vector<fs::path>* list = nullptr;
+  if (isSource(p)) list = &sources_;
+  else if (isHeader(p)) list = &headers_;
+  else if (hasExt(p, settings_.otherExtensions)) list = &others_;
+  if (!list) return false;
+  auto it = std::lower_bound(list->begin(), list->end(), p);
+  if (it != list->end() && *it == p) return false;
+  list->insert(it, p);
+  return true;
+}
+
+bool Workspace::noteFileRemoved(const fs::path& p) {
+  bool changed = false;
+  for (auto* list : {&sources_, &headers_, &others_}) {
+    auto it = std::lower_bound(list->begin(), list->end(), p);
+    if (it != list->end() && *it == p) {
+      list->erase(it);
+      changed = true;
+    }
+  }
+  return changed;
+}
+
+bool Workspace::noteFileRenamed(const fs::path& from, const fs::path& to) {
+  bool removed = noteFileRemoved(from);
+  bool added = noteFileAdded(to);
+  return removed || added;
+}
+
+std::vector<fs::path> Workspace::filesUnder(const fs::path& dir) const {
+  std::vector<fs::path> out;
+  for (auto* list : {&sources_, &headers_, &others_})
+    for (auto& f : *list) {
+      auto [a, b] = std::mismatch(dir.begin(), dir.end(), f.begin(), f.end());
+      if (a == dir.end()) out.push_back(f);
+    }
+  return out;
 }
 
 std::vector<fs::path> Workspace::codeFiles() const {
