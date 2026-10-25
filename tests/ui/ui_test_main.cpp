@@ -25,7 +25,9 @@ namespace uitest {
 bool updateGoldens = false;
 static bool glFixtureCreated = false;
 
-bool glFixtureExists() { return glFixtureCreated; }
+// Only true when a GL context really exists: with a failed fixture the GL function pointers are null, and the
+// runner's glGetError checks around each test would crash (seen on the Windows runner, which has no GL 3.3).
+bool glFixtureExists() { return glFixtureCreated && glFixture() != nullptr; }
 
 GlFixture* glFixture() {
   static GlFixture fx;
