@@ -116,7 +116,8 @@ Process::~Process() {
 }
 
 bool Process::start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
-                    const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv) {
+                    const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv,
+                    const ProcessOptions& options) {
   SECURITY_ATTRIBUTES sa{};
   sa.nLength = sizeof sa;
   sa.bInheritHandle = TRUE;
@@ -142,10 +143,11 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
       !::SetHandleInformation(outRead, HANDLE_FLAG_INHERIT, 0))
     return fail("SetHandleInformation");
 
-  if (!stderrLog.empty())
+  if (!options.mergeStderr && !stderrLog.empty())
     errH = ::CreateFileW(stderrLog.c_str(), GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, CREATE_ALWAYS,
                          FILE_ATTRIBUTE_NORMAL, nullptr);
-  if (!errH || errH == INVALID_HANDLE_VALUE)
+  // mergeStderr: the child's stderr is the write end of the stdout pipe, no extra handle.
+  if (!options.mergeStderr && (!errH || errH == INVALID_HANDLE_VALUE))
     errH = ::CreateFileW(L"NUL", GENERIC_WRITE, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_EXISTING,
                          FILE_ATTRIBUTE_NORMAL, nullptr);
   if (errH == INVALID_HANDLE_VALUE) {
@@ -154,10 +156,14 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
   }
 
   std::wstring cmd;
-  appendQuoted(cmd, utf8ToWide(exe));
-  for (auto& a : args) {
-    cmd += L' ';
-    appendQuoted(cmd, utf8ToWide(a));
+  if (!options.rawCommandLine.empty()) {
+    cmd = utf8ToWide(options.rawCommandLine);
+  } else {
+    appendQuoted(cmd, utf8ToWide(exe));
+    for (auto& a : args) {
+      cmd += L' ';
+      appendQuoted(cmd, utf8ToWide(a));
+    }
   }
   cmd.push_back(L'\0');  // CreateProcessW may modify the buffer
   std::wstring env = buildEnvBlock(extraEnv);
@@ -178,7 +184,7 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
   si.dwFlags = STARTF_USESTDHANDLES;
   si.hStdInput = inRead;
   si.hStdOutput = outWrite;
-  si.hStdError = errH;
+  si.hStdError = options.mergeStderr ? outWrite : errH;
   PROCESS_INFORMATION pi{};
   std::wstring wcwd = cwd.empty() ? std::wstring() : cwd.wstring();
   // Suspended so the child is in the job before it can spawn anything.
@@ -198,7 +204,8 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
 
   ::CloseHandle(inRead);
   ::CloseHandle(outWrite);
-  ::CloseHandle(errH);
+  if (errH) ::CloseHandle(errH);
+  tree_ = options.processTree;
   process_ = pi.hProcess;
   job_ = job;
   stdinH_ = inWrite;
@@ -238,11 +245,10 @@ bool Process::running() const {
   return false;
 }
 
-void Process::terminate() {
-  if (process_ && !exited_) ::TerminateProcess(process_, 1);
-}
+void Process::terminate() { kill(); }
 void Process::kill() {
-  if (process_ && !exited_) ::TerminateProcess(process_, 1);
+  if (tree_ && job_) ::TerminateJobObject(job_, 1);  // everything the child spawned, even after it exited
+  else if (process_ && !exited_) ::TerminateProcess(process_, 1);
 }
 
 void Process::closeStdin() { closeHandle(stdinH_); }

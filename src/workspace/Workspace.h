@@ -27,6 +27,12 @@ class Workspace {
     std::vector<std::string> clangdExtraArgs;  // appended to the default clangd command line
     std::string vsConfiguration = "Debug";
     std::string vsPlatform = "x64";
+    // Build integration (Editor::build). vsConfiguration / vsPlatform above are shared with the build so clangd and
+    // the build agree. Empty buildCommand: pick by project type (msbuild / cmake --build / make). A non-empty one runs
+    // through the shell (sh -c / cmd /c) in the workspace root. buildDir: CMake build directory (relative to the
+    // root); empty uses the directory of the compile database, else .tenfold/cmake-build.
+    std::string buildCommand;
+    std::string buildDir;
     bool runCMake = true;  // configure CMake projects to obtain compile commands
     // Path of the MSVC cl.exe used for clangd's --query-driver (.vcxproj/.sln projects).
     // User-overridable; when empty it is discovered and then persisted here.
