@@ -15,6 +15,7 @@ void NavResultPicker::show(const std::string& title, Confidence c, const std::ve
   std::string keep;  // same location stays selected when the authoritative list replaces the approximate one
   if (popup_ && popup_->selectedRow()) keep = popup_->selectedRow()->key;
   if (!popup_) {
+    env_.lines.clearCache();
     auto p = std::make_unique<ListPopup>(false);
     p->setMaxVisibleRows(10);
     p->onAccept([this](int row) {

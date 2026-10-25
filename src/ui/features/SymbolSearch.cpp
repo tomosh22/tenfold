@@ -50,6 +50,7 @@ void SymbolSearch::workerLoop() {
 
 void SymbolSearch::open() {
   close();
+  env_.lines.clearCache();  // previews read files from disk: start from fresh contents
   auto p = std::make_unique<ListPopup>(true);
   p->input()->setPlaceholder("Search symbols");
   p->setEmptyText("Type to search symbols");
