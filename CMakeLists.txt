@@ -21,6 +21,8 @@ if(MSVC)
   set(TENFOLD_WARN_CORE /W4 /wd4100)
   # getenv/fopen etc. are used portably on purpose; silence the _s-variant deprecations.
   add_compile_definitions(_CRT_SECURE_NO_WARNINGS)
+  # Sources are UTF-8 without BOM (U'中' literals in tests); MSVC otherwise reads them in the ANSI code page.
+  add_compile_options(/utf-8)
 else()
   set(TENFOLD_WARN -Wall -Wextra)
   set(TENFOLD_WARN_CORE -Wall -Wextra -Wno-unused-parameter)
