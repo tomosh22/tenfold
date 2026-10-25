@@ -26,7 +26,9 @@ void touch(const fs::path& p) {
   fs::create_directories(p.parent_path());
   std::ofstream(p) << "x";
 }
-bool has(const std::vector<std::string>& v, const std::string& s) { return std::find(v.begin(), v.end(), s) != v.end(); }
+bool has(const std::vector<std::string>& v, const std::string& s) {
+  return std::find(v.begin(), v.end(), s) != v.end();
+}
 }  // namespace
 
 TEST(uri_windows_drive_roundtrip) {
@@ -142,7 +144,10 @@ TEST(msvc_cl_via_vswhere_picks_newest) {
 TEST(msvc_configured_toolchain_skips_discovery) {
   compdb::MsvcProbe probe;
   bool called = false;
-  probe.vswhere = [&] { called = true; return std::string("/nope"); };
+  probe.vswhere = [&] {
+    called = true;
+    return std::string("/nope");
+  };
   auto cl = compdb::discoverCl("/opt/msvc/bin/Hostx64/x64/cl.exe", probe);
   REQUIRE(cl.has_value());
   CHECK_EQ(cl->generic_string(), "/opt/msvc/bin/Hostx64/x64/cl.exe");

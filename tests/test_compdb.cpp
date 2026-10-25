@@ -20,7 +20,10 @@ const CompileCommand* forFile(const std::vector<CompileCommand>& cs, const std::
 
 TEST(xml_parse_basics) {
   std::string err;
-  auto doc = xml::parse("<?xml version=\"1.0\"?>\n<!-- c -->\n<A x=\"1\" y='two &amp; three'>\n  <B>text &lt;here&gt;</B><C/><![CDATA[raw <x>]]></A>", &err);
+  auto doc = xml::parse(
+      "<?xml version=\"1.0\"?>\n<!-- c -->\n<A x=\"1\" y='two &amp; three'>\n  <B>text "
+      "&lt;here&gt;</B><C/><![CDATA[raw <x>]]></A>",
+      &err);
   REQUIRE(doc != nullptr);
   CHECK_EQ(doc->name, "A");
   CHECK_EQ(doc->attr("x"), "1");
@@ -106,7 +109,8 @@ TEST(vcxproj_to_compile_commands) {
 
 TEST(heuristic_compile_commands) {
   fs::path root = fs::path(TENFOLD_SOURCE_DIR) / "examples/sample_project";
-  auto cmds = compdb::heuristic(root, {root / "src/main.cpp", root / "src/geometry.cpp"}, {root / "include/geometry.h"}, "c++20");
+  auto cmds = compdb::heuristic(root, {root / "src/main.cpp", root / "src/geometry.cpp"}, {root / "include/geometry.h"},
+                                "c++20");
   CHECK_EQ(cmds.size(), 2u);
   CHECK(hasArg(cmds[0], "-std=c++20"));
   CHECK(hasArg(cmds[0], "-I" + (root / "include").generic_string()));
@@ -116,7 +120,8 @@ TEST(heuristic_compile_commands) {
 TEST(infer_include_dirs) {
   std::vector<fs::path> headers = {"/w/engine/include/engine/core.h", "/w/engine/include/engine/math/vec.h",
                                    "/w/third/foo/foo.h", "/w/src/local.h", "/w/other/engine/core.h"};
-  std::vector<std::string> incs = {"engine/core.h", "engine/math/vec.h", "foo/foo.h", "local.h", "<vector>", "missing.h"};
+  std::vector<std::string> incs = {"engine/core.h", "engine/math/vec.h", "foo/foo.h",
+                                   "local.h",       "<vector>",          "missing.h"};
   auto dirs = compdb::inferIncludeDirs(headers, incs);
   REQUIRE(dirs.size() >= 3u);
   CHECK(dirs[0] == fs::path("/w/engine/include"));  // covers two includes, beats /w/other

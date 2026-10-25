@@ -16,9 +16,10 @@ class Workspace {
   struct Settings {
     std::vector<std::string> sourceExtensions = {".cpp", ".cc", ".cxx", ".c", ".cu", ".mm", ".m"};
     std::vector<std::string> headerExtensions = {".h", ".hpp", ".hh", ".hxx", ".inl", ".ipp", ".tpp", ".cuh", ""};
-    std::vector<std::string> otherExtensions = {".txt", ".md", ".json", ".cmake", ".py", ".lua", ".natvis", ".def", ".rc"};
-    std::set<std::string> ignoreDirs = {".git", ".svn", ".hg", ".vs", ".vscode", ".idea", ".cache", ".tenfold",
-                                        "node_modules", "__pycache__"};
+    std::vector<std::string> otherExtensions = {".txt", ".md",     ".json", ".cmake", ".py",
+                                                ".lua", ".natvis", ".def",  ".rc"};
+    std::set<std::string> ignoreDirs = {".git",  ".svn",   ".hg",      ".vs",          ".vscode",
+                                        ".idea", ".cache", ".tenfold", "node_modules", "__pycache__"};
     std::vector<std::string> ignoreDirPrefixes = {"build", "out", "cmake-build", "bin", "obj"};
     bool followSymlinks = false;
     std::string cppStandard = "c++20";
@@ -26,11 +27,11 @@ class Workspace {
     std::vector<std::string> clangdExtraArgs;  // appended to the default clangd command line
     std::string vsConfiguration = "Debug";
     std::string vsPlatform = "x64";
-    bool runCMake = true;                      // configure CMake projects to obtain compile commands
+    bool runCMake = true;  // configure CMake projects to obtain compile commands
     // Path of the MSVC cl.exe used for clangd's --query-driver (.vcxproj/.sln projects).
     // User-overridable; when empty it is discovered and then persisted here.
     std::string msvcToolchain;
-    bool watchFiles = true;                    // keep index / history / documents in sync with the file system
+    bool watchFiles = true;  // keep index / history / documents in sync with the file system
   };
 
   explicit Workspace(std::filesystem::path root);

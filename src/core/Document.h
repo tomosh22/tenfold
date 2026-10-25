@@ -13,8 +13,8 @@ namespace tf {
 class Document {
  public:
   struct Change {
-    Range removed;       // range in the *old* text
-    std::string newText; // what replaced it
+    Range removed;        // range in the *old* text
+    std::string newText;  // what replaced it
     int lineDelta;
   };
   using Listener = std::function<void(Document&, const Change&)>;
@@ -44,7 +44,11 @@ class Document {
   void removeListener(int id);
 
  private:
-  struct UndoRecord { Range range; std::string oldText; std::string newText; };
+  struct UndoRecord {
+    Range range;
+    std::string oldText;
+    std::string newText;
+  };
   void applyRaw(Range r, std::string_view text, UndoRecord* rec);
 
   std::filesystem::path path_;

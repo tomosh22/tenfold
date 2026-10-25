@@ -16,6 +16,7 @@
 #include <sys/eventfd.h>
 #include <sys/inotify.h>
 #include <unistd.h>
+
 #include <fstream>
 #elif defined(_WIN32)
 #ifndef NOMINMAX
@@ -117,8 +118,7 @@ struct FileWatcher::Impl {
           p.ev.kind = Event::Deleted;
         }
         break;
-      default:
-        break;
+      default: break;
     }
   }
 
@@ -239,8 +239,8 @@ struct FileWatcher::Impl {
   std::unordered_map<std::string, int> pathWd;
   std::atomic<bool> limitHit{false};
 
-  static constexpr uint32_t kMask = IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ONLYDIR |
-                                    IN_DONT_FOLLOW;
+  static constexpr uint32_t kMask =
+      IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ONLYDIR | IN_DONT_FOLLOW;
 
   bool addWatch(const fs::path& dir) {
     if (opt.maxWatches > 0 && watchesPlatform() >= opt.maxWatches) {
@@ -484,7 +484,8 @@ struct FileWatcher::Impl {
       for (auto& d : extras) addWatch(d);
       if (limitHit) {
         log("file watcher: inotify watch limit (" + std::to_string(readWatchLimit()) + ") reached after " +
-            std::to_string(wdPath.size()) + " directories; falling back to polling. Raise fs.inotify.max_user_watches.");
+            std::to_string(wdPath.size()) +
+            " directories; falling back to polling. Raise fs.inotify.max_user_watches.");
         closeInotify();
         usePoll = true;
       }
@@ -604,9 +605,7 @@ struct FileWatcher::Impl {
               note(std::move(e));
             }
             break;
-          case FILE_ACTION_RENAMED_OLD_NAME:
-            pendingOld = path;
-            break;
+          case FILE_ACTION_RENAMED_OLD_NAME: pendingOld = path; break;
           case FILE_ACTION_RENAMED_NEW_NAME:
             e.kind = Event::Renamed;
             e.oldPath = pendingOld;
@@ -614,8 +613,7 @@ struct FileWatcher::Impl {
             pendingOld.clear();
             note(std::move(e));
             break;
-          default:
-            break;
+          default: break;
         }
       } else if (info->Action == FILE_ACTION_RENAMED_OLD_NAME) {
         pendingOld.clear();

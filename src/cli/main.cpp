@@ -27,32 +27,32 @@ namespace fs = std::filesystem;
 namespace {
 
 void usage() {
-  std::cerr <<
-      "usage: tenfold-cli <workspace-root> [options]\n"
-      "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
-      "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
-      "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
-      "options:\n"
-      "  --clangd <path>     clangd executable (default: from PATH)\n"
-      "  --no-clangd         fast index only (approximate results)\n"
-      "  --budget <ms>       how long to wait for clangd before showing approximate results (250)\n"
-      "  --trace             log every LSP message to stderr\n"
-      "  --quiet             suppress engine log\n"
-      "commands (stdin, one per line):\n"
-      "  open <file>[:line[:col]]   open a file and place the caret (1-based)\n"
-      "  goto <line> [col]          move caret (ordinary caret motion)\n"
-      "  def | decl | refs          go to definition / declaration / list references\n"
-      "  sym <query>                workspace symbol search (fuzzy)\n"
-      "  grep <text>                literal text search in the workspace (first 50 hits)\n"
-      "  hover | complete           hover text / completion list at caret\n"
-      "  switch                     switch between source and header\n"
-      "  back | fwd                 navigate backward / forward\n"
-      "  history                    print the navigation stack\n"
-      "  insert <text>              insert text at caret (\\n for newline)\n"
-      "  wait-index [ms]            wait for clangd background index\n"
-      "  wait-file [ms]             wait for clangd to finish parsing the current file\n"
-      "  wait-fast [ms]             wait for the fast index\n"
-      "  status | where | diags | quit\n";
+  std::cerr
+      << "usage: tenfold-cli <workspace-root> [options]\n"
+         "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
+         "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
+         "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
+         "options:\n"
+         "  --clangd <path>     clangd executable (default: from PATH)\n"
+         "  --no-clangd         fast index only (approximate results)\n"
+         "  --budget <ms>       how long to wait for clangd before showing approximate results (250)\n"
+         "  --trace             log every LSP message to stderr\n"
+         "  --quiet             suppress engine log\n"
+         "commands (stdin, one per line):\n"
+         "  open <file>[:line[:col]]   open a file and place the caret (1-based)\n"
+         "  goto <line> [col]          move caret (ordinary caret motion)\n"
+         "  def | decl | refs          go to definition / declaration / list references\n"
+         "  sym <query>                workspace symbol search (fuzzy)\n"
+         "  grep <text>                literal text search in the workspace (first 50 hits)\n"
+         "  hover | complete           hover text / completion list at caret\n"
+         "  switch                     switch between source and header\n"
+         "  back | fwd                 navigate backward / forward\n"
+         "  history                    print the navigation stack\n"
+         "  insert <text>              insert text at caret (\\n for newline)\n"
+         "  wait-index [ms]            wait for clangd background index\n"
+         "  wait-file [ms]             wait for clangd to finish parsing the current file\n"
+         "  wait-fast [ms]             wait for the fast index\n"
+         "  status | where | diags | quit\n";
 }
 
 std::string unescape(const std::string& s) {
@@ -77,7 +77,10 @@ void printLocs(const std::vector<SymbolLocation>& locs, Confidence c) {
 }
 
 int runCompdb(int argc, char** argv) {
-  if (argc < 3) { usage(); return 2; }
+  if (argc < 3) {
+    usage();
+    return 2;
+  }
   fs::path in = argv[2];
   compdb::VcxprojOptions vo;
   fs::path out;
@@ -93,7 +96,10 @@ int runCompdb(int argc, char** argv) {
   else cmds = compdb::fromVcxproj(in, vo, &err);
   if (!err.empty()) std::cerr << err;
   if (out.empty()) out = in.parent_path() / "compile_commands.json";
-  if (!CompileDatabase::save(cmds, out, &err)) { std::cerr << err << "\n"; return 1; }
+  if (!CompileDatabase::save(cmds, out, &err)) {
+    std::cerr << err << "\n";
+    return 1;
+  }
   std::cout << "wrote " << cmds.size() << " commands to " << out << "\n";
   return 0;
 }
@@ -140,10 +146,15 @@ double peakRssMiB() {
 std::string jsonEscape(const std::string& s) {
   std::string o;
   for (unsigned char c : s) {
-    if (c == '"' || c == '\\') { o += '\\'; o += static_cast<char>(c); }
-    else if (c == '\n') o += "\\n";
-    else if (c < 0x20) { char b[8]; std::snprintf(b, sizeof b, "\\u%04x", c); o += b; }
-    else o += static_cast<char>(c);
+    if (c == '"' || c == '\\') {
+      o += '\\';
+      o += static_cast<char>(c);
+    } else if (c == '\n') o += "\\n";
+    else if (c < 0x20) {
+      char b[8];
+      std::snprintf(b, sizeof b, "\\u%04x", c);
+      o += b;
+    } else o += static_cast<char>(c);
   }
   return o;
 }
@@ -187,7 +198,8 @@ void writeJson(std::ostream& os, const BenchReport& r) {
 void writeTable(std::ostream& os, const BenchReport& r) {
   for (auto& [k, v] : r.meta) os << std::left << std::setw(34) << k << v << "\n";
   os << "\n";
-  for (auto& [k, v] : r.counts) os << std::left << std::setw(34) << k << std::fixed << std::setprecision(0) << v << "\n";
+  for (auto& [k, v] : r.counts)
+    os << std::left << std::setw(34) << k << std::fixed << std::setprecision(0) << v << "\n";
   os << "\n";
   for (auto& [k, v] : r.phases) {
     os << std::left << std::setw(34) << k << std::right << std::setw(12) << std::fixed << std::setprecision(2) << v
@@ -210,7 +222,10 @@ bool parseFileSpec(const std::string& spec, std::string& file, int& line, int& c
 }
 
 int runBench(int argc, char** argv) {
-  if (argc < 3) { usage(); return 2; }
+  if (argc < 3) {
+    usage();
+    return 2;
+  }
   fs::path root = argv[2];
   std::string fileSpec;
   std::vector<std::string> syms;
@@ -227,10 +242,16 @@ int runBench(int argc, char** argv) {
     else if (a == "--wait-index" && i + 1 < argc) waitIndexMs = std::max(0, std::stoi(argv[++i]));
     else if (a == "--no-clangd") opt.semantic.useClangd = false;
     else if (a == "--json") json = true;
-    else { usage(); return 2; }
+    else {
+      usage();
+      return 2;
+    }
   }
   std::error_code ec;
-  if (!fs::is_directory(root, ec)) { std::cerr << "not a directory: " << root << "\n"; return 2; }
+  if (!fs::is_directory(root, ec)) {
+    std::cerr << "not a directory: " << root << "\n";
+    return 2;
+  }
   // Default: the README's s->area() case in examples/sample_project.
   if (fileSpec.empty() && fs::is_regular_file(root / "src" / "main.cpp", ec)) fileSpec = "src/main.cpp:12:17";
   if (syms.empty()) syms = {"Shape", "area"};
@@ -379,7 +400,11 @@ int runBench(int argc, char** argv) {
         double ms = -1;
         auto t = BenchClock::now();
         ed.findSymbols(q, [&](Confidence c, const std::vector<SymbolLocation>& locs, const std::string&) {
-          if (c == Confidence::Authoritative) { ms = msSince(t); authN = locs.size(); fin = true; }
+          if (c == Confidence::Authoritative) {
+            ms = msSince(t);
+            authN = locs.size();
+            fin = true;
+          }
         });
         ed.waitFor([&] { return fin; }, 30000);
         if (ms >= 0) authT.push_back(ms);
@@ -401,7 +426,10 @@ int runBench(int argc, char** argv) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc < 2) { usage(); return 2; }
+  if (argc < 2) {
+    usage();
+    return 2;
+  }
   if (std::strcmp(argv[1], "compdb") == 0) return runCompdb(argc, argv);
   if (std::strcmp(argv[1], "bench") == 0) return runBench(argc, argv);
 
@@ -414,7 +442,10 @@ int main(int argc, char** argv) {
     else if (a == "--budget" && i + 1 < argc) opt.semantic.clangdBudgetMs = std::stoi(argv[++i]);
     else if (a == "--trace") opt.semantic.traceLsp = true;
     else if (a == "--quiet") quiet = true;
-    else { usage(); return 2; }
+    else {
+      usage();
+      return 2;
+    }
   }
   if (!quiet) opt.log = [](const std::string& m) { std::cerr << "[tenfold] " << m << "\n"; };
 
@@ -462,7 +493,8 @@ int main(int argc, char** argv) {
         int l = 1, c = 1;
         // file[:line[:col]]
         size_t p1 = spec.rfind(':');
-        if (p1 != std::string::npos && p1 > 0 && std::isdigit(static_cast<unsigned char>(spec[p1 + 1 < spec.size() ? p1 + 1 : p1]))) {
+        if (p1 != std::string::npos && p1 > 0 &&
+            std::isdigit(static_cast<unsigned char>(spec[p1 + 1 < spec.size() ? p1 + 1 : p1]))) {
           size_t p0 = spec.rfind(':', p1 - 1);
           if (p0 != std::string::npos && p0 > 0 && std::isdigit(static_cast<unsigned char>(spec[p0 + 1]))) {
             l = std::stoi(spec.substr(p0 + 1, p1 - p0 - 1));
@@ -500,13 +532,17 @@ int main(int argc, char** argv) {
         SearchOptions so;
         so.maxResults = 50;
         bool done = false;
-        ed.findInWorkspace(q, so, [](const std::vector<SearchMatch>& ms) {
-          for (auto& m : ms) std::cout << m.file.string() << ":" << m.line + 1 << ":" << m.column + 1 << ": " << m.text << "\n";
-        }, [&](const SearchSummary& s) {
-          std::cout << s.matches << " matches" << (s.truncated ? " (truncated)" : "") << " in " << s.elapsedMs << " ms"
-                    << (s.error.empty() ? "" : " error: " + s.error) << "\n";
-          done = true;
-        });
+        ed.findInWorkspace(
+            q, so,
+            [](const std::vector<SearchMatch>& ms) {
+              for (auto& m : ms)
+                std::cout << m.file.string() << ":" << m.line + 1 << ":" << m.column + 1 << ": " << m.text << "\n";
+            },
+            [&](const SearchSummary& s) {
+              std::cout << s.matches << " matches" << (s.truncated ? " (truncated)" : "") << " in " << s.elapsedMs
+                        << " ms" << (s.error.empty() ? "" : " error: " + s.error) << "\n";
+              done = true;
+            });
         ed.waitFor([&] { return done; }, 60000);
       } else if (cmd == "hover") {
         bool done = false;
@@ -523,7 +559,8 @@ int main(int argc, char** argv) {
         ed.complete([&](const std::vector<LspCompletionItem>& items, const std::string& e) {
           if (!e.empty()) std::cout << "  error: " << e << "\n";
           std::cout << "  " << items.size() << " completion(s)\n";
-          for (size_t i = 0; i < items.size() && i < 15; ++i) std::cout << "    " << items[i].label << "  " << items[i].detail << "\n";
+          for (size_t i = 0; i < items.size() && i < 15; ++i)
+            std::cout << "    " << items[i].label << "  " << items[i].detail << "\n";
           done = true;
         });
         ed.waitFor([&] { return done; }, 30000);
@@ -546,7 +583,8 @@ int main(int argc, char** argv) {
         size_t i = 0;
         for (auto& e : nav.entries()) {
           std::cout << (i == nav.cursor() ? "  * " : "    ") << i << ": " << toString(e.loc)
-                    << (e.kind == NavigationHistory::Kind::Jump ? " (jump" : " (caret") << (e.label.empty() ? "" : " " + e.label) << ")\n";
+                    << (e.kind == NavigationHistory::Kind::Jump ? " (jump" : " (caret")
+                    << (e.label.empty() ? "" : " " + e.label) << ")\n";
           ++i;
         }
         if (nav.cursor() == nav.entries().size()) std::cout << "  * (live) " << toString(ed.cursor()) << "\n";
@@ -557,13 +595,18 @@ int main(int argc, char** argv) {
         ed.insertText(unescape(t));
         printCursor();
       } else if (cmd == "wait-index") {
-        int ms2 = 60000; ss >> ms2;
+        int ms2 = 60000;
+        ss >> ms2;
         std::cout << (ed.semantic().waitForClangdIndex(ms2) ? "  index ready" : "  timeout") << "\n";
       } else if (cmd == "wait-file") {
-        int ms2 = 60000; ss >> ms2;
-        if (ed.currentDocument()) std::cout << (ed.semantic().waitForFile(ed.currentDocument()->path(), ms2) ? "  file ready" : "  timeout") << "\n";
+        int ms2 = 60000;
+        ss >> ms2;
+        if (ed.currentDocument())
+          std::cout << (ed.semantic().waitForFile(ed.currentDocument()->path(), ms2) ? "  file ready" : "  timeout")
+                    << "\n";
       } else if (cmd == "wait-fast") {
-        int ms2 = 60000; ss >> ms2;
+        int ms2 = 60000;
+        ss >> ms2;
         std::cout << (ed.semantic().waitForFastIndex(ms2) ? "  fast index ready" : "  timeout") << "\n";
       } else if (cmd == "status") {
         auto s = ed.semantic().status();
@@ -571,8 +614,10 @@ int main(int argc, char** argv) {
                   << " encoding=" << s.offsetEncoding << " index=" << (s.clangdIndex.active ? "indexing " : "")
                   << s.clangdIndex.percentage << "%\n"
                   << "  fast index: " << (s.fastIndexDone ? "done" : "running") << " " << s.fastFiles << " files, "
-                  << s.fastSymbols << " symbols" << (s.fastIndexDone ? " in " + std::to_string(s.fastSeconds) + "s" : "") << "\n"
-                  << "  compile db: " << s.compdbSource << " " << s.compdbEntries << " entries (" << s.compdbPath << ")\n";
+                  << s.fastSymbols << " symbols"
+                  << (s.fastIndexDone ? " in " + std::to_string(s.fastSeconds) + "s" : "") << "\n"
+                  << "  compile db: " << s.compdbSource << " " << s.compdbEntries << " entries (" << s.compdbPath
+                  << ")\n";
       } else if (cmd == "where") {
         printCursor();
       } else if (cmd == "diags") {
@@ -584,9 +629,7 @@ int main(int argc, char** argv) {
       } else {
         std::cout << "  unknown command\n";
       }
-    } catch (const std::exception& e) {
-      std::cout << "  error: " << e.what() << "\n";
-    }
+    } catch (const std::exception& e) { std::cout << "  error: " << e.what() << "\n"; }
   }
   ed.shutdown();
   return 0;

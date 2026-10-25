@@ -29,10 +29,10 @@ enum class Confidence { Approximate, Authoritative };
 inline const char* toString(Confidence c) { return c == Confidence::Authoritative ? "authoritative" : "approximate"; }
 
 struct SymbolLocation {
-  Location loc;            // byte-column position, ready for TextBuffer
+  Location loc;  // byte-column position, ready for TextBuffer
   std::string name;
-  std::string container;   // scope / qualifier
-  std::string kind;        // human-readable kind
+  std::string container;  // scope / qualifier
+  std::string kind;       // human-readable kind
   bool definition = true;
   Confidence confidence = Confidence::Authoritative;
 };
@@ -65,13 +65,13 @@ class SemanticEngine {
  public:
   struct Options {
     bool useClangd = true;
-    std::string clangdPath;                 // empty -> resolve from settings / PATH
-    std::vector<std::string> clangdArgs;    // extra args
-    int clangdBudgetMs = 250;               // wait this long before showing approximate results
-    int indexThreads = 0;                   // 0 -> hardware concurrency
-    bool persistFastIndex = true;           // load/save <root>/.tenfold/fastindex.bin (FastIndexStore)
-    int fastIndexSaveSeconds = 60;          // periodic save interval while the index is dirty
-    std::filesystem::path logDir;           // empty -> <root>/.tenfold
+    std::string clangdPath;               // empty -> resolve from settings / PATH
+    std::vector<std::string> clangdArgs;  // extra args
+    int clangdBudgetMs = 250;             // wait this long before showing approximate results
+    int indexThreads = 0;                 // 0 -> hardware concurrency
+    bool persistFastIndex = true;         // load/save <root>/.tenfold/fastindex.bin (FastIndexStore)
+    int fastIndexSaveSeconds = 60;        // periodic save interval while the index is dirty
+    std::filesystem::path logDir;         // empty -> <root>/.tenfold
     std::function<void(const std::string&)> log;
     bool traceLsp = false;
   };
@@ -184,8 +184,10 @@ class SemanticEngine {
   Position toServer(const Document& doc, Position p) const;
   Location fromServer(const LspLocation& l) const;
   std::vector<SymbolLocation> fromServer(const std::vector<LspLocation>& ls, Confidence c) const;
-  void locationQuery(const char* what, const Document& doc, Position pos, LocationsCallback cb,
-                     std::function<int(LspClient&, const std::string&, Position, LspClient::Callback<std::vector<LspLocation>>)> issue);
+  void locationQuery(
+      const char* what, const Document& doc, Position pos, LocationsCallback cb,
+      std::function<int(LspClient&, const std::string&, Position, LspClient::Callback<std::vector<LspLocation>>)>
+          issue);
   void deliverWithBudget(std::vector<SymbolLocation> approx, LocationsCallback cb,
                          std::function<void(std::function<void(std::vector<SymbolLocation>, std::string)>)> issue);
 
@@ -224,7 +226,7 @@ class SemanticEngine {
   };
   std::deque<Pending> pending_;
 
-  std::map<std::string, std::string> fileStatus_;  // uri -> clangd state
+  std::map<std::string, std::string> fileStatus_;    // uri -> clangd state
   std::map<std::string, const Document*> openDocs_;  // uri -> doc (for encoding conversion)
   std::function<void(const std::filesystem::path&, std::vector<Diagnostic>)> diagHandler_;
 };

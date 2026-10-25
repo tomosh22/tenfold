@@ -57,7 +57,11 @@ struct LspWorkspaceSymbol {
 };
 
 struct LspSignatureHelp {
-  struct Signature { std::string label; std::string documentation; std::vector<std::string> parameters; };
+  struct Signature {
+    std::string label;
+    std::string documentation;
+    std::vector<std::string> parameters;
+  };
   std::vector<Signature> signatures;
   int activeSignature = 0;
   int activeParameter = 0;
@@ -82,7 +86,7 @@ class LspClient {
     std::filesystem::path rootPath;
     std::filesystem::path logFile;
     std::vector<std::string> fallbackFlags;  // used by clangd when no compile command matches
-    Process::Env env;                         // extra environment for the server process
+    Process::Env env;                        // extra environment for the server process
     bool clangdFileStatus = true;
     std::function<void(const std::string&, const Json&)> trace;
   };
@@ -102,7 +106,10 @@ class LspClient {
   // --- document sync ---
   void didOpen(const std::string& uri, const std::string& languageId, int version, const std::string& text);
   void didChangeFull(const std::string& uri, int version, const std::string& text);
-  struct ContentChange { Range range; std::string text; };
+  struct ContentChange {
+    Range range;
+    std::string text;
+  };
   void didChangeIncremental(const std::string& uri, int version, const std::vector<ContentChange>& changes);
   void didSave(const std::string& uri);
   void didClose(const std::string& uri);
@@ -119,7 +126,7 @@ class LspClient {
   int documentSymbols(const std::string& uri, Callback<std::vector<LspDocumentSymbol>> cb);
   int workspaceSymbols(const std::string& query, Callback<std::vector<LspWorkspaceSymbol>> cb);
   int rename(const std::string& uri, Position p, const std::string& newName, Callback<Json> cb);  // WorkspaceEdit
-  int switchSourceHeader(const std::string& uri, Callback<std::string> cb);                     // clangd extension
+  int switchSourceHeader(const std::string& uri, Callback<std::string> cb);                       // clangd extension
   int rawRequest(const std::string& method, Json params, Callback<Json> cb);
   void cancel(int id) { conn_.cancel(id); }
 
