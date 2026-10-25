@@ -56,7 +56,14 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | UTF-8 text, CRLF preserved | ✅ | |
 | Undo / redo | ✅ | Per document, linear; nestable undo groups restore caret sets; typed-word grouping (A5, setting). **verify** 10x's grouping of typed characters (OPEN_QUESTIONS #3). |
 | Multi-caret / column select | ✅ | Engine (A5) + TextView (B2a): click/drag/double/triple/Alt-drag column select, Ctrl/Alt-click add caret, multi-caret clipboard; keystroke-to-paint 0.36 ms with 1000 carets on 100k lines. |
-| Auto-indent, bracket matching, comment toggling | ⬜ | Lexer available (`CppLexer`). |
+| Auto-indent, auto-close brackets and quotes | 🔶 | B8: Enter copies / extends the indentation (brace and operator continuation), `}` dedents, `( [ { " '` close themselves (skip-over, wrap selection, pair Backspace); settings `editor.autoIndent`, `editor.autoClosePairs`, `editor.indentUnit`, `editor.detectIndent`. **verify** against 10x (OPEN_QUESTIONS #8). |
+| Bracket matching | ✅ | B2b: box behind the matching `(){}[]` of the caret. |
+| Comment toggle, duplicate / move / join / delete line, indent / outdent | 🔶 | B8: Ctrl+/ and Ctrl+Shift+/, Ctrl+Shift+D, Alt+Up/Down, Ctrl+J, Ctrl+Shift+K, Tab / Shift+Tab; multi-caret, one undo step each. Placeholder keys. |
+| Go to line | ✅ | B8: Ctrl+G, `line[:column]`, recorded in the navigation history. |
+| Bookmarks | 🔶 | B8: toggle / next / previous / list, per file, follow edits, `.tenfold/bookmarks.json`, gutter flag. **verify** 10x's behaviour (OPEN_QUESTIONS #8). |
+| Find / replace in file | 🔶 | B8: Ctrl+F / Ctrl+H bar, incremental highlight of all matches, case / word / regex, F3 / Shift+F3, replace one / all (one undo step). Regex group references in the replacement are not expanded. |
+| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off), `Editor.LineEndingLF/CRLF`. Encoding is UTF-8 only. |
+| Word wrap | ⬜ | `editor.wordWrap` is reserved; soft wrap in TextView / Layout is not implemented (OPEN_QUESTIONS #4). |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 
 ## Shell

@@ -104,7 +104,7 @@ Position wordLeft(const TextBuffer& b, Position p) {
   while (c > 0 && charClass(l, c - 1) == k) --c;
   return {p.line, c};
 }
-// The pairs the editor closes by itself: () [] {} "" ''.
+// The pairs the editor closes by itself: parentheses, brackets, braces, double and single quotes.
 bool isPair(char open, char close) {
   return (open == '(' && close == ')') || (open == '[' && close == ']') || (open == '{' && close == '}') ||
          (open == '"' && close == '"') || (open == '\'' && close == '\'');
