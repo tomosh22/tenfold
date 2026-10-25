@@ -238,3 +238,18 @@ bytes, tab stops, wide = 2 cells, zero-width marks overlay the previous cell, co
 caret and mouse hit-testing, all derived from one cell iterator so they cannot disagree). Font family/size are
 settings passed in; `discoverMonospaceFont` is only the fallback search. Layout of 120 x 150 visible cells with a warm
 atlas takes about 0.1 ms.
+
+## UI widgets (`src/ui/widgets`, part of `tenfold_ui`)
+
+A small retained widget layer of our own (B3a). `Widget` has absolute-pixel bounds, parent/children, visibility,
+`layout(RectF)`, `paint(PaintContext&)` and `onEvent(const InputEvent&) -> handled`. `RootWidget` owns the `Theme` and
+the `TextRenderer`, routes input (deepest-widget hit-test with bubbling, mouse capture for drags, keyboard focus, hover),
+and tracks dirtiness: widgets call `markDirty()`, the app polls `RootWidget::dirty()` and calls `render()` (event-driven
+frames, no timers). Paint is two-pass by construction: `PaintContext::fill` draws rects immediately while
+`PaintContext::text` only records glyph quads in `TextRenderer::drawText` (clipped on the CPU, grouped by colour); the
+quads are emitted after the tree has painted, so a shell frame is one rect batch plus one glyph batch (2 GL draw calls,
+~0.05 ms CPU for chrome + two text views). If the glyph atlas grows mid-frame the recorded UVs are stale and `render()`
+repaints once. Widgets: `TabStrip` (pinned, dirty marker, close, MRU order, drag reorder / drag-out, overflow
+scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar` (keyed, clickable segments), plus
+`LinesView` (placeholder content until B2's TextView). `Theme` is a neutral dark placeholder until B7 loads it from
+files. The engine never includes any of this.

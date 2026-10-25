@@ -1,6 +1,7 @@
 #pragma once
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "ui/gfx/Atlas.h"
@@ -45,6 +46,23 @@ class TextRenderer {
 
   void releaseTexture(Renderer& r) { atlas_.releaseTexture(r); }
 
+  // Builds a renderer around an existing FontStack (tests use mock fonts).
+  static std::unique_ptr<TextRenderer> fromFonts(FontStack fonts);
+
+  // ---- Single-line UI labels (deferred) ----
+  // drawText only records glyph quads, grouped by colour; flushText emits them (one drawGlyphs per colour) after the
+  // caller has drawn all rects, so a whole widget frame needs only a handful of draw calls. Glyph quads are clipped
+  // to `clip` on the CPU (UVs trimmed proportionally), so no scissor (and no batch split) is needed.
+  // `y` is the top of the line box (lineHeight() tall). Tabs/control chars follow TextLayout rules.
+  float measure(std::string_view utf8) const;
+  void drawText(float x, float y, std::string_view utf8, Color color, const RectF& clip);
+  // `utf8` shortened with a trailing "..." (U+2026) so that it fits in maxWidth; unchanged if it already fits.
+  std::string fit(std::string_view utf8, float maxWidth) const;
+  // Atlas upload + glyph draws for everything recorded since the last flush. Returns false when the atlas grew while
+  // recording (earlier UVs are stale): nothing was drawn, the pending text is dropped and the caller must repaint the
+  // frame (the second attempt cannot grow again for the same text).
+  bool flushText(Renderer& r);
+
  private:
   explicit TextRenderer(FontStack fonts);
 
@@ -54,6 +72,13 @@ class TextRenderer {
   TextViewStyle style_;
   LineLayout textQuads_, gutterQuads_;
   std::string fontPath_, number_;
+  struct Pending {
+    Color color;
+    std::vector<GlyphQuad> quads;
+  };
+  std::vector<Pending> pending_;
+  uint32_t pendingGen_ = 0;
+  LineLayout tmp_;
 };
 
 }  // namespace tf::gfx

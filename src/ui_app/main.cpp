@@ -1,4 +1,4 @@
-// tenfold-ui [workspace] [file] [--demo] [--screenshot out.png] [--size WxH]
+// tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH]
 #include <algorithm>
 #include <cstdio>
 #include <cstdlib>
@@ -14,6 +14,7 @@
 #include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Window.h"
+#include "ui/widgets/ShellDemo.h"
 
 using namespace tf;
 
@@ -71,7 +72,7 @@ constexpr const char* kDefaultFile = "examples/sample_project/src/main.cpp";
 
 int main(int argc, char** argv) {
   std::string workspace, file, shot;
-  bool demo = false;
+  bool demo = false, shell = false;
   int width = 1024, height = 640;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
@@ -83,12 +84,15 @@ int main(int argc, char** argv) {
       }
     } else if (!std::strcmp(argv[i], "--demo")) {
       demo = true;
+    } else if (!std::strcmp(argv[i], "--shell")) {
+      shell = true;
     } else if (argv[i][0] != '-' && workspace.empty()) {
       workspace = argv[i];
     } else if (argv[i][0] != '-' && file.empty()) {
       file = argv[i];
     } else {
-      std::fprintf(stderr, "usage: tenfold-ui [workspace] [file] [--demo] [--screenshot out.png] [--size WxH]\n");
+      std::fprintf(stderr,
+                   "usage: tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH]\n");
       return 2;
     }
   }
@@ -118,7 +122,17 @@ int main(int argc, char** argv) {
   std::vector<std::string> lines;
   std::unique_ptr<gfx::TextRenderer> text;
   float scrollY = 0;
-  if (!demo) {
+  std::unique_ptr<ui::ShellDemo> shellRoot;
+  if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
+    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
+    if (!text) {
+      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
+      return 1;
+    }
+    const float sc = win->pixelScale();
+    shellRoot = std::make_unique<ui::ShellDemo>(*text, workspace.empty() ? "examples/sample_project" : workspace,
+                                                ui::Theme::darkDefault().scaled(sc));
+  } else if (!demo) {
     if (file.empty()) file = kDefaultFile;
     err.clear();
     lines = readLines(file, err);
@@ -133,7 +147,8 @@ int main(int argc, char** argv) {
     }
   }
   auto drawFrame = [&](int w, int h, float mx, float my) {
-    if (demo) drawScene(*renderer, w, h, atlas, mx, my);
+    if (shellRoot) shellRoot->render(*renderer, w, h);
+    else if (demo) drawScene(*renderer, w, h, atlas, mx, my);
     else {
       text->draw(*renderer, w, h, lines, scrollY);
       renderer->endFrame();
@@ -167,6 +182,15 @@ int main(int argc, char** argv) {
     events.clear();
     win->waitEvent(-1, events);
     for (const ui::InputEvent& e : events) {
+      if (shellRoot) {
+        if (e.type == ui::InputType::Quit || (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape))
+          quit = true;
+        else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
+                 e.type == ui::InputType::ScaleChanged)
+          dirty = true;
+        else shellRoot->dispatch(e);
+        continue;
+      }
       switch (e.type) {
         case ui::InputType::Quit: quit = true; break;
         case ui::InputType::KeyDown:
@@ -191,6 +215,7 @@ int main(int argc, char** argv) {
         default: break;
       }
     }
+    if (shellRoot && shellRoot->dirty()) dirty = true;  // widgets request redraws through the root
   }
   return 0;
 }
