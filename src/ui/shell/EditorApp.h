@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -8,9 +9,12 @@
 #include "ui/commands/CommandRegistry.h"
 #include "ui/commands/KeyMap.h"
 #include "ui/settings/KeyBindings.h"
+#include "ui/settings/Settings.h"
 #include "ui/shell/Workbench.h"
 
 namespace tf::ui {
+
+class TextView;
 
 // Glue between the window's input events and the command system (B4): maps KeyDown / thumb-button MouseDown to a
 // KeyChord, picks the active context ("editor" when a TextView has focus, else "global"), runs KeyMap::feed and
@@ -24,6 +28,14 @@ namespace tf::ui {
 class EditorApp {
  public:
   EditorApp(RootWidget& root, Editor& editor, Workbench* bench = nullptr, const std::filesystem::path& userDir = {});
+  ~EditorApp();
+
+  // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a
+  // theme change is applied to the root (scaled by `displayScale`), and settings / theme diagnostics go to the status
+  // bar message like key-binding ones. `rebuildFont` (optional) is called when a font.* key changed; it swaps the
+  // TextRenderer (RootWidget::setTextRenderer) and returns false when no font could be built. The app loop calls
+  // `SettingsService::poll()` itself (on the wake the service posts).
+  void attachSettings(SettingsService& svc, float displayScale = 1.0f, std::function<bool()> rebuildFont = {});
 
   // Returns true if the event was consumed (a binding, a swallowed chord stroke, or a widget).
   bool handleEvent(const InputEvent& e, int64_t nowMs);
@@ -39,6 +51,9 @@ class EditorApp {
 
  private:
   void setMessage(const std::string& text, int ttlMs = 0, bool pending = false);
+  void showDiagnostics();
+  void applyEditorSettings();
+  void forEachView(const std::function<void(TextView&)>& fn);
   void bindUiCommands();
   const char* activeContext() const;
 
@@ -52,6 +67,10 @@ class EditorApp {
   int ttlMs_ = 0;       // set by setMessage, converted to expiry_ on the next call that knows the time
   int64_t expiry_ = 0;  // 0 = never
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
+  SettingsService* settings_ = nullptr;
+  float scale_ = 1.0f;
+  int settingsGen_ = 1, settingsToken_ = 0;
+  std::function<bool()> rebuildFont_;
 };
 
 }  // namespace tf::ui

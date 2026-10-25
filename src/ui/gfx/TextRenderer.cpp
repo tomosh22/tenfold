@@ -89,6 +89,12 @@ std::string TextRenderer::fit(std::string_view utf8, float maxWidth) const {
 }
 
 void TextRenderer::drawText(float x, float y, std::string_view utf8, Color color, const RectF& clip) {
+  static const std::vector<ColorSpan> noSpans;
+  drawSpans(x, y, utf8, noSpans, {color}, 0, clip);
+}
+
+void TextRenderer::drawSpans(float x, float y, std::string_view utf8, const std::vector<ColorSpan>& spans,
+                             const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip) {
   if (utf8.empty() || clip.w <= 0 || clip.h <= 0 || y + lineHeight() <= clip.y || y >= clip.y + clip.h ||
       x >= clip.x + clip.w)
     return;
@@ -96,23 +102,31 @@ void TextRenderer::drawText(float x, float y, std::string_view utf8, Color color
   const FontMetrics& m = fonts_.metrics();
   const float base = y + std::round((lineHeight() - (m.ascender + m.descender)) / 2 + m.ascender);
   tmp_.clear();
-  static const std::vector<ColorSpan> noSpans;
-  layout_.layoutLine(utf8, x, base, 0, clip.x + clip.w - x, noSpans, 0, tmp_);
-  Pending* p = nullptr;
-  for (Pending& q : pending_)
-    if (q.color.r == color.r && q.color.g == color.g && q.color.b == color.b && q.color.a == color.a) p = &q;
-  if (!p) p = &pending_.emplace_back(Pending{color, {}});
+  layout_.layoutLine(utf8, x, base, 0, clip.x + clip.w - x, spans, defaultColor, tmp_);
+  record(palette, clip);
+}
+
+// Moves tmp_ into the pending groups (one per distinct colour), clipping quads to `clip` on the CPU.
+void TextRenderer::record(const std::vector<Color>& palette, const RectF& clip) {
   const float cx1 = clip.x + clip.w, cy1 = clip.y + clip.h;
-  for (GlyphQuad q : tmp_.quads) {
-    if (q.x1 <= clip.x || q.x0 >= cx1 || q.y1 <= clip.y || q.y0 >= cy1) continue;
-    auto trim = [](float& a0, float& a1, float& t0, float& t1, float lo, float hi) {
-      const float span = a1 - a0, k = (t1 - t0) / span;
-      if (a0 < lo) t0 += (lo - a0) * k, a0 = lo;
-      if (a1 > hi) t1 -= (a1 - hi) * k, a1 = hi;
-    };
-    trim(q.x0, q.x1, q.u0, q.u1, clip.x, cx1);
-    trim(q.y0, q.y1, q.v0, q.v1, clip.y, cy1);
-    p->quads.push_back(q);
+  for (const ColorRun& run : tmp_.runs) {
+    const Color color = palette[run.color < palette.size() ? run.color : 0];
+    Pending* p = nullptr;
+    for (Pending& q : pending_)
+      if (q.color.r == color.r && q.color.g == color.g && q.color.b == color.b && q.color.a == color.a) p = &q;
+    if (!p) p = &pending_.emplace_back(Pending{color, {}});
+    for (uint32_t k = run.firstQuad; k < run.firstQuad + run.count; ++k) {
+      GlyphQuad q = tmp_.quads[k];
+      if (q.x1 <= clip.x || q.x0 >= cx1 || q.y1 <= clip.y || q.y0 >= cy1) continue;
+      auto trim = [](float& a0, float& a1, float& t0, float& t1, float lo, float hi) {
+        const float span = a1 - a0, k = (t1 - t0) / span;
+        if (a0 < lo) t0 += (lo - a0) * k, a0 = lo;
+        if (a1 > hi) t1 -= (a1 - hi) * k, a1 = hi;
+      };
+      trim(q.x0, q.x1, q.u0, q.u1, clip.x, cx1);
+      trim(q.y0, q.y1, q.v0, q.v1, clip.y, cy1);
+      p->quads.push_back(q);
+    }
   }
 }
 

@@ -58,6 +58,11 @@ class TextRenderer {
   // `y` is the top of the line box (lineHeight() tall). Tabs/control chars follow TextLayout rules.
   float measure(std::string_view utf8) const;
   void drawText(float x, float y, std::string_view utf8, Color color, const RectF& clip);
+  // As drawText with per-byte-range colours (B2b syntax colouring): `spans` (sorted, non-overlapping, see ColorSpan)
+  // index into `palette`; uncovered bytes use palette[defaultColor]. Runs of one colour share a recorded batch.
+  void drawSpans(float x, float y, std::string_view utf8, const std::vector<ColorSpan>& spans,
+                 const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip);
+  void setTabWidth(int w) { layout_.setTabWidth(w); }
   // `utf8` shortened with a trailing "..." (U+2026) so that it fits in maxWidth; unchanged if it already fits.
   std::string fit(std::string_view utf8, float maxWidth) const;
   // Atlas upload + glyph draws for everything recorded since the last flush. Returns false when the atlas grew while
@@ -81,6 +86,7 @@ class TextRenderer {
   std::vector<Pending> pending_;
   uint32_t pendingGen_ = 0;
   LineLayout tmp_;
+  void record(const std::vector<Color>& palette, const RectF& clip);
 };
 
 }  // namespace tf::gfx

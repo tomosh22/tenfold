@@ -18,7 +18,9 @@
 #include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Window.h"
 #include "ui/settings/KeyBindings.h"
+#include "ui/settings/Settings.h"
 #include "ui/shell/EditorApp.h"
+#include "ui/shell/FontSetup.h"
 #include "ui/shell/Workbench.h"
 #include "ui/widgets/ShellDemo.h"
 
@@ -115,26 +117,33 @@ int main(int argc, char** argv) {
   const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
 
   std::unique_ptr<gfx::TextRenderer> text;
-  std::unique_ptr<ui::RootWidget> demoRoot;  // --shell: ShellDemo
-  std::unique_ptr<ui::Workbench> bench;      // default: the editor
+  std::unique_ptr<ui::SettingsService> settings;  // layered settings + theme, hot-reloaded (B7)
+  std::unique_ptr<ui::RootWidget> demoRoot;       // --shell: ShellDemo
+  std::unique_ptr<ui::Workbench> bench;           // default: the editor
   std::unique_ptr<ui::EditorApp> app;
+  namespace fs = std::filesystem;
   if (shell || !demo) {
-    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);  // font setting arrives with B7
+    if (workspace.empty())
+      workspace =
+          shell || file.empty() || !fs::exists(file) ? kDefaultWorkspace : fs::path(file).parent_path().string();
+    if (workspace.empty()) workspace = ".";
+    ui::SettingsService::Options so;
+    so.workspaceRoot = fs::absolute(workspace);
+    so.userDir = ui::userConfigDir();
+    so.wake = [] { ui::Window::wake(); };  // the watcher thread asks the UI thread to poll()
+    settings = std::make_unique<ui::SettingsService>(so);
+    text = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), &err);
     if (!text) {
       std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
       return 1;
     }
   }
-  const ui::Theme theme = ui::Theme::darkDefault().scaled(win->pixelScale());
+  const ui::Theme theme = (settings ? settings->theme() : ui::Theme::darkDefault()).scaled(win->pixelScale());
   if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
-    auto sd = std::make_unique<ui::ShellDemo>(*text, workspace.empty() ? kDefaultWorkspace : workspace, theme);
+    auto sd = std::make_unique<ui::ShellDemo>(*text, workspace, theme);
     app = std::make_unique<ui::EditorApp>(*sd, sd->editor(), nullptr, ui::userConfigDir());
     demoRoot = std::move(sd);
   } else if (!demo) {  // the editor: <workspace> [file], the file relative to the workspace or to the cwd
-    namespace fs = std::filesystem;
-    if (workspace.empty())
-      workspace = file.empty() || !fs::exists(file) ? kDefaultWorkspace : fs::path(file).parent_path().string();
-    if (workspace.empty()) workspace = ".";
     editor = std::make_unique<Editor>(fs::absolute(workspace));
     bench = std::make_unique<ui::Workbench>(*text, *editor, theme);
     const bool restored = bench->restoreLayout();
@@ -150,6 +159,18 @@ int main(int argc, char** argv) {
     if (shot.empty() && !editor->start(&err)) std::fprintf(stderr, "tenfold-ui: editor start: %s\n", err.c_str());
   }
   ui::RootWidget* root = bench ? static_cast<ui::RootWidget*>(bench.get()) : demoRoot.get();
+  if (app && settings) {
+    // A changed font.* setting rebuilds the TextRenderer; the old one lives until the root points at the new one.
+    app->attachSettings(*settings, win->pixelScale(), [&] {
+      auto next = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale());
+      if (!next) return false;
+      root->setTextRenderer(*next);
+      text->releaseTexture(*renderer);
+      text = std::move(next);
+      return true;
+    });
+    if (shot.empty()) settings->startWatching();
+  }
   auto drawFrame = [&](int w, int h, float mx, float my) {
     if (root) root->render(*renderer, w, h);
     else drawScene(*renderer, w, h, atlas, mx, my);
@@ -175,6 +196,7 @@ int main(int argc, char** argv) {
   std::vector<ui::InputEvent> events;
   while (!quit) {
     int wait = -1;
+    if (settings && settings->poll()) dirty = true;  // settings.txt / theme file changed (woken by the watcher)
     if (editor) editor->pump();
     if (app) {
       wait = app->tick(nowMs());

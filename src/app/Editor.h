@@ -192,6 +192,9 @@ class Editor {
   bool waitFor(std::function<bool()> pred, int timeoutMs);  // pump until pred() or timeout
 
   const std::vector<Diagnostic>& diagnostics(const std::filesystem::path& file) const;
+  // Replaces the diagnostics of `file` (what clangd's publishDiagnostics does, on the calling thread): lets front ends
+  // and tests show diagnostics without a language server.
+  void setDiagnostics(const std::filesystem::path& file, std::vector<Diagnostic> ds);
 
  private:
   struct CaretEdit {
