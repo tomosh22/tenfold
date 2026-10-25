@@ -287,6 +287,16 @@ class Editor {
   // and tests show diagnostics without a language server.
   void setDiagnostics(const std::filesystem::path& file, std::vector<Diagnostic> ds);
 
+  // --- Visual Studio solution configuration (C5) ---
+  // The solution's configurations ("Debug|x64", ...), and the one compile commands are generated for.
+  std::vector<compdb::SolutionConfiguration> vsConfigurations() const { return ws_.vsConfigurations(); }
+  compdb::SolutionConfiguration activeVsConfiguration() const { return ws_.activeVsConfiguration(); }
+  // Make `name` ("Debug|x64", or just "Debug") the active configuration: saves it in .tenfold/workspace.json,
+  // regenerates the compile commands from the solution and restarts clangd against them (the build uses the same
+  // setting). Returns false with `error` for an unknown configuration; nothing changes then. The regeneration runs in
+  // the background; `applied` (optional) runs on the pump thread once clangd was restarted, so a front end can refresh.
+  bool selectVsConfiguration(const std::string& name, std::string* error = nullptr, std::function<void()> applied = {});
+
   // --- build (C1) ---
   // Runs the workspace build (see detectBuildCommand: settings / overrides, else msbuild / cmake --build / make) in
   // the background; a running build is cancelled and replaced. Output lines and the final result arrive via post()
@@ -343,7 +353,9 @@ class Editor {
   void handleFileEvent(const FileWatcher::Event& ev);  // pump thread
   void checkExternalChange(Document& doc);
   void rescanWorkspace();
-  void refreshBuildSystem();
+  // forceRestart: restart clangd even if the compile database stays where it is (its content changed).
+  // `done` runs on the pump thread after the refresh that covers this request.
+  void refreshBuildSystem(bool forceRestart = false, std::function<void()> done = {});
   std::optional<BuildMessage> stepBuildMessage(int dir, std::string* error);
   void addBuildMessage(BuildMessage m);
   void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done);
@@ -400,7 +412,8 @@ class Editor {
   int buildCursor_ = -1;                                       // index into buildMessages_ of the last jump
 
   std::unique_ptr<FileWatcher> watcher_;
-  bool buildRefreshRunning_ = false, buildRefreshAgain_ = false;
+  bool buildRefreshRunning_ = false, buildRefreshAgain_ = false, buildRefreshForce_ = false;
+  std::vector<std::function<void()>> buildRefreshDone_;
   ExternalChangeHandler externalChange_;
   std::map<std::string, size_t> diskHash_;  // key: generic path; hash of the bytes last loaded / saved
   std::mutex qmu_;

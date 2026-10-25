@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project ToolsVersion="4.0" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup>
+    <ExtRoot>$(MSBuildThisFileDirectory)..\ext\</ExtRoot>
+    <GenDir>$([MSBuild]::EnsureTrailingSlash('$(MSBuildThisFileDirectory)..\gen'))</GenDir>
+    <IncludePath>$(ENV_TEST_ROOT)\envinc;$(VC_IncludePath);$(WindowsSDK_IncludePath);$(IncludePath)</IncludePath>
+    <ExternalIncludePath>$(ExtRoot)external;$(ExternalIncludePath)</ExternalIncludePath>
+  </PropertyGroup>
+  <ImportGroup Label="PropertySheets">
+    <Import Project="DebugX64.props" Condition="'$(Configuration)|$(Platform)'=='Debug|x64'" />
+    <Import Project="$(MSBuildThisFileDirectory)missing.props" Condition="Exists('$(MSBuildThisFileDirectory)missing.props')" />
+  </ImportGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(ExtRoot)inc;$(GenDir);$(VC_IncludePath);$(Registry:HKEY_LOCAL_MACHINE\SOFTWARE\Vendor@Root)\include;$(NotDefinedAnywhere)\bogus;$(MSBuildThisFileDirectory)sheet;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>FROM_COMMON_PROPS;REG=$(Registry:HKEY_LOCAL_MACHINE\SOFTWARE\Vendor@Value);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+</Project>

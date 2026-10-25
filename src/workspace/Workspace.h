@@ -5,6 +5,8 @@
 #include <string>
 #include <vector>
 
+#include "semantic/CompileCommands.h"
+
 namespace tf {
 
 // A workspace is a root directory plus the set of files that belong to it.
@@ -25,6 +27,9 @@ class Workspace {
     std::string cppStandard = "c++20";
     std::string clangdPath;                    // empty: search PATH
     std::vector<std::string> clangdExtraArgs;  // appended to the default clangd command line
+    // The active solution configuration|platform (workspace.json "vsConfiguration" / "vsPlatform"; the build uses
+    // the same values). When the solution does not list it, the effective one falls back to Debug|x64 and then to
+    // the first solution configuration (see Workspace::activeVsConfiguration).
     std::string vsConfiguration = "Debug";
     std::string vsPlatform = "x64";
     // Build integration (Editor::build). vsConfiguration / vsPlatform above are shared with the build so clangd and
@@ -76,6 +81,16 @@ class Workspace {
 
   // Build-system discovery.
   std::vector<std::filesystem::path> solutionFiles() const;
+  // Visual Studio solution configurations of the workspace's .sln files (union, file order, no duplicates). Reads the
+  // files on every call; empty without a solution.
+  std::vector<compdb::SolutionConfiguration> vsConfigurations() const;
+  // The configuration compile commands are generated for: settings().vsConfiguration|vsPlatform when a solution
+  // lists it, else the closest match (compdb::pickSolutionConfiguration). Without a solution, the settings as is.
+  compdb::SolutionConfiguration activeVsConfiguration() const;
+  // Select a configuration by name ("Debug|x64"; a bare "Debug" picks that configuration's first platform). Fails
+  // (error lists the available ones) when a solution exists and does not list it. On success updates settings and
+  // saves workspace.json; the caller regenerates compile commands (Editor::selectVsConfiguration does).
+  bool setVsConfiguration(const std::string& name, std::string* error = nullptr);
   bool hasCMake() const;
 
  private:

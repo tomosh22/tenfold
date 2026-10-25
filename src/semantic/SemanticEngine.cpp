@@ -100,13 +100,26 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
   fs::create_directories(ws_.cacheDir(), ec);
   const fs::path root = ws_.root();
 
+  // Our generated Visual Studio database records the solution configuration and source it was made for
+  // (.tenfold/compile_commands.stamp), so a changed vsConfiguration setting is not served from a stale cache.
+  const auto slns = ws_.solutionFiles();
+  const std::string vsName = slns.empty() ? std::string() : ws_.activeVsConfiguration().name();
+  const fs::path stampPath = ws_.cacheDir() / "compile_commands.stamp";
+  std::string stampSource, stampConfig;
+  {
+    std::ifstream sf(stampPath);
+    std::getline(sf, stampSource);
+    std::getline(sf, stampConfig);
+  }
+
   auto existing = CompileDatabase::find(root);
   const bool generated = existing && existing->parent_path() == ws_.cacheDir();
   if (existing && reconfigure && generated) existing.reset();  // regenerate our own database from scratch
+  if (existing && generated && stampSource == "vcxproj" && stampConfig != vsName) existing.reset();
   if (existing) {
     // Our own generated database lives in .tenfold; prefer a "real" one elsewhere.
     compdbPath = *existing;
-    compdbSource = generated ? "generated(cached)" : "existing";
+    compdbSource = generated ? (stampSource == "vcxproj" ? "vcxproj" : "generated(cached)") : "existing";
   } else if (ws_.hasCMake() && ws_.settings().runCMake) {
     std::string cmakeLog;
     if (auto p = compdb::fromCMake(root, ws_.cacheDir() / "cmake-build", &cmakeLog)) {
@@ -117,11 +130,16 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     }
   }
   if (compdbPath.empty()) {
-    auto slns = ws_.solutionFiles();
     if (!slns.empty()) {
+      // The solution's own configuration list decides what Debug|x64 means; each project gets its mapped
+      // configuration (compdb::fromSolution). An unknown setting falls back to Debug|x64, then the first entry.
       compdb::VcxprojOptions vo;
-      vo.configuration = ws_.settings().vsConfiguration;
-      vo.platform = ws_.settings().vsPlatform;
+      const auto active = ws_.activeVsConfiguration();
+      vo.configuration = active.configuration;
+      vo.platform = active.platform;
+      if (active.configuration != ws_.settings().vsConfiguration || active.platform != ws_.settings().vsPlatform)
+        log("vs configuration " + ws_.settings().vsConfiguration + "|" + ws_.settings().vsPlatform +
+            " is not in the solution; using " + active.name());
       std::vector<CompileCommand> all;
       for (auto& s : slns) {
         std::string err;
@@ -133,6 +151,8 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
         compdbPath = ws_.cacheDir() / "compile_commands.json";
         CompileDatabase::save(all, compdbPath);
         compdbSource = "vcxproj";
+        std::ofstream sf(stampPath);
+        sf << "vcxproj\n" << vsName << "\n";
       }
     }
   }

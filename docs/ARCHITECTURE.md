@@ -519,6 +519,75 @@ A front end needs to:
 
 `src/cli/main.cpp` is the reference implementation of this contract.
 
+## Visual Studio solution settings (`compdb::fromSolution`, C5)
+
+The workspace's compiler settings come from the open `.sln` (OPEN_QUESTIONS #12), evaluated without MSBuild and
+emitted as `clang-cl` commands, so clangd and the fast index see what `cl.exe` would. Evaluation is string-level
+(backslashes, drive letters and UNC names behave the same on every host) and hermetic apart from the environment.
+
+**Configurations.** `readSolution` parses the projects, `GlobalSection(SolutionConfigurationPlatforms)` (the
+configuration list, file order) and `GlobalSection(ProjectConfigurationPlatforms)` (`.ActiveCfg` = the project's
+configuration/platform for a solution configuration, e.g. `Debug|x86` -> `Debug|Win32`; `.Build.0` = built there).
+`fromSolution` skips a project the solution does not build in the active configuration (no `.Build.0`, or no mapping
+at all) and evaluates the others with their mapped configuration/platform. A solution without those sections uses the
+request as is. The active configuration is `Workspace::Settings::vsConfiguration` / `vsPlatform` (the existing
+`.tenfold/workspace.json` keys, shared with the build): an exact match in the solution, else `Debug|x64`, else the
+first listed configuration (`pickSolutionConfiguration`; the engine logs the fallback). API: `Workspace::
+vsConfigurations()`, `activeVsConfiguration()`, `setVsConfiguration("Debug|x64")` (validates, saves);
+`Editor::selectVsConfiguration(name, &err, applied)` additionally regenerates `.tenfold/compile_commands.json` on
+the engine worker and restarts clangd (even though the database stays at the same path), calling `applied` on the
+pump thread; CLI: `tenfold-cli vsconfig <root> [--set Debug|x64]`. The generated database is stamped
+(`.tenfold/compile_commands.stamp`: source and configuration), so a hand-edited `workspace.json` is not served from a
+stale cache. Edits to `.sln`, `.vcxproj`, `.props`, `.targets` and `Directory.Build.*` trigger a refresh like
+`compile_commands.json` does.
+
+**Evaluation order** follows MSBuild: pass 1 properties and imports in document order (environment variables are the
+lowest-priority properties; `Directory.Build.props` is imported where `Microsoft.Cpp.Default.props` sits, or at the top
+for projects without it, `Directory.Build.targets` after the body; the nearest file walking up from the project
+directory is used, and chains through `$([MSBuild]::GetPathOfFileAbove(...))`); pass 2 `ItemDefinitionGroup`/`ClCompile`
+metadata with the final property values; pass 3 `ClCompile` items (wildcards, item `Condition`, per-item metadata that
+overrides the definition group, `ExcludedFromBuild` per file and configuration). `%(Name)` self references inherit the
+earlier value. `$(MSBuildThisFile*)` is the file the element is written in. `Choose/When/Otherwise` pick one branch.
+Property functions understood: `[MSBuild]::EnsureTrailingSlash`, `NormalizeDirectory`, `NormalizePath`,
+`GetDirectoryNameOfFileAbove`, `GetPathOfFileAbove`, `[System.IO.Path]::Combine/GetFullPath/GetDirectoryName`.
+
+**Anything that cannot be resolved removes only its own entry.** Unknown properties in values, `$(VC_IncludePath)`-style
+toolchain macros, `$(Registry:...)`, other property functions and unknown `%(Metadata)` expand to a marker that makes
+the include directory, define, forced include, option or file holding it be dropped (never a half-written `/I/include`).
+In conditions an unknown property is empty, as in MSBuild. The toolset's own files (`$(VCTargetsPath)\Microsoft.Cpp*.props`)
+are never imported: system headers are the toolchain's business (clangd `--query-driver`).
+
+**Argv per source file** (`clang-cl`): `/std:c++NN` (`LanguageStandard`; `stdcpp23`/`stdcpplatest` -> `c++latest`;
+unset -> `c++17`, a deliberate superset of cl's default so older code still parses) or `/std:c11|c17|clatest`
+(`LanguageStandard_C`, C files); `/EHsc|/EHa|/EHs` (`ExceptionHandling` Sync/Async/SyncCThrow; unset = Sync like the
+toolset's default; `false` = none); `/nologo`; `-m64`/`-m32`/`--target=aarch64-pc-windows-msvc` from the platform;
+`/I` (`AdditionalIncludeDirectories`, then the project's `IncludePath`), `/imsvc` (`ExternalIncludePath`,
+`AdditionalExternalIncludeDirectories`), `-Wno-system-headers`/`-Wsystem-headers` (`ExternalWarningLevel` Level0/>0);
+`/D` (`PreprocessorDefinitions`, then implicit ones), `/U` (`UndefinePreprocessorDefinitions`, after every `/D`);
+`/FI` (the precompiled header first, then `ForcedIncludeFiles`), `/GR-`, `/Zc:wchar_t-`, `/permissive-`
+(`ConformanceMode`), `/Zc:preprocessor`, the runtime library (`/MD /MDd /MT /MTd`), `/arch:` and `/openmp`
+(`EnableEnhancedInstructionSet`, `OpenMPSupport`), `AdditionalOptions` (Windows command-line splitting: backslashes
+literal), and `/TC` or `/TP` (`CompileAs`, else by extension).
+
+**Implicit defines (and why).** `_WIN32` (always; cl predefines it, clang-cl does not on a non-Windows host), `_WIN64`
+(x64, ARM64), `_DEBUG` with `/MDd` `/MTd`, `_DLL` with `/MD` `/MDd`, `_MT` with any runtime library (cl defines all of
+these from the switch), `UNICODE` + `_UNICODE` for `CharacterSet=Unicode`, `_MBCS` for `MultiByte` (the toolset adds
+them). The runtime library defaults like the toolset's: `MultiThreadedDebugDLL` when `UseDebugLibraries` is true, else
+`MultiThreadedDLL`. Not invented: `_CONSOLE`, `_WINDOWS`, `NDEBUG`, `WIN32` (only what the project lists).
+`_MSC_VER`, `_MSVC_LANG`, `_M_X64`... are clangd's: its clang-cl mode and `--query-driver` set them. Duplicates are
+collapsed; `VcxprojOptions::implicitDefines = false` turns the implicit ones off.
+
+**Precompiled headers.** `PrecompiledHeader` Use/Create with a `PrecompiledHeaderFile` yields `/FI<header>` (resolved
+next to the source, in the project directory or the include directories) and no `/Yu`/`/Yc`: with `/Yu` clang skips
+everything in a file before the through header, so a source that never includes it vanishes from clangd, and clangd has
+no `.pch` to load anyway. `NotUsing` adds nothing.
+
+**Not honoured:** `Update=`/`Remove=` items, `.slnx`, non-C++ projects, `ItemDefinitionGroup` metadata for item types
+other than `ClCompile`, `UndefineAllPreprocessorDefinitions`, `/Yu`-style pch semantics, `DisableSpecificWarnings` and
+other warning switches (clangd's diagnostics are its own), `StructMemberAlignment`/`CallingConvention` (layout flags;
+add through `AdditionalOptions` if wanted), `ProjectReference` include propagation, `PlatformToolset`-dependent defaults,
+instance property functions (`$(x.Replace(...))`), numeric condition operators.
+
 ## Portability
 
 Everything is standard C++20 except `src/lsp/Process.cpp` (fork/exec and

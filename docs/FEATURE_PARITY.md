@@ -22,7 +22,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | Open a folder as a workspace | ✅ | `Workspace::scan`, ignore rules, extension filters. |
-| Open a Visual Studio `.sln` / `.vcxproj` | ✅ | Projects enumerated; compile flags evaluated per configuration/platform. **verify**: which configuration 10x picks by default. |
+| Open a Visual Studio `.sln` / `.vcxproj` | ✅ | C5: projects enumerated; compile flags evaluated like MSBuild passes them to `cl.exe` per file and configuration (defines/undefines, implicit `_WIN32`/`_DEBUG`/`_DLL`/`_MT`/`UNICODE`/`_MBCS`, include / external include dirs, forced includes, pch, standards, `/permissive-`, `/EH`, `/GR-`, runtime library, `CompileAs`, per-file metadata, `ExcludedFromBuild`, property sheets, `Directory.Build.props/targets`). Solution -> project configuration mapping (`ProjectConfigurationPlatforms`); unbuilt projects skipped. Default Debug\|x64, else the first solution configuration (OPEN_QUESTIONS #2). |
+| Switch solution configuration / platform | 🔶 | `Editor::selectVsConfiguration` / `vsConfigurations`, `tenfold-cli vsconfig`; regenerates compile commands and restarts clangd. Picker UI pending. |
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
 | Makefile / bare folders | ✅ | Heuristic include paths. |
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. No `.10x` import (OPEN_QUESTIONS #12); compiler settings come from the Visual Studio solution (C5). |

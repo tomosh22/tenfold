@@ -6,9 +6,11 @@
 #include <condition_variable>
 #include <cstdlib>
 #include <fstream>
+#include <memory>
 #include <optional>
 #include <set>
 #include <sstream>
+#include <utility>
 
 namespace tf {
 
@@ -386,27 +388,57 @@ void Editor::checkExternalChange(Document& doc) {
   if (externalChange_) externalChange_(doc);
 }
 
-void Editor::refreshBuildSystem() {
+namespace {
+// Files whose change invalidates the compile commands (a Visual Studio project edit included).
+bool isBuildInputFile(const std::string& name) {
+  if (name == "compile_commands.json" || name == "CMakeLists.txt" || name == "Directory.Build.props" ||
+      name == "Directory.Build.targets")
+    return true;
+  const size_t dot = name.find_last_of('.');
+  if (dot == std::string::npos) return false;
+  std::string ext = name.substr(dot);
+  for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return ext == ".sln" || ext == ".vcxproj" || ext == ".props" || ext == ".targets";
+}
+}  // namespace
+
+void Editor::refreshBuildSystem(bool forceRestart, std::function<void()> done) {
   if (!semantic_) return;
+  if (done) buildRefreshDone_.push_back(std::move(done));
+  if (forceRestart) buildRefreshForce_ = true;
   if (buildRefreshRunning_) {
-    buildRefreshAgain_ = true;
+    buildRefreshAgain_ = true;  // the running refresh may have read the old settings: run once more afterwards
     return;
   }
   buildRefreshRunning_ = true;
-  semantic_->refreshCompileCommands(ws_.sourceFiles(), ws_.headerFiles(), [this](bool moved) {
-    post([this, moved] {
+  const bool force = std::exchange(buildRefreshForce_, false);
+  auto dones = std::make_shared<std::vector<std::function<void()>>>(std::move(buildRefreshDone_));
+  buildRefreshDone_.clear();
+  semantic_->refreshCompileCommands(ws_.sourceFiles(), ws_.headerFiles(), [this, force, dones](bool moved) {
+    post([this, force, dones, moved] {
       buildRefreshRunning_ = false;
       if (!semantic_) return;
-      if (moved) {
+      if (moved || force) {
         std::string err;
         if (!semantic_->restartClangd(&err) && opt_.log && !err.empty()) opt_.log("clangd restart failed: " + err);
       }
+      for (auto& d : *dones) d();
       if (buildRefreshAgain_) {
         buildRefreshAgain_ = false;
         refreshBuildSystem();
       }
     });
   });
+}
+
+bool Editor::selectVsConfiguration(const std::string& name, std::string* error, std::function<void()> applied) {
+  if (!ws_.setVsConfiguration(name, error)) return false;
+  if (!semantic_) {
+    if (applied) post(std::move(applied));
+    return true;
+  }
+  refreshBuildSystem(true, std::move(applied));
+  return true;
 }
 
 void Editor::rescanWorkspace() {
@@ -483,13 +515,12 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
         semantic_->watchedFileChanged(ev.oldPath, 3);
         semantic_->watchedFileChanged(ev.path, 1);
         touched(ev.path);  // editors save by renaming a temp file over the target
-        if (ev.oldPath.filename() == "CMakeLists.txt" || ev.oldPath.filename() == "compile_commands.json")
-          refreshBuildSystem();
+        if (isBuildInputFile(ev.oldPath.filename().string())) refreshBuildSystem();
       }
       break;
   }
   const std::string name = buildFile.filename().string();
-  if (!ev.isDirectory && (name == "compile_commands.json" || name == "CMakeLists.txt")) refreshBuildSystem();
+  if (!ev.isDirectory && isBuildInputFile(name)) refreshBuildSystem();
 }
 
 // ---------------------------------------------------------------------------
