@@ -52,7 +52,11 @@ class Extractor {
   }
 
  private:
-  struct Scope { std::string name; SymbolKind kind; int depth; };
+  struct Scope {
+    std::string name;
+    SymbolKind kind;
+    int depth;
+  };
 
   const Token& tok(size_t k = 0) const {
     size_t idx = std::min(i_ + k, toks_.size() - 1);
@@ -94,7 +98,12 @@ class Extractor {
     int d = 0;
     while (!at(Tok::End)) {
       if (atP(open)) ++d;
-      else if (atP(close)) { if (--d == 0) { advance(); return; } }
+      else if (atP(close)) {
+        if (--d == 0) {
+          advance();
+          return;
+        }
+      }
       advance();
     }
   }
@@ -106,10 +115,21 @@ class Extractor {
     int d = 0;
     while (!at(Tok::End)) {
       if (atP("<")) ++d;
-      else if (atP(">")) { if (--d <= 0) { advance(); return; } }
-      else if (atP(">>")) { d -= 2; if (d <= 0) { advance(); return; } }
-      else if (atP("(")) { skipBalanced("(", ")"); continue; }
-      else if (atP("{") || atP(";")) return;
+      else if (atP(">")) {
+        if (--d <= 0) {
+          advance();
+          return;
+        }
+      } else if (atP(">>")) {
+        d -= 2;
+        if (d <= 0) {
+          advance();
+          return;
+        }
+      } else if (atP("(")) {
+        skipBalanced("(", ")");
+        continue;
+      } else if (atP("{") || atP(";")) return;
       advance();
     }
   }
@@ -123,8 +143,12 @@ class Extractor {
       if (atP("(")) ++paren;
       else if (atP(")")) --paren;
       else if (atP("{")) ++brace;
-      else if (atP("}")) { if (--brace < 0) return; }
-      else if (atP(";") && paren <= 0 && brace <= 0) { advance(); return; }
+      else if (atP("}")) {
+        if (--brace < 0) return;
+      } else if (atP(";") && paren <= 0 && brace <= 0) {
+        advance();
+        return;
+      }
       advance();
     }
   }
@@ -135,15 +159,20 @@ class Extractor {
         // [[...]]
         advance(2);
         int d = 2;
-        while (!at(Tok::End) && d > 0) { if (atP("[")) ++d; else if (atP("]")) --d; advance(); }
+        while (!at(Tok::End) && d > 0) {
+          if (atP("[")) ++d;
+          else if (atP("]")) --d;
+          advance();
+        }
         continue;
       }
-      if ((atKw("__declspec") || atKw("alignas") || atKw("__attribute__")) ) {
+      if ((atKw("__declspec") || atKw("alignas") || atKw("__attribute__"))) {
         advance();
         skipBalanced("(", ")");
         continue;
       }
-      if (at(Tok::Identifier) && (tok().text.ends_with("_API") || tok().text.ends_with("_EXPORT") || tok().text.ends_with("_DLL")) &&
+      if (at(Tok::Identifier) &&
+          (tok().text.ends_with("_API") || tok().text.ends_with("_EXPORT") || tok().text.ends_with("_DLL")) &&
           (tok(1).kind == Tok::Keyword || tok(1).kind == Tok::Identifier) && !tok(1).is("(")) {
         // Likely an export macro like MYLIB_API before a declaration: ignore it.
         advance();
@@ -163,15 +192,27 @@ class Extractor {
     switch (t.kind) {
       case Tok::Preprocessor: handleDirective(); return;
       case Tok::Punct:
-        if (t.is("{")) { ++depth_; advance(); return; }
+        if (t.is("{")) {
+          ++depth_;
+          advance();
+          return;
+        }
         if (t.is("}")) {
           --depth_;
           while (!scopes_.empty() && scopes_.back().depth > depth_) scopes_.pop_back();
           advance();
           return;
         }
-        if (t.is(";")) { advance(); pendingTemplate_ = false; return; }
-        if (t.is("[")) { skipAttributes(); if (atP("[")) advance(); return; }
+        if (t.is(";")) {
+          advance();
+          pendingTemplate_ = false;
+          return;
+        }
+        if (t.is("[")) {
+          skipAttributes();
+          if (atP("[")) advance();
+          return;
+        }
         advance();
         return;
       case Tok::Keyword:
@@ -181,11 +222,26 @@ class Extractor {
           pendingTemplate_ = true;
           return;
         }
-        if (t.is("namespace")) { parseNamespace(); return; }
-        if (t.is("class") || t.is("struct") || t.is("union")) { parseClassLike(); return; }
-        if (t.is("enum")) { parseEnum(); return; }
-        if (t.is("typedef")) { parseTypedef(); return; }
-        if (t.is("using")) { parseUsing(); return; }
+        if (t.is("namespace")) {
+          parseNamespace();
+          return;
+        }
+        if (t.is("class") || t.is("struct") || t.is("union")) {
+          parseClassLike();
+          return;
+        }
+        if (t.is("enum")) {
+          parseEnum();
+          return;
+        }
+        if (t.is("typedef")) {
+          parseTypedef();
+          return;
+        }
+        if (t.is("using")) {
+          parseUsing();
+          return;
+        }
         if (t.is("concept")) {
           advance();
           if (at(Tok::Identifier)) emit(tok(), std::string(tok().text), SymbolKind::Concept, true);
@@ -193,21 +249,31 @@ class Extractor {
           pendingTemplate_ = false;
           return;
         }
-        if (t.is("extern") && tok(1).kind == Tok::String && tok(2).is("{")) { advance(2); return; }  // extern "C" {
-        if (t.is("friend")) { skipStatement(); pendingTemplate_ = false; return; }
-        if (t.is("static_assert") || t.is("asm") || t.is("__asm") || t.is("__pragma") || t.is("_Pragma")) {
-          skipStatement(); return;
+        if (t.is("extern") && tok(1).kind == Tok::String && tok(2).is("{")) {
+          advance(2);
+          return;
+        }  // extern "C" {
+        if (t.is("friend")) {
+          skipStatement();
+          pendingTemplate_ = false;
+          return;
         }
-        if ((t.is("public") || t.is("private") || t.is("protected")) && tok(1).is(":")) { advance(2); return; }
-        if (t.is("__declspec") || t.is("alignas") || t.is("__attribute__")) { skipAttributes(); return; }
+        if (t.is("static_assert") || t.is("asm") || t.is("__asm") || t.is("__pragma") || t.is("_Pragma")) {
+          skipStatement();
+          return;
+        }
+        if ((t.is("public") || t.is("private") || t.is("protected")) && tok(1).is(":")) {
+          advance(2);
+          return;
+        }
+        if (t.is("__declspec") || t.is("alignas") || t.is("__attribute__")) {
+          skipAttributes();
+          return;
+        }
         parseDeclaration();
         return;
-      case Tok::Identifier:
-        parseDeclaration();
-        return;
-      default:
-        advance();
-        return;
+      case Tok::Identifier: parseDeclaration(); return;
+      default: advance(); return;
     }
   }
 
@@ -244,7 +310,10 @@ class Extractor {
   bool readQualifiedName(std::string& name, Token& lastTok) {
     name.clear();
     bool any = false;
-    if (atP("::")) { name += "::"; advance(); }
+    if (atP("::")) {
+      name += "::";
+      advance();
+    }
     while (true) {
       if (at(Tok::Identifier) || (atKw("operator"))) {
         if (atKw("operator")) {
@@ -252,10 +321,23 @@ class Extractor {
           name += "operator";
           advance();
           // operator symbol(s) or conversion type
-          if (atP("(") && tok(1).is(")")) { name += "()"; advance(2); }
-          else if (atP("[") && tok(1).is("]")) { name += "[]"; advance(2); }
-          else if (at(Tok::Punct)) { while (at(Tok::Punct) && !atP("(") && !atP("<")) { name += std::string(tok().text); advance(); } }
-          else { while (!at(Tok::End) && !atP("(")) { name += std::string(tok().text); advance(); } }
+          if (atP("(") && tok(1).is(")")) {
+            name += "()";
+            advance(2);
+          } else if (atP("[") && tok(1).is("]")) {
+            name += "[]";
+            advance(2);
+          } else if (at(Tok::Punct)) {
+            while (at(Tok::Punct) && !atP("(") && !atP("<")) {
+              name += std::string(tok().text);
+              advance();
+            }
+          } else {
+            while (!at(Tok::End) && !atP("(")) {
+              name += std::string(tok().text);
+              advance();
+            }
+          }
           return true;
         }
         lastTok = tok();
@@ -268,7 +350,11 @@ class Extractor {
           skipAngles();
           if (i_ > save) name += "<>";
         }
-        if (atP("::")) { name += "::"; advance(); continue; }
+        if (atP("::")) {
+          name += "::";
+          advance();
+          continue;
+        }
         return true;
       }
       if (atP("~") && tok(1).kind == Tok::Identifier) {
@@ -295,7 +381,10 @@ class Extractor {
     while (at(Tok::Identifier)) {
       parts.emplace_back(std::string(tok().text), tok());
       advance();
-      if (atP("::")) { advance(); continue; }
+      if (atP("::")) {
+        advance();
+        continue;
+      }
       break;
     }
     if (atP("=")) {  // namespace alias
@@ -328,11 +417,18 @@ class Extractor {
     bool hasName = readQualifiedName(name, nameTok);
     while (atKw("final") || (at(Tok::Identifier) && tok().text == "final")) advance();
     skipAttributes();
-    if (atP(";")) { pendingTemplate_ = false; advance(); return; }  // forward declaration
+    if (atP(";")) {
+      pendingTemplate_ = false;
+      advance();
+      return;
+    }  // forward declaration
     if (atP(":")) {  // base clause
       advance();
       while (!at(Tok::End) && !atP("{") && !atP(";")) {
-        if (atP("<")) { skipAngles(); continue; }
+        if (atP("<")) {
+          skipAngles();
+          continue;
+        }
         advance();
       }
     }
@@ -346,7 +442,10 @@ class Extractor {
         // Qualified names (out-of-line nested definitions) keep their written scope.
         std::string unq = clean, sc = scopeName();
         size_t q = clean.rfind("::");
-        if (q != std::string::npos) { unq = clean.substr(q + 2); sc = sc.empty() ? clean.substr(0, q) : sc + "::" + clean.substr(0, q); }
+        if (q != std::string::npos) {
+          unq = clean.substr(q + 2);
+          sc = sc.empty() ? clean.substr(0, q) : sc + "::" + clean.substr(0, q);
+        }
         emit(nameTok, unq, kind, true, sc);
       }
       openScope(clean, kind);
@@ -362,7 +461,10 @@ class Extractor {
   void parseEnum() {
     advance();  // enum
     bool scoped = false;
-    if (atKw("class") || atKw("struct")) { scoped = true; advance(); }
+    if (atKw("class") || atKw("struct")) {
+      scoped = true;
+      advance();
+    }
     skipAttributes();
     std::string name;
     Token nameTok{};
@@ -371,8 +473,14 @@ class Extractor {
       advance();
       while (!at(Tok::End) && !atP("{") && !atP(";")) advance();
     }
-    if (atP(";")) { advance(); return; }  // opaque declaration
-    if (!atP("{")) { parseDeclaration(); return; }
+    if (atP(";")) {
+      advance();
+      return;
+    }  // opaque declaration
+    if (!atP("{")) {
+      parseDeclaration();
+      return;
+    }
     if (hasName) emit(nameTok, name, SymbolKind::Enum, true);
     std::string enumScope = scoped && hasName ? (scopeName().empty() ? name : scopeName() + "::" + name) : scopeName();
     advance();  // {
@@ -388,8 +496,13 @@ class Extractor {
       while (!at(Tok::End)) {
         if (atP("(") || atP("{") || atP("[")) ++d;
         else if (atP(")") || atP("]")) --d;
-        else if (atP("}")) { if (d == 0) break; --d; }
-        else if (atP(",") && d == 0) { advance(); break; }
+        else if (atP("}")) {
+          if (d == 0) break;
+          --d;
+        } else if (atP(",") && d == 0) {
+          advance();
+          break;
+        }
         advance();
       }
     }
@@ -422,7 +535,10 @@ class Extractor {
       } else if (atP("}")) {
         --brace;
       } else if (atP("(")) {
-        if (paren == 0 && brace == 0 && tok(1).is("*") && tok(2).kind == Tok::Identifier) { fnPtrName = tok(2); haveFnPtr = true; }
+        if (paren == 0 && brace == 0 && tok(1).is("*") && tok(2).kind == Tok::Identifier) {
+          fnPtrName = tok(2);
+          haveFnPtr = true;
+        }
         ++paren;
       } else if (atP(")")) {
         --paren;
@@ -448,18 +564,38 @@ class Extractor {
 
   void parseUsing() {
     advance();  // using
-    if (atKw("namespace") || atKw("enum")) { skipStatement(); return; }
-    if (at(Tok::Identifier) && tok(1).is("=")) {
-      emit(tok(), std::string(tok().text), SymbolKind::Typedef, true);
+    if (atKw("namespace") || atKw("enum")) {
+      skipStatement();
+      return;
     }
+    if (at(Tok::Identifier) && tok(1).is("=")) { emit(tok(), std::string(tok().text), SymbolKind::Typedef, true); }
     skipStatement();
     pendingTemplate_ = false;
   }
 
   bool isDeclTerminatorAfterParams() const {
     // Tokens that may legally follow a function parameter list.
-    static const char* ok[] = {"{", ";", ":", "=", ",", ")", "->", "&", "&&", "[", "const", "volatile", "noexcept",
-                               "override", "final", "throw", "try", "requires", "__attribute__", "__declspec", "mutable"};
+    static const char* ok[] = {"{",
+                               ";",
+                               ":",
+                               "=",
+                               ",",
+                               ")",
+                               "->",
+                               "&",
+                               "&&",
+                               "[",
+                               "const",
+                               "volatile",
+                               "noexcept",
+                               "override",
+                               "final",
+                               "throw",
+                               "try",
+                               "requires",
+                               "__attribute__",
+                               "__declspec",
+                               "mutable"};
     for (auto s : ok)
       if (tok().text == s) return true;
     return tok().kind == Tok::Identifier && tok().text != "typedef";  // e.g. trailing macro like ATTR_WARN_UNUSED
@@ -480,7 +616,10 @@ class Extractor {
 
     while (!at(Tok::End)) {
       const Token& t = tok();
-      if (t.kind == Tok::Preprocessor) { pendingTemplate_ = false; return; }
+      if (t.kind == Tok::Preprocessor) {
+        pendingTemplate_ = false;
+        return;
+      }
       if (t.kind == Tok::Keyword) {
         if (t.is("extern")) isExtern = true;
         if (t.is("static")) isStatic = true;
@@ -488,7 +627,9 @@ class Extractor {
           std::string nm;
           Token lt{};
           readQualifiedName(nm, lt);
-          lastName = nm; lastNameTok = lt; haveName = true;
+          lastName = nm;
+          lastNameTok = lt;
+          haveName = true;
           continue;
         }
         if (t.is("decltype") || t.is("sizeof") || t.is("alignof") || t.is("noexcept") || t.is("typeid") ||
@@ -503,7 +644,8 @@ class Extractor {
           advance();
           continue;
         }
-        if (t.is("namespace") || t.is("template") || t.is("using") || t.is("typedef") || t.is("friend")) return;  // let step() handle
+        if (t.is("namespace") || t.is("template") || t.is("using") || t.is("typedef") || t.is("friend"))
+          return;  // let step() handle
         ++typeTokens;
         advance();
         continue;
@@ -513,8 +655,13 @@ class Extractor {
         std::string nm;
         Token lt{};
         readQualifiedName(nm, lt);
-        if (nm.empty()) { advance(); continue; }
-        lastName = nm; lastNameTok = lt; haveName = true;
+        if (nm.empty()) {
+          advance();
+          continue;
+        }
+        lastName = nm;
+        lastNameTok = lt;
+        haveName = true;
         continue;
       }
       if (t.kind == Tok::Punct) {
@@ -536,25 +683,43 @@ class Extractor {
           skipBalanced("(", ")");
           // Macro-invocation heuristic: next token on a later line and not a valid continuation.
           if (tok().line > std::max(nameLine, startLine) && !isDeclTerminatorAfterParams() && !atP("{")) {
-            if (typeTokens == 0) { pendingTemplate_ = false; return; }
+            if (typeTokens == 0) {
+              pendingTemplate_ = false;
+              return;
+            }
           }
           // Trailing part: qualifiers, trailing return, ctor-init, requires, = 0/default/delete.
           bool definition = false;
           bool sawPureOrDefault = false;
           while (!at(Tok::End)) {
-            if (atP("{")) { definition = true; break; }
+            if (atP("{")) {
+              definition = true;
+              break;
+            }
             if (atP(";")) break;
             if (atP("=")) {
               advance();
               if (at(Tok::Number) || atKw("default") || atKw("delete")) { sawPureOrDefault = true; }
               continue;
             }
-            if (atP("(")) { skipBalanced("(", ")"); continue; }
-            if (atP("<")) { skipAngles(); continue; }
-            if (atP("[")) { skipBalanced("[", "]"); continue; }
+            if (atP("(")) {
+              skipBalanced("(", ")");
+              continue;
+            }
+            if (atP("<")) {
+              skipAngles();
+              continue;
+            }
+            if (atP("[")) {
+              skipBalanced("[", "]");
+              continue;
+            }
             if (atP(":")) {  // ctor-initializer: everything up to '{'
               while (!at(Tok::End) && !atP("{") && !atP(";")) {
-                if (atP("(")) { skipBalanced("(", ")"); continue; }
+                if (atP("(")) {
+                  skipBalanced("(", ")");
+                  continue;
+                }
                 if (atP("{")) break;
                 advance();
               }
@@ -625,8 +790,10 @@ class Extractor {
               while (!at(Tok::End)) {
                 if (atP("(") || atP("{") || atP("[")) ++d;
                 else if (atP(")") || atP("}") || atP("]")) --d;
-                else if ((atP(",") ) && d == 0) { advance(); break; }
-                else if (atP(";") && d == 0) break;
+                else if ((atP(",")) && d == 0) {
+                  advance();
+                  break;
+                } else if (atP(";") && d == 0) break;
                 advance();
               }
             }
@@ -634,17 +801,35 @@ class Extractor {
             pendingTemplate_ = false;
             return;
           }
-          if (t.is(";")) { advance(); pendingTemplate_ = false; return; }
+          if (t.is(";")) {
+            advance();
+            pendingTemplate_ = false;
+            return;
+          }
           // '=' or '{' or '[' : skip initializer to ';'
           skipStatement();
           pendingTemplate_ = false;
           return;
         }
-        if (t.is("*") || t.is("&") || t.is("&&") || t.is("::") ) { ++typeTokens; advance(); continue; }
-        if (t.is("<")) { skipAngles(); ++typeTokens; continue; }
+        if (t.is("*") || t.is("&") || t.is("&&") || t.is("::")) {
+          ++typeTokens;
+          advance();
+          continue;
+        }
+        if (t.is("<")) {
+          skipAngles();
+          ++typeTokens;
+          continue;
+        }
         if (t.is("}")) return;  // scope close; let step() handle
-        if (t.is(")")) { advance(); continue; }
-        if (t.is("...")) { advance(); continue; }
+        if (t.is(")")) {
+          advance();
+          continue;
+        }
+        if (t.is("...")) {
+          advance();
+          continue;
+        }
         // Anything else: give up on this statement.
         advance();
         if (i_ == startIdx) advance();
@@ -867,9 +1052,8 @@ std::vector<FastIndex::Match> FastIndex::lookup(std::string_view name) const {
   auto it = byName_.find(std::string(name));
   if (it == byName_.end()) return out;
   for (auto& r : it->second) out.push_back({r.file, r.index, 1000});
-  std::stable_sort(out.begin(), out.end(), [](const Match& a, const Match& b) {
-    return a.sym().definition > b.sym().definition;
-  });
+  std::stable_sort(out.begin(), out.end(),
+                   [](const Match& a, const Match& b) { return a.sym().definition > b.sym().definition; });
   return out;
 }
 
@@ -881,7 +1065,11 @@ int FastIndex::fuzzyScore(std::string_view q, std::string_view c) {
   bool exactCI = q.size() == c.size();
   bool prefixCI = true;
   for (size_t i = 0; i < q.size(); ++i) {
-    if (lower(q[i]) != lower(c[i])) { exactCI = false; prefixCI = false; break; }
+    if (lower(q[i]) != lower(c[i])) {
+      exactCI = false;
+      prefixCI = false;
+      break;
+    }
   }
   if (exactCI) return q == c ? 1000 : 950;
   if (prefixCI) return 800 - static_cast<int>(std::min<size_t>(c.size() - q.size(), 200));
@@ -893,8 +1081,9 @@ int FastIndex::fuzzyScore(std::string_view q, std::string_view c) {
     bool found = false;
     while (ci < c.size()) {
       if (lower(q[qi]) == lower(c[ci])) {
-        bool wordStart = ci == 0 || c[ci - 1] == '_' || c[ci - 1] == ':' ||
-                         (std::islower(static_cast<unsigned char>(c[ci - 1])) && std::isupper(static_cast<unsigned char>(c[ci])));
+        bool wordStart =
+            ci == 0 || c[ci - 1] == '_' || c[ci - 1] == ':' ||
+            (std::islower(static_cast<unsigned char>(c[ci - 1])) && std::isupper(static_cast<unsigned char>(c[ci])));
         score += 10;
         if (wordStart) score += 30;
         if (static_cast<int>(ci) == prevMatch + 1) score += 15;

@@ -22,7 +22,12 @@ void TextBuffer::setText(std::string_view text) {
       break;
     }
     size_t end = nl;
-    if (end > start && text[end - 1] == '\r') { --end; ++crlf; } else { ++lf; }
+    if (end > start && text[end - 1] == '\r') {
+      --end;
+      ++crlf;
+    } else {
+      ++lf;
+    }
     lines_.emplace_back(text.substr(start, end - start));
     start = nl + 1;
   }
@@ -89,8 +94,8 @@ std::string TextBuffer::textInRange(Range r) const {
   r.end = clamp(r.end);
   if (r.end < r.start) std::swap(r.start, r.end);
   if (r.start.line == r.end.line) {
-    return lines_[static_cast<size_t>(r.start.line)].substr(
-        static_cast<size_t>(r.start.column), static_cast<size_t>(r.end.column - r.start.column));
+    return lines_[static_cast<size_t>(r.start.line)].substr(static_cast<size_t>(r.start.column),
+                                                            static_cast<size_t>(r.end.column - r.start.column));
   }
   std::string out = lines_[static_cast<size_t>(r.start.line)].substr(static_cast<size_t>(r.start.column));
   for (int i = r.start.line + 1; i < r.end.line; ++i) {
@@ -173,8 +178,14 @@ TextBuffer::Word TextBuffer::wordAt(Position p) const {
   p = clamp(p);
   const std::string& l = lines_[static_cast<size_t>(p.line)];
   int s = p.column, e = p.column;
-  auto ok = [&](int i) { return i >= 0 && i < static_cast<int>(l.size()) && isIdentChar(static_cast<unsigned char>(l[static_cast<size_t>(i)])); };
-  if (!ok(s) && ok(s - 1)) { --s; e = s; }  // cursor just after a word
+  auto ok = [&](int i) {
+    return i >= 0 && i < static_cast<int>(l.size()) &&
+           isIdentChar(static_cast<unsigned char>(l[static_cast<size_t>(i)]));
+  };
+  if (!ok(s) && ok(s - 1)) {
+    --s;
+    e = s;
+  }  // cursor just after a word
   if (!ok(s)) return {"", {p, p}};
   while (ok(s - 1)) --s;
   while (ok(e)) ++e;

@@ -55,7 +55,8 @@ bool Editor::start(std::string* error) {
   // so a regenerated compile_commands.json is noticed.
   if (watcher_) {
     fs::path dir = semantic_->status().compdbPath.parent_path();
-    if (!dir.empty() && dir != ws_.cacheDir() && dir != ws_.root() && ws_.isIgnoredDir(dir)) watcher_->addDirectory(dir);
+    if (!dir.empty() && dir != ws_.cacheDir() && dir != ws_.root() && ws_.isIgnoredDir(dir))
+      watcher_->addDirectory(dir);
   }
   return ok;
 }
@@ -117,7 +118,10 @@ bool Editor::close(const fs::path& path) {
   if (!d) return false;
   if (semantic_) semantic_->didClose(*d);
   std::error_code ec;
-  if (current_ == d) { current_ = nullptr; cursor_ = {}; }
+  if (current_ == d) {
+    current_ = nullptr;
+    cursor_ = {};
+  }
   std::string key = docKey(d->path());
   diskHash_.erase(key);
   docs_.erase(key);
@@ -366,51 +370,85 @@ void Editor::autoJump(Confidence c, std::vector<SymbolLocation> locs, const std:
 }
 
 void Editor::gotoDefinition(NavResult done) {
-  if (!current_) { if (done) done(Confidence::Approximate, {}, "no document"); return; }
-  semantic_->gotoDefinition(*current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
-    post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
-  });
+  if (!current_) {
+    if (done) done(Confidence::Approximate, {}, "no document");
+    return;
+  }
+  semantic_->gotoDefinition(
+      *current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+        post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
+      });
 }
 
 void Editor::gotoDeclaration(NavResult done) {
-  if (!current_) { if (done) done(Confidence::Approximate, {}, "no document"); return; }
-  semantic_->gotoDeclaration(*current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
-    post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
-  });
+  if (!current_) {
+    if (done) done(Confidence::Approximate, {}, "no document");
+    return;
+  }
+  semantic_->gotoDeclaration(
+      *current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+        post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
+      });
 }
 
 void Editor::findReferences(NavResult done) {
-  if (!current_) { if (done) done(Confidence::Approximate, {}, "no document"); return; }
-  semantic_->findReferences(*current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
-    post([c, locs = std::move(locs), err, done] { if (done) done(c, locs, err); });
-  });
+  if (!current_) {
+    if (done) done(Confidence::Approximate, {}, "no document");
+    return;
+  }
+  semantic_->findReferences(*current_, cursor_.pos,
+                            [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+                              post([c, locs = std::move(locs), err, done] {
+                                if (done) done(c, locs, err);
+                              });
+                            });
 }
 
 void Editor::findSymbols(const std::string& query, NavResult done) {
-  semantic_->workspaceSymbols(query, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
-    post([c, locs = std::move(locs), err, done] { if (done) done(c, locs, err); });
-  });
+  semantic_->workspaceSymbols(query,
+                              [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+                                post([c, locs = std::move(locs), err, done] {
+                                  if (done) done(c, locs, err);
+                                });
+                              });
 }
 
 void Editor::hover(std::function<void(const std::string&, const std::string&)> done) {
-  if (!current_) { if (done) done("", "no document"); return; }
+  if (!current_) {
+    if (done) done("", "no document");
+    return;
+  }
   semantic_->hover(*current_, cursor_.pos, [this, done](std::string text, const std::string& err) {
-    post([text = std::move(text), err, done] { if (done) done(text, err); });
+    post([text = std::move(text), err, done] {
+      if (done) done(text, err);
+    });
   });
 }
 
 void Editor::complete(std::function<void(const std::vector<LspCompletionItem>&, const std::string&)> done) {
-  if (!current_) { if (done) done({}, "no document"); return; }
-  semantic_->completion(*current_, cursor_.pos, [this, done](std::vector<LspCompletionItem> items, const std::string& err) {
-    post([items = std::move(items), err, done] { if (done) done(items, err); });
-  });
+  if (!current_) {
+    if (done) done({}, "no document");
+    return;
+  }
+  semantic_->completion(*current_, cursor_.pos,
+                        [this, done](std::vector<LspCompletionItem> items, const std::string& err) {
+                          post([items = std::move(items), err, done] {
+                            if (done) done(items, err);
+                          });
+                        });
 }
 
 void Editor::switchSourceHeader(std::function<void(bool, const std::string&)> done) {
-  if (!current_) { if (done) done(false, "no document"); return; }
+  if (!current_) {
+    if (done) done(false, "no document");
+    return;
+  }
   semantic_->switchSourceHeader(*current_, [this, done](fs::path p, const std::string& err) {
     post([this, p, err, done] {
-      if (p.empty()) { if (done) done(false, err.empty() ? "no counterpart" : err); return; }
+      if (p.empty()) {
+        if (done) done(false, err.empty() ? "no counterpart" : err);
+        return;
+      }
       std::string e;
       bool ok = gotoLocation({p, {0, 0}}, &e);
       if (done) done(ok, e);
@@ -505,11 +543,13 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
     // The workspace root is canonical while a document keeps the caller's spelling
     // (macOS /var -> /private/var, Windows 8.3 names and case), so canonicalise first.
     std::error_code ec;
-    std::string rel = pathKey(fs::weakly_canonical(d->path(), ec).lexically_relative(ws_.root()).generic_string(), nativePathStyle());
+    std::string rel =
+        pathKey(fs::weakly_canonical(d->path(), ec).lexically_relative(ws_.root()).generic_string(), nativePathStyle());
     if (!rel.empty() && rel.compare(0, 2, "..") != 0) in.overrides[rel] = d->buffer().text();
   }
-  searches_.erase(std::remove_if(searches_.begin(), searches_.end(), [](const SearchHandle& h) { return h.finished(); }),
-                  searches_.end());
+  searches_.erase(
+      std::remove_if(searches_.begin(), searches_.end(), [](const SearchHandle& h) { return h.finished(); }),
+      searches_.end());
   SearchHandle h = SearchHandle::create();  // queued batches check its cancel flag when they are pumped
   TextSearch::start(
       std::move(in), std::move(opts),
@@ -518,7 +558,12 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
           if (!h.cancelled() && onBatch) onBatch(batch);
         });
       },
-      [this, onDone](const SearchSummary& s) { post([onDone, s] { if (onDone) onDone(s); }); }, h);
+      [this, onDone](const SearchSummary& s) {
+        post([onDone, s] {
+          if (onDone) onDone(s);
+        });
+      },
+      h);
   searches_.push_back(h);
   return h;
 }

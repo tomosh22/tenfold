@@ -42,9 +42,9 @@ struct SearchOptions {
   // directory. Empty include list = everything.
   std::vector<std::string> includeGlobs, excludeGlobs;
   size_t maxResults = 10000;
-  size_t batchSize = 200;               // matches per onBatch call (last batch may be smaller)
-  size_t maxFileBytes = 64u << 20;      // larger files are skipped
-  unsigned threads = 0;                 // 0 = hardware concurrency
+  size_t batchSize = 200;           // matches per onBatch call (last batch may be smaller)
+  size_t maxFileBytes = 64u << 20;  // larger files are skipped
+  unsigned threads = 0;             // 0 = hardware concurrency
 };
 
 struct SearchMatch {
@@ -57,17 +57,17 @@ struct SearchMatch {
 };
 
 struct SearchSummary {
-  size_t matches = 0;        // delivered through onBatch
+  size_t matches = 0;  // delivered through onBatch
   size_t filesSearched = 0;
   size_t filesMatched = 0;
-  bool truncated = false;    // more than maxResults matches existed
+  bool truncated = false;  // more than maxResults matches existed
   bool cancelled = false;
-  std::string error;         // e.g. bad regex, "regex support not built"
+  std::string error;  // e.g. bad regex, "regex support not built"
   double elapsedMs = 0;
 };
 
 struct SearchInput {
-  std::filesystem::path root;                   // globs are matched against paths relative to this
+  std::filesystem::path root;  // globs are matched against paths relative to this
   std::vector<std::filesystem::path> files;
   // Text to search instead of the disk version, keyed by path relative to
   // `root` (generic '/' form, passed through tf::pathKey so Windows lookups
