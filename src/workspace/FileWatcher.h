@@ -62,6 +62,13 @@ class FileWatcher {
   // the folder holding compile_commands.json. Linux only (no-op elsewhere); thread-safe.
   void addDirectory(const std::filesystem::path& dir);
 
+  // Backend capabilities (valid while running). The polling backend is not
+  // event driven (latency is pollMs + debounce) and cannot pair renames: a
+  // rename is seen as Deleted(old) + Created(new), and directory events are
+  // not reported (their files are).
+  bool eventDriven() const;
+  bool detectsRenames() const;
+
   // Diagnostics: "inotify", "readdirchanges", "poll" or "" when stopped.
   std::string mode() const;
   size_t watchCount() const;  // inotify watches (== directories) currently held

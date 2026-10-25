@@ -772,6 +772,12 @@ std::string FileWatcher::mode() const {
   return impl_->mode;
 }
 
+bool FileWatcher::eventDriven() const {
+  std::string m = mode();
+  return !m.empty() && m != "poll";
+}
+bool FileWatcher::detectsRenames() const { return eventDriven(); }
+
 size_t FileWatcher::watchCount() const { return impl_->watchesPlatform(); }
 
 }  // namespace tf

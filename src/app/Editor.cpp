@@ -175,6 +175,8 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
 void Editor::startWatching() {
   FileWatcher::Options wo;
   wo.log = opt_.log;
+  wo.pollMs = opt_.watchPollMs;
+  wo.forcePolling = opt_.watchForcePolling;
   watcher_ = std::make_unique<FileWatcher>(wo);
   bool ok = watcher_->start(
       ws_.root(), [this](const fs::path& dir) { return ws_.isIgnoredDir(dir); },

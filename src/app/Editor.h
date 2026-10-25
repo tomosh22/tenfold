@@ -32,6 +32,8 @@ class Editor {
     SemanticEngine::Options semantic;
     NavigationHistory::Options navigation;
     std::function<void(const std::string&)> log;
+    int watchPollMs = 2000;           // scan interval when the file watcher has to poll
+    bool watchForcePolling = false;   // use the polling backend even where native events exist
   };
 
   explicit Editor(std::filesystem::path root);
