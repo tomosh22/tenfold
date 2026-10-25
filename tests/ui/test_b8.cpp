@@ -235,6 +235,7 @@ TEST(b8_settings_switch_the_behaviours) {
   CHECK(env.ed->editing().autoClosePairs);
   CHECK_EQ(env.ed->editing().indentUnit, std::string("  "));
   CHECK(env.ed->editing().trimTrailingWhitespace);
+  env.app.reset();  // the app unregisters from the service: it must go first
 }
 
 // --- find / replace -----------------------------------------------------------------------------------------------
