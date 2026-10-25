@@ -739,7 +739,9 @@ TEST(vs_clangd_sees_define_from_property_sheet_for_the_active_configuration) {
   CHECK(ed.selectVsConfiguration("Debug|x64", &err, [&] { applied = true; }));
   CHECK(ed.waitFor([&] { return applied; }, 60000));
   CHECK(ed.waitFor([&] { return !errorSeen(); }, 90000));
-  fs::remove_all(root);
+  ed.shutdown();  // clangd must be gone before its workspace (and index cache) is removed
+  std::error_code ec;
+  fs::remove_all(root, ec);  // best effort: never throw from test cleanup
 }
 
 // ---------------------------------------------------------------------------

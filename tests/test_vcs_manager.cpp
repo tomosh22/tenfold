@@ -14,6 +14,7 @@
 #include "test_vcs_util.h"
 #include "vcs/GitProvider.h"
 #include "vcs/VcsManager.h"
+#include "workspace/Workspace.h"
 
 using namespace tf;
 using tfvcs::TempRepo;
@@ -460,6 +461,10 @@ TEST(vcs_manager_refresh_status_sees_outside_changes) {
 
 TEST(vcs_manager_file_watcher_refreshes_status) {
   SKIP_WITHOUT_GIT();
+  if (findExecutable("clangd").empty()) {  // Editor::start() needs clangd; the watcher only runs after start()
+    std::cerr << "    SKIPPED: clangd not found on PATH\n";
+    return;
+  }
   Fx fx(40, [](Editor::Options& o) {
     o.watchForcePolling = true;
     o.watchPollMs = 100;
