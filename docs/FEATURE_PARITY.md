@@ -43,9 +43,9 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Signature help | ✅ | |
 | Hover / quick info | ✅ | |
 | Rename | ✅ | Returns a per-file edit map; GUI applies it. |
-| Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`. |
+| Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`; squiggles + scrollbar markers in TextView (B2b). |
 | Switch header/source | ✅ | clangd extension, fallback by stem. |
-| Semantic highlighting | 🔶 | Engine done (A9): `Editor::onSemanticTokens` / `semanticTokens`, full + delta, decoded to byte-column `TokenSpan`s, debounced after edits. Needs GUI (B2). |
+| Semantic highlighting | ✅ | Lexical colours instantly (cached per line, background exact pass), clangd semantic tokens override identifiers only — no flicker (A9 + B2b). Palette pending OPEN_QUESTIONS #7. |
 | Call hierarchy / type hierarchy | 🔶 | Engine done (A9): `Editor::callHierarchy` / `incomingCalls` / `outgoingCalls`, `typeHierarchy` / `supertypes` / `subtypes`, `gotoHierarchyItem` (navigation history). Needs GUI. |
 | Include fix-its / code actions | 🔶 | Engine done (A9): `Editor::codeActions` + `applyCodeAction` (edits and `workspace/executeCommand` tweaks, server `workspace/applyEdit`), one undo group per document. Also inlay hints, folding ranges, document highlights and clangd formatting (document / range). Needs GUI. |
 
