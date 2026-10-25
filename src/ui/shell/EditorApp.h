@@ -14,6 +14,7 @@
 #include "ui/features/BreakpointList.h"
 #include "ui/features/BuildPanel.h"
 #include "ui/features/CompletionPopup.h"
+#include "ui/features/ConfigurationPicker.h"
 #include "ui/features/DiagnosticsPanel.h"
 #include "ui/features/FileSearch.h"
 #include "ui/features/FindInFiles.h"
@@ -71,6 +72,8 @@ class EditorApp {
   // B8: find / replace in the current file (Ctrl+F / Ctrl+H), go to line (Ctrl+G), bookmark list.
   FindReplace& findReplace() { return *findReplace_; }
   GoToLine& goToLine() { return *goToLine_; }
+  // C5 UI: Build.SelectConfiguration picker and the status-bar "config" segment (text only with a solution).
+  ConfigurationPicker& configurationPicker() { return *configPicker_; }
   BookmarkList& bookmarkList() { return *bookmarkList_; }
   // C2c: breakpoint list (Debug.ShowBreakpoints) and the condition input (Debug.EditCondition).
   BreakpointList& breakpointList() { return *breakpointList_; }
@@ -149,6 +152,7 @@ class EditorApp {
   std::unique_ptr<DiagnosticsPanel> diagPanel_;
   std::unique_ptr<FindReplace> findReplace_;
   std::unique_ptr<GoToLine> goToLine_;
+  std::unique_ptr<ConfigurationPicker> configPicker_;
   std::unique_ptr<BookmarkList> bookmarkList_;
   std::unique_ptr<BreakpointList> breakpointList_;
   uint64_t debugErrorGen_ = 0;

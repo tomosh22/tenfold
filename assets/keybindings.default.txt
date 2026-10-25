@@ -62,6 +62,9 @@ Ctrl+F10 = Debug.RunToCursor
 Ctrl+Alt+Break = Debug.BreakAll
 Ctrl+Alt+B = Debug.ShowBreakpoints
 # Debug.EditCondition has no default key; run it from the command list.
+# Debug.OpenInVisualStudio and Build.SelectConfiguration have no default key either; example (uncomment, or put in
+# your own keybindings.txt):
+# Ctrl+Alt+V = Debug.OpenInVisualStudio
 
 # --- View ---
 Alt+Z = View.ToggleWordWrap

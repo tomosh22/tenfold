@@ -105,6 +105,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     return r;
   });
   goToLine_ = std::make_unique<GoToLine>(pickerEnv_);
+  configPicker_ = std::make_unique<ConfigurationPicker>(pickerEnv_);
   bookmarkList_ = std::make_unique<BookmarkList>(pickerEnv_);
   breakpointList_ = std::make_unique<BreakpointList>(pickerEnv_);
   completion_ = std::make_unique<CompletionPopup>(pickerEnv_);
@@ -129,6 +130,9 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   keys_ = loadKeyBindings(editor.workspace().root(), userDir, diags_);
   if (bench_) {
     bench_->status().addSegment("message", StatusBar::Align::Left);
+    bench_->status().addSegment("config", StatusBar::Align::Left, [this](const std::string&) {
+      runCommandId("Build.SelectConfiguration", "", activeContext());
+    });
     bench_->status().addSegment("navcounts", StatusBar::Align::Right);
     NavigationUi::Hooks hooks;
     hooks.run = [this](const std::string& id) {
@@ -262,6 +266,7 @@ void EditorApp::closePickers() {
   find_->close();
   diagPanel_->close();
   goToLine_->close();
+  configPicker_->close();
   bookmarkList_->close();
   breakpointList_->close();
   if (files_) files_->close();
@@ -322,6 +327,25 @@ void EditorApp::bindUiCommands() {
     bookmarkList_->open();
     return true;
   });
+  registry_.bind("Build.SelectConfiguration", [this](const CommandContext&, std::string_view) {
+    closePickers();
+    configPicker_->open();
+    return true;
+  });
+  registry_.bind(
+      "Debug.OpenInVisualStudio",
+      [this](const CommandContext&, std::string_view) {
+        if (!editor_.debug().hasBackend()) {
+          setMessage("Open in Visual Studio: no Visual Studio debugger backend on this platform", kMessageMs);
+          return true;
+        }
+        if (!editor_.openInVisualStudio())  // the backend's own failure arrives through lastError (shown by tick)
+          setMessage("Open in Visual Studio failed" +
+                         (editor_.debug().lastError().empty() ? std::string() : ": " + editor_.debug().lastError()),
+                     kMessageMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind("Debug.ShowBreakpoints", [this](const CommandContext&, std::string_view) {
     closePickers();
     breakpointList_->open();
@@ -575,6 +599,7 @@ int EditorApp::tick(int64_t nowMs) {
   findReplace_->tick(nowMs);
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
+  if (bench_) bench_->status().setText("config", configPicker_->statusText());
   breakpointList_->refresh();
   if (const DebugSession& dbg = editor_.debug(); dbg.generation() != debugErrorGen_) {  // C2c: session errors
     debugErrorGen_ = dbg.generation();
