@@ -359,6 +359,42 @@ list; it opens with `Workbench::openFile`, a tab operation that is not a navigat
 FindReferences with any number show `file:line` plus the source line; the approximate list is swapped in place for the
 authoritative one with the selection kept by location; stale answers of an older command are ignored.
 
+### Search, completion, hover, signature help, diagnostics (`src/ui/features`, B5b)
+
+*Find in files* (`FindInFiles`, Ctrl+Shift+F): a large **modal `ListPopup`**, not a docked bottom panel (decision: the
+Workbench layout stays untouched, and a modal reuses the picker key context; a named bottom-panel slot for the build
+output, C1-UI, is therefore still to be built). Typing searches live: after a 150 ms pause `Editor::findInWorkspace`
+starts (a new query, a toggle or closing the popup cancels the running search and its queued batches are dropped by
+sequence number); batches arrive through `post()` and rows are rebuilt at most every 60 ms: a header row per file (sorted
+by path, the match count as badge) and one row per match with the trimmed context line, the match highlighted and the
+line number. Status: `[Aa] W .*  N matches in M files (truncated) - searching...`. Toggles Alt+C (case), Alt+W (whole
+word), Alt+R (regex); globs after ` :: ` (`foo :: *.cpp, !third_party`, `!` excludes). Enter / click ->
+`Editor::gotoSearchMatch` (history). The results outlive the popup: F8 / Shift+F8 (`Search.NextResult/PrevResult`)
+walk them with wrap-around, and every file with matches gets scrollbar markers (`TextView::setSearchMarkers`).
+A single-line selection seeds the query.
+
+*Non-modal popups* (`PopupBox`: a top-layer widget that keeps its own box inside the window, below its anchor or above
+it when there is no room, never takes focus). `EditorApp::handleEvent` offers keys to them first (completion:
+Up/Down/PageUp/PageDown, Tab/Enter accept, Escape; signature help: Escape), tells them about typed text and runs
+`update()` after every event; they close when a picker opens. *Completion* (`CompletionPopup`) asks `Editor::complete`
+on `.`, `->`, `::` and when a word reaches 2 characters (one request per word, later characters only refilter), keeps
+the unfiltered answer, filters it client-side (prefix matches first, then fuzzy tightness, then `sortText`; matched
+characters highlighted), shows the return type / detail right-aligned and documentation in a side pane. Answers older
+than the latest request, or arriving after the caret left the word, are dropped. Without clangd the items are the
+fast index's: greyed and marked "approximate" (constraint 1.4). Accept replaces the typed prefix with the insert text
+as one undo step: at every caret when all carets are empty and share the same prefix (`setSelections` +
+`insertText`), else at the primary caret only. Measured (mock font, Release): keystroke-to-paint with 5000 items open
+about 1.1 ms (worst 1.4 ms) against the 8 ms budget. *Hover* (`HoverTooltip`): a mouse rest of 400 ms over an
+identifier or a diagnostic range; diagnostics are shown at once (error / warning / info colours), `Editor::hoverAt`
+text is appended when it arrives (clangd markdown fences stripped); a move to another word, a key or a click dismisses
+it. *Signature help* (`SignatureHelp`): `(` / `,` ask `Editor::signatureHelp` (clangd only); the active parameter is
+counted locally from the top-level commas between the call's `(` and the caret, so it follows the caret without a
+round trip, and the enclosing call is shown again when an inner one ends. *Diagnostics* (`DiagnosticsPanel`,
+Ctrl+Shift+M): modal list of the open documents' clangd diagnostics (clangd only reports open files, the status says
+so) plus the last build's `Editor::buildDiagnostics`, labelled "build"; errors first, filter by text, live refresh,
+Enter -> `gotoLocation`. Engine additions (additive): `Editor::hoverAt(doc, pos, done)` and
+`Editor::signatureHelp(done)`.
+
 ## Commands and key bindings (`src/ui/commands`, `src/ui/settings/KeyBindings.*`, part of `tenfold_ui`)
 
 Every user action is a named `Command` (`Editor.GotoDefinition`, `Nav.Back`, ...: id, human name, handler

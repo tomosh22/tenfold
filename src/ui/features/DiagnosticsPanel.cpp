@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <functional>
+#include <set>
 
 namespace tf::ui {
 
@@ -13,16 +14,39 @@ std::string lower(std::string s) {
 }
 }  // namespace
 
+std::vector<std::pair<Diagnostic, const char*>> DiagnosticsPanel::collect() const {
+  std::vector<std::pair<Diagnostic, const char*>> out;
+  std::set<std::string> seen;
+  for (Document* d : env_.editor.documents()) {
+    for (Diagnostic g : env_.editor.diagnostics(d->path())) {
+      g.file = d->path();
+      out.push_back({std::move(g), "clangd"});
+    }
+  }
+  const std::filesystem::path root = env_.editor.workspace().root();
+  for (const BuildMessage& m : env_.editor.buildMessages()) {
+    if (!m.hasLocation()) continue;
+    std::filesystem::path f = m.file;
+    if (f.is_relative()) f = root / f;
+    if (!seen.insert(f.generic_string()).second) continue;
+    for (Diagnostic g : env_.editor.buildDiagnostics(f)) {
+      g.file = f;
+      out.push_back({std::move(g), "build"});
+    }
+  }
+  return out;
+}
+
 uint64_t DiagnosticsPanel::signature() const {
   uint64_t h = 1469598103934665603ull;
   auto mix = [&](uint64_t v) { h = (h ^ v) * 1099511628211ull; };
-  for (Document* d : env_.editor.documents())
-    for (const Diagnostic& g : env_.editor.diagnostics(d->path())) {
-      mix(std::hash<std::string>()(d->path().string()));
-      mix(static_cast<uint64_t>(g.range.start.line) << 32 | static_cast<uint32_t>(g.range.start.column));
-      mix(static_cast<uint64_t>(g.severity));
-      mix(std::hash<std::string>()(g.message));
-    }
+  for (const auto& [g, src] : collect()) {
+    mix(std::hash<std::string>()(g.file.string()));
+    mix(static_cast<uint64_t>(g.range.start.line) << 32 | static_cast<uint32_t>(g.range.start.column));
+    mix(static_cast<uint64_t>(g.severity));
+    mix(std::hash<std::string>()(g.message));
+    mix(src[0]);
+  }
   mix(popup_ ? std::hash<std::string>()(popup_->input()->text()) : 0);
   return h;
 }
@@ -58,31 +82,37 @@ void DiagnosticsPanel::refresh() {
 void DiagnosticsPanel::rebuild() {
   const std::string filter = lower(popup_->input()->text());
   const std::filesystem::path root = env_.editor.workspace().root();
-  std::vector<Diagnostic> all;
-  for (Document* d : env_.editor.documents())
-    for (Diagnostic g : env_.editor.diagnostics(d->path())) {
-      g.file = d->path();
-      if (!filter.empty() && lower(g.message).find(filter) == std::string::npos &&
-          lower(relativePath(root, g.file)).find(filter) == std::string::npos)
-        continue;
-      all.push_back(std::move(g));
-    }
-  std::stable_sort(all.begin(), all.end(), [](const Diagnostic& a, const Diagnostic& b) {
+  std::vector<std::pair<Diagnostic, const char*>> all;
+  for (auto& e : collect()) {
+    const Diagnostic& g = e.first;
+    if (!filter.empty() && lower(g.message).find(filter) == std::string::npos &&
+        lower(relativePath(root, g.file)).find(filter) == std::string::npos)
+      continue;
+    all.push_back(std::move(e));
+  }
+  std::stable_sort(all.begin(), all.end(), [](const auto& pa, const auto& pb) {
+    const Diagnostic &a = pa.first, &b = pb.first;
     if (a.severity != b.severity) return a.severity < b.severity;
     if (a.file != b.file) return a.file < b.file;
     return a.range.start < b.range.start;
   });
   const std::string keep = popup_->selectedRow() ? popup_->selectedRow()->key : std::string();
-  shown_ = all;
+  shown_.clear();
+  sources_.clear();
+  for (auto& [g, src] : all) {
+    shown_.push_back(g);
+    sources_.push_back(src);
+  }
   std::vector<ListRow> rows;
-  for (const Diagnostic& g : shown_) {
+  for (size_t i = 0; i < shown_.size(); ++i) {
+    const Diagnostic& g = shown_[i];
     ListRow r;
     r.key = g.file.generic_string() + ":" + std::to_string(g.range.start.line) + ":" +
             std::to_string(g.range.start.column) + g.message;
     r.icon = g.severity == 1 ? "E" : g.severity == 2 ? "W" : "I";
     r.primary = g.message.substr(0, g.message.find('\n'));
     r.detail = relativePath(root, g.file) + ":" + std::to_string(g.range.start.line + 1);
-    r.badge = g.code;
+    r.badge = sources_[i] + (g.code.empty() ? std::string() : " " + g.code);
     rows.push_back(std::move(r));
   }
   popup_->setRows(std::move(rows), 0);
