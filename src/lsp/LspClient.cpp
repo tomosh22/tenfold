@@ -61,8 +61,39 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
         {"references", Json::object()},
         {"documentSymbol", {{"hierarchicalDocumentSymbolSupport", true}}},
         {"publishDiagnostics", {{"relatedInformation", true}, {"codeDescriptionSupport", true}}},
-        {"rename", {{"prepareSupport", true}}}}},
-      {"workspace", {{"symbol", Json::object()}, {"workspaceFolders", false}, {"configuration", false}}},
+        {"rename", {{"prepareSupport", true}}},
+        {"semanticTokens",
+         {{"requests", {{"range", false}, {"full", {{"delta", true}}}}},
+          {"tokenTypes", Json::array({"namespace",     "type",      "class",    "enum",     "interface",  "struct",
+                                      "typeParameter", "parameter", "variable", "property", "enumMember", "event",
+                                      "function",      "method",    "macro",    "keyword",  "modifier",   "comment",
+                                      "string",        "number",    "regexp",   "operator", "decorator"})},
+          {"tokenModifiers", Json::array({"declaration", "definition", "readonly", "static", "deprecated", "abstract",
+                                          "async", "modification", "documentation", "defaultLibrary"})},
+          {"formats", Json::array({"relative"})},
+          {"multilineTokenSupport", false},
+          {"overlappingTokenSupport", false}}},
+        {"codeAction",
+         {{"isPreferredSupport", true},
+          {"codeActionLiteralSupport",
+           {{"codeActionKind",
+             {{"valueSet", Json::array({"", "quickfix", "refactor", "refactor.extract", "refactor.inline",
+                                        "refactor.rewrite", "source", "source.organizeImports"})}}}}}}},
+        {"inlayHint", Json::object()},
+        {"foldingRange", {{"lineFoldingOnly", false}}},
+        {"documentHighlight", Json::object()},
+        {"callHierarchy", Json::object()},
+        {"typeHierarchy", Json::object()},
+        {"formatting", Json::object()},
+        {"rangeFormatting", Json::object()}}},
+      {"workspace",
+       {{"symbol", Json::object()},
+        {"workspaceFolders", false},
+        {"configuration", false},
+        {"applyEdit", true},
+        {"workspaceEdit", {{"documentChanges", true}}},
+        {"executeCommand", Json::object()},
+        {"didChangeWatchedFiles", {{"dynamicRegistration", true}}}}},
       {"window", {{"workDoneProgress", true}}},
       {"general", {{"positionEncodings", Json::array({"utf-8", "utf-16"})}}},
       {"offsetEncoding", Json::array({"utf-8", "utf-16"})},  // clangd extension
@@ -151,10 +182,21 @@ void LspClient::installHandlers() {
     return out;
   });
 
+  conn_.onRequest("workspace/applyEdit", [this](const Json& p) {
+    std::function<void(const std::string&, const Json&)> h;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      h = applyEditHandler_;
+    }
+    if (h) h(p.value("label", ""), p.value("edit", Json::object()));
+    return Json{{"applied", static_cast<bool>(h)}};
+  });
+
   conn_.onNotification("textDocument/publishDiagnostics", [this](const Json& p) {
     std::function<void(const std::string&, int, std::vector<LspDiagnostic>)> h;
     {
       std::lock_guard<std::mutex> lk(mu_);
+      rawDiagnostics_[p.value("uri", "")] = p.value("diagnostics", Json::array());
       h = diagHandler_;
     }
     if (!h) return;
@@ -443,6 +485,285 @@ int LspClient::switchSourceHeader(const std::string& uri, Callback<std::string> 
                       if (!err.empty()) return cb({}, err);
                       cb(r.is_string() ? r.get<std::string>() : std::string(), {});
                     });
+}
+
+// ---- clangd feature set ----
+
+void LspClient::onApplyEdit(std::function<void(const std::string&, const Json&)> h) {
+  std::lock_guard<std::mutex> lk(mu_);
+  applyEditHandler_ = std::move(h);
+}
+
+LspSemanticTokensLegend LspClient::semanticTokensLegend() const {
+  LspSemanticTokensLegend out;
+  const Json& legend = serverCaps_.value("semanticTokensProvider", Json::object()).value("legend", Json::object());
+  for (auto& t : legend.value("tokenTypes", Json::array())) out.types.push_back(t.get<std::string>());
+  for (auto& t : legend.value("tokenModifiers", Json::array())) out.modifiers.push_back(t.get<std::string>());
+  return out;
+}
+
+bool LspClient::supportsSemanticTokens() const { return serverCaps_.contains("semanticTokensProvider"); }
+
+bool LspClient::supportsTokenDelta() const {
+  const Json full = serverCaps_.value("semanticTokensProvider", Json::object()).value("full", Json());
+  return full.is_object() && full.value("delta", false);
+}
+
+namespace {
+std::vector<uint32_t> uintArray(const Json& j) {
+  std::vector<uint32_t> out;
+  if (!j.is_array()) return out;
+  out.reserve(j.size());
+  for (auto& v : j) out.push_back(v.get<uint32_t>());
+  return out;
+}
+
+std::vector<LspTextEdit> textEditsFromJson(const Json& r) {
+  std::vector<LspTextEdit> out;
+  if (r.is_array())
+    for (auto& e : r)
+      out.push_back({LspClient::rangeFromJson(e.value("range", Json::object())), e.value("newText", "")});
+  return out;
+}
+
+void itemsFromJson(const Json& r, std::vector<LspHierarchyItem>& out) {
+  if (r.is_array())
+    for (auto& i : r) out.push_back(LspClient::hierarchyItemFromJson(i));
+}
+}  // namespace
+
+LspHierarchyItem LspClient::hierarchyItemFromJson(const Json& j) {
+  LspHierarchyItem it;
+  it.name = j.value("name", "");
+  it.detail = j.value("detail", "");
+  it.uri = j.value("uri", "");
+  it.kind = j.value("kind", 0);
+  it.range = rangeFromJson(j.value("range", Json::object()));
+  it.selectionRange = rangeFromJson(j.value("selectionRange", Json::object()));
+  it.raw = j;
+  return it;
+}
+
+int LspClient::semanticTokensFull(const std::string& uri, Callback<LspSemanticTokens> cb) {
+  return rawRequest("textDocument/semanticTokens/full", Json{{"textDocument", {{"uri", uri}}}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      LspSemanticTokens t;
+                      t.resultId = r.value("resultId", "");
+                      t.data = uintArray(r.value("data", Json::array()));
+                      cb(std::move(t), {});
+                    });
+}
+
+int LspClient::semanticTokensDelta(const std::string& uri, const std::string& prev, Callback<LspSemanticTokens> cb) {
+  return rawRequest("textDocument/semanticTokens/full/delta",
+                    Json{{"textDocument", {{"uri", uri}}}, {"previousResultId", prev}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      LspSemanticTokens t;
+                      t.resultId = r.value("resultId", "");
+                      if (r.contains("edits")) {
+                        t.full = false;
+                        for (auto& e : r["edits"]) {
+                          LspSemanticTokens::Edit x;
+                          x.start = e.value("start", 0u);
+                          x.deleteCount = e.value("deleteCount", 0u);
+                          x.data = uintArray(e.value("data", Json::array()));
+                          t.edits.push_back(std::move(x));
+                        }
+                      } else {
+                        t.data = uintArray(r.value("data", Json::array()));
+                      }
+                      cb(std::move(t), {});
+                    });
+}
+
+int LspClient::inlayHints(const std::string& uri, Range rg, Callback<std::vector<LspInlayHint>> cb) {
+  return rawRequest("textDocument/inlayHint", Json{{"textDocument", {{"uri", uri}}}, {"range", toJson(rg)}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspInlayHint> out;
+                      if (r.is_array()) {
+                        for (auto& h : r) {
+                          LspInlayHint x;
+                          x.pos = positionFromJson(h.value("position", Json::object()));
+                          const Json l = h.value("label", Json());
+                          if (l.is_string()) x.label = l.get<std::string>();
+                          else if (l.is_array())
+                            for (auto& part : l) x.label += part.value("value", "");
+                          x.kind = h.value("kind", 0);
+                          x.paddingLeft = h.value("paddingLeft", false);
+                          x.paddingRight = h.value("paddingRight", false);
+                          out.push_back(std::move(x));
+                        }
+                      }
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::foldingRanges(const std::string& uri, Callback<std::vector<LspFoldingRange>> cb) {
+  return rawRequest("textDocument/foldingRange", Json{{"textDocument", {{"uri", uri}}}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspFoldingRange> out;
+                      if (r.is_array()) {
+                        for (auto& f : r) {
+                          LspFoldingRange x;
+                          x.startLine = f.value("startLine", 0);
+                          x.endLine = f.value("endLine", 0);
+                          x.startColumn = f.value("startCharacter", -1);
+                          x.endColumn = f.value("endCharacter", -1);
+                          x.kind = f.value("kind", "");
+                          out.push_back(std::move(x));
+                        }
+                      }
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::documentHighlights(const std::string& uri, Position p, Callback<std::vector<LspHighlight>> cb) {
+  return rawRequest("textDocument/documentHighlight", Json{{"textDocument", {{"uri", uri}}}, {"position", toJson(p)}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspHighlight> out;
+                      if (r.is_array())
+                        for (auto& h : r)
+                          out.push_back({rangeFromJson(h.value("range", Json::object())), h.value("kind", 1)});
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::callHierarchyPrepare(const std::string& uri, Position p, Callback<std::vector<LspHierarchyItem>> cb) {
+  return rawRequest("textDocument/prepareCallHierarchy",
+                    Json{{"textDocument", {{"uri", uri}}}, {"position", toJson(p)}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspHierarchyItem> out;
+                      itemsFromJson(r, out);
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::callHierarchyCalls(const LspHierarchyItem& item, bool incoming, Callback<std::vector<LspCall>> cb) {
+  return rawRequest(incoming ? "callHierarchy/incomingCalls" : "callHierarchy/outgoingCalls", Json{{"item", item.raw}},
+                    [cb = std::move(cb), incoming](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspCall> out;
+                      if (r.is_array()) {
+                        for (auto& c : r) {
+                          LspCall x;
+                          x.item = hierarchyItemFromJson(c.value(incoming ? "from" : "to", Json::object()));
+                          for (auto& fr : c.value("fromRanges", Json::array())) x.ranges.push_back(rangeFromJson(fr));
+                          out.push_back(std::move(x));
+                        }
+                      }
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::typeHierarchyPrepare(const std::string& uri, Position p, Callback<std::vector<LspHierarchyItem>> cb) {
+  return rawRequest("textDocument/prepareTypeHierarchy",
+                    Json{{"textDocument", {{"uri", uri}}}, {"position", toJson(p)}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspHierarchyItem> out;
+                      itemsFromJson(r, out);
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::typeHierarchyItems(const LspHierarchyItem& item, bool supertypes,
+                                  Callback<std::vector<LspHierarchyItem>> cb) {
+  return rawRequest(supertypes ? "typeHierarchy/supertypes" : "typeHierarchy/subtypes", Json{{"item", item.raw}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      std::vector<LspHierarchyItem> out;
+                      itemsFromJson(r, out);
+                      cb(std::move(out), {});
+                    });
+}
+
+int LspClient::formatting(const std::string& uri, Callback<std::vector<LspTextEdit>> cb) {
+  return rawRequest("textDocument/formatting",
+                    Json{{"textDocument", {{"uri", uri}}}, {"options", {{"tabSize", 4}, {"insertSpaces", true}}}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      cb(textEditsFromJson(r), {});
+                    });
+}
+
+int LspClient::rangeFormatting(const std::string& uri, Range rg, Callback<std::vector<LspTextEdit>> cb) {
+  return rawRequest("textDocument/rangeFormatting",
+                    Json{{"textDocument", {{"uri", uri}}},
+                         {"range", toJson(rg)},
+                         {"options", {{"tabSize", 4}, {"insertSpaces", true}}}},
+                    [cb = std::move(cb)](Json r, const std::string& err) {
+                      if (!err.empty()) return cb({}, err);
+                      cb(textEditsFromJson(r), {});
+                    });
+}
+
+int LspClient::codeActions(const std::string& uri, Range rg, Callback<std::vector<LspCodeAction>> cb) {
+  Json diags = Json::array();
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = rawDiagnostics_.find(uri);
+    if (it != rawDiagnostics_.end()) {
+      for (auto& d : it->second) {
+        Range dr = rangeFromJson(d.value("range", Json::object()));
+        if (!(dr.end < rg.start) && !(rg.end < dr.start)) diags.push_back(d);
+      }
+    }
+  }
+  Json params = {{"textDocument", {{"uri", uri}}}, {"range", toJson(rg)}, {"context", {{"diagnostics", diags}}}};
+  return rawRequest("textDocument/codeAction", std::move(params), [cb = std::move(cb)](Json r, const std::string& err) {
+    if (!err.empty()) return cb({}, err);
+    std::vector<LspCodeAction> out;
+    if (r.is_array()) {
+      for (auto& a : r) {
+        LspCodeAction x;
+        x.title = a.value("title", "");
+        x.kind = a.value("kind", "");
+        x.preferred = a.value("isPreferred", false);
+        if (a.contains("edit")) x.edit = a["edit"];
+        if (a.contains("command")) {
+          const Json& c = a["command"];
+          x.hasCommand = true;
+          if (c.is_object()) {  // CodeAction.command is a Command
+            x.command = c.value("command", "");
+            x.arguments = c.value("arguments", Json::array());
+          } else {  // a bare Command: {title, command: "name", arguments}
+            x.command = c.get<std::string>();
+            x.arguments = a.value("arguments", Json::array());
+          }
+        }
+        out.push_back(std::move(x));
+      }
+    }
+    cb(std::move(out), {});
+  });
+}
+
+int LspClient::executeCommand(const std::string& command, Json arguments, Callback<Json> cb) {
+  return rawRequest("workspace/executeCommand", Json{{"command", command}, {"arguments", std::move(arguments)}},
+                    std::move(cb));
+}
+
+void LspClient::didChangeWatchedFiles(const std::vector<LspFileEvent>& events) {
+  if (events.empty()) return;
+  Json changes = Json::array();
+  for (auto& e : events) changes.push_back(Json{{"uri", e.uri}, {"type", e.type}});
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& e : events)
+      if (sentFileEvents_.size() < 1000) sentFileEvents_.push_back(e);
+  }
+  conn_.notify("workspace/didChangeWatchedFiles", Json{{"changes", changes}});
+}
+
+std::vector<LspFileEvent> LspClient::sentFileEvents() const {
+  std::lock_guard<std::mutex> lk(mu_);
+  return sentFileEvents_;
 }
 
 }  // namespace tf

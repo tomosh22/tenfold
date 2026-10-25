@@ -45,9 +45,9 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Rename | ✅ | Returns a per-file edit map; GUI applies it. |
 | Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`. |
 | Switch header/source | ✅ | clangd extension, fallback by stem. |
-| Semantic highlighting | 🔶 | clangd supports `textDocument/semanticTokens`; add to `LspClient`. |
-| Call hierarchy / type hierarchy | 🔶 | clangd supports both; thin wrappers needed. |
-| Include fix-its / code actions | 🔶 | `textDocument/codeAction` wrapper needed. |
+| Semantic highlighting | 🔶 | Engine done (A9): `Editor::onSemanticTokens` / `semanticTokens`, full + delta, decoded to byte-column `TokenSpan`s, debounced after edits. Needs GUI (B2). |
+| Call hierarchy / type hierarchy | 🔶 | Engine done (A9): `Editor::callHierarchy` / `incomingCalls` / `outgoingCalls`, `typeHierarchy` / `supertypes` / `subtypes`, `gotoHierarchyItem` (navigation history). Needs GUI. |
+| Include fix-its / code actions | 🔶 | Engine done (A9): `Editor::codeActions` + `applyCodeAction` (edits and `workspace/executeCommand` tweaks, server `workspace/applyEdit`), one undo group per document. Also inlay hints, folding ranges, document highlights and clangd formatting (document / range). Needs GUI. |
 
 ## Editing
 

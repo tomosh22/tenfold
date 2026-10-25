@@ -45,6 +45,43 @@ struct Diagnostic {
   std::string code;
 };
 
+// One decoded semantic token, byte columns. `type` indexes SemanticEngine::tokenLegend().types, `modifiers` is a
+// bit set over tokenLegend().modifiers.
+struct TokenSpan {
+  int line = 0, col = 0, len = 0;
+  uint16_t type = 0;
+  uint32_t modifiers = 0;
+};
+
+// Edits grouped per file, ranges in byte columns, ready for Document::replace. Edits of one file never overlap.
+using TextEditList = std::vector<std::pair<Range, std::string>>;
+using FileEdits = std::map<std::filesystem::path, TextEditList>;
+
+// A call hierarchy or type hierarchy node. `loc` (start of the name) can be passed to Editor::gotoLocation.
+struct HierarchyItem {
+  std::string name, detail, kind;
+  Location loc;
+  Range range, selection;  // byte columns
+  LspHierarchyItem server;
+};
+struct CallEdge {
+  HierarchyItem item;  // the caller (incoming) or callee (outgoing)
+  std::vector<Range>
+      ranges;  // call sites, byte columns; in item's file for incoming, in the queried item's for outgoing
+};
+
+// A quick fix or refactoring. Apply `edit` (if hasEdit) first, then run `command` (if hasCommand), whose edits
+// arrive through onApplyEdit.
+struct CodeAction {
+  std::string title, kind;
+  bool preferred = false;
+  bool hasEdit = false;
+  FileEdits edit;
+  bool hasCommand = false;
+  std::string command;
+  Json arguments;
+};
+
 // Two-tier semantic engine.
 //
 //  tier 1  FastIndex   : whole workspace lexed in parallel at startup (and
@@ -74,6 +111,12 @@ class SemanticEngine {
     std::filesystem::path logDir;         // empty -> <root>/.tenfold
     std::function<void(const std::string&)> log;
     bool traceLsp = false;
+    int semanticTokensDebounceMs = 150;  // after didOpen / didChange (only while onSemanticTokens has a handler)
+  };
+
+  struct TokenStats {
+    int fullRequests = 0, deltaRequests = 0;
+    double lastDecodeMs = 0;  // time spent decoding the last reply into TokenSpans
   };
 
   struct Status {
@@ -154,6 +197,35 @@ class SemanticEngine {
 
   void onDiagnostics(std::function<void(const std::filesystem::path&, std::vector<Diagnostic>)> h);
 
+  // --- clangd-only features (constraint 1.4: no approximate tier; without clangd the callback gets an error) ---
+  // Semantic tokens: the first request for a document is /full, later ones /full/delta against the previous result
+  // id (falling back to /full if the server rejects it). Everything is decoded to byte columns.
+  void semanticTokens(const Document& doc, Callback<std::vector<TokenSpan>> cb);
+  // Requested automatically (debounced) after didOpen / didChange; `version` is the document version the tokens
+  // were computed for. Handler runs on the engine's timer / reader thread.
+  void onSemanticTokens(std::function<void(const std::filesystem::path&, int version, std::vector<TokenSpan>)> h);
+  LspSemanticTokensLegend tokenLegend() const;
+  TokenStats tokenStats() const;
+  void inlayHints(const Document& doc, Range range, Callback<std::vector<LspInlayHint>> cb);
+  void foldingRanges(const Document& doc, Callback<std::vector<LspFoldingRange>> cb);
+  void documentHighlights(const Document& doc, Position pos, Callback<std::vector<LspHighlight>> cb);
+  void prepareCallHierarchy(const Document& doc, Position pos, Callback<std::vector<HierarchyItem>> cb);
+  void incomingCalls(const HierarchyItem& item, Callback<std::vector<CallEdge>> cb);
+  void outgoingCalls(const HierarchyItem& item, Callback<std::vector<CallEdge>> cb);
+  void prepareTypeHierarchy(const Document& doc, Position pos, Callback<std::vector<HierarchyItem>> cb);
+  void supertypes(const HierarchyItem& item, Callback<std::vector<HierarchyItem>> cb);
+  void subtypes(const HierarchyItem& item, Callback<std::vector<HierarchyItem>> cb);
+  void formatDocument(const Document& doc, Callback<TextEditList> cb);
+  void formatRange(const Document& doc, Range range, Callback<TextEditList> cb);
+  void codeActions(const Document& doc, Range range, Callback<std::vector<CodeAction>> cb);
+  void executeCommand(const std::string& command, Json arguments, Callback<Json> cb);
+  // Edits clangd asks us to apply (workspace/applyEdit, e.g. while running a tweak command). Reader thread; the
+  // server is told "applied" immediately, the Editor applies the edit on its own thread.
+  void onApplyEdit(std::function<void(const std::string& label, FileEdits)> h);
+  // workspace/didChangeWatchedFiles; type: 1 created, 2 changed, 3 deleted. Files open in a Document are skipped
+  // (the server already has their text). Thread-safe.
+  void watchedFileChanged(const std::filesystem::path& file, int type);
+
   FastIndex& fastIndex() { return fast_; }
   const std::vector<CompileCommand>& compileCommands() const { return compileCommands_; }
   LspClient* clangd() { return clangd_ && clangd_->initialized() ? clangd_.get() : nullptr; }
@@ -182,6 +254,19 @@ class SemanticEngine {
 
   // Encoding conversion helpers.
   Position toServer(const Document& doc, Position p) const;
+  Range toServer(const Document& doc, Range r) const { return {toServer(doc, r.start), toServer(doc, r.end)}; }
+  Position posFromServer(const std::string& uri, Position p) const;
+  Range rangeFromServer(const std::string& uri, Range r) const {
+    return {posFromServer(uri, r.start), posFromServer(uri, r.end)};
+  }
+  HierarchyItem hierarchyItemFromServer(const LspHierarchyItem& it) const;
+  FileEdits editsFromServer(const Json& workspaceEdit) const;
+  std::vector<TokenSpan> decodeTokens(const std::string& uri, const std::vector<uint32_t>& data) const;
+  void scheduleTokens(const Document& doc);
+  void requestTokens(const std::string& uri, Callback<std::vector<TokenSpan>> cb);
+  void runLater(int delayMs, std::function<void()> fn);
+  template <class T>
+  LspClient* requireClangd(const Callback<T>& cb);
   Location fromServer(const LspLocation& l) const;
   std::vector<SymbolLocation> fromServer(const std::vector<LspLocation>& ls, Confidence c) const;
   void locationQuery(
@@ -225,6 +310,20 @@ class SemanticEngine {
     std::shared_ptr<struct PendingState> state;
   };
   std::deque<Pending> pending_;
+  std::multimap<std::chrono::steady_clock::time_point, std::function<void()>> delayed_;  // guarded by mu_
+
+  // Semantic token state per document uri (tokMu_): the previous result id + data for delta, debounce generation.
+  struct TokenState {
+    std::string resultId;
+    std::vector<uint32_t> data;
+    uint64_t generation = 0;
+    int pendingVersion = 0;
+  };
+  mutable std::mutex tokMu_;
+  std::map<std::string, TokenState> tokens_;
+  TokenStats tokenStats_;
+  std::function<void(const std::filesystem::path&, int, std::vector<TokenSpan>)> tokenHandler_;
+  std::function<void(const std::string&, FileEdits)> applyEditHandler_;
 
   std::map<std::string, std::string> fileStatus_;    // uri -> clangd state
   std::map<std::string, const Document*> openDocs_;  // uri -> doc (for encoding conversion)

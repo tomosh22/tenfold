@@ -14,6 +14,13 @@ namespace tf {
 namespace fs = std::filesystem;
 
 namespace {
+// Where position `p` (at or after `endPre`) ends up when the text up to `endPre` was replaced such that `endPre`
+// became `endPost` (used to carry carets through LSP-supplied edits in applyEdits).
+Position remapAfter(Position p, Position endPre, Position endPost) {
+  if (p.line == endPre.line) return {endPost.line, endPost.column + (p.column - endPre.column)};
+  return {p.line + (endPost.line - endPre.line), p.column};
+}
+
 // Key of an open document in docs_ / diskHash_: canonical and, on Windows, case/separator-insensitive.
 std::string docKey(const fs::path& p) {
   std::error_code ec;
@@ -118,6 +125,13 @@ bool Editor::start(std::string* error) {
   semantic_->onDiagnostics([this](const fs::path& file, std::vector<Diagnostic> ds) {
     post([this, file, ds = std::move(ds)]() mutable { diagnostics_[file.generic_string()] = std::move(ds); });
   });
+  semantic_->onApplyEdit([this](const std::string&, FileEdits edits) {
+    post([this, edits = std::move(edits)] {
+      std::string err;
+      if (!applyEdits(edits, &err) && opt_.log) opt_.log("workspace/applyEdit failed: " + err);
+    });
+  });
+  hookTokens();
   if (ws_.settings().watchFiles) startWatching();
   bool ok = semantic_->start(error);
   // Builds often live in an ignored directory (build/); watch just that folder
@@ -345,13 +359,16 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
       if (ev.isDirectory) return;
       ws_.noteFileAdded(ev.path);
       touched(ev.path);
+      semantic_->watchedFileChanged(ev.path, ev.kind == E::Created ? 1 : 2);  // skipped for open documents
       break;
     case E::Deleted: {
       // A file, or (Windows reports no directory flag) a directory: drop everything at or below it.
       std::vector<fs::path> gone = ws_.filesUnder(ev.path);
+      if (gone.empty() && !ev.isDirectory) semantic_->watchedFileChanged(ev.path, 3);
       for (auto& f : gone) {
         ws_.noteFileRemoved(f);
         semantic_->fileRemoved(f);
+        semantic_->watchedFileChanged(f, 3);
         nav_.onFileRemoved(f);
       }
       nav_.onFileRemoved(ev.path);
@@ -365,12 +382,16 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           ws_.noteFileRenamed(f, to);
           nav_.onFileRenamed(f, to);
           semantic_->fileRemoved(f);
+          semantic_->watchedFileChanged(f, 3);
+          semantic_->watchedFileChanged(to, 1);
           moved.push_back(to);
         }
         semantic_->indexFilesAsync(std::move(moved));
       } else {
         ws_.noteFileRenamed(ev.oldPath, ev.path);
         nav_.onFileRenamed(ev.oldPath, ev.path);
+        semantic_->watchedFileChanged(ev.oldPath, 3);
+        semantic_->watchedFileChanged(ev.path, 1);
         touched(ev.path);  // editors save by renaming a temp file over the target
         if (ev.oldPath.filename() == "CMakeLists.txt" || ev.oldPath.filename() == "compile_commands.json")
           refreshBuildSystem();
@@ -1055,5 +1076,187 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
 bool Editor::gotoSearchMatch(const SearchMatch& m, std::string* error) {
   return gotoLocation({m.file, {m.line, m.column}}, error, m.text.substr(0, 80));
 }
+
+// ---------------------------------------------------------------------------
+// clangd features
+// ---------------------------------------------------------------------------
+
+void Editor::hookTokens() {
+  if (!semantic_ || !tokenHandler_) return;
+  semantic_->onSemanticTokens([this](const fs::path& file, int version, std::vector<TokenSpan> spans) {
+    post([this, file, version, spans = std::move(spans)] {
+      Document* d = document(file);
+      if (d && d->version() == version && tokenHandler_) tokenHandler_(*d, spans);
+    });
+  });
+}
+
+void Editor::onSemanticTokens(TokenHandler h) {
+  tokenHandler_ = std::move(h);
+  hookTokens();
+}
+
+namespace {
+// Reports "no document" through the usual post() route.
+template <class T, class F>
+void noDocument(F&& post, std::function<void(const T&, const std::string&)> done) {
+  post([done = std::move(done)] {
+    if (done) done(T{}, "no document");
+  });
+}
+}  // namespace
+
+#define TF_NEED_DOC(T, done)                                                      \
+  if (!current_ || !semantic_) {                                                  \
+    noDocument<T>([this](std::function<void()> f) { post(std::move(f)); }, done); \
+    return;                                                                       \
+  }
+
+void Editor::semanticTokens(Done<std::vector<TokenSpan>> done) {
+  TF_NEED_DOC(std::vector<TokenSpan>, done)
+  semantic_->semanticTokens(*current_, posted(std::move(done)));
+}
+
+void Editor::inlayHints(Range range, Done<std::vector<LspInlayHint>> done) {
+  TF_NEED_DOC(std::vector<LspInlayHint>, done)
+  semantic_->inlayHints(*current_, range, posted(std::move(done)));
+}
+
+void Editor::foldingRanges(Done<std::vector<LspFoldingRange>> done) {
+  TF_NEED_DOC(std::vector<LspFoldingRange>, done)
+  semantic_->foldingRanges(*current_, posted(std::move(done)));
+}
+
+void Editor::documentHighlights(Done<std::vector<LspHighlight>> done) {
+  TF_NEED_DOC(std::vector<LspHighlight>, done)
+  semantic_->documentHighlights(*current_, cursor_.pos, posted(std::move(done)));
+}
+
+void Editor::callHierarchy(Done<std::vector<HierarchyItem>> done) {
+  TF_NEED_DOC(std::vector<HierarchyItem>, done)
+  semantic_->prepareCallHierarchy(*current_, cursor_.pos, posted(std::move(done)));
+}
+
+void Editor::typeHierarchy(Done<std::vector<HierarchyItem>> done) {
+  TF_NEED_DOC(std::vector<HierarchyItem>, done)
+  semantic_->prepareTypeHierarchy(*current_, cursor_.pos, posted(std::move(done)));
+}
+
+void Editor::incomingCalls(const HierarchyItem& item, Done<std::vector<CallEdge>> done) {
+  semantic_->incomingCalls(item, posted(std::move(done)));
+}
+void Editor::outgoingCalls(const HierarchyItem& item, Done<std::vector<CallEdge>> done) {
+  semantic_->outgoingCalls(item, posted(std::move(done)));
+}
+void Editor::supertypes(const HierarchyItem& item, Done<std::vector<HierarchyItem>> done) {
+  semantic_->supertypes(item, posted(std::move(done)));
+}
+void Editor::subtypes(const HierarchyItem& item, Done<std::vector<HierarchyItem>> done) {
+  semantic_->subtypes(item, posted(std::move(done)));
+}
+
+bool Editor::gotoHierarchyItem(const HierarchyItem& item, std::string* error) {
+  return gotoLocation(item.loc, error, item.name);
+}
+
+void Editor::codeActions(Range range, Done<std::vector<CodeAction>> done) {
+  TF_NEED_DOC(std::vector<CodeAction>, done)
+  semantic_->codeActions(*current_, range, posted(std::move(done)));
+}
+
+void Editor::applyCodeAction(const CodeAction& action, std::function<void(bool, const std::string&)> done) {
+  if (action.hasEdit) {
+    std::string err;
+    if (!applyEdits(action.edit, &err)) {
+      if (done) post([done, err] { done(false, err); });
+      return;
+    }
+  }
+  if (!action.hasCommand || !semantic_) {
+    if (done) post([done] { done(true, {}); });
+    return;
+  }
+  // clangd answers the command after the applyEdit requests it sent, which were posted before this reply.
+  semantic_->executeCommand(action.command, action.arguments, [this, done](Json, const std::string& err) {
+    post([done, err] {
+      if (done) done(err.empty(), err);
+    });
+  });
+}
+
+bool Editor::applyEdits(const FileEdits& edits, std::string* error) {
+  std::vector<std::pair<Document*, const TextEditList*>> work;
+  for (auto& [file, list] : edits) {
+    if (list.empty()) continue;
+    Document* d = open(file, error);
+    if (!d) return false;
+    work.push_back({d, &list});
+  }
+  breakTyping();
+  for (auto& [d, list] : work) {
+    std::vector<size_t> order(list->size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(),
+                     [&](size_t a, size_t b) { return (*list)[a].first.start < (*list)[b].first.start; });
+    const bool cur = d == current_;
+    d->beginGroup(cur ? carets_ : std::vector<Selection>{});
+    inEdit_ = true;
+    for (size_t k = order.size(); k-- > 0;) {  // bottom-to-top: earlier ranges stay valid
+      const auto& [range, text] = (*list)[order[k]];
+      const TextBuffer::EditResult res = d->replace(range, text);
+      if (!cur) continue;
+      auto remap = [&](Position p) {
+        if (p < res.removed.start) return p;
+        if (p < res.removed.end) return res.inserted.end;
+        return remapAfter(p, res.removed.end, res.inserted.end);
+      };
+      for (Selection& s : carets_) {
+        s.anchor = remap(s.anchor);
+        s.head = remap(s.head);
+      }
+    }
+    inEdit_ = false;
+    if (cur) clampCarets();
+    d->endGroup(cur ? carets_ : std::vector<Selection>{});
+  }
+  return true;
+}
+
+void Editor::applyFormatting(Done<size_t> done, const TextEditList& edits, const std::string& err, const fs::path& file,
+                             int version) {
+  if (!done) return;
+  Document* d = document(file);
+  if (!err.empty()) return done(0, err);
+  if (!d || d->version() != version) return done(0, "document changed while formatting");
+  FileEdits fe;
+  fe[d->path()] = edits;
+  std::string e;
+  if (!applyEdits(fe, &e)) return done(0, e);
+  done(edits.size(), {});
+}
+
+void Editor::formatDocument(Done<size_t> done) {
+  TF_NEED_DOC(size_t, done)
+  fs::path file = current_->path();
+  int version = current_->version();
+  semantic_->formatDocument(*current_, [this, file, version, done](TextEditList edits, const std::string& err) {
+    post([this, file, version, done, edits = std::move(edits), err] {
+      applyFormatting(done, edits, err, file, version);
+    });
+  });
+}
+
+void Editor::formatRange(Range range, Done<size_t> done) {
+  TF_NEED_DOC(size_t, done)
+  fs::path file = current_->path();
+  int version = current_->version();
+  semantic_->formatRange(*current_, range, [this, file, version, done](TextEditList edits, const std::string& err) {
+    post([this, file, version, done, edits = std::move(edits), err] {
+      applyFormatting(done, edits, err, file, version);
+    });
+  });
+}
+
+#undef TF_NEED_DOC
 
 }  // namespace tf

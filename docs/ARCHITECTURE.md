@@ -77,6 +77,35 @@ output only when clangd is absent.
 result and records both ends of the jump in the navigation history. With
 several results it does not jump; the front end shows a picker.
 
+## clangd-only features (A9)
+
+Semantic tokens, inlay hints, folding ranges, document highlights, call and
+type hierarchy, code actions (+ `workspace/executeCommand`) and formatting
+have **no approximate tier** (constraint 1.4): `SemanticEngine` delivers
+clangd's answer or an error string (`"clangd not running"`), never fabricated
+data. Everything is converted to byte columns like the other queries and the
+`Editor` wrappers deliver on the pump thread through `post()`.
+
+* **Semantic tokens**: the first request per document is `/full`, later ones
+  `/full/delta` against the stored result id (a rejected delta falls back to
+  `/full`). The legend comes from the server (`tokenLegend()`); `TokenSpan`
+  holds a legend index and a modifier bit set. With `Editor::onSemanticTokens`
+  registered, tokens are requested automatically `semanticTokensDebounceMs`
+  after didOpen / didChange and stale versions are dropped.
+* **Applying edits**: `Editor::applyEdits` is the single place server edits
+  enter documents. All files are opened first (as documents, nothing is
+  written to disk), then each document gets ONE undo group
+  (`beginGroup/endGroup`), applied bottom-to-top; carets of the current
+  document follow. Code actions, formatting and the server's own
+  `workspace/applyEdit` (sent while a tweak command runs) all go through it.
+  `applyEdit` is answered `{applied:true}` immediately on the reader thread
+  and applied later on the pump thread.
+* **Hierarchy items** carry a byte-column `Location` of the name, so
+  `Editor::gotoHierarchyItem` is a plain `gotoLocation` (navigation history).
+* **Watched files**: `workspace/didChangeWatchedFiles` is sent from the
+  Editor's FileWatcher events (created / changed / deleted, renames as
+  delete + create) for files that are not open in a Document.
+
 ## Why clangd, and how it stays fast
 
 clangd *is* the Clang frontend, so correctness on templates / `auto` /

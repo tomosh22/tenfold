@@ -98,6 +98,40 @@ class Editor {
   void complete(std::function<void(const std::vector<LspCompletionItem>&, const std::string& error)> done);
   void switchSourceHeader(std::function<void(bool jumped, const std::string& error)> done);
 
+  // --- clangd features (no approximate tier: results come from clangd or `error` is set; always via post()) ---
+  template <class T>
+  using Done = std::function<void(const T&, const std::string& error)>;
+  // Semantic tokens of every open document arrive here after didOpen / didChange (debounced); stale versions
+  // (the document moved on) are dropped. Registering the handler switches the automatic requests on.
+  using TokenHandler = std::function<void(Document&, const std::vector<TokenSpan>&)>;
+  void onSemanticTokens(TokenHandler h);
+  void semanticTokens(Done<std::vector<TokenSpan>> done);  // current document, on demand
+  void inlayHints(Range range, Done<std::vector<LspInlayHint>> done);
+  void foldingRanges(Done<std::vector<LspFoldingRange>> done);
+  void documentHighlights(Done<std::vector<LspHighlight>> done);  // at the primary caret
+  // Hierarchies start at the primary caret; the items they return can be expanded further and jumped to with
+  // gotoHierarchyItem (goes through gotoLocation, so it lands in navigation history).
+  void callHierarchy(Done<std::vector<HierarchyItem>> done);
+  void incomingCalls(const HierarchyItem& item, Done<std::vector<CallEdge>> done);
+  void outgoingCalls(const HierarchyItem& item, Done<std::vector<CallEdge>> done);
+  void typeHierarchy(Done<std::vector<HierarchyItem>> done);
+  void supertypes(const HierarchyItem& item, Done<std::vector<HierarchyItem>> done);
+  void subtypes(const HierarchyItem& item, Done<std::vector<HierarchyItem>> done);
+  bool gotoHierarchyItem(const HierarchyItem& item, std::string* error = nullptr);
+  // Code actions for `range` of the current document (fix-its use the diagnostics clangd published).
+  void codeActions(Range range, Done<std::vector<CodeAction>> done);
+  // Applies the action's edit, then runs its command (whose edits arrive through clangd's workspace/applyEdit and
+  // are applied here too). `done(true, "")` once everything ran; edits form ONE undo step per document.
+  void applyCodeAction(const CodeAction& action, std::function<void(bool ok, const std::string& error)> done);
+  // Applies edits (ranges in byte columns) to documents, opening the ones that are not open yet (nothing is
+  // written to disk). One undo group per document; carets of the current document follow the edits. All files are
+  // opened before anything is changed, so failure to open one leaves every document untouched.
+  bool applyEdits(const FileEdits& edits, std::string* error = nullptr);
+  // clangd formatting of the whole current document / of a range; applied as one undo group.
+  // `done` receives the number of edits applied.
+  void formatDocument(Done<size_t> done);
+  void formatRange(Range range, Done<size_t> done);
+
   // --- find in workspace (results arrive via post(), i.e. on the pump thread) ---
   // Searches Workspace::codeFiles() (+ other files if opts.includeOtherFiles) in the background. Open documents
   // are searched from their in-memory text (snapshotted now). `onDone` always fires, after the last batch;
@@ -172,6 +206,19 @@ class Editor {
   void rescanWorkspace();
   void refreshBuildSystem();
   void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done);
+  // Wraps `done` so it runs on the pump thread.
+  template <class T>
+  SemanticEngine::Callback<T> posted(Done<T> done) {
+    return [this, done = std::move(done)](T v, const std::string& err) {
+      post([done, v = std::move(v), err] {
+        if (done) done(v, err);
+      });
+    };
+  }
+  void applyFormatting(Done<size_t> done, const TextEditList& edits, const std::string& err,
+                       const std::filesystem::path& file, int version);
+  void hookTokens();
+  TokenHandler tokenHandler_;
 
   Workspace ws_;
   Options opt_;

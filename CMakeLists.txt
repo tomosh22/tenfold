@@ -102,6 +102,7 @@ add_executable(tenfold-tests
   tests/test_textsearch.cpp
   tests/test_filewatcher.cpp
   tests/test_multicaret.cpp
+  tests/test_lsp_features.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
