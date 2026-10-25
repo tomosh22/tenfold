@@ -839,6 +839,26 @@ void Editor::hover(std::function<void(const std::string&, const std::string&)> d
   });
 }
 
+void Editor::hoverAt(Document& doc, Position pos, std::function<void(const std::string&, const std::string&)> done) {
+  semantic_->hover(doc, pos, [this, done](std::string text, const std::string& err) {
+    post([text = std::move(text), err, done] {
+      if (done) done(text, err);
+    });
+  });
+}
+
+void Editor::signatureHelp(std::function<void(const LspSignatureHelp&, const std::string&)> done) {
+  if (!current_) {
+    if (done) done({}, "no document");
+    return;
+  }
+  semantic_->signatureHelp(*current_, cursor_.pos, [this, done](LspSignatureHelp h, const std::string& err) {
+    post([h = std::move(h), err, done] {
+      if (done) done(h, err);
+    });
+  });
+}
+
 void Editor::complete(std::function<void(const std::vector<LspCompletionItem>&, const std::string&)> done) {
   if (!current_) {
     if (done) done({}, "no document");

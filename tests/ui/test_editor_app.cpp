@@ -185,8 +185,12 @@ TEST(app_unbound_ui_commands_say_not_available_and_escape_does_not_quit) {
   CHECK(env.bench->modal() != nullptr);
   CHECK(env.key(Key::Escape));  // closes the picker; Escape never reaches the editor's CollapseCarets binding
   CHECK(env.bench->modal() == nullptr);
-  CHECK(env.key(Key('F'), ModCtrl | ModShift));  // find in files: B5b
-  CHECK(env.status("message").find("not available yet") != std::string::npos);
+  CHECK(env.key(Key('F'), ModCtrl | ModShift));  // find in files: B5b opens its popup
+  CHECK(env.bench->modal() != nullptr);
+  CHECK(env.key(Key::Escape));
+  CHECK(env.bench->modal() == nullptr);
+  CHECK(env.key(Key::F8));  // next result with no search yet
+  CHECK(env.status("message").find("No search results") != std::string::npos);
   CHECK(env.key(Key(','), ModCtrl));  // symbol search needs a started Editor (this fixture has none): disabled
   CHECK(env.bench->modal() == nullptr);
 
