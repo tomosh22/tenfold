@@ -229,6 +229,17 @@ std::shared_ptr<const std::vector<CompileCommand>> SemanticEngine::compileComman
 }
 
 bool SemanticEngine::startClangd(std::string* error) {
+  auto c = launchClangd(error);
+  if (!c) return false;
+  {
+    std::lock_guard<std::mutex> lk(clientMu_);
+    clangd_ = c;
+  }
+  log("clangd started: " + c->serverVersion() + ", offsetEncoding=" + c->offsetEncoding());
+  return true;
+}
+
+std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   fs::path compdbPath;
   std::string compdbSource;
   {
@@ -242,7 +253,7 @@ bool SemanticEngine::startClangd(std::string* error) {
       findExecutable(exe, /*preferBundled=*/opt_.clangdPath.empty() && ws_.settings().clangdPath.empty());
   if (resolved.empty()) {
     if (error) *error = "clangd not found: " + exe;
-    return false;
+    return nullptr;
   }
   LspClient::Options lo;
   lo.serverPath = resolved;
@@ -329,23 +340,19 @@ bool SemanticEngine::startClangd(std::string* error) {
     if (h) h(label, editsFromServer(edit));
   });
   c->onLogMessage([this](int, const std::string& m) { log("clangd: " + m); });
-  c->onDisconnect([this] {
+  c->onDisconnect([this, wc = std::weak_ptr<LspClient>(c)] {
     log("clangd exited");
     cv_.notify_all();
+    if (auto self = wc.lock()) noteCrash(std::move(self));
   });
 
   std::string err;
   if (!c->start(lo, &err)) {
     if (error) *error = err;
     log("failed to start clangd: " + err);
-    return false;
+    return nullptr;
   }
-  {
-    std::lock_guard<std::mutex> lk(clientMu_);
-    clangd_ = c;
-  }
-  log("clangd started: " + c->serverVersion() + ", offsetEncoding=" + c->offsetEncoding());
-  return true;
+  return c;
 }
 
 void SemanticEngine::saveFastIndex() {
@@ -409,11 +416,44 @@ bool SemanticEngine::start(std::string* error) {
   startFastIndex();
   prepareCompileCommands(ws_.sourceFiles(), ws_.headerFiles(), false);
   bool ok = true;
-  if (opt_.useClangd) ok = startClangd(error);
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    supStop_ = false;
+    consecutive_ = 0;
+  }
+  if (opt_.useClangd) {
+    setHealth(ClangdHealth::Phase::Starting, 0);
+    std::string err;
+    {
+      std::lock_guard<std::mutex> life(lifeMu_);
+      ok = startClangd(&err);
+    }
+    if (error && !ok) *error = err;
+    {
+      std::lock_guard<std::mutex> lk(supMu_);
+      runStart_ = std::chrono::steady_clock::now();
+    }
+    setHealth(ok ? ClangdHealth::Phase::Running : ClangdHealth::Phase::Stopped, 0, err);
+    supThread_ = std::thread([this] { supervisorLoop(); });
+  }
   return ok;
 }
 
 void SemanticEngine::stop() {
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    supStop_ = true;
+  }
+  supCv_.notify_all();  // interrupts a backoff wait
+  if (supThread_.joinable()) supThread_.join();
+  std::shared_ptr<LspClient> orphan, orphan2;
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    orphan = std::move(crashed_);
+    orphan2 = std::move(adoptClient_);
+    ++adoptGen_;
+  }
+  if (orphan2) orphan2->stop();
   {
     std::lock_guard<std::mutex> lk(workMu_);
     workStop_ = true;
@@ -577,27 +617,245 @@ void SemanticEngine::refreshCompileCommands(std::vector<fs::path> sources, std::
   });
 }
 
-bool SemanticEngine::restartClangd(std::string* error) {
-  if (!opt_.useClangd) return false;
-  std::vector<Document*> docs;
+void SemanticEngine::resetClientState() {
   {
     std::lock_guard<std::mutex> lk(mu_);
-    for (auto& [uri, d] : openDocs_) docs.push_back(const_cast<Document*>(d));
     fileStatus_.clear();
   }
-  {
-    std::lock_guard<std::mutex> lk(tokMu_);  // result ids are meaningless to a new server
-    for (auto& [uri, st] : tokens_) {
-      st.resultId.clear();
-      st.data.clear();
-    }
+  std::lock_guard<std::mutex> lk(tokMu_);  // result ids are meaningless to a new server
+  for (auto& [uri, st] : tokens_) {
+    st.resultId.clear();
+    st.data.clear();
   }
+}
+
+// Re-send every open document with its current text and version and ask for fresh semantic tokens (diagnostics
+// follow from the didOpen). Must run on the thread that owns the documents.
+void SemanticEngine::reopenDocuments(LspClient& c) {
+  std::vector<const Document*> docs;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    for (auto& [uri, d] : openDocs_) docs.push_back(d);
+  }
+  for (auto* d : docs) c.didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().text());
+  for (auto* d : docs) scheduleTokens(*d);
+}
+
+bool SemanticEngine::restartClangd(std::string* error) {
+  if (!opt_.useClangd) return false;
+  std::lock_guard<std::mutex> life(lifeMu_);
+  std::shared_ptr<LspClient> orphan, orphan2;
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    ++manualGen_;  // abandon an automatic restart that is waiting or about to be adopted
+    ++adoptGen_;
+    consecutive_ = 0;
+    orphan = std::move(adoptClient_);
+    orphan2 = std::move(crashed_);
+  }
+  supCv_.notify_all();
+  setHealth(ClangdHealth::Phase::Starting, 0);
+  resetClientState();
   if (auto old = takeClient()) old->stop();
-  if (!startClangd(error)) return false;
+  if (orphan) orphan->stop();
+  std::string err;
+  if (!startClangd(&err)) {
+    if (error) *error = err;
+    setHealth(ClangdHealth::Phase::Stopped, 0, err);
+    return false;
+  }
   auto nc = client();
   if (!nc) return false;
-  for (auto* d : docs) nc->didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().text());
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    runStart_ = std::chrono::steady_clock::now();
+    ++health_.totalRestarts;
+  }
+  reopenDocuments(*nc);
+  setHealth(ClangdHealth::Phase::Running, 0);
+  if (!nc->alive()) noteCrash(nc);
   return true;
+}
+
+// ---------------------------------------------------------------------------
+// Crash recovery (D2)
+// ---------------------------------------------------------------------------
+
+std::string SemanticEngine::ClangdHealth::text() const {
+  switch (phase) {
+    case Phase::Starting: return "clangd starting...";
+    case Phase::Restarting: return "clangd restarting (" + std::to_string(crashes) + ")...";
+    case Phase::Stopped:
+      if (crashes > 0)
+        return "clangd stopped: crashed " + std::to_string(crashes) + (crashes == 1 ? " time" : " times");
+      return "clangd stopped" + (lastError.empty() ? std::string() : ": " + lastError);
+    default: return {};
+  }
+}
+
+int SemanticEngine::backoffDelayMs(const Options& opt, int crashes) {
+  long long delay = std::max(0, opt.restartBackoffInitialMs);
+  for (int i = 1; i < crashes && delay < opt.restartBackoffMaxMs; ++i) delay *= 2;
+  return static_cast<int>(std::min<long long>(delay, opt.restartBackoffMaxMs));
+}
+
+SemanticEngine::ClangdHealth SemanticEngine::clangdHealth() const {
+  std::lock_guard<std::mutex> lk(supMu_);
+  return health_;
+}
+
+void SemanticEngine::onClangdHealth(std::function<void(const ClangdHealth&)> h) {
+  std::lock_guard<std::mutex> lk(supMu_);
+  healthHandler_ = std::move(h);
+}
+
+void SemanticEngine::setPoster(std::function<void(std::function<void()>)> poster) {
+  std::lock_guard<std::mutex> lk(supMu_);
+  poster_ = std::move(poster);
+}
+
+void SemanticEngine::setHealth(ClangdHealth::Phase phase, int crashes, const std::string& err) {
+  ClangdHealth snap;
+  std::function<void(const ClangdHealth&)> h;
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    health_.phase = phase;
+    health_.crashes = crashes;
+    health_.lastError = err;
+    snap = health_;
+    h = healthHandler_;
+  }
+  cv_.notify_all();
+  if (h) h(snap);
+}
+
+// Reader thread of a client that died on its own. Never drops the last reference here (that would join the reader
+// from itself): the supervisor / stop() release it.
+void SemanticEngine::noteCrash(std::shared_ptr<LspClient> c) {
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    crashed_ = std::move(c);
+  }
+  supCv_.notify_all();
+}
+
+void SemanticEngine::supervisorLoop() {
+  std::unique_lock<std::mutex> lk(supMu_);
+  while (true) {
+    supCv_.wait(lk, [&] { return supStop_ || crashed_; });
+    if (supStop_) return;
+    auto dead = std::move(crashed_);
+    crashed_.reset();
+    lk.unlock();
+    handleCrash(dead);
+    dead.reset();
+    lk.lock();
+  }
+}
+
+void SemanticEngine::handleCrash(const std::shared_ptr<LspClient>& dead) {
+  using Clock = std::chrono::steady_clock;
+  bool isCurrent = false;
+  {
+    std::lock_guard<std::mutex> lk(clientMu_);
+    if (clangd_ == dead) {
+      clangd_.reset();
+      isCurrent = true;
+    }
+  }
+  uint64_t gen;
+  int attempt;
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    const bool wasPending = adoptClient_ == dead;
+    if (wasPending) {
+      adoptClient_.reset();
+      ++adoptGen_;
+    }
+    if (!isCurrent && !wasPending) return;  // an older client; already replaced
+    gen = manualGen_;
+    if (isCurrent && Clock::now() - runStart_ >= std::chrono::milliseconds(opt_.restartHealthyMs)) consecutive_ = 0;
+    attempt = ++consecutive_;
+  }
+  log("clangd crashed (" + std::to_string(attempt) + " in a row)");
+  dead->stop();  // reaps the process; its in-flight requests were already failed by the reader
+
+  std::string lastErr;
+  while (true) {
+    if (attempt >= opt_.restartMaxFastCrashes) {
+      log("clangd: giving up after " + std::to_string(attempt) + " consecutive crashes");
+      setHealth(ClangdHealth::Phase::Stopped, attempt, lastErr);
+      return;
+    }
+    setHealth(ClangdHealth::Phase::Restarting, attempt, lastErr);
+    const int delay = backoffDelayMs(opt_, attempt);
+    {
+      std::unique_lock<std::mutex> lk(supMu_);
+      if (supCv_.wait_for(lk, std::chrono::milliseconds(delay), [&] { return supStop_ || manualGen_ != gen; })) return;
+    }
+    std::shared_ptr<LspClient> nc;
+    std::string err;
+    {
+      std::lock_guard<std::mutex> life(lifeMu_);
+      {
+        std::lock_guard<std::mutex> lk(supMu_);
+        if (supStop_ || manualGen_ != gen) return;
+      }
+      nc = launchClangd(&err);
+    }
+    if (!nc) {
+      lastErr = err;
+      ++attempt;
+      std::lock_guard<std::mutex> lk(supMu_);
+      consecutive_ = attempt;
+      continue;
+    }
+    uint64_t id;
+    std::function<void(std::function<void()>)> poster;
+    bool abandoned;
+    {
+      std::lock_guard<std::mutex> lk(supMu_);
+      abandoned = supStop_ || manualGen_ != gen;
+      if (!abandoned) {
+        adoptClient_ = nc;
+        id = ++adoptGen_;
+        poster = poster_;
+      }
+    }
+    if (abandoned) {
+      nc->stop();
+      return;
+    }
+    if (poster) poster([this, id] { adoptPending(id); });
+    else adoptPending(id);
+    return;
+  }
+}
+
+// Runs on the thread that owns the documents (see setPoster).
+void SemanticEngine::adoptPending(uint64_t id) {
+  std::shared_ptr<LspClient> nc;
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    if (supStop_ || id != adoptGen_ || !adoptClient_) return;  // superseded, or the new server died first
+    nc = std::move(adoptClient_);
+  }
+  resetClientState();
+  reopenDocuments(*nc);
+  {
+    std::lock_guard<std::mutex> lk(clientMu_);
+    clangd_ = nc;
+  }
+  int crashes;
+  {
+    std::lock_guard<std::mutex> lk(supMu_);
+    runStart_ = std::chrono::steady_clock::now();
+    ++health_.totalRestarts;
+    crashes = consecutive_;
+  }
+  log("clangd restarted: " + nc->serverVersion());
+  setHealth(ClangdHealth::Phase::Running, crashes);
+  if (!nc->alive()) noteCrash(nc);  // died while the documents were being re-sent
 }
 
 // ---------------------------------------------------------------------------

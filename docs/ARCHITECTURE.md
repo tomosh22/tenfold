@@ -92,6 +92,46 @@ A10 found two pre-existing races with `-fsanitize=thread`; A11 fixed them at the
 
 `clientMu_` is never held across a call into `LspClient`, so it cannot take part in a lock cycle.
 
+### clangd crash recovery and the process crash handler (D2)
+
+`LspClient`/`JsonRpcConnection` report an unexpected server exit through `onDisconnect`; at that moment every
+request still in flight is completed with an error (`connection lost`) on the reader thread, and later requests fail
+immediately, so nothing waits for a dead server. A write to the dead pipe cannot kill the editor either: POSIX
+`Process::start` ignores `SIGPIPE` once (children get the default back).
+
+`SemanticEngine` runs a supervisor thread (started by `start()`, joined first by `stop()`):
+
+* The disconnect hook hands the dead client to the supervisor (never dropping the last reference on the reader
+  thread). The supervisor detaches it (`clangd()` is null, so the fast tier answers alone, results stay
+  Approximate), counts a crash, and waits `restartBackoffInitialMs` doubling per consecutive crash up to
+  `restartBackoffMaxMs` (500 ms, 1, 2, 4 ... 30 s). The wait is a condition-variable wait that `stop()` and a manual
+  restart interrupt.
+* A crash after `restartHealthyMs` (60 s) of running starts the count again. The Nth consecutive crash
+  (`restartMaxFastCrashes`, 5) or failed restart makes the engine give up: "clangd stopped: crashed 5 times".
+* The new server is started and handshaken on the supervisor thread but not published. Re-sending the open documents
+  (`didOpen` with the current text and version, then a semantic-tokens request, diagnostics follow) must happen on
+  the thread that owns the `Document`s, so the supervisor hands `adoptPending` to the poster (`setPoster`; the Editor
+  uses `post()`). Only after that is the client published; edits made in between are covered because the full text is
+  sent at that moment. Without a poster (CLI, tests) it runs on the supervisor thread.
+* `restartClangd()` is also the manual command (`Editor::restartClangd`): it cancels a pending automatic restart,
+  resets the count and works after the engine gave up. Lock order: `lifeMu_` (client launches) -> `supMu_` ->
+  `clientMu_`; none is held across a call into `LspClient`.
+* Status: `SemanticEngine::clangdHealth()` / `onClangdHealth()`; the Editor posts the text ("clangd restarting
+  (2)...", "clangd stopped: crashed 5 times", empty when fine) to `Options::onClangdStatus` and `clangdStatusText()`.
+
+`src/core/CrashHandler` (`installCrashHandler`, called first in the CLI and GUI mains, never by the tests) handles the
+editor process itself. Windows: `SetUnhandledExceptionFilter` writes a minidump with `MiniDumpWriteDump` (dbghelp.dll
+loaded dynamically at install time) to `%LOCALAPPDATA%\tenfold\crashes`; `abort()` writes one too. POSIX:
+SIGSEGV/SIGBUS/SIGFPE/SIGILL/SIGABRT on an alternate stack write `crash-<pid>-<time>.txt` (signal, fault address,
+`backtrace_symbols_fd` on glibc/macOS) to `$XDG_DATA_HOME/tenfold/crashes` (`~/Library/Application Support/tenfold/
+crashes` on macOS) using only async-signal-safe calls (the path is formatted by hand, libgcc is preloaded by a dummy
+`backtrace()` at install time), then reset the signal and re-raise it. Only the installing thread has the alternate
+stack. Nothing is uploaded.
+
+Tests (`tests/test_crash.cpp`) use `tenfold-test-helper` (`tests/test_helper_main.cpp`), a fake clangd that dies after
+N requests (exit or SIGSEGV), on its first launches, or hangs on a method, and a child that installs the handler and
+crashes.
+
 ## The two-tier query policy
 
 Goal: never miss, never block.

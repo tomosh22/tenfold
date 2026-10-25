@@ -32,6 +32,7 @@ add_library(tenfold_core STATIC
   src/core/TextBuffer.cpp
   src/core/Document.cpp
   src/core/PathUtil.cpp
+  src/core/CrashHandler.cpp
   src/nav/NavigationHistory.cpp
   ${TENFOLD_PROCESS_SRC}
   src/lsp/JsonRpc.cpp
@@ -113,8 +114,15 @@ add_executable(tenfold-tests
   tests/test_lsp_features.cpp
   tests/test_build.cpp
   tests/test_symbol_search.cpp
+  tests/test_crash.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
+# Fake clangd / crashing process used by tests/test_crash.cpp.
+add_executable(tenfold-test-helper tests/test_helper_main.cpp)
+target_link_libraries(tenfold-test-helper PRIVATE tenfold_core)
+target_compile_options(tenfold-test-helper PRIVATE ${TENFOLD_WARN})
+add_dependencies(tenfold-tests tenfold-test-helper)
+target_compile_definitions(tenfold-tests PRIVATE TENFOLD_TEST_HELPER="$<TARGET_FILE:tenfold-test-helper>")
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME unit COMMAND tenfold-tests)
 

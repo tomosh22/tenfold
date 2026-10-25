@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "app/Editor.h"
+#include "core/CrashHandler.h"
 #include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/GlRenderer.h"
@@ -71,6 +72,7 @@ int64_t nowMs() {
 }  // namespace
 
 int main(int argc, char** argv) {
+  tf::installCrashHandler();
   std::string workspace, file, shot;
   bool demo = false, shell = false;
 #ifdef TENFOLD_HAVE_D3D11

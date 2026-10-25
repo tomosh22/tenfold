@@ -54,6 +54,7 @@ class JsonRpcConnection {
   void readerLoop();
   void dispatch(Json msg);
   void send(const Json& msg);
+  void failPending(const char* why);
 
   Process proc_;
   std::thread reader_;

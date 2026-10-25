@@ -7,6 +7,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <mutex>
 #include <thread>
 
 #include "lsp/Process.h"
@@ -23,6 +24,10 @@ Process::~Process() {
 bool Process::start(const std::string& exe, const std::vector<std::string>& args, const std::filesystem::path& cwd,
                     const std::filesystem::path& stderrLog, std::string* error, const Env& extraEnv,
                     const ProcessOptions& options) {
+  // A server that died must not kill us when we write to its stdin: EPIPE is handled by the caller. (Reset to the
+  // default in the child below, so spawned programs keep normal pipeline behaviour.)
+  static std::once_flag ignoreSigpipe;
+  std::call_once(ignoreSigpipe, [] { ::signal(SIGPIPE, SIG_IGN); });
   int inPipe[2], outPipe[2];
   if (::pipe(inPipe) != 0 || ::pipe(outPipe) != 0) {
     if (error) *error = std::strerror(errno);
@@ -46,6 +51,7 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
     return false;
   }
   if (pid == 0) {
+    ::signal(SIGPIPE, SIG_DFL);
     if (options.processTree) ::setpgid(0, 0);
     ::dup2(inPipe[0], STDIN_FILENO);
     ::dup2(outPipe[1], STDOUT_FILENO);

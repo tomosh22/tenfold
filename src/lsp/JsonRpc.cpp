@@ -28,12 +28,16 @@ void JsonRpcConnection::stop(int graceMs) {
     proc_.wait(300);
   }
   if (reader_.joinable()) reader_.join();
+  failPending("connection closed");
+}
+
+void JsonRpcConnection::failPending(const char* why) {
   std::map<int, ResponseHandler> pending;
   {
     std::lock_guard<std::mutex> lk(mu_);
     pending.swap(pending_);
   }
-  RpcError err{-32099, "connection closed", {}};
+  RpcError err{-32099, why, {}};
   for (auto& [id, h] : pending) h(nullptr, &err);
 }
 
@@ -113,6 +117,9 @@ void JsonRpcConnection::readerLoop() {
     buf.append(chunk, static_cast<size_t>(n));
   }
   bool wasRunning = running_.exchange(false);
+  // The server is gone: nothing will ever answer the requests still in flight, so fail them now (a request issued
+  // after this point sees running_ == false and fails itself).
+  failPending("connection lost");
   if (wasRunning && disconnect_) disconnect_();
 }
 
