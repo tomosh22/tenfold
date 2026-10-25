@@ -106,10 +106,8 @@ target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME unit COMMAND tenfold-tests)
 
-# ---- Graphical front end (text foundation) ---------------------------------------------------------------------
-if(NOT DEFINED TENFOLD_BUILD_UI)
-  option(TENFOLD_BUILD_UI "Build the graphical front end" OFF)
-endif()
+# ---- UI (experimental): SDL3 window + OpenGL 3.3 renderer. Off by default; the engine never depends on it. ----
+option(TENFOLD_BUILD_UI "Build the SDL3/OpenGL UI (tenfold-ui, tenfold-ui-tests)" OFF)
 if(TENFOLD_BUILD_UI)
   # FreeType 2.13: system library when available, else fetched (only the rasterizer, no optional codecs).
   find_package(Freetype QUIET)
@@ -150,4 +148,40 @@ if(TENFOLD_BUILD_UI)
   target_link_libraries(tenfold-text-tests PRIVATE tenfold_text)
   target_compile_definitions(tenfold-text-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   add_test(NAME text COMMAND tenfold-text-tests)
+
+  include(FetchContent)
+  # Static SDL3 with only the video/events subsystems we use.
+  foreach(_sdl_off SDL_SHARED SDL_TESTS SDL_TEST_LIBRARY SDL_INSTALL SDL_AUDIO SDL_RENDER SDL_GPU SDL_CAMERA
+                   SDL_JOYSTICK SDL_HAPTIC SDL_HIDAPI SDL_POWER SDL_SENSOR SDL_DIALOG SDL_VULKAN)
+    set(${_sdl_off} OFF CACHE BOOL "" FORCE)
+  endforeach()
+  set(SDL_STATIC ON CACHE BOOL "" FORCE)
+  FetchContent_Declare(SDL3 GIT_REPOSITORY https://github.com/libsdl-org/SDL.git GIT_TAG release-3.2.30 GIT_SHALLOW TRUE)
+  FetchContent_MakeAvailable(SDL3)
+
+  add_library(tenfold_ui STATIC
+    src/ui/platform/Window.cpp
+    src/ui/platform/Input.cpp
+    src/ui/platform/Clipboard.cpp
+    src/ui/gfx/GlLoader.cpp
+    src/ui/gfx/GlRenderer.cpp
+    src/ui/gfx/PngWrite.cpp
+  )
+  target_include_directories(tenfold_ui PUBLIC src)
+  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static)
+  target_compile_options(tenfold_ui PRIVATE ${TENFOLD_WARN})
+
+  add_executable(tenfold-ui src/ui_app/main.cpp)
+  target_link_libraries(tenfold-ui PRIVATE tenfold_ui tenfold_core)
+  target_compile_options(tenfold-ui PRIVATE ${TENFOLD_WARN})
+
+  add_executable(tenfold-ui-tests
+    tests/ui/ui_test_main.cpp
+    tests/ui/test_png.cpp
+    tests/ui/test_input.cpp
+    tests/ui/test_renderer.cpp
+  )
+  target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
+  target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  add_test(NAME ui-unit COMMAND tenfold-ui-tests)
 endif()

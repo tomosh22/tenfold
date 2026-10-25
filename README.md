@@ -43,6 +43,20 @@ works locally (also `debug`, `asan`, and on Windows `msvc` / `clang-cl` from a V
 GitHub Actions (`.github/workflows/ci.yml`) builds gcc, clang, clang ASan+UBSan, MSVC,
 clang-cl and AppleClang, and runs `clang-format --dry-run --Werror` on changed C++ files only.
 
+## UI (experimental)
+
+The SDL3 + OpenGL 3.3 front end is opt-in and not part of the default build:
+
+```
+cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
+ninja -C build-ui
+xvfb-run -a ./build-ui/tenfold-ui-tests          # golden-image tests skip without a display
+./build-ui/tenfold-ui [workspace]                # or: xvfb-run -a ./build-ui/tenfold-ui --screenshot out.png [--size WxH]
+```
+
+SDL3 is fetched (static, pinned to `release-3.2.30`); on Linux you need X11/GL dev packages. After an
+intentional rendering change, refresh `tests/golden/b1_scene.png` with `tenfold-ui-tests --update-goldens`.
+
 ## Try it
 
 `tenfold-cli` is a scriptable front end over the editor model. Point it at a
