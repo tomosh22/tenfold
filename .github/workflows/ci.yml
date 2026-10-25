@@ -246,13 +246,10 @@ jobs:
           python tests/ui/check_png.py b1.png 1024 640
 
   # B9: native Windows build of the SDL3 UI with the Direct3D 11 backend, tested on WARP (the runner has no GPU).
-  # Not blocking yet: the Windows UI build has never run natively. Flip to false once it is green.
-  # TODO(B9): remove continue-on-error after the first green run.
   windows-ui:
     name: windows-ui-d3d11
     runs-on: windows-2022
     timeout-minutes: 45
-    continue-on-error: true
     steps:
       - uses: actions/checkout@v4
 
