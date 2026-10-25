@@ -118,6 +118,68 @@ Reading the table:
 * clangd's background index was at 0 percent when `sym` ran, so `symAuth` numbers cover a partial index.
   `def` after the TU parse is single-digit milliseconds.
 
+## After Wave 1 (A1-A8 merged), light load
+
+Re-run by the orchestrator on integrated `main` (07af945) with one agent idle in the background
+(load average ~1.5-2 on 4 cores). Includes A4's persisted fast index (warm runs load
+`.tenfold/fastindex.bin`). Supersedes the provisional numbers above.
+
+`tools/bench.sh`
+
+Workspace: `/tmp/tmp.6iWoXqeJN6/sample_project`  
+clangd: clangd clangd version 22.1.1 linux x86_64-unknown-linux-gnu; compile flags: heuristic; file: `src/main.cpp:12:17`; runs: 3 cold, 3 warm (median / min)
+
+Counts: sourceFiles=2, headerFiles=1, fastFiles=3, fastSymbols=43, compdbEntries=2, clangdIndexPercent=100
+
+| Phase | Cold median | Cold min | Warm median | Warm min | Budget cold / warm | Cold | Warm |
+|---|---:|---:|---:|---:|---|---|---|
+| `scanMs` (ms) | 0.00 | 0.00 | 0.00 | 0.00 |  |  |  |
+| `compdbMs` (ms) | 1.43 | 1.08 | 0.40 | 0.38 |  |  |  |
+| `clangdStartMs` (ms) | 55.3 | 51.9 | 54.2 | 52.1 |  |  |  |
+| `startReturnMs` (ms) | 56.8 | 53.0 | 54.6 | 52.5 | 3000 / 1000 ms | pass | pass |
+| `fastIndexDoneMs` (ms) | 56.8 | 53.0 | 54.6 | 52.5 |  |  |  |
+| `fastIndexMs` (ms) | 0.44 | 0.44 | 1.28 | 0.33 |  |  |  |
+| `tuParsedMs` (ms) | 771.0 | 703.8 | 630.0 | 590.8 |  |  |  |
+| `tuParsedAfterOpenMs` (ms) | 714.2 | 630.1 | 577.5 | 536.2 |  |  |  |
+| `defFirstMs` (ms) | 0.49 | 0.41 | 0.62 | 0.59 |  |  |  |
+| `defWarmMs` (ms) | 0.13 | 0.12 | 0.37 | 0.35 |  |  |  |
+| `clangdIndexWaitMs` (ms) | 153.3 | 134.3 | 0.00 | 0.00 |  |  |  |
+| `symFast[Shape]Ms` (ms) | 0.00 | 0.00 | 0.00 | 0.00 | 50 / 50 ms | pass | pass |
+| `symAuth[Shape]Ms` (ms) | 0.41 | 0.37 | 0.53 | 0.39 |  |  |  |
+| `symFast[area]Ms` (ms) | 0.00 | 0.00 | 0.00 | 0.00 | 50 / 50 ms | pass | pass |
+| `symAuth[area]Ms` (ms) | 0.47 | 0.42 | 0.45 | 0.32 |  |  |  |
+| `peakRssMiB` (MiB) | 5.99 | 5.97 | 5.98 | 5.95 | 500 / 500 MiB | pass | pass |
+
+`tools/bench.sh --large /home/user/bench/godot --file scene/3d/node_3d.cpp:171:45 --sym Node3D --sym get_global_transform --sym Vector3`
+
+Workspace: `/home/user/bench/godot`  
+clangd: clangd clangd version 22.1.1 linux x86_64-unknown-linux-gnu; compile flags: heuristic; file: `scene/3d/node_3d.cpp:171:45`; runs: 3 cold, 3 warm (median / min)
+
+Counts: sourceFiles=3568, headerFiles=4759, fastFiles=8327, fastSymbols=507098, compdbEntries=3568, clangdIndexPercent=0
+
+| Phase | Cold median | Cold min | Warm median | Warm min | Budget cold / warm | Cold | Warm |
+|---|---:|---:|---:|---:|---|---|---|
+| `scanMs` (ms) | 51.0 | 40.0 | 39.0 | 38.0 |  |  |  |
+| `compdbMs` (ms) | 1791.6 | 1783.4 | 97.7 | 90.5 |  |  |  |
+| `clangdStartMs` (ms) | 96.9 | 72.9 | 56.8 | 56.0 |  |  |  |
+| `startReturnMs` (ms) | 1930.6 | 1914.3 | 328.0 | 327.0 | 3000 / 1000 ms | pass | pass |
+| `fastIndexDoneMs` (ms) | 1930.6 | 1914.3 | 332.7 | 330.3 |  |  |  |
+| `fastIndexMs` (ms) | 1175.7 | 1149.6 | 161.3 | 154.8 |  |  |  |
+| `tuParsedMs` (ms) | 2888.1 | 2777.3 | 1165.5 | 1124.1 |  |  |  |
+| `tuParsedAfterOpenMs` (ms) | 940.2 | 863.0 | 793.8 | 793.3 |  |  |  |
+| `defFirstMs` (ms) | 4.47 | 0.54 | 0.42 | 0.41 |  |  |  |
+| `defWarmMs` (ms) | 0.24 | 0.20 | 0.16 | 0.13 |  |  |  |
+| `symFast[Node3D]Ms` (ms) | 47.8 | 43.0 | 46.6 | 40.6 | 50 / 50 ms | pass | pass |
+| `symAuth[Node3D]Ms` (ms) | 42.4 | 39.6 | 48.0 | 47.5 |  |  |  |
+| `symFast[get_global_transform]Ms` (ms) | 30.3 | 28.5 | 32.0 | 27.6 | 50 / 50 ms | pass | pass |
+| `symAuth[get_global_transform]Ms` (ms) | 29.2 | 29.0 | 30.3 | 28.2 |  |  |  |
+| `symFast[Vector3]Ms` (ms) | 33.7 | 33.1 | 34.4 | 33.1 | 50 / 50 ms | pass | pass |
+| `symAuth[Vector3]Ms` (ms) | 40.1 | 39.9 | 38.7 | 33.4 |  |  |  |
+| `peakRssMiB` (MiB) | 374.2 | 363.4 | 200.5 | 200.5 | 500 / 500 MiB | pass | pass |
+
+Find in files (A6, measured by the A6 agent under load, Godot, 8327 files, warm page cache):
+literal `Vector2` 124 ms, case-insensitive 163 ms, whole word 94 ms, regex 96 ms (target < 400 ms).
+
 ## Historical numbers (from the plan, quiet machine, 8755-file Godot)
 
 | Workspace | Launch to interactive | Launch to first TU parsed | `def` after parse | Fast index |
@@ -128,10 +190,12 @@ Reading the table:
 
 ## Budget summary (plan section 1.7)
 
-| Budget | Sample | Godot (provisional) |
+From the post-Wave 1 run above.
+
+| Budget | Sample | Godot |
 |---|---|---|
-| Startup to interactive, cold <= 3 s | pass | FAIL under load (4.4 s; 2.4 s historically) |
-| Startup to interactive, warm <= 1 s | pass | pass (0.39 s) |
-| Symbol search, fast tier <= 50 ms | pass | FAIL under load (74 to 134 ms) |
-| Editor memory <= 500 MB | pass | pass (336 MiB) |
+| Startup to interactive, cold <= 3 s | pass (0.06 s) | pass (1.93 s) |
+| Startup to interactive, warm <= 1 s | pass (0.05 s) | pass (0.33 s) |
+| Symbol search, fast tier <= 50 ms | pass (< 0.01 ms) | pass, but tight: 30-48 ms (`Node3D` 47.8 ms median) |
+| Editor memory <= 500 MB | pass (6 MiB) | pass (374 MiB cold, 200 MiB warm) |
 | Keystroke-to-paint <= 8 ms | n/a until B1/B2 | n/a until B1/B2 |
