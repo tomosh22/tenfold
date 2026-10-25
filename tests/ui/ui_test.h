@@ -18,6 +18,7 @@ struct GlFixture {
   std::unique_ptr<tf::gfx::GlRenderer> renderer;
 };
 GlFixture* glFixture();
+bool glFixtureExists();  // true once glFixture() has been called (the runner then checks glGetError around each test)
 
 }  // namespace uitest
 

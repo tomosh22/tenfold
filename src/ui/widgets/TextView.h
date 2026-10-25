@@ -1,11 +1,17 @@
 #pragma once
 #include <cstdint>
+#include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "app/Editor.h"
+#include "ui/settings/Settings.h"
+#include "ui/view/Highlighter.h"
 #include "ui/view/Layout.h"
+#include "ui/view/Scrollbar.h"
 #include "ui/view/Viewport.h"
 #include "ui/widgets/Widget.h"
 
@@ -23,6 +29,13 @@ namespace tf::ui {
 // navigation history. Keys are not handled here: EditorApp maps them to commands (KeyMap -> CommandRegistry); the view
 // handles text input (InputType::Text -> Editor::insertText), the mouse and the wheel.
 //
+// Colouring (B2b): C/C++ files are coloured lexically at once (Highlighter, cached per line, visible lines only) and
+// upgraded to clangd semantic tokens when setSemanticTokens delivers them (they override identifier colours only);
+// other files are plain. Decorations: diagnostics squiggles (overlay layer, from Editor::diagnostics), a vertical
+// scrollbar child with marker lanes (search matches via setSearchMarkers, carets, diagnostics), a column guide,
+// visible whitespace and the matching bracket of the caret ((){}[]; angle brackets are skipped: the lexer cannot
+// tell templates from comparisons).
+//
 // Dirtiness: input handling and onTick() compare the Editor state (document, version, selections) with what was last
 // drawn, so changes made elsewhere (LSP edits, Back/Forward, another view) repaint too. Drive onTick through
 // RootWidget::tick(nowMs) after each batch of events and wait for at most the returned ms (blink / scroll animation).
@@ -35,16 +48,31 @@ class TextView : public Widget {
     int caretBlinkMs = 530;
     bool highlightCurrentLine = true;
     int wheelLines = 3;              // lines per wheel notch
+    int tabWidth = 4;                // editor.tabWidth (applied to the shared TextLayout)
+    int columnGuide = 0;             // editor.columnGuide: column of the vertical guide, 0 = off
+    bool showWhitespace = false;     // editor.showWhitespace: dots for spaces, arrows for tabs
     std::function<int64_t()> clock;  // monotonic ms for blink; null = steady_clock
   };
 
-  explicit TextView(Editor& editor, Document* pinned = nullptr) : editor_(editor), pinned_(pinned) {}
+  explicit TextView(Editor& editor, Document* pinned = nullptr);
+  ~TextView() override;
 
   Settings& settings() { return settings_; }
   Editor& editor() { return editor_; }
   Document* document() const { return pinned_ ? pinned_ : editor_.currentDocument(); }
   bool isCurrent() const { return document() && document() == editor_.currentDocument(); }
   Viewport& viewport() { return vp_; }
+  Scrollbar& scrollbar() { return *sb_; }
+  Highlighter& highlighter() { return hl_; }
+  // editor.* settings (EditorApp calls this on construction of a view and on every settings change).
+  void applySettings(const EditorSettings& s);
+  // Clangd semantic tokens for this view's document (A9: Editor::onSemanticTokens), with the server legend.
+  void setSemanticTokens(std::vector<TokenSpan> spans, const LspSemanticTokensLegend& legend);
+  // Search matches for the scrollbar's marker lane (B5b).
+  void setSearchMarkers(const std::vector<Range>& matches);
+  bool colouring() const;  // true for C/C++ files
+  // The bracket at / before the primary caret and its partner (positions of the two bracket characters).
+  std::optional<std::pair<Position, Position>> bracketMatch();
   // Makes this view's document the Editor's current one (no history entry; the caret this view last had) and takes
   // focus.
   void activate();
@@ -58,6 +86,7 @@ class TextView : public Widget {
   void ensureCaretVisible(bool animate = true);
   std::string positionText() const;  // "Ln 3, Col 5" of the primary caret (Col is the visual column, tabs expanded)
 
+  int settingsGen = 0;                   // EditorApp: the settings generation last applied to this view
   std::function<void()> onStateChanged;  // document, version or carets changed (status bar)
 
   bool acceptsFocus() const override { return true; }
@@ -72,6 +101,14 @@ class TextView : public Widget {
 
  private:
   Layout geometry() const;
+  float scrollbarWidth() const;
+  void bindListener(Document* d);
+  void bindDocument();
+  uint64_t diagnosticSignature() const;
+  void updateDiagMarkers();
+  void paintWhitespace(PaintContext& ctx, const Layout& L, const std::string& line, float textX, float y,
+                       const RectF& clip) const;
+  void paintSquiggles(PaintContext& ctx, const Layout& L, float sx, float sy, int first, int last);
   int64_t now() const;
   bool syncState();
   float maxScrollY() const;
@@ -83,6 +120,13 @@ class TextView : public Widget {
   Document* pinned_;
   Settings settings_;
   Viewport vp_;
+  Highlighter hl_;
+  Scrollbar* sb_ = nullptr;
+  Document* listenDoc_ = nullptr;
+  std::filesystem::path listenPath_;
+  int listenId_ = 0;
+  uint32_t themeGen_ = 0xFFFFFFFFu;
+  uint64_t diagSig_ = 0;
 
   // What was last seen, to detect changes.
   const Document* seenDoc_ = nullptr;

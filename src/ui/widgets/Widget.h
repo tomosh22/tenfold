@@ -135,6 +135,15 @@ class RootWidget : public Widget {
   const Theme& rootTheme() const { return theme_; }
   void setTheme(const Theme& t) {
     theme_ = t;
+    ++themeGen_;
+    requestLayout();
+  }
+  // Changes whenever setTheme ran: views that cache theme-derived data (syntax colours) compare it.
+  uint32_t themeGeneration() const { return themeGen_; }
+  // Replaces the text renderer (font change); the caller keeps the old one alive until after this call, then drops it
+  // (releaseTexture first) and requests a layout.
+  void setTextRenderer(gfx::TextRenderer& t) {
+    text_ = &t;
     requestLayout();
   }
 
@@ -186,6 +195,7 @@ class RootWidget : public Widget {
   std::vector<std::unique_ptr<Widget>> retired_;  // closed modals, destroyed at the next dispatch/render
   bool dirty_ = true, layoutDirty_ = true;
   int w_ = 0, h_ = 0;
+  uint32_t themeGen_ = 0;
 };
 
 }  // namespace tf::ui

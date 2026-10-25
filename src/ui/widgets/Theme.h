@@ -39,6 +39,14 @@ struct Theme {
   Color columnGuide{0.173f, 0.184f, 0.212f, 1};
   Color whitespace{0.227f, 0.243f, 0.278f, 1};
   Color panelBorder{0.07f, 0.075f, 0.09f, 1};
+  // Editor decorations (B2b): diagnostics squiggles and scrollbar marks, scrollbar, matching bracket.
+  Color diagnosticError{0.945f, 0.298f, 0.298f, 1};      // #f14c4c
+  Color diagnosticWarning{0.898f, 0.722f, 0.231f, 1};    // #e5b83b
+  Color diagnosticInfo{0.302f, 0.667f, 0.988f, 1};       // #4daafc
+  Color matchMarker{0.322f, 0.541f, 0.859f, 1};          // search matches in the scrollbar lane, #528adb
+  Color scrollbarTrack{0.098f, 0.106f, 0.122f, 1};       // #191b1f
+  Color scrollbarThumb{0.349f, 0.376f, 0.439f, 0.549f};  // #596070 at 55%
+  Color bracketMatch{0.322f, 0.541f, 0.859f, 0.349f};    // box behind a matching bracket pair
 
   // Token colours by name: lexical kinds ("keyword", "comment", ...) and clangd semantic token types ("method"), each
   // optionally narrowed by a modifier ("method.static"). Filled by the theme loader; empty means "use text".

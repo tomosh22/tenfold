@@ -1127,6 +1127,10 @@ bool Editor::gotoSearchMatch(const SearchMatch& m, std::string* error) {
 // clangd features
 // ---------------------------------------------------------------------------
 
+void Editor::setDiagnostics(const fs::path& file, std::vector<Diagnostic> ds) {
+  diagnostics_[file.generic_string()] = std::move(ds);
+}
+
 void Editor::hookTokens() {
   if (!semantic_ || !tokenHandler_) return;
   semantic_->onSemanticTokens([this](const fs::path& file, int version, std::vector<TokenSpan> spans) {

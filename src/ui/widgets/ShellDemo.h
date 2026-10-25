@@ -18,6 +18,10 @@ class ShellDemo : public RootWidget {
  public:
   // `dir` is the sample project directory (contains src/main.cpp, src/geometry.cpp, include/geometry.h).
   ShellDemo(gfx::TextRenderer& text, const std::string& dir, const Theme& theme = Theme::darkDefault());
+  // The views unregister their document listeners, so they must go before editor_ does.
+  ~ShellDemo() override {
+    while (!children().empty()) removeChild(children().front().get());
+  }
   Splitter& splitter() { return *split_; }
   Panel& left() { return *left_; }
   Panel& right() { return *right_; }

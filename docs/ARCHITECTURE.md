@@ -332,7 +332,7 @@ bindings are plain text, `[context] chord [chord] = Command.Id [argument]`, pars
 duplicate warnings collected with line numbers, never fatal). Layers: embedded `assets/keybindings.default.txt`
 (generated into a header at configure time), then `<user config dir>/tenfold/keybindings.txt`, then
 `<workspace>/.tenfold/keybindings.txt`; a command of `-` removes a binding. The defaults are placeholders until the
-user's 10x key map is known (OPEN_QUESTIONS #1). Wiring `KeyMap::feed` into the app's event loop is not done yet.
+user's 10x key map is known (OPEN_QUESTIONS #1). `EditorApp` (below) wires `KeyMap::feed` into the app's event loop.
 ## Settings and themes (`src/ui/settings/{Settings,Theme}.*`, B7)
 
 Settings are `key = value` text files with dotted keys (`editor.tabWidth = 4`; no `[sections]`), `#` comments only as
@@ -388,6 +388,49 @@ event and tick, and the caret is scrolled into view. Settings: `smoothScroll` (d
 reserved, not implemented) per OPEN_QUESTIONS #4, `caretBlink`, `caretBlinkMs`, `highlightCurrentLine`, `wheelLines`.
 Measured keystroke-to-paint (key event, edit, sync, layout, paint recording; 100k lines, 1920x1080) is ~0.1 ms with one
 caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpipe submit is not representative.
+
+#### Colouring, squiggles, scrollbar and decorations (B2b, `src/ui/view/{Highlighter,Scrollbar}.*`)
+
+* **Colouring (constraint 1.4 on screen).** C/C++ files (by extension) get lexical colours at once: `Highlighter` scans
+  a line at a time (`lexLine`: keywords via `CppLexer::isKeyword`, strings with encoding prefixes, raw strings, char
+  literals, numbers with separators, `#` directives with continuations, `//` and `/* */`) into a per-line cache whose
+  entries remember the state they were lexed with (block comment, raw string + delimiter, directive). An edit
+  invalidates only the edited lines (the cache follows line inserts / removals through `Document::Change`); re-lexing
+  walks forward and keeps every later line whose start state still matches, so closing a comment again costs nothing
+  below. First paint never lexes the file: at most `kSyncBudget` (1500) lines are lexed per paint; when the exact
+  prefix is further behind, the visible lines are lexed *provisionally* from `kLookback` (200) lines early in the "no
+  open construct" state and `onTick` finishes the exact pass in `kSyncBudget` chunks (a repaint follows when it
+  reaches the viewport; a block comment opened far above is the only thing that can change). Clangd semantic tokens
+  (`Editor::onSemanticTokens`, wired in `EditorApp`, one set per view of the document) override **identifier** spans
+  only, through `Theme::tokenColor(legend type, modifiers)`; types the theme does not know ("comment" for inactive
+  code, "unknown") are ignored, so keyword / string / comment colours never change when tokens arrive. Spans are kept
+  sorted per document and remapped through edits: a line delta shifts them, a one-line edit keeps the spans before it
+  and shifts the ones after it on that line (touching spans drop), a multi-line edit drops the replaced lines. Colour
+  spans reach `TextRenderer::drawSpans` (the B1b colour-run API; palette indices, one recorded batch per colour).
+  Other file types are drawn in the text colour.
+* **Squiggles** (`paintOverlay`): for every `Editor::diagnostics(file)` entry on a visible line a zig-zag of short
+  line segments under the range (error / warning / info colours, one cell minimum). `Editor::setDiagnostics` (additive)
+  feeds them without a language server (tests); the view notices a changed diagnostic list on its next tick. Hover is B5.
+* **Scrollbar** (`Scrollbar`, a child widget at the right edge of the TextView, 1.5 cells wide): thumb with drag,
+  click-to-page (90 % of the view), marker lanes left to right: search matches (`TextView::setSearchMarkers`, B5b),
+  carets, diagnostics. Markers are 2 px, one per pixel row and lane. The wheel over the bar scrolls the view. The
+  horizontal scrollbar is not built.
+* **Decorations**: `editor.columnGuide` (1 px line at that column), `editor.showWhitespace` (dots / tab arrows as
+  rects and lines, dimmed; first 4000 bytes of a line), bracket match for `()[]{}` of the primary caret (character
+  after the caret first, then before it; brackets inside comments / strings are not brackets since only lexical
+  Punct spans count; the partner is searched up to 1000 lines away on the exact lexical cache). `<>` is deliberately
+  not matched: the lexer cannot tell templates from comparisons and a wrong highlight is worse than none.
+* **Settings wiring**: `EditorApp::attachSettings(SettingsService&, displayScale, rebuildFont)` applies `editor.*`
+  (`TextView::applySettings`; tab width goes to the shared `TextRenderer`) to every view in the tree on attach, on
+  every change and (for views created later) on the next tick; a theme change goes through `SettingsService::applyTo`
+  (the views re-derive their palette from `RootWidget::themeGeneration()`); settings and theme diagnostics use the same
+  status-bar message as key-binding ones. `tenfold-ui` creates the service (watcher thread posts `Window::wake`, the
+  loop calls `poll()`), builds the font with `makeEditorTextRenderer` (`font.editor`, then each `font.fallbacks` name
+  in order, then the platform default; no hard-coded choice, OPEN_QUESTIONS #7) and rebuilds it on any `font.*`
+  change (`RootWidget::setTextRenderer`).
+* **Measured** (Release, llvmpipe, 100k lines, 1920x1080, one caret): keystroke-to-paint 0.12 ms plain vs 0.15 ms
+  coloured (p99 below 0.4 ms); cold first paint 1-2 ms at the top (glyph atlas cold too), 0.5 ms when scrolled to line
+  90000 (provisional), exact pass finished in the background in ~60 one-ms ticks.
 
 ### EditorApp: input to commands (`src/ui/shell/EditorApp.*`, B-INT)
 

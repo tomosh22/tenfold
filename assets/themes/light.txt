@@ -27,6 +27,13 @@ color.caret = #1f2328
 color.columnGuide = #e4e4e4
 color.whitespace = #cccccc
 color.panelBorder = #cfcfcf
+color.diagnosticError = #d73a3a
+color.diagnosticWarning = #b87a00
+color.diagnosticInfo = #2f6fd6
+color.matchMarker = #2f6fd6
+color.scrollbarTrack = #f0f0f0
+color.scrollbarThumb = #8a909980
+color.bracketMatch = #2f6fd659
 
 # Token colours: lexical kinds, then clangd semantic token types. `token.<type>.<modifier>` narrows a
 # type (e.g. token.method.static). Missing ones fall back: method -> function -> identifier -> color.text.

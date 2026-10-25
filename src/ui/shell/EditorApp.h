@@ -1,6 +1,7 @@
 #pragma once
 #include <cstdint>
 #include <filesystem>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -13,10 +14,12 @@
 #include "ui/features/NavigationUi.h"
 #include "ui/features/SymbolSearch.h"
 #include "ui/settings/KeyBindings.h"
+#include "ui/settings/Settings.h"
 #include "ui/shell/Workbench.h"
 
 namespace tf::ui {
 
+class TextView;
 class Settings;
 
 // Glue between the window's input events and the command system (B4): maps KeyDown / thumb-button MouseDown to a
@@ -44,6 +47,13 @@ class EditorApp {
   NavResultPicker& navResults() { return *navResults_; }
   void closePickers();
 
+  // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a
+  // theme change is applied to the root (scaled by `displayScale`), and settings / theme diagnostics go to the status
+  // bar message like key-binding ones. `rebuildFont` (optional) is called when a font.* key changed; it swaps the
+  // TextRenderer (RootWidget::setTextRenderer) and returns false when no font could be built. The app loop calls
+  // `SettingsService::poll()` itself (on the wake the service posts).
+  void attachSettings(SettingsService& svc, float displayScale = 1.0f, std::function<bool()> rebuildFont = {});
+
   // Returns true if the event was consumed (a binding, a swallowed chord stroke, or a widget).
   bool handleEvent(const InputEvent& e, int64_t nowMs);
   // Call after each event batch and when waiting times out: Workbench::sync, key-chord/message expiry, the root's
@@ -63,6 +73,9 @@ class EditorApp {
 
  private:
   void setMessage(const std::string& text, int ttlMs = 0, bool pending = false);
+  void showDiagnostics();
+  void applyEditorSettings();
+  void forEachView(const std::function<void(TextView&)>& fn);
   void bindUiCommands();
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
   std::string shortcutFor(const std::string& command) const;
@@ -81,6 +94,10 @@ class EditorApp {
   int64_t expiry_ = 0;  // 0 = never
   std::unique_ptr<NavigationUi> nav_;
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
+  SettingsService* settings_ = nullptr;
+  float scale_ = 1.0f;
+  int settingsGen_ = 1, settingsToken_ = 0;
+  std::function<bool()> rebuildFont_;
   int64_t now_ = 0;
   uint64_t navToken_ = 0;
   std::shared_ptr<int> life_ = std::make_shared<int>(0);  // callbacks of in-flight engine requests check it

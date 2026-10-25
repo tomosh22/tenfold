@@ -103,16 +103,81 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     hooks.shortcut = [this](const std::string& id) { return shortcutFor(id); };
     nav_ = std::make_unique<NavigationUi>(*bench_, editor_, std::move(hooks));
   }
-  if (!diags_.empty())
-    setMessage(formatDiag(diags_[0]) + (diags_.size() > 1 ? " (+" + std::to_string(diags_.size() - 1) + " more)" : ""),
-               kDiagMs);
+  showDiagnostics();
+  // Clangd semantic tokens go to every view of the document they describe (they replace the previous set).
+  editor_.onSemanticTokens([this](Document& d, const std::vector<TokenSpan>& spans) {
+    const LspSemanticTokensLegend legend = editor_.semantic().tokenLegend();
+    forEachView([&](TextView& v) {
+      if (v.document() == &d) v.setSemanticTokens(spans, legend);
+    });
+  });
 }
 
 EditorApp::~EditorApp() {
   closePickers();  // their callbacks point into this object
   life_.reset();
+  editor_.onSemanticTokens(nullptr);
+  if (settings_) {
+    settings_->settings().removeOnChanged(settingsToken_);
+    settings_->onThemeChanged(nullptr);
+  }
 }
 
+void EditorApp::forEachView(const std::function<void(TextView&)>& fn) {
+  std::function<void(Widget&)> walk = [&](Widget& w) {
+    if (auto* v = dynamic_cast<TextView*>(&w)) fn(*v);
+    for (const auto& c : w.children()) walk(*c);
+  };
+  walk(root_);
+}
+
+// The first key-binding or settings / theme diagnostic, "+N more" for the rest.
+void EditorApp::showDiagnostics() {
+  std::vector<KeyBindingDiag> all = diags_;
+  if (settings_) {
+    const auto sd = settings_->diagnostics();
+    all.insert(all.end(), sd.begin(), sd.end());
+  }
+  if (!all.empty())
+    setMessage(formatDiag(all[0]) + (all.size() > 1 ? " (+" + std::to_string(all.size() - 1) + " more)" : ""), kDiagMs);
+}
+
+void EditorApp::applyEditorSettings() {
+  if (!settings_) return;
+  const EditorSettings es = editorSettings(settings_->settings());
+  setNavStatusCounts(settings_->settings().getBool("nav.statusCounts"));
+  applySettings(settings_->settings());
+  forEachView([&](TextView& v) {
+    v.applySettings(es);
+    v.settingsGen = settingsGen_;
+  });
+}
+
+void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::function<bool()> rebuildFont) {
+  if (settings_) settings_->settings().removeOnChanged(settingsToken_);
+  settings_ = &svc;
+  scale_ = displayScale;
+  rebuildFont_ = std::move(rebuildFont);
+  svc.applyTo(root_, scale_);
+  svc.onThemeChanged([this](const Theme&) {
+    settings_->applyTo(root_, scale_);
+    showDiagnostics();
+  });
+  settingsToken_ = svc.settings().onChanged([this](const std::set<std::string>& keys) {
+    bool font = false;
+    for (const std::string& k : keys) font |= k.rfind("font.", 0) == 0;
+    if (font && rebuildFont_) rebuildFont_();
+    ++settingsGen_;
+    applyEditorSettings();
+    showDiagnostics();
+  });
+  ++settingsGen_;
+  applyEditorSettings();
+  showDiagnostics();
+}
+
+// One path for settings: attachSettings and every change go through applyEditorSettings, which also feeds the picker
+// settings (applySettings stays public for callers without a SettingsService).
 void EditorApp::applySettings(const Settings& s) { pickerEnv_.preview = s.getBool("picker.preview"); }
 
 void EditorApp::closePickers() {
@@ -274,6 +339,13 @@ int EditorApp::tick(int64_t nowMs) {
     ttlMs_ = 0;
   }
   if (bench_) bench_->sync();
+  if (settings_)
+    forEachView([&](TextView& v) {  // views created since the last settings change (new tabs)
+      if (v.settingsGen != settingsGen_) {
+        v.applySettings(editorSettings(settings_->settings()));
+        v.settingsGen = settingsGen_;
+      }
+    });
   if (keys_.tick(nowMs) && pendingShown_) setMessage("");
   if (expiry_ && nowMs >= expiry_) setMessage("");
   int wait = root_.tick(nowMs);

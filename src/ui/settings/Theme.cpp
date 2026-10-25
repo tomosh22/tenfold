@@ -46,6 +46,13 @@ const std::vector<ColorMember>& colorMembers() {
       {"columnGuide", &Theme::columnGuide},
       {"whitespace", &Theme::whitespace},
       {"panelBorder", &Theme::panelBorder},
+      {"diagnosticError", &Theme::diagnosticError},
+      {"diagnosticWarning", &Theme::diagnosticWarning},
+      {"diagnosticInfo", &Theme::diagnosticInfo},
+      {"matchMarker", &Theme::matchMarker},
+      {"scrollbarTrack", &Theme::scrollbarTrack},
+      {"scrollbarThumb", &Theme::scrollbarThumb},
+      {"bracketMatch", &Theme::bracketMatch},
   };
   return m;
 }
