@@ -166,9 +166,10 @@ if(TENFOLD_BUILD_UI)
     src/ui/gfx/GlLoader.cpp
     src/ui/gfx/GlRenderer.cpp
     src/ui/gfx/PngWrite.cpp
+    src/ui/gfx/TextRenderer.cpp
   )
   target_include_directories(tenfold_ui PUBLIC src)
-  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static)
+  target_link_libraries(tenfold_ui PUBLIC SDL3::SDL3-static tenfold_text)
   target_compile_options(tenfold_ui PRIVATE ${TENFOLD_WARN})
 
   add_executable(tenfold-ui src/ui_app/main.cpp)
@@ -180,6 +181,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_png.cpp
     tests/ui/test_input.cpp
     tests/ui/test_renderer.cpp
+    tests/ui/test_text_view.cpp
   )
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")

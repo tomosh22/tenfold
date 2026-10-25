@@ -1,7 +1,9 @@
-// tenfold-ui [workspace] [--screenshot out.png] [--size WxH]
+// tenfold-ui [workspace] [file] [--demo] [--screenshot out.png] [--size WxH]
+#include <algorithm>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <memory>
 #include <string>
 #include <vector>
@@ -10,6 +12,7 @@
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/GlRenderer.h"
 #include "ui/gfx/PngWrite.h"
+#include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Window.h"
 
 using namespace tf;
@@ -48,10 +51,27 @@ void drawScene(gfx::Renderer& r, int w, int h, gfx::TextureId atlas, float mx, f
   r.endFrame();
 }
 
+std::vector<std::string> readLines(const std::string& path, std::string& err) {
+  std::ifstream in(path, std::ios::binary);
+  std::vector<std::string> lines;
+  if (!in) {
+    err = "cannot open " + path;
+    return lines;
+  }
+  for (std::string l; std::getline(in, l);) {
+    if (!l.empty() && l.back() == '\r') l.pop_back();
+    lines.push_back(std::move(l));
+  }
+  return lines;
+}
+
+constexpr const char* kDefaultFile = "examples/sample_project/src/main.cpp";
+
 }  // namespace
 
 int main(int argc, char** argv) {
-  std::string workspace, shot;
+  std::string workspace, file, shot;
+  bool demo = false;
   int width = 1024, height = 640;
   for (int i = 1; i < argc; ++i) {
     if (!std::strcmp(argv[i], "--screenshot") && i + 1 < argc) {
@@ -61,10 +81,14 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "bad --size (expected WxH)\n");
         return 2;
       }
+    } else if (!std::strcmp(argv[i], "--demo")) {
+      demo = true;
     } else if (argv[i][0] != '-' && workspace.empty()) {
       workspace = argv[i];
+    } else if (argv[i][0] != '-' && file.empty()) {
+      file = argv[i];
     } else {
-      std::fprintf(stderr, "usage: tenfold-ui [workspace] [--screenshot out.png] [--size WxH]\n");
+      std::fprintf(stderr, "usage: tenfold-ui [workspace] [file] [--demo] [--screenshot out.png] [--size WxH]\n");
       return 2;
     }
   }
@@ -88,11 +112,37 @@ int main(int argc, char** argv) {
   }
   std::unique_ptr<Editor> editor;  // created only; wiring it to views is B2+
   if (!workspace.empty()) editor = std::make_unique<Editor>(workspace);
-  const gfx::TextureId atlas = makeSyntheticAtlas(*renderer);
+  const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
+
+  // Text view (B1c): plain lines + gutter. The font setting arrives with B7; for now discovery decides.
+  std::vector<std::string> lines;
+  std::unique_ptr<gfx::TextRenderer> text;
+  float scrollY = 0;
+  if (!demo) {
+    if (file.empty()) file = kDefaultFile;
+    err.clear();
+    lines = readLines(file, err);
+    if (!err.empty()) {
+      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
+      return 1;
+    }
+    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
+    if (!text) {
+      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
+      return 1;
+    }
+  }
+  auto drawFrame = [&](int w, int h, float mx, float my) {
+    if (demo) drawScene(*renderer, w, h, atlas, mx, my);
+    else {
+      text->draw(*renderer, w, h, lines, scrollY);
+      renderer->endFrame();
+    }
+  };
 
   if (!shot.empty()) {
     renderer->setOffscreen(true);
-    drawScene(*renderer, width, height, atlas, -100, -100);
+    drawFrame(width, height, -100, -100);
     std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
     if (!renderer->readPixels(width, height, px.data()) || !gfx::writePngFile(shot, px.data(), width, height)) {
       std::fprintf(stderr, "tenfold-ui: failed to write %s\n", shot.c_str());
@@ -110,7 +160,7 @@ int main(int argc, char** argv) {
     if (dirty) {
       int pw, ph;
       win->sizePx(pw, ph);
-      drawScene(*renderer, pw, ph, atlas, mx, my);
+      drawFrame(pw, ph, mx, my);
       win->swap();
       dirty = false;
     }
@@ -125,7 +175,15 @@ int main(int argc, char** argv) {
         case ui::InputType::MouseMove:
           mx = e.x;
           my = e.y;
-          dirty = true;
+          dirty = demo;  // the text view ignores the mouse position
+          break;
+        case ui::InputType::Wheel:
+          if (text) {  // simple pixel scrolling, 3 lines per notch; B2 replaces this
+            int pw, ph;
+            win->sizePx(pw, ph);
+            scrollY = std::clamp(scrollY - e.dy * 3 * text->lineHeight(), 0.0f, text->maxScroll(lines.size(), ph));
+            dirty = true;
+          }
           break;
         case ui::InputType::Resize:
         case ui::InputType::Expose:
