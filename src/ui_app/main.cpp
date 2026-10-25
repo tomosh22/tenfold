@@ -14,6 +14,7 @@
 #include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Window.h"
+#include "ui/shell/Workbench.h"
 #include "ui/widgets/ShellDemo.h"
 
 using namespace tf;
@@ -123,7 +124,19 @@ int main(int argc, char** argv) {
   std::unique_ptr<gfx::TextRenderer> text;
   float scrollY = 0;
   std::unique_ptr<ui::ShellDemo> shellRoot;
-  if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
+  std::unique_ptr<ui::Workbench> bench;
+  if (!workspace.empty() && !shell && !demo) {  // B3b: the workbench (restores <workspace>/.tenfold/layout.json)
+    text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
+    if (!text) {
+      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
+      return 1;
+    }
+    bench = std::make_unique<ui::Workbench>(*text, *editor, ui::Theme::darkDefault().scaled(win->pixelScale()));
+    const bool restored = bench->restoreLayout();
+    if (!file.empty()) bench->openFile(file);
+    else if (!restored) bench->openFile("src/main.cpp");  // first run: don't start blank (no-op if absent)
+    bench->sync();
+  } else if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
     text = gfx::TextRenderer::create("", 15.0f, win->pixelScale(), &err);
     if (!text) {
       std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
@@ -147,7 +160,8 @@ int main(int argc, char** argv) {
     }
   }
   auto drawFrame = [&](int w, int h, float mx, float my) {
-    if (shellRoot) shellRoot->render(*renderer, w, h);
+    if (bench) bench->render(*renderer, w, h);
+    else if (shellRoot) shellRoot->render(*renderer, w, h);
     else if (demo) drawScene(*renderer, w, h, atlas, mx, my);
     else {
       text->draw(*renderer, w, h, lines, scrollY);
@@ -167,6 +181,7 @@ int main(int argc, char** argv) {
     return 0;
   }
 
+  bool started = !bench;  // the semantic engine starts after the first frame so the window appears immediately
   // Event-driven loop: block until input arrives, redraw only when something changed.
   float mx = -100, my = -100;
   bool dirty = true, quit = false;
@@ -179,9 +194,22 @@ int main(int argc, char** argv) {
       win->swap();
       dirty = false;
     }
+    if (!started) {
+      started = true;
+      editor->start(&err);
+    }
     events.clear();
-    win->waitEvent(-1, events);
+    win->waitEvent(bench ? 250 : -1, events);  // the workbench polls Editor state a few times a second
     for (const ui::InputEvent& e : events) {
+      if (bench) {
+        if (e.type == ui::InputType::Quit || (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape))
+          quit = true;
+        else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
+                 e.type == ui::InputType::ScaleChanged)
+          dirty = true;
+        else bench->dispatch(e);
+        continue;
+      }
       if (shellRoot) {
         if (e.type == ui::InputType::Quit || (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape))
           quit = true;
@@ -215,7 +243,16 @@ int main(int argc, char** argv) {
         default: break;
       }
     }
+    if (bench) {
+      editor->pump();
+      bench->sync();
+    }
+    if (bench && bench->dirty()) dirty = true;
     if (shellRoot && shellRoot->dirty()) dirty = true;  // widgets request redraws through the root
+  }
+  if (bench) {
+    bench->saveLayout();
+    editor->shutdown();
   }
   return 0;
 }

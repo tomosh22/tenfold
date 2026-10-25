@@ -52,6 +52,7 @@ class Editor {
 
   Workspace& workspace() { return ws_; }
   SemanticEngine& semantic() { return *semantic_; }
+  bool started() const { return semantic_ != nullptr; }  // semantic() is only valid after start()
   NavigationHistory& navigation() { return nav_; }
 
   // --- documents ---
@@ -83,6 +84,9 @@ class Editor {
   void moveCursor(Position p);
   // Jump somewhere (opens the file if needed) and record it in history.
   bool gotoLocation(const Location& loc, std::string* error = nullptr, const std::string& label = {});
+  // Make `d` the current document with a single caret at `p` WITHOUT touching navigation history (a tab switch is
+  // not a jump). Use gotoLocation for real navigation.
+  void activateDocument(Document& d, Position p = {}) { setCurrent(&d, p); }
   bool back();
   bool forward();
 

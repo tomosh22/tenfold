@@ -9,6 +9,17 @@ void Splitter::setChildren(std::unique_ptr<Widget> a, std::unique_ptr<Widget> b)
   addChild(std::move(b));
 }
 
+std::unique_ptr<Widget> Splitter::replaceChild(Widget* old, std::unique_ptr<Widget> nw) {
+  if (old != first() && old != second()) return nullptr;
+  const bool isFirst = old == first();
+  auto a = removeChild(first());
+  auto b = removeChild(first());
+  std::swap(isFirst ? a : b, nw);  // nw now holds the old child
+  addChild(std::move(a));
+  addChild(std::move(b));
+  return nw;
+}
+
 float Splitter::clampedRatio(float r) const {
   const float avail = extent() - thickness();
   if (avail <= 0) return 0.5f;
