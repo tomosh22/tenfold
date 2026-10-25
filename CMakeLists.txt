@@ -1,5 +1,7 @@
 cmake_minimum_required(VERSION 3.20)
-project(tenfold LANGUAGES CXX)
+project(tenfold VERSION 0.1.0 LANGUAGES CXX)
+list(APPEND CMAKE_MODULE_PATH "${CMAKE_SOURCE_DIR}/cmake")
+include(TenfoldVersion)  # generates <build>/generated/tenfold_version.h
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -60,7 +62,7 @@ add_library(tenfold_core STATIC
   src/vcs/GitProvider.cpp
   src/vcs/VcsManager.cpp
 )
-target_include_directories(tenfold_core PUBLIC src third_party)
+target_include_directories(tenfold_core PUBLIC src third_party "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
 target_compile_options(tenfold_core PRIVATE ${TENFOLD_WARN_CORE})
 
@@ -307,3 +309,6 @@ if(TENFOLD_BUILD_UI)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
   add_test(NAME ui-unit COMMAND tenfold-ui-tests)
 endif()
+
+# ---- Packaging: install() rules, bundled clangd, CPack (cmake/TenfoldPackage.cmake) ----
+include(TenfoldPackage)

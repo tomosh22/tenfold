@@ -43,6 +43,25 @@ works locally (also `debug`, `asan`, and on Windows `msvc` / `clang-cl` from a V
 GitHub Actions (`.github/workflows/ci.yml`) builds gcc, clang, clang ASan+UBSan, MSVC,
 clang-cl and AppleClang, and runs `clang-format --dry-run --Werror` on changed C++ files only.
 
+### Install (packages) and build from source
+
+Packages (Windows `.zip`, Linux `.tar.gz` / AppImage, macOS `.dmg`) are built by CI on pushes to `main` and `v*` tags.
+Unpack anywhere and run `bin/tenfold-ui` (or `bin/tenfold-cli`); clangd ships in the same `bin/` with its
+`lib/clang` headers and is preferred over any clangd on PATH, unless the `clangdPath` setting / `--clangd` is set.
+`tenfold-cli --version` prints the version and commit. Third-party licences are in `licenses/`.
+
+Building a package yourself (needs network once, to download the pinned clangd and verify its SHA-256):
+
+```sh
+cmake -S . -B build-pkg -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
+cmake --build build-pkg
+cmake --build build-pkg --target fetch-clangd      # pin: tools/package/ClangdPin.cmake
+(cd build-pkg && cpack)                             # ZIP on Windows, TGZ on Linux, DragNDrop on macOS
+tools/package/smoke-test.sh build-pkg/tenfold-*.tar.gz
+```
+
+Use `-DTENFOLD_BUNDLE_CLANGD=OFF` to install without clangd. `tools/package/appimage.sh build-pkg` makes an AppImage.
+
 ## UI (experimental)
 
 The SDL3 + OpenGL 3.3 front end is opt-in and not part of the default build:

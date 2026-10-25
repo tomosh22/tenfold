@@ -597,6 +597,49 @@ ship `clangd.exe` and use `--query-driver` or the `clang-cl` driver so MSVC
 system headers resolve; `CompileCommands::fromVcxproj` already emits
 `clang-cl` style commands.
 
+## Packaging (D1)
+
+**Layout** (same on every platform; `cmake/TenfoldPackage.cmake`):
+
+```
+tenfold-<ver>-<os>-<arch>/
+  bin/tenfold-ui[.exe]  bin/tenfold-cli[.exe]  bin/clangd[.exe]
+  lib/clang/<major>/include/...     clangd's builtin headers
+  licenses/  THIRD_PARTY_NOTICES.md  LICENSE (when the repo has one)  LLVM-LICENSE.TXT
+  clangd-version.txt
+```
+
+clangd locates its builtin headers at `../lib/clang/<major>/include` relative to its own binary, so keeping the LLVM
+release's `bin/` + `lib/clang/` shape is what makes standard headers like `<stddef.h>` resolve; the two executables
+simply sit next to it in `bin/`.
+
+**Discovery order** (`resolveClangd` / `findClangd` in `src/workspace/Workspace.cpp`, used by
+`SemanticEngine::launchClangd`): (1) the `clangdPath` workspace setting or `--clangd` (a path, or a name looked up on
+PATH; if it does not resolve the start fails, there is no silent fallback), (2) `clangd` next to the running
+executable (`<exe dir>/clangd`, then `<exe dir>/bin/clangd`), (3) `clangd` on PATH. The choice is logged
+(`clangd: using <path> (setting|bundled|PATH)`) and exposed as `Status::clangdExe/clangdSource` (`status` in the CLI).
+
+**clangd is downloaded, never built.** `tools/package/ClangdPin.cmake` pins the clangd release version (the clangd-only
+`clangd-<windows|linux|mac>-<ver>.zip` assets of the clangd/clangd releases) and the SHA-256 of each asset.
+`cmake --build <dir> --target fetch-clangd` (or `cmake -DDEST=<dir> -P tools/package/FetchClangd.cmake`) downloads,
+verifies, and stages it in `<build>/clangd-stage`; `install()` then copies the stage (installing with nothing staged
+is an error unless `-DTENFOLD_BUNDLE_CLANGD=OFF`). The pinned release can differ from the clangd the CI test jobs
+install from PyPI; bump both deliberately.
+
+**Packages** (CPack, `cpack` in the build directory): Windows `ZIP`; Linux `TGZ` plus `tools/package/appimage.sh`
+(linuxdeploy, CI only); macOS `DragNDrop` (unsigned, best effort). No NSIS/WiX installer: that would need extra tools
+on the runner. Code signing, auto-update and store packaging are out of scope. All runtime assets (default settings,
+key bindings, themes) are embedded in the binary, so there are no asset files to install.
+
+**Version stamping.** `project(tenfold VERSION ...)` plus the short git commit (`-DTENFOLD_GIT_COMMIT=...` overrides)
+are written at configure time into `<build>/generated/tenfold_version.h`; `tenfold-cli --version`,
+`tenfold-ui --version` and the GUI window title print `tenfold <ver> (<commit>)`.
+
+**Smoke test.** `tools/package/smoke-test.sh <package>` unpacks to a temp dir, checks the version, then runs a
+definition query on `examples/sample_project` with every directory containing a `clangd` removed from PATH and fails
+unless the engine logged `(bundled)` and answered authoritatively. CI job `package` (pushes to main and `v*` tags,
+non-blocking until green once) runs build, fetch, cpack, smoke test and uploads the artifacts per platform.
+
 ## Text rendering (`src/ui/gfx`, target `tenfold_text`, option `TENFOLD_BUILD_UI`)
 
 CPU-side and testable without a GPU: `Font` (FreeType 2.13, system package else FetchContent `VER-2-13-3`; light

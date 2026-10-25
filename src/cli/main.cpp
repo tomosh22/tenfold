@@ -21,6 +21,7 @@
 #include "app/Editor.h"
 #include "core/CrashHandler.h"
 #include "semantic/CompileCommands.h"
+#include "tenfold_version.h"
 
 using namespace tf;
 namespace fs = std::filesystem;
@@ -35,8 +36,9 @@ void usage() {
          "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
+         "       tenfold-cli --version\n"
          "options:\n"
-         "  --clangd <path>     clangd executable (default: from PATH)\n"
+         "  --clangd <path>     clangd executable (default: clangd bundled next to the editor, else PATH)\n"
          "  --no-clangd         fast index only (approximate results)\n"
          "  --budget <ms>       how long to wait for clangd before showing approximate results (250)\n"
          "  --trace             log every LSP message to stderr\n"
@@ -526,6 +528,10 @@ int runBench(int argc, char** argv) {
 
 int main(int argc, char** argv) {
   tf::installCrashHandler();
+  if (argc >= 2 && (std::strcmp(argv[1], "--version") == 0 || std::strcmp(argv[1], "-V") == 0)) {
+    std::cout << TENFOLD_VERSION_STRING << "\n";
+    return 0;
+  }
   if (argc < 2) {
     usage();
     return 2;
@@ -713,6 +719,7 @@ int main(int argc, char** argv) {
       } else if (cmd == "status") {
         auto s = ed.semantic().status();
         std::cout << "  clangd: " << (s.clangdRunning ? "running" : "not running") << " " << s.clangdVersion
+                  << (s.clangdExe.empty() ? "" : " [" + s.clangdExe + " (" + s.clangdSource + ")]")
                   << " encoding=" << s.offsetEncoding << " index=" << (s.clangdIndex.active ? "indexing " : "")
                   << s.clangdIndex.percentage << "%\n"
                   << "  fast index: " << (s.fastIndexDone ? "done" : "running") << " " << s.fastFiles << " files, "

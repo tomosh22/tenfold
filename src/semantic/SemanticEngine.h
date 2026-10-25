@@ -153,6 +153,8 @@ class SemanticEngine {
     std::string compdbSource;  // existing | cmake | vcxproj | heuristic | none
     std::filesystem::path compdbPath;
     size_t compdbEntries = 0;
+    std::string clangdExe;     // executable the engine launched ("" before the first launch)
+    std::string clangdSource;  // setting | bundled | PATH
   };
 
   using LocationsCallback = std::function<void(Confidence, std::vector<SymbolLocation>, const std::string& error)>;
@@ -340,6 +342,7 @@ class SemanticEngine {
   std::shared_ptr<LspClient> client() const;  // current client regardless of initialisation state
   std::shared_ptr<LspClient> takeClient();    // detach the current client (caller stops it)
   std::string compdbSource_ = "none";
+  std::string clangdExe_, clangdSource_;  // guarded by mu_
   std::filesystem::path compdbPath_;
   std::vector<std::string> sharedFlags_;  // flags applied to every file via clangd config
 

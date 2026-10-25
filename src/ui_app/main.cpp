@@ -13,6 +13,7 @@
 
 #include "app/Editor.h"
 #include "core/CrashHandler.h"
+#include "tenfold_version.h"
 #include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/GlRenderer.h"
@@ -104,6 +105,9 @@ int main(int argc, char** argv) {
         std::fprintf(stderr, "bad --renderer (expected gl or d3d11)\n");
         return 2;
       }
+    } else if (!std::strcmp(argv[i], "--version")) {
+      std::printf("%s\n", TENFOLD_VERSION_STRING);
+      return 0;
     } else if (!std::strcmp(argv[i], "--demo")) {
       demo = true;
     } else if (!std::strcmp(argv[i], "--shell")) {
@@ -115,13 +119,13 @@ int main(int argc, char** argv) {
     } else {
       std::fprintf(stderr,
                    "usage: tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] "
-                   "[--renderer=gl|d3d11]\n");
+                   "[--renderer=gl|d3d11] [--version]\n");
       return 2;
     }
   }
 
   ui::WindowOptions wo;
-  wo.title = "tenfold";
+  wo.title = TENFOLD_VERSION_STRING;  // "tenfold 0.1.0 (commit)"
   wo.width = width;
   wo.height = height;
   wo.hidden = !shot.empty();

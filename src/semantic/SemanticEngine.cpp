@@ -267,14 +267,20 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
     compdbPath = compdbPath_;
     compdbSource = compdbSource_;
   }
-  std::string exe = opt_.clangdPath.empty() ? ws_.settings().clangdPath : opt_.clangdPath;
-  if (exe.empty()) exe = "clangd";
-  std::string resolved =
-      findExecutable(exe, /*preferBundled=*/opt_.clangdPath.empty() && ws_.settings().clangdPath.empty());
-  if (resolved.empty()) {
-    if (error) *error = "clangd not found: " + exe;
+  const std::string setting = opt_.clangdPath.empty() ? ws_.settings().clangdPath : opt_.clangdPath;
+  // Precedence: clangdPath setting / --clangd > clangd bundled next to the editor > PATH.
+  const ClangdChoice choice = findClangd(setting);
+  if (choice.path.empty()) {
+    if (error) *error = "clangd not found: " + (setting.empty() ? std::string("clangd") : setting);
     return nullptr;
   }
+  const std::string resolved = choice.path;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    clangdExe_ = choice.path;
+    clangdSource_ = choice.source;
+  }
+  log("clangd: using " + choice.path + " (" + choice.source + ")");
   LspClient::Options lo;
   lo.serverPath = resolved;
   lo.rootPath = ws_.root();
@@ -529,6 +535,8 @@ SemanticEngine::Status SemanticEngine::status() const {
     s.compdbSource = compdbSource_;
     s.compdbPath = compdbPath_;
     s.compdbEntries = compileCommands_ ? compileCommands_->size() : 0;
+    s.clangdExe = clangdExe_;
+    s.clangdSource = clangdSource_;
   }
   return s;
 }
