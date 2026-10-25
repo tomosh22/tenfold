@@ -1,5 +1,10 @@
+#include <atomic>
 #include <chrono>
+#include <memory>
+#include <mutex>
 #include <string>
+#include <thread>
+#include <vector>
 
 #include "lsp/Process.h"
 #include "test_main.h"
@@ -137,4 +142,60 @@ TEST(process_tree_kill_takes_grandchild) {
   CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(10));
   p.wait(5000);
   CHECK(!p.running());
+}
+
+// A child started on one thread must not inherit the pipes of a process started concurrently on another: if it did,
+// the long-lived child would keep the short-lived one's stdout open and the reader would never see EOF.
+TEST(process_concurrent_spawn_does_not_leak_pipes) {
+  std::atomic<bool> stopSpawner{false};
+  std::mutex mu;
+  std::vector<std::unique_ptr<Process>> longLived;
+  std::thread spawner([&] {
+    for (int i = 0; i < 150 && !stopSpawner; ++i) {
+      auto p = std::make_unique<Process>();
+      std::string err;
+#ifdef _WIN32
+      bool ok = p->start("ping", {"-n", "60", "127.0.0.1"}, {}, {}, &err);
+#else
+      bool ok = p->start("sleep", {"60"}, {}, {}, &err);
+#endif
+      if (!ok) continue;
+      std::lock_guard<std::mutex> lk(mu);
+      longLived.push_back(std::move(p));
+    }
+  });
+  std::atomic<int> done{0}, wrong{0};
+  std::thread reader([&] {
+    for (int i = 0; i < 60; ++i) {
+      Process p;
+      std::string err;
+#ifdef _WIN32
+      bool ok = p.start("cmd", {"/c", "echo hi"}, {}, {}, &err);
+#else
+      bool ok = p.start("/bin/sh", {"-c", "echo hi"}, {}, {}, &err);
+#endif
+      if (!ok) {
+        ++wrong;
+        continue;
+      }
+      if (!contains(readAll(p), "hi")) ++wrong;  // returns only at EOF
+      p.wait(5000);
+      ++done;
+    }
+  });
+  auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(60);
+  while (done + wrong < 60 && std::chrono::steady_clock::now() < deadline)
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  CHECK_EQ(done.load(), 60);
+  CHECK_EQ(wrong.load(), 0);
+  stopSpawner = true;
+  spawner.join();
+  {
+    // Releasing the long-lived children also unblocks a reader stuck by a leak, so the join below cannot hang.
+    std::lock_guard<std::mutex> lk(mu);
+    for (auto& p : longLived) p->kill();
+  }
+  reader.join();
+  std::lock_guard<std::mutex> lk(mu);
+  longLived.clear();
 }
