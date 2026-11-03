@@ -1,8 +1,11 @@
 #include "ui/shell/EditorApp.h"
 
 #include <algorithm>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
 #include <set>
+#include <string_view>
 
 #include "ui/commands/CommandNames.h"
 #include "ui/commands/EditorCommands.h"
@@ -115,6 +118,12 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
+  saveAs_ = std::make_unique<SaveAsPrompt>(pickerEnv_);
+  saveAs_->onSaved = [this](const std::filesystem::path& from, const std::filesystem::path& to) {
+    untitledNames_.erase(from.generic_string());
+    if (bench_) bench_->documentRenamed(from, to);
+    setMessage("Saved " + to.filename().string(), kMessageMs);
+  };
   external_ = std::make_unique<ExternalChanges>(pickerEnv_, bench_);
   {
     CommandPalette::Hooks ph;
@@ -197,6 +206,7 @@ EditorApp::~EditorApp() {
   palette_.reset();
   external_.reset();  // unhooks Editor::onExternalChange
   unsaved_.reset();
+  saveAs_.reset();
   if (build_) {
     build_->onClose = nullptr;
     build_->onMessage = nullptr;
@@ -321,6 +331,14 @@ void EditorApp::applySettings(const Settings& s) {
   for (const SettingInfo& si : settingsSchema())
     if (std::string_view(si.key) == "keys.import10x") setKeyImport10x(s.getBool("keys.import10x"));
   confirmUnsaved_ = s.getBool("editor.confirmUnsaved");
+  {
+    std::string eol = s.getString("editor.defaultLineEnding");
+    for (char& c : eol) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    defaultEol_ = eol == "LF" ? LineEnding::LF : LineEnding::CRLF;  // 10x: CRLF unless told otherwise
+    searchCommand_ = s.getString("editor.internetSearchCommand");
+    if (searchCommand_.empty()) searchCommand_ = "https://www.google.com/search?q=";
+    autoNameUntitled_ = s.getBool("editor.autoNameUntitledFiles");
+  }
   external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
   vcsUi_->applySettings(s);
 }
@@ -337,6 +355,7 @@ void EditorApp::closePickers() {
   compileInfo_->close();
   palette_->close();
   unsaved_->close();
+  saveAs_->close();
   external_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
@@ -494,6 +513,11 @@ void EditorApp::bindUiCommands() {
       [this](const CommandContext& c, std::string_view) {
         Document* d = c.editor->currentDocument();
         if (!d) return false;
+        if (d->isUntitled()) {  // no file yet: ask where it goes
+          closePickers();
+          saveAs_->open(d->path(), untitledSuggestion(*d));
+          return true;
+        }
         std::string err;
         if (c.editor->save(*d, &err)) return true;
         setMessage("Cannot save " + d->path().filename().string() + (err.empty() ? std::string() : ": " + err),
@@ -522,7 +546,9 @@ void EditorApp::bindUiCommands() {
     setMessage(on ? "Word wrap off" : "Word wrap on", kMessageMs);
     return true;
   });
+  bindViewCommands();
   if (!bench_) return;
+  bindPanelCommands();
   registry_.bind("File.OpenFile", [this](const CommandContext&, std::string_view) {
     closePickers();
     files_->open();
@@ -582,6 +608,235 @@ void EditorApp::bindUiCommands() {
     bench_->setActivePanel(ps[static_cast<size_t>(n - 1)]);
     return true;
   });
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// W8b: view, file and panel commands
+// ---------------------------------------------------------------------------------------------------------------
+
+bool EditorApp::zoomBy(float stepPt) {
+  constexpr float kMin = -8, kMax = 40;  // points added to the configured size; the font builder clamps the total
+  const float next = std::clamp(zoomPt_ + stepPt, kMin, kMax);
+  if (next == zoomPt_) {
+    setMessage(stepPt > 0 ? "Already at the largest zoom" : "Already at the smallest zoom", kMessageMs);
+    return true;
+  }
+  const float before = zoomPt_;
+  zoomPt_ = next;
+  if (!rebuildFont_ || !rebuildFont_()) {
+    zoomPt_ = before;
+    setMessage("Cannot change the font size", kMessageMs);
+    return false;
+  }
+  std::string txt = "Zoom reset";
+  if (zoomPt_ != 0) {
+    char buf[32];
+    std::snprintf(buf, sizeof buf, "Zoom %c%g pt", zoomPt_ > 0 ? '+' : '-', std::abs(zoomPt_));
+    txt = buf;
+  }
+  setMessage(txt, kMessageMs);
+  return true;
+}
+
+void EditorApp::setFullscreen(bool on) {
+  fullscreen_ = on;
+  if (window_.setFullscreen) window_.setFullscreen(on);
+}
+
+// The name an untitled document offers the Save As prompt: the first word typed (editor.autoNameUntitledFiles) or
+// "Untitled N".
+std::string EditorApp::untitledSuggestion(const Document& d) const {
+  const auto it = untitledNames_.find(d.path().generic_string());
+  if (autoNameUntitled_ && it != untitledNames_.end() && !it->second.word.empty()) return it->second.word;
+  return d.path().filename().string();
+}
+
+// editor.autoNameUntitledFiles: an untitled document is named after the first word typed in it. The word follows the
+// typing until it is complete (whitespace after it), then it is kept. Only the tab title and the Save As suggestion
+// change; the document stays untitled.
+void EditorApp::updateUntitledNames() {
+  if (!bench_) return;
+  std::set<std::string> alive;
+  for (Document* d : editor_.documents()) {
+    if (!d->isUntitled()) continue;
+    const std::string key = d->path().generic_string();
+    alive.insert(key);
+    if (!autoNameUntitled_) continue;
+    UntitledName& n = untitledNames_[key];
+    if (n.frozen) continue;
+    std::string word;
+    bool complete = false;
+    const TextBuffer& b = d->buffer();
+    for (int l = 0; l < b.lineCount() && l < 20 && !complete; ++l) {
+      const std::string& line = b.line(l);
+      size_t i = line.find_first_not_of(" \t\r");
+      if (i == std::string::npos) {
+        if (!word.empty()) complete = true;
+        continue;
+      }
+      for (; i < line.size(); ++i) {
+        const char c = line[i];
+        if (c == ' ' || c == '\t' || c == '\r') {
+          complete = true;
+          break;
+        }
+        if (static_cast<unsigned char>(c) >= 32 && std::string_view("<>:\"/\\|?*").find(c) == std::string_view::npos &&
+            word.size() < 48)
+          word += c;
+      }
+      if (i >= line.size() && !word.empty() && l + 1 < b.lineCount()) complete = true;  // a line break ends the word
+      break;
+    }
+    n.word = word;
+    n.frozen = complete && !word.empty();
+    bench_->setTitleOverride(d->path(), word);
+  }
+  for (auto it = untitledNames_.begin(); it != untitledNames_.end();) {
+    if (alive.count(it->first)) {
+      ++it;
+    } else {
+      bench_->setTitleOverride(it->first, "");
+      it = untitledNames_.erase(it);
+    }
+  }
+}
+
+void EditorApp::bindViewCommands() {
+  registry_.bind("View.ZoomIn", [this](const CommandContext&, std::string_view) { return zoomBy(1); });
+  registry_.bind("View.ZoomOut", [this](const CommandContext&, std::string_view) { return zoomBy(-1); });
+  registry_.bind("View.ToggleFullscreen", [this](const CommandContext&, std::string_view) {
+    if (!window_.setFullscreen) {
+      setMessage("Fullscreen is not available here", kMessageMs);
+      return true;
+    }
+    setFullscreen(!fullscreen_);
+    return true;
+  });
+  registry_.bind("View.ToggleFocusMode", [this](const CommandContext&, std::string_view) {
+    if (!bench_) return false;
+    bench_->setFocusMode(!bench_->focusMode());
+    return true;
+  });
+  registry_.bind("View.ToggleFullscreenFocusMode", [this](const CommandContext&, std::string_view) {
+    if (!bench_) return false;
+    // Both on, unless both already are: then both off.
+    const bool on = !(fullscreen_ && bench_->focusMode());
+    bench_->setFocusMode(on);
+    if (window_.setFullscreen) setFullscreen(on);
+    return true;
+  });
+  registry_.bind(
+      "Editor.InternetSearch",
+      [this](const CommandContext& c, std::string_view arg) {
+        std::string term(arg);
+        if (term.empty()) {
+          Document* d = c.editor->currentDocument();
+          if (!d) return false;
+          const auto& sels = c.editor->selections();
+          if (!sels.empty() && !sels[0].empty()) term = d->buffer().textInRange(sels[0].range());
+          else term = d->buffer().wordAt(c.editor->cursor().pos).text;
+        }
+        const std::string url = internetSearchUrl(searchCommand_, term);
+        if (url.empty()) {
+          setMessage("Nothing to search for: put the caret on a word or select some text", kMessageMs);
+          return true;
+        }
+        std::string err;
+        if (!launcher_.openUrl || !launcher_.openUrl(url, &err)) {
+          setMessage("Cannot open the browser" + (err.empty() ? std::string() : ": " + err), kMessageMs);
+          return true;
+        }
+        setMessage("Searching the web: " + url, kMessageMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "File.ShowInFolder",
+      [this](const CommandContext& c, std::string_view) {
+        Document* d = c.editor->currentDocument();
+        if (!d) return false;
+        if (d->isUntitled()) {
+          setMessage(d->path().filename().string() + " has not been saved yet", kMessageMs);
+          return true;
+        }
+        std::string err;
+        if (!launcher_.showInFolder || !launcher_.showInFolder(d->path(), &err))
+          setMessage("Cannot open the file manager" + (err.empty() ? std::string() : ": " + err), kMessageMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind("File.New", [this](const CommandContext&, std::string_view) {
+    if (!bench_) return false;
+    Document* d = editor_.newUntitled(defaultEol_);
+    if (!d) return false;
+    closePickers();
+    bench_->openDocument(*d);
+    return true;
+  });
+}
+
+void EditorApp::bindPanelCommands() {
+  const auto hasPanel = [this](const CommandContext&) { return bench_->activePanel() != nullptr; };
+  struct SideCmd {
+    const char* id;
+    Workbench::Side side;
+    const char* word;
+  };
+  static const SideCmd sides[] = {{"Left", Workbench::Side::Left, "left"},
+                                  {"Right", Workbench::Side::Right, "right"},
+                                  {"Up", Workbench::Side::Up, "above"},
+                                  {"Down", Workbench::Side::Down, "below"}};
+  for (const SideCmd& sc : sides) {
+    registry_.bind(
+        std::string("Workbench.FocusPanel") + sc.id,
+        [this, sc](const CommandContext&, std::string_view) {
+          if (!bench_->focusPanelToward(sc.side)) setMessage(std::string("No panel ") + sc.word, kMessageMs);
+          return true;
+        },
+        hasPanel);
+    registry_.bind(
+        std::string("Workbench.MovePanel") + sc.id,
+        [this, sc](const CommandContext&, std::string_view) {
+          if (!bench_->movePanelToward(sc.side))
+            setMessage(std::string("No panel ") + sc.word + " to swap with", kMessageMs);
+          return true;
+        },
+        hasPanel);
+  }
+  struct DupCmd {
+    const char* id;
+    bool after, focusNew;
+  };
+  static const DupCmd dups[] = {{"Workbench.DuplicatePanel", true, false},
+                                {"Workbench.DuplicatePanelLeft", false, true},
+                                {"Workbench.DuplicatePanelRight", true, true}};
+  for (const DupCmd& dc : dups)
+    registry_.bind(
+        dc.id,
+        [this, dc](const CommandContext&, std::string_view) {
+          if (!bench_->duplicatePanel(bench_->activePanel(), dc.after, dc.focusNew))
+            setMessage("Cannot duplicate the panel: too many panels", kMessageMs);
+          return true;
+        },
+        hasPanel);
+  struct TabCmd {
+    const char* id;
+    int dir;
+    bool move;
+  };
+  static const TabCmd tabs[] = {{"Workbench.PrevTab", -1, false},
+                                {"Workbench.NextTab", 1, false},
+                                {"Workbench.MoveTabPrev", -1, true},
+                                {"Workbench.MoveTabNext", 1, true}};
+  for (const TabCmd& tc : tabs)
+    registry_.bind(
+        tc.id,
+        [this, tc](const CommandContext&, std::string_view) {
+          if (tc.move) bench_->moveActiveTab(bench_->activePanel(), tc.dir);
+          else bench_->stepTab(bench_->activePanel(), tc.dir);
+          return true;
+        },
+        hasPanel);
 }
 
 const char* EditorApp::activeContext() const {
@@ -736,6 +991,7 @@ int EditorApp::tick(int64_t nowMs) {
     ttlMs_ = 0;
   }
   if (bench_) bench_->sync();
+  updateUntitledNames();
   vcsUi_->tick();
   if (settings_)
     forEachView([&](TextView& v) {  // views created since the last settings change (new tabs)

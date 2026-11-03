@@ -88,7 +88,15 @@ class Editor {
   Document* document(const std::filesystem::path& path);
   std::vector<Document*> documents();
   bool close(const std::filesystem::path& path);
-  bool save(Document& doc, std::string* error = nullptr);
+  bool save(Document& doc, std::string* error = nullptr);  // an untitled document fails: use saveAs
+  // NewTextFile: an empty document with no file, named "Untitled N" (the lowest N whose path is neither open nor a file
+  // on disk) in the workspace root, writing `lineEnding` on save. It is not announced to clangd or version control and
+  // not hashed for external changes until saveAs. Returns it (not made current; use activateDocument).
+  Document* newUntitled(LineEnding lineEnding);
+  // Gives an untitled document its file and writes it: `path` (relative paths are under the workspace root) must not
+  // be an open document or an existing file, and its folder must exist. The Document object, its undo history and the
+  // carets stay; clangd and version control now hear about it as a freshly opened file.
+  bool saveAs(Document& doc, const std::filesystem::path& path, std::string* error = nullptr);
   // Replace the buffer with the file's current content (undo history is cleared,
   // the document is clean afterwards). Only the changed line range is replaced,
   // so navigation history entries and the language server stay in sync.
@@ -384,6 +392,7 @@ class Editor {
     size_t headOffset = std::string::npos, anchorOffset = std::string::npos;
   };
   void setCurrent(Document* d, Position p);
+  void watchDocument(Document& doc);  // the change listener every open document has
   void setPrimaryOnly(Position p);
   void normalizeCarets(size_t primaryIndex = 0);  // sort, merge overlapping / touching, primary first, sync cursor_
   void clampCarets();

@@ -99,6 +99,7 @@ void ExternalChanges::close() {
 void ExternalChanges::pollDeleted() {
   std::set<std::string> now;
   for (Document* d : env_.editor.documents()) {
+    if (d->isUntitled()) continue;  // no file yet
     std::error_code ec;
     const bool gone = !fs::exists(d->path(), ec) && !ec;
     const std::string key = d->path().generic_string();

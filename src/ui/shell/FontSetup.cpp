@@ -55,10 +55,11 @@ std::string resolveFontFile(const std::string& name) {
   return best;
 }
 
-std::unique_ptr<gfx::TextRenderer> makeEditorTextRenderer(const Settings& s, float dpiScale, std::string* err) {
+std::unique_ptr<gfx::TextRenderer> makeEditorTextRenderer(const Settings& s, float dpiScale, std::string* err,
+                                                          float zoomPt) {
   const FontSpec& spec = s.getFont("font.editor");
   const float pt = spec.sizePt > 0 ? spec.sizePt : static_cast<float>(s.getFloat("font.size"));
-  const float px = (pt > 0 ? pt : 11.0f) * 4.0f / 3.0f;
+  const float px = std::clamp((pt > 0 ? pt : 11.0f) + zoomPt, 6.0f, 72.0f) * 4.0f / 3.0f;
   std::vector<std::string> names;
   if (!spec.family.empty()) names.push_back(spec.family);
   const std::string& fb = s.getString("font.fallbacks");

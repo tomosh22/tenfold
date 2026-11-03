@@ -73,7 +73,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 91 of the 183 default bindings (88 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 68 of the 183 default bindings (65 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 92 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 91 bindings (88 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 115 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 68 bindings (65 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -119,21 +119,13 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `ToggleWorkspaceExplorer` | `Control Shift E` | Toggle the workspace explorer panel |
 | `NewTerminal` | `Control '` | Create a terminal panel |
 | `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. |
-| `InternetSearch` | `F1` | Internet search for the current word or selection using the InternetSearchCommand setting |
-| `ZoomIn` | `Control Shift .` | Zoom in on editor text (increase font size) |
-| `ZoomOut` | `Control Shift Comma` | Zoom in on editor text (decrease font size) |
-| `ToggleFullscreen` | `Alt Enter` | Toggle fullscreen |
-| `ToggleFocusMode` | `Control Alt Enter` | Toggle focus mode |
-| `ToggleFullScreenFocusMode` | `Shift Alt Enter` | Toggle fullscreen focus mode |
 
 **File**
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
 | `SaveAll` | `Control S, Control S`; `Control Shift S` | Save all files |
-| `NewTextFile` | `Control N` | Create a new text file |
 | `ShowInWorkspaceTree` | `Control T` | Show the current file in the workspace tree |
-| `OpenFolderForActivefile` | `Control Shift Alt /` | Open file explorer for the folder of the current file |
 
 **Edit**
 
@@ -177,10 +169,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `PrevPanelTab` | `Control PageUp` | Focus the previous tab in the current panel |
-| `NextPanelTab` | `Control PageDown` | Focus the next tab in the current panel |
-| `MovePrevPanelTab` | `Control Shift PageUp` | Move the tab to the previous position in the tabbed panel |
-| `MoveNextPanelTab` | `Control Shift PageDown` | Move the tab to the next position in the tabbed panel |
 
 **Navigation**
 
@@ -260,17 +248,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `MovePanelLeft` | `Control Alt Left` | Move the current panel left |
-| `MovePanelRight` | `Control Alt Right` | Move the current panel right |
-| `MovePanelUp` | `Control Alt Up` | Move the current panel up |
-| `MovePanelDown` | `Control Alt Down` | Move the current panel down |
-| `MovePanelFocusLeft` | `Alt Left` | Move the current panel focus left |
-| `MovePanelFocusRight` | `Alt Right` | Move the current panel focus right |
-| `MovePanelFocusUp` | `Alt Up` | Move the current panel focus up |
-| `MovePanelFocusDown` | `Alt Down` | Move the current panel focus down |
-| `DuplicatePanel` | `Shift Alt D` | Duplicate the current panel |
-| `DuplicatePanelLeft` | `Alt Comma` | Duplicate the current panel and move to the left |
-| `DuplicatePanelRight` | `Alt .` | Duplicate the current panel and move to the right |
 
 **Misc**
 
@@ -343,7 +320,10 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.confirmUnsaved` | RestoreUnsavedFiles (false) | with false 10x prompts to save |
 | `editor.wordWrap` | WordWrap (false) | tenfold true by decision (OPEN_QUESTIONS #4) |
 | `editor.smoothScroll` | SmoothScroll (true) | tenfold false by decision (#4) |
-| `font.editor`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7) |
+| `font.editor`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7). ZoomIn / ZoomOut add to the size for the session only and scale the whole UI font |
+| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile`; new files are UTF-8 (DefaultEncoding is not mirrored) |
+| `editor.autoNameUntitledFiles` | AutoNameUntitledFiles (false) | the first word typed names the tab and is the Save As suggestion |
+| `editor.internetSearchCommand` | InternetSearchCommand | |
 | `ui.theme` | ColorScheme (Sunset) | vs-dark by decision (#7) |
 | `vcs.diffTool` | DiffExe (auto) | |
 
@@ -382,9 +362,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | ShowLineEndings | false | Draw line endings | S |
 | ShowIndentGuideLines | true | Draw indent guides | M |
 | AllowEditingOfReadOnlyFiles | true | Edit read-only files | S. Relates to Perforce auto-checkout (C3b) |
-| DefaultLineEnding | CRLF | Line ending of new files | S, but tenfold has no new-file / untitled command; the engine keeps the ending of the file it opened. Not changed in B8b for that reason |
 | DefaultEncoding | UTF-8 | Encoding of new files | L together with non-UTF-8 support (UTF-16, ANSI, Shift_JIS, BOM variants) |
-| AutoNameUntitledFiles | false | Name an untitled file from the first word typed | S, after untitled files exist |
 
 ### Navigation, find and view
 
@@ -491,4 +469,3 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | SourceControl | Perforce | Which provider is used | S. tenfold detects Git / Perforce |
 | PerforceOpenForEditOnEdit, PerforceOpenForEditOnSave | true, true | Auto-checkout on edit or save | S. Auto-checkout on edit exists (C3b); a save-time variant is new |
 | PerforceTimeout, PerforceEnableP4Config | 40, true | p4 command timeout; p4 config files | S |
-| InternetSearchCommand | `https://www.google.com/search?q=` | Search the web for the word under the caret | S |

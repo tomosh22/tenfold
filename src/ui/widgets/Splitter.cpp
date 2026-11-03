@@ -20,6 +20,27 @@ std::unique_ptr<Widget> Splitter::replaceChild(Widget* old, std::unique_ptr<Widg
   return nw;
 }
 
+void Splitter::swapChildren() {
+  if (!first() || !second()) return;
+  auto a = removeChild(first());
+  auto b = removeChild(first());
+  addChild(std::move(b));
+  addChild(std::move(a));
+  ratio_ = 1.0f - ratio_;
+  if (solo_ >= 0) solo_ = 1 - solo_;
+  if (RootWidget* rt = root()) rt->requestLayout();
+}
+
+void Splitter::setSolo(int which) {
+  which = which < 0 ? -1 : (which > 0 ? 1 : 0);
+  if (which == solo_) return;
+  solo_ = which;
+  dragging_ = false;
+  if (first()) first()->setVisible(solo_ < 0 || solo_ == 0);
+  if (second()) second()->setVisible(solo_ < 0 || solo_ == 1);
+  if (RootWidget* rt = root()) rt->requestLayout();
+}
+
 float Splitter::clampedRatio(float r) const {
   const float avail = extent() - thickness();
   if (avail <= 0) return 0.5f;
@@ -43,6 +64,7 @@ void Splitter::setMinSizes(float a, float b) {
 
 RectF Splitter::dividerRect() const {
   const RectF& b = bounds();
+  if (solo_ >= 0) return {b.x, b.y, 0, 0};
   const float first = clampedRatio(ratio_) * (extent() - thickness());
   return orient_ == Orientation::Horizontal ? RectF{b.x + first, b.y, thickness(), b.h}
                                             : RectF{b.x, b.y + first, b.w, thickness()};
@@ -50,6 +72,11 @@ RectF Splitter::dividerRect() const {
 
 void Splitter::onLayout() {
   if (!first() || !second()) return;
+  if (solo_ >= 0) {
+    (solo_ == 0 ? first() : second())->layout(bounds());
+    (solo_ == 0 ? second() : first())->layout({bounds().x, bounds().y, 0, 0});
+    return;
+  }
   const RectF &b = bounds(), d = dividerRect();
   if (orient_ == Orientation::Horizontal) {
     first()->layout({b.x, b.y, d.x - b.x, b.h});
