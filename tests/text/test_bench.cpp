@@ -45,7 +45,7 @@ TEST(bench_layout_120x150_warm_atlas) {
   }
   std::cerr << "    BENCH layout 120 lines x 150 cols: " << quads << " quads; first pass (fills atlas) " << coldMs
             << " ms; warm best " << best << " ms, mean " << sum / iters << " ms\n";
-  CHECK(best < 20.0);
+  PERF_CHECK(best < 20.0, "layout of 120 lines x 150 cols, warm best (20 ms)");
 }
 
 TEST(bench_cold_atlas_ascii_fill) {
@@ -62,5 +62,5 @@ TEST(bench_cold_atlas_ascii_fill) {
   double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
   std::cerr << "    BENCH cold atlas fill, 94 printable ASCII glyphs @16px: " << ms << " ms (" << atlas.glyphCount()
             << " glyphs, atlas " << atlas.size() << "px)\n";
-  CHECK(ms < 200.0);
+  PERF_CHECK(ms < 200.0, "cold atlas fill of 94 ASCII glyphs (200 ms)");
 }

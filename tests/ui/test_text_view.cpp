@@ -132,6 +132,6 @@ TEST(text_view_perf_10k_lines_middle) {
       w, h, cold, rec / n, sub / n, n);
   tr->releaseTexture(r);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  CHECK(rec / n < 2.0);
+  PERF_CHECK(rec / n < 2.0, "text view warm frame CPU (2 ms)");
 #endif
 }

@@ -730,7 +730,7 @@ TEST(perf_colouring_keystroke_to_paint_and_cold_first_paint_100k_lines) {
       "ms / p99 %.3f ms (budget 8 ms)\n",
       avg[0], p99[0], avg[1], p99[1]);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  CHECK(avg[1] < 8.0);
+  PERF_CHECK(avg[1] < 8.0, "colouring keystroke-to-paint (8 ms)");
 #endif
 
   // Cold first paint: nothing lexed yet. At the top only the visible lines are lexed; far down the exact pass is
@@ -775,6 +775,6 @@ TEST(perf_colouring_keystroke_to_paint_and_cold_first_paint_100k_lines) {
       "90000 (provisional) %.3f ms; exact pass finished in the background in %d ticks, %.1f ms CPU total\n",
       top, far, ticks, finish);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  CHECK(top < 50.0 && far < 50.0);
+  PERF_CHECK(top < 50.0 && far < 50.0, "cold first paint of a 100k-line C++ file (50 ms)");
 #endif
 }

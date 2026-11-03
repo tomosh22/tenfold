@@ -323,7 +323,7 @@ TEST(wraplayout_a_huge_line_is_scanned_lazily) {
       "at the end %.3f ms\n",
       first, full, rows, edit);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  CHECK(first < 1.0 && edit < 2.0);
+  PERF_CHECK(first < 1.0 && edit < 2.0, "wrap of a 3 MB single line: first rows < 1 ms, re-scan < 2 ms");
 #endif
 }
 
@@ -1003,7 +1003,7 @@ double perfKeystroke(WFx& f, int n, const char* what) {
       f.tv->wordWrapActive() ? "ON" : "off", what, edit / n, paint / n, avg,
       total[static_cast<size_t>(static_cast<double>(n) * 0.99)], total.back());
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  CHECK(avg < 8.0);
+  PERF_CHECK(avg < 8.0, std::string("wrap keystroke-to-paint, ") + what + " (8 ms)");
 #endif
   return avg;
 }

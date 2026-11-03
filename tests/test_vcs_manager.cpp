@@ -531,6 +531,6 @@ TEST(vcs_manager_bench_main_thread_100k) {
             << " ms; longest single pump " << worstPump << " ms; last edit -> hunks visible " << latencyMs
             << " ms (150 ms debounce included)\n";
 #ifdef NDEBUG  // timing is only meaningful in an optimised, unsanitised build
-  CHECK(worstReplace < 50);
+  PERF_CHECK(worstReplace < 50, "Document::replace incl. VCS notification on 100k lines (50 ms)");
 #endif
 }

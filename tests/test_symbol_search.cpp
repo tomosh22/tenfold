@@ -503,7 +503,7 @@ TEST(symsearch_find_symbols_returns_before_the_fast_tier_is_computed) {
   }
   CHECK_EQ(delivered, 5);
   std::cerr << "    sync fast tier " << syncMs << " ms, findSymbols call " << callMs << " ms\n";
-  CHECK(callMs < 5.0);
+  PERF_CHECK(callMs < 5.0, "findSymbols call returns within 5 ms");
   CHECK(callMs * 2 < syncMs);
 }
 
