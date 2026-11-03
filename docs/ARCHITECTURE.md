@@ -347,6 +347,16 @@ here; the Visual Studio backend (C2b, `VsDebugger_win32.cpp`) and the UI (C2c) p
   it back (no echo). A failed `setBreakpoint` is reported and forgotten (the breakpoint stays in tenfold and is retried
   with the next change); a `Disconnected` snapshot never deletes breakpoints. On connect everything in `Breakpoints`
   is pushed and breakpoints only the backend has are adopted.
+* **Configuration and breakpoint sync (C2d).** Mirrors 10x's `VisualStudioSync` (workspace setting
+  `debug.visualStudioSync`, default true). `DebugSession` calls the optional `Debugger::setActiveConfiguration(name,
+  platform)` right before `start`, `startWithoutDebugging`, `restart` and `runToCursor` (not before steps or `break`),
+  with `Workspace::activeVsConfiguration()` and only when the workspace has a solution. The Visual Studio backend finds
+  the entry in `DTE.Solution.SolutionBuild.SolutionConfigurations` by `Name` + `PlatformName` (case-insensitive) and
+  calls `Activate()`; it does nothing while a debuggee exists (Visual Studio refuses to switch then) and when that
+  configuration is already active; an unknown one is an error that lists what Visual Studio has. A failure never blocks
+  the command: the command runs and the session shows the problem in `lastError()` (`DebugResult::warning` carries it
+  on a successful command). With the setting off there is no configuration sync, no breakpoint push or adoption and no
+  attach at startup; commands still work.
 * **Attach-only connection (C2b2).** Breakpoints toggled in tenfold only reach the debugger once the session is
   connected, and a command connects implicitly (the Visual Studio backend may then launch devenv).
   `DebugWorkspaceInfo::launchIfMissing` (default true) switches that off: `connect()` then answers

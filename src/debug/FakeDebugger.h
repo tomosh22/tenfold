@@ -102,6 +102,7 @@ class FakeDebugger : public Debugger {
   DebugResult stepInto() override;
   DebugResult stepOut() override;
   DebugResult runToCursor(const std::filesystem::path& file, int line) override;
+  DebugResult setActiveConfiguration(const std::string& configuration, const std::string& platform) override;
   DebugResult openInEditor(const std::filesystem::path& file, int line, int column) override;
   DebugResult setBreakpoint(const Breakpoint& bp) override;
   DebugResult removeBreakpoint(const std::filesystem::path& file, int line) override;

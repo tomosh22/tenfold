@@ -199,7 +199,8 @@ bool Editor::start(std::string* error) {
   bool ok = semantic_->start(error);
   // Debugger (C2b2): attach to a running Visual Studio that has the solution open; quiet when there is none, and
   // nothing at all on a platform without a debugger backend.
-  if (ws_.settings().debugAttachAtStartup && debug_->hasBackend()) debug_->attachIfRunning();
+  if (ws_.settings().debugAttachAtStartup && ws_.settings().visualStudioSync && debug_->hasBackend())
+    debug_->attachIfRunning();
   // Builds often live in an ignored directory (build/); watch just that folder
   // so a regenerated compile_commands.json is noticed.
   if (watcher_) {

@@ -49,6 +49,10 @@ class Workspace {
     // Editor::start() attaches to a Visual Studio that already has the solution open (never launches one), so
     // breakpoints toggled in tenfold reach it. JSON key "debug.attachAtStartup".
     bool debugAttachAtStartup = true;
+    // Mirrors 10x's VisualStudioSync: breakpoints and the active solution configuration are kept in sync with Visual
+    // Studio. Off: no breakpoint sync, no configuration sync, no attach at startup (commands still work). JSON key
+    // "debug.visualStudioSync".
+    bool visualStudioSync = true;
     // Typing undo policy (OPEN_QUESTIONS #3): "word" joins consecutive typed characters into one undo step
     // (ended by whitespace, a pause, or a caret move); "char" makes every typed character its own step.
     std::string undoGrouping = "word";
