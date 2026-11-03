@@ -280,7 +280,10 @@ TEST(c2c_debug_keys_reach_the_backend) {
   CHECK(env.fakeSaw("startWithoutDebugging"));
   env.key(Key::F5, ModCtrl | ModShift);
   CHECK(env.fakeSaw("restart"));
-  env.key(Key::F9, ModCtrl | ModShift);  // Debug.DeleteAllBreakpoints
+  env.key(Key::F9, ModCtrl | ModShift);  // 10x: RemoveAllBreakpointsFromFile, not implemented yet: nothing is removed
+  CHECK(!env.ed->breakpoints().empty());
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: RemoveAllBreakpointsFromFile"));
+  env.app->runCommand("RemoveAllBreakpoints");  // 10x name of Debug.DeleteAllBreakpoints
   CHECK(env.ed->breakpoints().empty());
   // Every command is in the registry with its Visual Studio key.
   for (const char* id :
@@ -579,29 +582,30 @@ TEST(c2c_default_bindings_for_the_debugger_block) {
     const char* chord;
     const char* cmd;
   };
-  const B expected[] = {{"F5", "Debug.Start"},
-                        {"Ctrl+F5", "Debug.StartWithoutDebugging"},
-                        {"Shift+F5", "Debug.Stop"},
-                        {"Ctrl+Shift+F5", "Debug.Restart"},
-                        {"F9", "Debug.ToggleBreakpoint"},
-                        {"Ctrl+F9", "Debug.ToggleBreakpointEnabled"},
-                        {"Ctrl+Shift+F9", "Debug.DeleteAllBreakpoints"},
-                        {"F10", "Debug.StepOver"},
-                        {"F11", "Debug.StepInto"},
-                        {"Shift+F11", "Debug.StepOut"},
-                        {"Ctrl+F10", "Debug.RunToCursor"},
-                        {"Ctrl+Alt+Pause", "Debug.BreakAll"},
-                        {"Ctrl+Alt+B", "Debug.ShowBreakpoints"},
-                        {"Ctrl+Alt+O", "View.ToggleBuildPanel"}};
+  const B expected[] = {
+      {"F5", "Debug.Start"},
+      {"Control F5", "Debug.StartWithoutDebugging"},
+      {"Shift F5", "Debug.Stop"},
+      {"Control Shift F5", "Debug.Restart"},
+      {"F9", "Debug.ToggleBreakpoint"},
+      {"Control F9", "Debug.ToggleBreakpointEnabled"},
+      {"Control Shift F9", "RemoveAllBreakpointsFromFile"},  // 10x: from the current file; not implemented yet
+      {"F10", "Debug.StepOver"},
+      {"F11", "Debug.StepInto"},
+      {"Shift F11", "Debug.StepOut"},
+      {"Control F10", "Debug.RunToCursor"},
+      {"Control Alt Cancel", "Debug.BreakAll"},
+      {"Control Alt B", "Debug.ShowBreakpoints"},
+      {"Control Alt O", "View.ToggleBuildPanel"}};
   for (const B& b : expected) {
     bool found = false;
     for (const KeyBinding& kb : env.app->keys().bindings())
       if (kb.command == b.cmd && formatChords(kb.chords) == b.chord) found = true;
     CHECK(found);
   }
-  // Ctrl+Alt+B is no longer bound to the build panel.
+  // Control Alt B is no longer bound to the build panel.
   for (const KeyBinding& kb : env.app->keys().bindings())
-    if (kb.command == "View.ToggleBuildPanel") CHECK(formatChords(kb.chords) != "Ctrl+Alt+B");
+    if (kb.command == "View.ToggleBuildPanel") CHECK(formatChords(kb.chords) != "Control Alt B");
 }
 
 // --- golden ---------------------------------------------------------------------------------------------------------

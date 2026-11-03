@@ -616,7 +616,7 @@ TEST(symbol_search_enter_jumps_through_gotolocation_and_alt_left_returns) {
   CHECK_EQ(env.curFile(), std::string("alpha.cpp"));
   CHECK_EQ(env.bench->tabPath(env.bench->activePanel()->activeId()).filename().string(), std::string("alpha.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 1);
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.curFile(), std::string("main.cpp"));
   CHECK_EQ(env.bench->tabPath(env.bench->activePanel()->activeId()).filename().string(), std::string("main.cpp"));
 }
@@ -693,7 +693,7 @@ TEST(file_search_picker_mru_open_is_not_a_navigation_jump) {
   env.open("docs/readme.txt");
   env.open("src/main.cpp");
   const size_t base = env.ed->navigation().entries().size();
-  CHECK(env.key(Key('P'), ModCtrl));  // default binding File.OpenFile
+  CHECK(env.key(Key('O'), ModCtrl));  // default binding OpenFile (File.OpenFile)
   ListPopup* p = env.popup();
   REQUIRE(p != nullptr);
   REQUIRE(env.app->fileSearch() != nullptr);
@@ -761,7 +761,7 @@ TEST(nav_result_picker_f12_with_several_definitions_lists_them_and_enter_jumps) 
   CHECK(env.ed->navigation().entries().size() > base);
   const std::string file = chosen.substr(0, chosen.find(':'));
   CHECK_EQ(env.ed->currentDocument()->path().generic_string(), (env.dir / file).generic_string());
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.curFile(), std::string("main.cpp"));
 }
 

@@ -326,9 +326,9 @@ TEST(textview_keyboard_edits_and_moves) {
   f.key(Key('Y'), ModCtrl);
   f.key(Key('Z'), ModCtrl | ModShift);  // ctrl+shift+z is redo too: nothing left to redo
   CHECK_EQ(f.txt(), std::string("aontwo    \nthree\n"));
-  // Ctrl+Alt+Down adds a caret below; Escape collapses.
+  // Shift+Alt+Down (MultiCursorMoveDown) adds a caret below; Escape collapses.
   f.click({0, 1});
-  f.key(Key::Down, ModCtrl | ModAlt);
+  f.key(Key::Down, ModShift | ModAlt);
   CHECK_EQ(f.ed->selections().size(), 2u);
   f.key(Key::Escape);
   CHECK_EQ(f.ed->selections().size(), 1u);

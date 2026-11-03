@@ -41,8 +41,9 @@ class Settings;
 
 // Glue between the window's input events and the command system (B4): maps KeyDown / thumb-button MouseDown to a
 // KeyChord, picks the active context ("editor" when a TextView has focus, else "global"), runs KeyMap::feed and
-// CommandRegistry::run, and reports through the status bar: the pending chord ("Ctrl+K..."), key-binding file
-// diagnostics, "<command> is not available yet" for commands whose UI does not exist yet and failures. It also owns
+// CommandRegistry::run, and reports through the status bar: the pending chord ("Control K..."), key-binding file
+// diagnostics, "<command> is not available yet" for commands whose UI does not exist yet, "not implemented yet:
+// <Name>" for 10x commands tenfold lacks (CommandNames.h) and failures. It also owns
 // the pickers (B5a): symbol search (Search.SymbolSearch), open file (File.OpenFile) and the multi-result navigation
 // list; while one is open the key context is "picker" and every key/mouse event reaches it first. B5b adds find in
 // files (Search.FindInWorkspace, F8 / Shift+F8), the diagnostics list (View.ShowDiagnostics) and the non-modal popups
@@ -66,6 +67,8 @@ class Settings;
 // userDir). The caller owns time: pass a monotonic millisecond clock to handleEvent and tick.
 class EditorApp {
  public:
+  // `userDir`: where the user's KeyMappings.10x_settings lives. When it is the real user config dir an installed 10x's
+  // key file is imported below it (setting keys.import10x, default on; setKeyImport10x changes it at run time).
   EditorApp(RootWidget& root, Editor& editor, Workbench* bench = nullptr, const std::filesystem::path& userDir = {});
   ~EditorApp();
   EditorApp(const EditorApp&) = delete;
@@ -73,6 +76,10 @@ class EditorApp {
 
   // Reads picker.preview (and later picker settings); call again on Settings changes.
   void applySettings(const Settings& s);
+  // Key bindings: the 10x import layer on or off, or read from another file (tests); reloads every layer and shows
+  // the diagnostics. The initial import file is default10xKeyMappingsPath().
+  void setKeyImport10x(bool enabled);
+  void setKeyImportFile(const std::filesystem::path& file);
   SymbolSearch& symbolSearch() { return *symbols_; }
   FileSearch* fileSearch() { return files_.get(); }  // null without a Workbench
   NavResultPicker& navResults() { return *navResults_; }
@@ -134,6 +141,8 @@ class EditorApp {
   void applyEditorSettings();
   void applyEditingSettings(const Settings& s);
   void forEachView(const std::function<void(TextView&)>& fn);
+  void reloadKeyBindings();
+  bool commandRunnable(const std::string& id) const;
   void bindUiCommands();
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
@@ -148,6 +157,7 @@ class EditorApp {
   Workbench* bench_;
   CommandRegistry registry_;
   KeyMap keys_;
+  KeyLoadOptions keyOpts_;
   std::vector<KeyBindingDiag> diags_;
   std::string message_;
   int ttlMs_ = 0;       // set by setMessage, converted to expiry_ on the next call that knows the time

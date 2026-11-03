@@ -312,7 +312,7 @@ independently testable.
 ### B4 → B2 Command system and key bindings
 * Files: `src/ui/commands/{Command,CommandRegistry,KeyMap}.{h,cpp}`,
   `src/ui/settings/KeyBindings.{h,cpp}`, default bindings file
-  `assets/keybindings.default.txt`.
+  `assets/KeyMappings.default.10x_settings` (10x format and defaults, B4b).
 * Every user action is a named command (`Editor.GotoDefinition`,
   `Nav.Back`, `Nav.Forward`, `Search.FindInWorkspace`, …) with a human name
   and optional argument. Chords supported (`Ctrl+K Ctrl+C`). Bindings are a

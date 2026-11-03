@@ -319,16 +319,16 @@ TEST(find_in_files_real_search_enter_jumps_f8_steps_and_alt_left_returns) {
   CHECK_EQ(env.curFile(), std::string("alpha.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 0);
   CHECK_EQ(env.ed->cursor().pos.column, 4);
-  CHECK(env.key(Key::F8));  // next: alpha.cpp line 3
+  CHECK(env.key(Key::F4));  // next: alpha.cpp line 3
   CHECK_EQ(env.ed->cursor().pos.line, 2);
-  CHECK(env.key(Key::F8));
+  CHECK(env.key(Key::F4));
   CHECK_EQ(env.curFile(), std::string("beta.cpp"));
-  CHECK(env.key(Key::F8, ModShift));  // previous
+  CHECK(env.key(Key::F4, ModShift));  // previous
   CHECK_EQ(env.curFile(), std::string("alpha.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 2);
-  CHECK(env.key(Key::Left, ModAlt));  // every jump is in the navigation history (constraint 1.3)
+  CHECK(env.key(Key('-'), ModCtrl));  // every jump is in the navigation history (constraint 1.3)
   CHECK_EQ(env.curFile(), std::string("beta.cpp"));
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.curFile(), std::string("alpha.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 2);
 }
@@ -655,7 +655,7 @@ TEST(diagnostics_panel_lists_open_files_errors_first_and_click_jumps) {
   env.ed->setDiagnostics(env.dir / "src/alpha.cpp",
                          {mk("src/alpha.cpp", 2, 2, "unused variable"), mk("src/alpha.cpp", 0, 1, "expected ';'")});
   env.ed->setDiagnostics(env.dir / "src/beta.cpp", {mk("src/beta.cpp", 1, 1, "unknown type name")});
-  CHECK(env.key(Key('M'), ModCtrl | ModShift));
+  env.app->runCommand("View.ShowDiagnostics");  // no default key since Control Shift M is SelectCurrentBracketScope
   ListPopup* p = env.popup();
   REQUIRE(p != nullptr);
   CHECK(p->status().find("open files") != std::string::npos);
@@ -669,13 +669,13 @@ TEST(diagnostics_panel_lists_open_files_errors_first_and_click_jumps) {
   env.advance(10);  // live update
   CHECK_EQ(primaries(env.popup()).size(), size_t(2));
   env.open("src/main.cpp");
-  CHECK(env.key(Key('M'), ModCtrl | ModShift));
+  env.app->runCommand("View.ShowDiagnostics");  // no default key since Control Shift M is SelectCurrentBracketScope
   p = env.popup();
   REQUIRE(p != nullptr);
   p->setSelected(2);  // an error in beta.cpp
   CHECK(env.key(Key::Enter));
   CHECK_EQ(env.curFile(), std::string("beta.cpp"));
-  CHECK(env.key(Key::Left, ModAlt));  // gotoLocation: Alt+Left returns
+  CHECK(env.key(Key('-'), ModCtrl));  // gotoLocation: Control - returns
   CHECK_EQ(env.curFile(), std::string("main.cpp"));
 }
 

@@ -646,7 +646,7 @@ TEST(p2_flags_heuristic_indicator_absent_for_a_vcxproj_workspace) {
 TEST(p2_palette_lists_commands_with_names_ids_and_bindings) {
   Env env;
   env.open("src/a.cpp");
-  env.key(Key('P'), ModCtrl | ModShift);  // the provisional default binding
+  env.key(Key('X'), ModCtrl | ModShift);  // ShowCommandPanel, 10x's key
   REQUIRE(env.app->commandPalette().isOpen());
   ListPopup* p = env.app->commandPalette().popup();
   std::map<std::string, ListRow> byId;
@@ -654,10 +654,16 @@ TEST(p2_palette_lists_commands_with_names_ids_and_bindings) {
   for (const char* id : {"File.Save", "Clangd.Restart", "Help.ShowCompileCommand", "Debug.OpenInVisualStudio",
                          "Build.SelectConfiguration", "Vcs.RevertFile", "Vcs.NextChange", "Editor.GotoDefinition"})
     CHECK(byId.count(id));
-  CHECK_EQ(byId["File.Save"].primary, std::string("Save"));
-  CHECK_EQ(byId["File.Save"].detail, std::string("Ctrl+S"));
-  CHECK_EQ(byId["Editor.GotoDefinition"].detail, std::string("F12"));
-  CHECK_EQ(byId["Clangd.Restart"].detail, std::string());  // unbound
+  CHECK_EQ(byId["File.Save"].primary, std::string("SaveFile"));  // the 10x name
+  CHECK_EQ(byId["File.Save"].detail, std::string("Control S"));
+  CHECK_EQ(byId["Editor.GotoDefinition"].primary, std::string("GotoSymbolDefinition"));
+  CHECK_EQ(byId["Editor.GotoDefinition"].detail, std::string("Alt G"));
+  CHECK_EQ(byId["Debug.OpenInVisualStudio"].primary, std::string("OpenCurrentFileInDebugger"));
+  CHECK_EQ(byId["Debug.OpenInVisualStudio"].detail, std::string("Alt X"));
+  CHECK_EQ(byId["Vcs.RevertFile"].primary, std::string("PerforceRevert"));
+  CHECK_EQ(byId["Vcs.RevertFile"].detail, std::string("Control P, Control R"));  // a two-stroke chord
+  CHECK_EQ(byId["Clangd.Restart"].primary, std::string("Restart clangd"));       // no 10x command: tenfold's own name
+  CHECK_EQ(byId["Clangd.Restart"].detail, std::string());                        // unbound
   CHECK(!byId.count("App.CommandPalette"));
   CHECK(!byId.count("Workbench.FocusPanel"));  // needs an argument
   // Everything listed is runnable (bound by the front end).
@@ -704,6 +710,26 @@ TEST(p2_palette_filters_fuzzily_by_name_and_id_and_enter_runs_the_command) {
   env.key(Key::Enter);
   CHECK(!env.app->commandPalette().isOpen());
   CHECK(env.app->compileInfo().isOpen());  // it ran, and its own popup replaced the palette
+}
+
+TEST(p2_palette_finds_a_command_by_its_10x_name_its_tenfold_name_and_its_id) {
+  Env env;
+  env.open("src/a.cpp");
+  env.run("App.CommandPalette");
+  REQUIRE(env.app->commandPalette().isOpen());
+  env.type("gotosymboldef");  // 10x name
+  REQUIRE(!env.app->commandPalette().shown().empty());
+  CHECK_EQ(env.app->commandPalette().shown()[0], std::string("Editor.GotoDefinition"));
+  CHECK(!env.app->commandPalette().popup()->rows()[0].match.empty());  // highlighted in the shown (10x) name
+  for (int i = 0; i < 13; ++i) env.key(Key::Backspace);
+  env.type("go to definition");  // tenfold's name
+  REQUIRE(!env.app->commandPalette().shown().empty());
+  CHECK_EQ(env.app->commandPalette().shown()[0], std::string("Editor.GotoDefinition"));
+  for (int i = 0; i < 16; ++i) env.key(Key::Backspace);
+  env.type("editorgotodef");  // tenfold id
+  REQUIRE(!env.app->commandPalette().shown().empty());
+  CHECK_EQ(env.app->commandPalette().shown()[0], std::string("Editor.GotoDefinition"));
+  env.key(Key::Escape);
 }
 
 TEST(p2_palette_enter_on_a_disabled_command_says_so) {

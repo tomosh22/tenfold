@@ -289,28 +289,28 @@ TEST(build_ui_f4_steps_through_messages_selects_lines_and_records_history) {
   REQUIRE(env.runFailing());
   const int errLine = env.lineWith("error: bad name"), warnLine = env.lineWith("warning C4189");
   REQUIRE(errLine > 0 && warnLine > 0);
-  CHECK(env.key(Key::F4));
+  CHECK(env.key(Key::F8));
   CHECK_EQ(env.curFile(), std::string("a.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 1);
   CHECK_EQ(env.ed->cursor().pos.column, 4);
   CHECK_EQ(env.panel().selectedLine(), errLine);
   CHECK(env.app->message().find("bad name") != std::string::npos);
-  CHECK(env.key(Key::F4));
+  CHECK(env.key(Key::F8));
   CHECK_EQ(env.curFile(), std::string("b.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 3);
   CHECK_EQ(env.ed->cursor().pos.column, 8);
   CHECK_EQ(env.panel().selectedLine(), warnLine);
-  CHECK(env.key(Key::F4));  // wraps past the location-less error
+  CHECK(env.key(Key::F8));  // wraps past the location-less error
   CHECK_EQ(env.curFile(), std::string("a.cpp"));
-  CHECK(env.key(Key::F4, ModShift));  // previous wraps back
+  CHECK(env.key(Key::F8, ModShift));  // previous wraps back
   CHECK_EQ(env.curFile(), std::string("b.cpp"));
   CHECK_EQ(env.panel().selectedLine(), warnLine);
-  CHECK(env.key(Key::Left, ModAlt));  // every jump is in the navigation history (constraint 1.3)
+  CHECK(env.key(Key('-'), ModCtrl));  // every jump is in the navigation history (constraint 1.3)
   CHECK_EQ(env.curFile(), std::string("a.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 1);
   // Nothing to step through after a clean build.
   REQUIRE(env.run(emit({"fine"}, 0)));
-  CHECK(env.key(Key::F4));
+  CHECK(env.key(Key::F8));
   CHECK(env.app->message().find("No build errors") != std::string::npos);
 }
 
@@ -327,7 +327,7 @@ TEST(build_ui_clicking_a_line_jumps_and_alt_left_returns) {
   CHECK_EQ(env.ed->cursor().pos.line, 3);
   CHECK_EQ(env.ed->cursor().pos.column, 8);
   CHECK_EQ(env.panel().selectedLine(), warnLine);
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.curFile(), std::string("a.cpp"));
   CHECK_EQ(env.ed->cursor().pos.line, 0);
   // Enter on the selected line jumps as well (keys go to the focused panel after a click).

@@ -13,7 +13,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Feature | Status | Notes |
 |---|---|---|
-| Navigate Backward / Forward | ✅ | `NavigationHistory`; VS-style semantics; edit tracking. Keys: Alt+Left / Alt+Right and Ctrl+- / Ctrl+Shift+- (VS), thumb buttons Mouse4/5. UI (B6): toolbar Back/Forward buttons with key-aware tooltips, history dropdown (long-press / right-click), optional "← 3 \| 1 →" status counts (`nav.statusCounts`), Go to Last Edit Location (Ctrl+Shift+Backspace). |
+| Navigate Backward / Forward | ✅ | `NavigationHistory`; VS-style semantics; edit tracking. Keys: 10x's `Control -` / `Control Shift -` (`PrevLocation` / `NextLocation`) and the thumb buttons `MouseBackButton` / `MouseForwardButton`. UI (B6): toolbar Back/Forward buttons with key-aware tooltips, history dropdown (long-press / right-click), optional "← 3 \| 1 →" status counts (`nav.statusCounts`), Go to Last Edit Location (Control Shift Backspace, 10x's `PrevEditLocation`). |
 | Navigation that cannot miss | ✅ | clangd authoritative, fast index approximate, budgeted delivery, cold-start augmentation. |
 | Still instant | ✅ | fast index at startup, persisted to `.tenfold/fastindex.bin` so warm starts only re-lex changed files (A4); clangd background index persisted; approximate results within the budget. |
 
@@ -27,7 +27,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
 | Makefile / bare folders | ✅ | Heuristic include paths. |
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. No `.10x` import (OPEN_QUESTIONS #12); compiler settings come from the Visual Studio solution (C5). |
-| Fast "open file" fuzzy search | ✅ | B5a picker (Ctrl+P / Ctrl+O): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
+| Fast "open file" fuzzy search | ✅ | B5a picker (Control O `OpenFile`, Shift Alt O `FindFile`): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
 | Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI (B5b): Ctrl+Shift+F modal list grouped by file, live streaming, case / word / regex toggles, include / exclude globs, F8 / Shift+F8, scrollbar markers. |
 | File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents. UI (P2): a clean document is reloaded (`editor.reloadExternalChanges` = auto, as Visual Studio), a dirty one asks Reload / Keep my version, a deleted file keeps its buffer and marks its tab and the status bar. |
 | Unsaved changes | ✅ | P2: closing the last view of a modified tab, closing the window and `App.Quit` ask Save / Don't Save / Cancel (Save All for several documents; a failed save keeps the app open and shows the error); `editor.confirmUnsaved`. Follows Visual Studio (OPEN_QUESTIONS #5). No autosave. |
@@ -73,7 +73,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | 🔶 | Done (B4 + B-INT): named commands, chords, contexts, `.tenfold/keybindings.txt` overlay, diagnostics in status bar. Defaults are placeholders: the user wants 10x's format and 10x's defaults (OPEN_QUESTIONS #1, task B4b), blocked on obtaining 10x's default bindings file. |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 91 of the 183 default bindings (88 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -82,7 +82,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | User guide | ✅ | D4: `docs/USER_GUIDE.md`; its settings table is checked against `assets/settings.default.txt` by a test (`user_guide_settings_table_matches_the_default_settings_file`). |
 | Build integration (run command, parse errors, jump) | ✅ | Engine (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`. UI (C1-UI): resizable bottom dock with a streaming Build panel (clickable, severity-coloured lines, Build/Cancel, status), Ctrl+Shift+B / Ctrl+Break / F4 / Shift+F4, build squiggles + scrollbar marks + hover, status bar segment. All jumps go through `gotoLocation`. See ARCHITECTURE "Build panel and bottom dock". |
 | Debugger integration | 🔶 | Visual Studio debugger through EnvDTE (OPEN_QUESTIONS #9). Engine (C2a): breakpoints that follow edits (`.tenfold/breakpoints.json`), `DebugSession` worker with two-way breakpoint sync and follow-current-statement. Backend (C2b): late-bound COM EnvDTE, finds the VS instance with the solution via the ROT or launches devenv, run/step/break/run-to-cursor, breakpoint sync, current statement; verified against Visual Studio 2022 in the blocking `windows-vs-debugger` CI job (launch, breakpoint hit, step, VS-side breakpoint, stop). UI (C2c): breakpoint glyph lane (click toggles; disabled / conditional shapes), current-statement arrow and line band, `Debug.*` commands on Visual Studio keys (F5, F9, F10, F11, …), breakpoint list (Ctrl+Alt+B), debugger status segment and orange status bar while debugging. `Debug.OpenInVisualStudio` (no default key) opens the current file at the caret in Visual Studio. |
-| Version control (Perforce / Git) | 🔶 | OPEN_QUESTIONS #10. Engine and Git (C3a): provider interface, `git` status / base text / revert, Myers line diff, debounced off-thread hunks, revert file / hunk. Perforce (C3b, tested against a fake `p4` only): auto-checkout on first edit (`p4 edit`), fstat status, `print #have` base, revert, `vcs.provider` setting, clear read-only save error. UI (C3c): change strip between line numbers and text and scrollbar change marks, inline diff block under a hunk (revert hunk, close, Escape), `Vcs.NextChange` / `PrevChange` / `ToggleInlineDiff` / `RevertHunk` / `RevertFile` (confirmation) / `DiffFileExternal` (p4merge or `vcs.diffTool`) / `RefreshStatus` / `CheckOut`, tab markers, status-bar segment ("Git: modified", "P4: checked out"), errors in the status bar, refresh on window focus. Keys unbound until the 10x key map is known. Not done: verification against a real Perforce server, blame, commit / stage UI, side-by-side diff. |
+| Version control (Perforce / Git) | 🔶 | OPEN_QUESTIONS #10. Engine and Git (C3a): provider interface, `git` status / base text / revert, Myers line diff, debounced off-thread hunks, revert file / hunk. Perforce (C3b, tested against a fake `p4` only): auto-checkout on first edit (`p4 edit`), fstat status, `print #have` base, revert, `vcs.provider` setting, clear read-only save error. UI (C3c): change strip between line numbers and text and scrollbar change marks, inline diff block under a hunk (revert hunk, close, Escape), `Vcs.NextChange` / `PrevChange` / `ToggleInlineDiff` / `RevertHunk` / `RevertFile` (confirmation) / `DiffFileExternal` (p4merge or `vcs.diffTool`) / `RefreshStatus` / `CheckOut`, tab markers, status-bar segment ("Git: modified", "P4: checked out"), errors in the status bar, refresh on window focus. Keys: 10x's `Control P, Control E` / `Control P, Control D` / `Control P, Control R` (check out, external diff, revert file); the change commands have no key. Not done: verification against a real Perforce server, blame, commit / stage UI, side-by-side diff. |
 | Python scripting API | — | Excluded by the user (OPEN_QUESTIONS #11). |
 | Unreal Engine awareness | ⬜ | `.uproject` → generate compile commands; UE macros are handled by clangd automatically. |
 
@@ -95,3 +95,218 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Direct3D 11 renderer | ✅ | `D3d11Renderer` + `WindowsSwapChain` (B9): flip-model swap chain with frame-latency waitable object, hardware then WARP, runtime-compiled HLSL; default backend of `tenfold-ui` on Windows (`--renderer=gl` for OpenGL). Verified natively in the blocking CI job `windows-ui-d3d11` on WARP: 159 UI tests + 5 D3D11 renderer tests pass, `b1_scene` golden max channel diff 2 (0 of 65536 pixels over tolerance). The text golden is skipped there (no DejaVuSansMono on the runner). Device-loss recovery is a follow-up. |
 | SDL3 window / input on Windows | 🔶 | Same `Window` / `translateSdlEvent` code as Linux (SDL3 Win32 backend); window created without `SDL_WINDOW_OPENGL` for D3D11. Built and driven by the UI tests in native Windows CI; interactive input not yet exercised on a real desktop. |
 | Paths / URIs | ✅ | `pathToUri`/`uriToPath` handle drive letters and UNC; case/separator-insensitive `pathKey`/`pathsEqual` on Windows (A2). |
+
+## 10x commands not yet implemented
+
+Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 92 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 91 bindings (88 distinct commands, below) stay bound, so the file matches 10x;
+pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
+mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
+those without a tenfold command have an empty target).
+
+Where a mapped command is only close to the 10x one, the alias table carries a note (shown in the user guide): the
+move-line keys also move every line of a selection, `DuplicateLine` duplicates a selection instead of the line,
+`ToggleComment` never switches to block comments, `GotoNextResult` steps through find-in-files results only (build messages
+are `GotoNextBuildWarningOrError`), `SelectNextMultiCursor` has no undo-last-selection, `OpenFile` and `FindFile` both open
+tenfold's fuzzy file picker, `ShowSwitchPanelPanel` is the recent-documents switcher, `Search` / `FindInFiles` are one
+find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
+
+**General**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `ToggleWorkspaceExplorer` | `Control Shift E` | Toggle the workspace explorer panel |
+| `NewTerminal` | `Control '` | Create a terminal panel |
+| `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. |
+| `InternetSearch` | `F1` | Internet search for the current word or selection using the InternetSearchCommand setting |
+| `ZoomIn` | `Control Shift .` | Zoom in on editor text (increase font size) |
+| `ZoomOut` | `Control Shift Comma` | Zoom in on editor text (decrease font size) |
+| `ToggleFullscreen` | `Alt Enter` | Toggle fullscreen |
+| `ToggleFocusMode` | `Control Alt Enter` | Toggle focus mode |
+| `ToggleFullScreenFocusMode` | `Shift Alt Enter` | Toggle fullscreen focus mode |
+
+**File**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `SaveAll` | `Control S, Control S`; `Control Shift S` | Save all files |
+| `NewTextFile` | `Control N` | Create a new text file |
+| `ShowInWorkspaceTree` | `Control T` | Show the current file in the workspace tree |
+| `OpenFolderForActivefile` | `Control Shift Alt /` | Open file explorer for the folder of the current file |
+
+**Edit**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `PasteHistory` | `Control Shift V` | Show the paste history dropdown |
+| `MakeSelectionUppercase` | `Control Shift U` | Make selection uppercase |
+| `MakeSelectionLowercase` | `Control U` | Make selection lowercase |
+| `CutLine` | `Shift Delete` | Cut the current line |
+| `Commentline` | `Control K, Control C` | Comment the current line or selected lines |
+| `Uncommentline` | `Control K, Control U` | Uncomment the current line or selected lines |
+| `DeleteToEndOfLine` | `Control L` | Delete to the end of the line. |
+| `InsertLine` | `Control Enter` | Insert a new line at the current line |
+| `InsertLineAfter` | `Control Shift Enter` | Insert a new line after the current line |
+| `SelectCurrentWord` | `Control W` | Select the current word |
+| `SelectCurrentScope` | `Shift Alt =` | Select the current scope |
+| `SelectCurrentBracketScope` | `Control Shift M` | Select the current scope for ()[]{} |
+| `ToggleWhitespace` | `Control Shift W` | Toggle whitespace visibility |
+
+**MultiCursor**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `UndoSelectNextMultiCursor` | `Control Shift D` | Undo the previous selection from SelectNextMultiCursor |
+| `SelectAllOccurrences` | `Control Shift Alt J`; `Alt F3` | Select all of the find results with multiple cursors |
+| `AddCursorAtMousePos` | `Control MouseMiddleButton` | Add a new cursor at the current mouse pos |
+| `AlignMultiCursor` | `Alt A` | Align all cursors |
+| `MultiCursorMoveLeft` | `Shift Alt Left` | Increase selection end for all multi-cursors |
+| `MultiCursorMoveRight` | `Shift Alt Right` | Decrease selection end for all multi-cursors |
+
+**CollapseRegions**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `CollapseRegion` | `Control Shift [` | Collapse the current region |
+| `ExpandRegion` | `Control Shift ]` | Expand the current region |
+| `ToggleCollapseExpandRegion` | `Control M, Control M` | Toggle the collapse/expand of the current region |
+| `ToggleCollapseExpandAllRegions` | `Control M, Control L` | Toggle the collapse/expand of the all regions in the file |
+
+**Tabs**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `PrevPanelTab` | `Control PageUp` | Focus the previous tab in the current panel |
+| `NextPanelTab` | `Control PageDown` | Focus the next tab in the current panel |
+| `MovePrevPanelTab` | `Control Shift PageUp` | Move the tab to the previous position in the tabbed panel |
+| `MoveNextPanelTab` | `Control Shift PageDown` | Move the tab to the next position in the tabbed panel |
+
+**Navigation**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `FindInFilePrevCurrentWord` | `Control Shift F3` | Find the previous occurance of the current word in the current file |
+| `FindInFileNextCurrentWord` | `Control F3` | Find the next occurance of the current word in the current file |
+| `PrevLocationCurrentFile` | `Control =` | Go to the previous cursor location in the current file |
+| `NextLocationCurrentFile` | `Control Shift =` | Go to the next cursor location in the current file |
+| `RestoreRecentlyClosedFile` | `Control Shift T` | Re-open the most recently closed file |
+| `MoveToMatchingBracket` | `Control Shift \` | Move to the matching bracket or brace |
+| `ScrollOneLineUp` | `Control Up` | Scroll one line up |
+| `ScrollOneLineDown` | `Control Down` | Scroll one line down |
+| `NewSearchPanel` | `Control Shift A` | Open new search panel |
+
+**FindInFiles**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `ReplaceInFiles` | `Control Shift H` | Show the ReplaceInFiles panel |
+| `ReplaceNextInFile` | `Alt R` | Replace the next item from the Find.Replace panel |
+| `ReplaceAllInFile` | `Shift Alt R` | Replace all items in the current file from the Find.Replace panel |
+
+**Parser**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `GotoSymbolDefinitionUnderMouse` | `MouseMiddleButton` | Jump to the definition of the symbol at the mouse position |
+| `RenameSymbol` | `Control R` | Rename the current symbol |
+| `SubmitRenameSymbol` | `Enter` | Submit the current symbol rename |
+| `FindFunction` | `Alt M` | Open the Find Function panel to find a function defnition in the current file |
+| `Autocomplete` | `Control Space` | Show the autocomplete dropdown |
+| `AutocompleteUp` | `Up` | Move to the previous item in the autocomplete list |
+| `AutocompleteDown` | `Down` | Move to the next item in the autocomplete list |
+| `AutocompletePageUp` | `PageUp` | Page selection up in the autocomplete list |
+| `AutocompletePageDown` | `PageDown` | Page selection down in the autocomplete list |
+| `ShowFunctionArgsInfo` | `Control Shift Space` | If cursor is in a function call show the function declaration |
+| `InsertPrevAutocomplete` | `Shift F14` | Insert prev autocomplete |
+| `InsertNextAutocomplete` | `F14` | Insert next autocomplete |
+| `ShowSymbolInfo` | `Control K, Control I` | Show the symbol info for the current symbol |
+
+**Build**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `RebuildActiveWorkspace` | `Control Alt F7` | Rebuild the currently active workspace |
+| `BuildCurrentFile` | `Control F7` | Build the current file |
+
+**Debugging**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `RemoveAllBreakpointsFromFile` | `Control Shift F9` | Remove all breakpoints from the current file |
+
+**MacroRecording**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `RecordKeySequence` | `Control Shift R` | Start/stop recording a key sequence |
+| `PlaybackKeySequence` | `Control Shift P` | Playback a key sequence |
+
+**Bookmarks**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `PrevBookmarkInFile` | `Shift Alt F2` | Go to the previous bookmark in the current file |
+| `NextBookmarkInFile` | `Alt F2` | Go to the next bookmark in the current file |
+| `RemoveAllBookmarksFromFile` | `Control Shift F2` | Remove all bookmarks from the current file |
+
+**Formatting**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `FormatSelection` | `Control K, Control F` | Format the selection or the current scope if no selection |
+
+**Panels**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `MovePanelLeft` | `Control Alt Left` | Move the current panel left |
+| `MovePanelRight` | `Control Alt Right` | Move the current panel right |
+| `MovePanelUp` | `Control Alt Up` | Move the current panel up |
+| `MovePanelDown` | `Control Alt Down` | Move the current panel down |
+| `MovePanelFocusLeft` | `Alt Left` | Move the current panel focus left |
+| `MovePanelFocusRight` | `Alt Right` | Move the current panel focus right |
+| `MovePanelFocusUp` | `Alt Up` | Move the current panel focus up |
+| `MovePanelFocusDown` | `Alt Down` | Move the current panel focus down |
+| `DuplicatePanel` | `Shift Alt D` | Duplicate the current panel |
+| `DuplicatePanelLeft` | `Alt Comma` | Duplicate the current panel and move to the left |
+| `DuplicatePanelRight` | `Alt .` | Duplicate the current panel and move to the right |
+
+**Misc**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `ShowContextMenu` | `Shift F10`; `AppsKey` | Show the context menu for the currently selected UI element |
+
+**Perforce**
+
+| Command | Default keys | 10x description |
+| --- | --- | --- |
+| `PerforceHistory` | `Control P, Control H` | Show the perforce history for the current file |
+| `PerforceShowInP4v` | `Control P, Control V` | Show the current file in p4v |
+
+
+### Commands without a default key that tenfold does not implement either
+
+(10x commands that are in Commands but have no entry in the default key map; they also resolve to `not implemented yet:`
+when bound in a key file.)
+
+- **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ShowInWorkspaceTreeWithToggle`, `ToggleReadOnly`
+- **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
+- **General**: `CreateSecondaryWindow`, `Show10XOutput`, `ClaudeCodeTerminal`, `CursorTerminal`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
+- **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
+- **Formatting**: `ToggleIndentMode`, `FormatFile`
+- **MultiCursor**: `StartDraggingRectSelect`
+- **CollapseRegions**: `CollapseAllRegions`, `ExpandAllRegions`, `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`
+- **Navigation**: `NextEditLocation`, `NewSearchPanel`
+- **Bookmarks**: `RemoveAllBookmarks`
+- **FindInFiles**: `ShowFindInFilesResults1`, `ShowFindInFilesResults2`, `ShowFindInFilesResults3`, `ShowFindInFilesResults4`, `ToggleFindInFilesResultsPanel1`, `ToggleFindInFilesResultsPanel2`, `ToggleFindInFilesResultsPanel3`, `ToggleFindInFilesResultsPanel4`
+- **Tabs**: `CloseAllTabs`, `CloseAllOtherTabs`, `CloseAllButPinnedTabs`, `CloseTabsLeft`, `CloseTabsRight`, `CloseUnmodifiedTabs`, `PinTab`, `TogglePinTab`, `ToggleTabs`
+- **PanelGrid**: `SetColumnCountAuto`, `SetColumnCount1`, `SetColumnCount2`, `SetColumnCount3`, `SetColumnCount4`, `SetColumnCount5`, `SetColumnCount6`, `SetColumnCount7`, `SetColumnCount8`, `SetRowCountAuto`, `SetRowCount1`, `SetRowCount2`, `SetRowCount3`, `SetRowCount4`, `SetRowCount5`, `SetRowCount6`, `SetRowCount7`, `SetRowCount8`
+- **Build**: `BuildAll`, `RebuildAll`, `CleanAll`, `CleanActiveWorkspace`, `ShowBuildOutput`, `CloseBuildPanel`, `GotoPrevBuildError`, `GotoNextBuildError`, `GotoPrevBuildWarning`, `GotoNextBuildWarning`
+- **Debugging**: `VSDebuggerReconnect`, `PrevBreakpoint`, `NextBreakpoint`, `PrevBreakpointInFile`, `NextBreakpointInFile`, `CommandLineArgSelector`, `ToggleCommandLineArgSelector`, `OpenDebugPanels`, `OpenCallstackPanel`, `OpenWatchPanel`, `OpenAttachDebuggerPanel`
+- **Parser**: `ReparseFile`, `ReparseAll`, `CancelAutocomplete`, `ToggleParserVerboseLogging`, `CppParser.LogParseStatus`, `CppParser.ListWorkspaceFiles`, `CppParser.FindBrokenDef`, `CppParser.DumpStringTable`, `CppParser.WriteFileStatsCsv`, `CppParser.LogIncludePaths`
+- **Perforce**: `PerforceAdd`, `PerforceAnnotate`, `PerforceTimelapse`, `PerforceRevisionGraph`, `PerforceRevertIfUnchanged`
+- **SVN**: `SVNDiff`, `SVNAdd`, `SVNUpdateFile`, `SVNUpdateWorkspace`
+- **Git**: `GitDiff`, `GitAdd`, `GitBlame`
+- **Misc**: `ListCommands`, `Update`, `ToggleFPS`, `ListWorkspaceFiles`, `ListFileStatusMonitorFiles`, `LogMemory`, `LogMemoryStats`, `CheckParserIntegrity`

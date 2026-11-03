@@ -24,7 +24,8 @@ class TextView;
 //    form of Perforce's auto-checkout (VcsManager::checkOut).
 //  * VcsManager::onError (a failed auto-checkout, revert, status) is shown in the status bar message.
 //  * Window focus: refreshStatus() (the engine does not watch .git); EditorApp calls refreshOnFocus().
-// Key bindings are deliberately absent from the defaults: assets/keybindings.default.txt lists commented examples.
+// Key bindings are deliberately absent from the defaults: assets/KeyMappings.default.10x_settings binds only the 10x
+// Perforce chords; the rest are reachable from the command palette.
 class VcsUi {
  public:
   struct Hooks {

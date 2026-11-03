@@ -468,8 +468,7 @@ compiled into `tenfold-ui-tests` too).
   Disconnected; empty otherwise. `StatusBar::setDebugging(true)` while the mode is Running or Break switches the bar to
   `statusBackgroundDebugging` / `statusTextDebugging` (vs-dark: #CA5100 / white; `dark` and `light` leave them
   transparent = unchanged look). A new `lastError` of the session is shown in the status bar message like other errors.
-* **`Debug.OpenInVisualStudio`** (bound by `EditorApp`, no default key; commented example in
-  `assets/keybindings.default.txt`): `Editor::openInVisualStudio()` (current file at the caret in the connected /
+* **`Debug.OpenInVisualStudio`** (bound by `EditorApp`, no default key; 10x's `OpenCurrentFileInDebugger` is `Alt X`): `Editor::openInVisualStudio()` (current file at the caret in the connected /
   attached Visual Studio). Without a backend the status bar message says so; a backend failure arrives through the
   session's `lastError` and is shown like other debugger errors.
 * **`ConfigurationPicker`** (`src/ui/features`, C5 UI; `Build.SelectConfiguration`, no default key): modal `ListPopup`
@@ -618,8 +617,8 @@ The UI is a client of `Editor::vcs()` only (hunks, base lines, `fileStatus`, `re
   and its base lines. Edits above it move its anchor line at once (Document change listener); when the recomputed hunks
   arrive (`VcsManager::generation()`) it is re-placed on the matching hunk, or removed when none matches (the hunk
   grew, shrank, was reverted or the base changed). Typing inside the hunk without changing its size keeps it.
-* **Commands** (`VcsUi`; registered by `registerEditorCommands`, bound by `EditorApp`, deliberately **unbound** in
-  `keybindings.default.txt`, which lists commented examples): `Vcs.NextChange` / `Vcs.PrevChange` (jump to the next /
+* **Commands** (`VcsUi`; registered by `registerEditorCommands`, bound by `EditorApp`, unbound by default except 10x's Perforce chords `Control P, Control E` / `D` / `R` for `CheckOut` /
+  `DiffFileExternal` / `RevertFile`): `Vcs.NextChange` / `Vcs.PrevChange` (jump to the next /
   previous hunk through `Editor::gotoLocation`, wrapping with a message), `Vcs.ToggleInlineDiff`, `Vcs.RevertHunk`,
   `Vcs.RevertFile` (a modal two-row `ListPopup`, "Discard all changes" / "Cancel", default on the first row, then
   `VcsManager::revertFile`), `Vcs.DiffFileExternal`, `Vcs.RefreshStatus`, `Vcs.CheckOut` (the explicit form of
@@ -1034,7 +1033,7 @@ sequence number and answers for an older one are dropped. An Approximate answer 
 it and the selected symbol stays selected if it is still present (constraint 1.4). The right pane previews the target
 line from the open Document (unsaved text) or from disk; setting `picker.preview` (default true, OPEN_QUESTIONS #6).
 Enter -> `Editor::gotoLocation`, so it lands in navigation history, and `Workbench::sync` reveals the tab. *Open file*
-(`File.OpenFile`, Ctrl+P / Ctrl+O): `FileSearch::rank` scores every workspace file with `FastIndex::fuzzyScore` on the
+(`File.OpenFile`, Control O / Shift Alt O): `FileSearch::rank` scores every workspace file with `FastIndex::fuzzyScore` on the
 filename (weight 4) and the relative path, whitespace-separated tokens must all match, files from
 `Workbench::recentFiles()` (MRU, persisted as `recent` in `layout.json`) get a decaying bonus and lead the empty-query
 list; it opens with `Workbench::openFile`, a tab operation that is not a navigation jump. 8.7k Godot paths filter in
@@ -1074,7 +1073,7 @@ text is appended when it arrives (clangd markdown fences stripped); a move to an
 it. *Signature help* (`SignatureHelp`): `(` / `,` ask `Editor::signatureHelp` (clangd only); the active parameter is
 counted locally from the top-level commas between the call's `(` and the caret, so it follows the caret without a
 round trip, and the enclosing call is shown again when an inner one ends. *Diagnostics* (`DiagnosticsPanel`,
-Ctrl+Shift+M): modal list of the open documents' clangd diagnostics (clangd only reports open files, the status says
+no default key): modal list of the open documents' clangd diagnostics (clangd only reports open files, the status says
 so) plus the last build's `Editor::buildDiagnostics`, labelled "build"; errors first, filter by text, live refresh,
 Enter -> `gotoLocation`. Engine additions (additive): `Editor::hoverAt(doc, pos, done)` and
 `Editor::signatureHelp(done)`.
@@ -1087,13 +1086,34 @@ Every user action is a named `Command` (`Editor.GotoDefinition`, `Nav.Back`, ...
 `Failed`. `registerEditorCommands` registers what `Editor` can serve itself; UI-only commands (pickers, find in
 workspace, MRU cycling, clipboard, `Workbench.*`, `Vcs.*`) are registered without a handler and report `Unbound` until the
 front end calls `CommandRegistry::bind`. `KeyMap` is the binding table plus the chord state machine
-(`feed(chord, activeContext, nowMs)` returns Matched / Pending with "Ctrl+K..." text / NoMatch; a stroke that breaks a
-pending chord is swallowed, a pending chord expires after `timeoutMs`; context-scoped bindings beat `global`). Key
-bindings are plain text, `[context] chord [chord] = Command.Id [argument]`, parsed by `parseKeyBindings` (errors and
-duplicate warnings collected with line numbers, never fatal). Layers: embedded `assets/keybindings.default.txt`
-(generated into a header at configure time), then `<user config dir>/tenfold/keybindings.txt`, then
-`<workspace>/.tenfold/keybindings.txt`; a command of `-` removes a binding. The defaults are placeholders until the
-user's 10x key map is known (OPEN_QUESTIONS #1). `EditorApp` (below) wires `KeyMap::feed` into the app's event loop.
+(`feed(chord, activeContext, nowMs)` returns Matched / Pending with "Control K..." text / NoMatch; a stroke that breaks a
+pending chord is swallowed, a pending chord expires after `timeoutMs`; context-scoped bindings beat `global`; a stroke
+that is a complete binding and also the start of a longer one, as 10x's `Control S` / `Control S, Control S`, matches at
+once and leaves the longer chord open, and a stroke that then does not continue it is an ordinary fresh stroke).
+
+**Key bindings are 10x's** (OPEN_QUESTIONS #1, B4b): files are `.10x_settings` text, `<keys>: <command>`, chords of
+space-separated modifiers (`Control Shift Alt`) and a key, a sequence separated by `, `, key and mouse-button names as 10x
+writes them (`Comma`, `Cancel`, `AppsKey`, `MouseMiddleButton`, `MouseBackButton`, `MouseForwardButton`; `formatChord` is
+the inverse). `parseKeyBindings` collects errors and duplicate warnings with line numbers and never throws; an empty value
+unbinds, a Python statement loads as the pseudo command `Unsupported.Python` with a warning, the old `keys = Command` style
+is an error pointing at the new format. `src/ui/commands/CommandNames.*` is the alias table: every one of 10x's commands
+(`Commands.txt`) with its tenfold command id (empty = not implemented yet, then the binding keeps the 10x name and
+`EditorApp::runCommandId` answers `not implemented yet: <Name>`), the key *context* its binding belongs in (`editor` for
+caret and text editing commands, `popup` for the autocomplete list and rename keys, which `CompletionPopup` handles itself,
+`global` otherwise; this is how 10x's duplicate `Up` / `PageUp` / `Enter` entries coexist and why the pickers keep their
+arrow keys) and a note where the tenfold command only approximates the 10x one. `KeyBinding::command` is the resolved
+tenfold id, `KeyBinding::written` the text as typed. 10x names match case-insensitively; tenfold ids stay valid; the
+palette shows the first 10x name of a command (`displayName10x`). A later layer replaces earlier bindings of the same
+keys in every context. Layers (`loadKeyBindings(KeyLoadOptions)`): embedded `assets/KeyMappings.default.10x_settings`
+(generated into a header at configure time: 10x's default map verbatim, then a `# ===== tenfold additions` section),
+an installed 10x's `%APPDATA%\10x\Settings\KeyMappings.10x_settings` (Windows; `EditorApp::setKeyImport10x` /
+`setKeyImportFile`, setting `keys.import10x` once it is in the settings schema; only when the user dir is the real
+user config dir), `<user config dir>/tenfold/KeyMappings.10x_settings`, `<workspace>/.tenfold/KeyMappings.10x_settings`.
+A leftover `keybindings.txt` gives a warning. When a matched binding's command is not runnable (not implemented, no
+handler) and the focus is not a text view, the focused widget gets the key first (`Alt R` in the find bar), and an
+unimplemented middle-button binding never swallows the click (tab close). `tests/fixtures/KeyMappings.10x.expected.txt`
+is the key list generated from the 10x documentation; a test compares the defaults file against it.
+`EditorApp` (below) wires `KeyMap::feed` into the app's event loop.
 ## Settings and themes (`src/ui/settings/{Settings,Theme}.*`, B7)
 
 Settings are `key = value` text files with dotted keys (`editor.tabWidth = 4`; no `[sections]`), `#` comments only as
@@ -1316,10 +1336,11 @@ focused widget is a TextView, else `global`), runs `KeyMap::feed` and `CommandRe
 input, the mouse, unbound keys) is dispatched to the widget tree. Bindings are `loadKeyBindings(workspace root, user
 config dir)`. `tick(nowMs)` runs `Workbench::sync`, expires a stale chord (`KeyMap::tick`) and message, and ticks the
 root; it returns the wait the main loop should use. The status bar has a `message` segment: the pending chord text
-("Ctrl+K..."), the first key-binding diagnostic (`formatDiag`, "+N more", shown for 12 s), "<command> is not available
+("Control K..."), the first key-binding diagnostic (`formatDiag`, "+N more", shown for 12 s), "not implemented yet:
+<Command>" for a bound 10x command tenfold lacks, "<command> is not available
 yet" for a bound command without a handler (Search.FindInWorkspace: B5b), a failed command, or an empty navigation
 result. Symbol search, open file and the multi-result list are the B5a pickers above. The UI-only handlers bound
-here: `App.Quit` (Ctrl+Q), `Workbench.CycleMruNext/Prev` (the cycle ends when a key event arrives without Ctrl),
+here: `App.Quit` (Control Q), `Workbench.CycleMruNext/Prev` (the cycle ends when a key event arrives without Ctrl),
 `Workbench.FocusPanel N` (1-based), `Search.SymbolSearch` (needs a started Editor), `File.OpenFile`, `Editor.Copy/Cut/Paste` and, in the engine-served set, `File.Save`. Multi-caret
 clipboard: copy joins the selections with a line break (no selection: the caret lines); paste with exactly as many lines
 as carets (a final line break does not count) inserts one line per caret in document order

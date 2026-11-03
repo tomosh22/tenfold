@@ -19,12 +19,12 @@ Contents: [Installing](#installing) - [Opening a workspace](#opening-a-workspace
 
 tenfold has no autosave and no crash recovery of buffers, so the prompts below are the only safety net.
 
-* **Quitting asks.** Ctrl+Q (`App.Quit`) and closing the window list the documents with unsaved edits and offer
+* **Quitting asks.** Control Q (`Exit`, tenfold `App.Quit`) and closing the window list the documents with unsaved edits and offer
   **Save All / Don't Save / Cancel** (one document: **Save / Don't Save / Cancel**). Enter is Save, Escape is Cancel.
   If a save fails (a read-only Perforce file, for example) tenfold stays open and the status bar says why. This includes
   edited documents that no longer have a tab.
 * **Closing a tab asks** when it is the last view of a document with unsaved edits (the tab's x, middle click or
-  `Workbench.CloseTab`, Ctrl+F4). Don't Save closes the document and drops the edits. A second view of the same document (a
+  `Workbench.CloseTab`, Control F4 = `CloseFile`). Don't Save closes the document and drops the edits. A second view of the same document (a
   split) closes without asking.
 * **Files that change on disk are reloaded** when they have no unsaved edits (a checkout, a branch switch or a code
   generator rewrote them); carets, scroll position and navigation history keep their place. A file with unsaved edits
@@ -171,8 +171,8 @@ The diagnostic that answers "which flags does clangd use for this file?":
 
 * In the editor: the command **`Help.ShowCompileCommand`** ("Show Compile Command for Current File") opens a read-only
   popup for the file in the current tab. Escape or a click outside closes it. It has **no default key**; run it from the
-  [command palette](#command-palette) (Ctrl+Shift+P), click `flags: heuristic` in the status bar, or bind a key in
-  `keybindings.txt`, for example `Ctrl+Alt+F1 = Help.ShowCompileCommand`.
+  [command palette](#command-palette) (Control Shift X), click `flags: heuristic` in the status bar, or bind a key in
+  `KeyMappings.10x_settings`, for example `Control Alt F1: Help.ShowCompileCommand`.
 * From a shell: `tenfold-cli why <workspace folder> <file>` starts the engine on the workspace, opens the file,
   waits up to 15 s for clangd to finish parsing it (`--wait <ms>` changes that, `--no-clangd` skips clangd,
   `--clangd <path>` picks one) and prints the same report. The file is taken relative to the workspace folder. The exit
@@ -199,8 +199,8 @@ The report lists:
 
 This is the feature 10x lacks. It works like Visual Studio's Navigate Backward / Forward.
 
-* **Alt+Left / Alt+Right**, **Ctrl+-** / **Ctrl+Shift+-**, and the mouse thumb buttons (Mouse4 / Mouse5) go back and
-  forward. A toolbar above the panels has Back and Forward buttons with a tooltip showing the key; **long-press or
+* **Control -** (`PrevLocation`) / **Control Shift -** (`NextLocation`) and the mouse thumb buttons
+  (`MouseBackButton` / `MouseForwardButton`) go back and forward. A toolbar above the panels has Back and Forward buttons with a tooltip showing the key; **long-press or
   right-click** a button for the list of entries (the file name and line, or the symbol name) and click one to jump
   there. The history keeps 200 entries.
 * Every jump records the place you left and the place you arrived: go to definition / declaration / references,
@@ -212,11 +212,11 @@ This is the feature 10x lacks. It works like Visual Studio's Navigate Backward /
   back discards the forward entries (browser behaviour).
 * Entries follow edits: lines inserted or removed above an entry move it; an entry inside a deleted block moves to the
   start of the block.
-* **Ctrl+Shift+Backspace** (`Nav.LastEditLocation`) goes to where you last edited, through the history, so Back
+* **Control Shift Backspace** (`PrevEditLocation`, tenfold `Nav.LastEditLocation`) goes to where you last edited, through the history, so Back
   returns. The remembered spot follows edits above it, like history entries.
 * Setting `nav.statusCounts` shows the back and forward counts in the status bar.
 
-Switching tabs is not a navigation jump and is not recorded; the tab order for Ctrl+Tab is most recently used first.
+Switching tabs is not a navigation jump and is not recorded; the tab order for Control Tab is most recently used first.
 
 ## Pickers and search
 
@@ -225,17 +225,17 @@ row accepts it, a click outside closes it.
 
 | Keys | What |
 | --- | --- |
-| **Ctrl+P** or **Ctrl+O** (`File.OpenFile`) | Open a file by fuzzy name. The file name weighs four times as much as the rest of the path; recently used files come first and lead the empty list. Several words must all match. Opening is a tab switch, not a history jump. |
+| **Control O** (`OpenFile`) or **Shift Alt O** (`FindFile`); tenfold `File.OpenFile` | Open a file by fuzzy name. The file name weighs four times as much as the rest of the path; recently used files come first and lead the empty list. Several words must all match. Opening is a tab switch, not a history jump. |
 | **Ctrl+,** (`Search.SymbolSearch`) | Workspace symbol search: fuzzy and qualified (`geo::Tr`). Approximate rows appear at once and are replaced by clangd's; the right pane previews the target line (`picker.preview`). Enter jumps and records history. |
 | **Ctrl+Shift+F** (`Search.FindInWorkspace`) | Find in files. Results stream in grouped by file with the match highlighted. **Alt+C** case, **Alt+W** whole word, **Alt+R** regex (PCRE2). Add file globs after ` :: `, for example `foo :: *.cpp, !third_party` (`!` excludes). A single-line selection seeds the query. Open buffers are searched with their unsaved text. |
-| **F8** / **Shift+F8** | Next / previous find-in-files result, wrapping, even after the popup is closed; files with matches get marks on the scrollbar. |
-| **Ctrl+Shift+M** (`View.ShowDiagnostics`) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. |
+| **F4** / **Shift F4** (`GotoNextResult` / `GotoPrevResult`) | Next / previous find-in-files result, wrapping, even after the popup is closed; files with matches get marks on the scrollbar. |
+| `View.ShowDiagnostics` (no default key; command palette) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. |
 | **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list. |
-| **Alt+O** | Switch between header and source (clangd's answer, else by file name). |
+| **Alt O** (`CppParser.ToggleSourceHeader`) | Switch between header and source (clangd's answer, else by file name). |
 | **Ctrl+G** (`Editor.GotoLine`) | Go to line: `42` or `42:7` (line:column, 1-based). Numbers past the end go to the last line. Recorded in the history. |
 | **Ctrl+F** / **Ctrl+H** | Find / replace in the current file (see [Editing](#editing)). |
 | **Ctrl+Alt+B** | Breakpoint list (see [Debugging](#debugging-through-visual-studio)). |
-| **Ctrl+Shift+F2** | Bookmark list (see [Editing](#editing)). |
+| `Editor.ListBookmarks` (no default key; command palette) | Bookmark list (see [Editing](#editing)). |
 
 Hover: rest the mouse on an identifier for 400 ms. Diagnostics under the mouse are shown first (the last build's
 message for that spot follows, marked `build`), then clangd's hover text. Completion opens at the caret after `.`,
@@ -247,7 +247,7 @@ message for that spot follows, marked `build`), then clangd's hover text. Comple
 The text model is UTF-8 with LF or CRLF preserved per file (`Editor.LineEndingLF` / `Editor.LineEndingCRLF` convert;
 they have no default key). Other encodings are not supported.
 
-**Carets.** Ctrl+Alt+Up / Down add a caret above / below, **Ctrl+D** selects the word under the caret and then adds the
+**Carets.** Shift+Alt+Up / Down (`MultiCursorMoveUp` / `Down`) add a caret above / below, **Ctrl+D** (`SelectNextMultiCursor`) selects the word under the caret and then adds the
 next occurrence, **Ctrl-click** adds a caret, **Alt-click** adds a caret and **Alt-drag** makes a column selection,
 double-click selects a word, triple-click a line. Carets that touch merge. Every edit acts on every caret and is one undo
 step; Ctrl+C / Ctrl+X with several carets copy one line per caret, and pasting as many lines as carets puts one line in
@@ -257,7 +257,7 @@ each. Escape collapses to the primary caret (it does not quit).
 whitespace, after a 1 s pause, or when the caret moves. Set `"undoGrouping": "char"` in `.tenfold/workspace.json` for one
 step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing is not confirmed (OPEN_QUESTIONS #3).
 
-**Conveniences** (all default keys are placeholders, see [Key bindings](#key-bindings); the behaviours are guesses about
+**Conveniences** (default keys are 10x's, see [Key bindings](#key-bindings); the behaviours are guesses about
 10x that need your check, OPEN_QUESTIONS #8):
 
 * Auto-indent on Enter (`editor.autoIndent`): copies the previous line's indentation, one level deeper after a line
@@ -271,12 +271,14 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
   the line or one of `) ] } ; ,`; quotes are not paired after an identifier character, a backslash or the same quote;
   typing the closer steps over it (tenfold does not remember which closers it inserted); a selection is wrapped; Backspace
   inside an empty pair deletes both.
-* **Ctrl+/** toggles `//` comments at the lines' minimum indentation; **Ctrl+Shift+/** wraps each selection in `/* */`
+* **Ctrl+/** and **Ctrl+Shift+/** (`ToggleComment`) toggle `//` comments at the lines' minimum indentation;
+  `Editor.ToggleBlockComment` (no default key) wraps each selection in `/* */`
   (a bare caret: its line's text) and unwraps again. C and C++ comment syntax only.
-* **Ctrl+Shift+D** duplicates the line (or the selection), **Alt+Up / Alt+Down** move lines, **Ctrl+J** joins lines,
+* **Control E, Control V** (`DuplicateLine`) duplicates the line (or the selection), **Control Shift Up / Down**
+  (`MoveLineUp` / `MoveLineDown`) move lines, **Ctrl+J** joins lines, **Control Shift L** (`DeleteLine`) or
   **Ctrl+Shift+K** deletes lines.
-* **Bookmarks**: Ctrl+F2 toggles, F2 / Shift+F2 step through all bookmarks of the workspace (wrapping), Ctrl+Shift+F2
-  lists them. They follow edits and are saved in `.tenfold/bookmarks.json`.
+* **Bookmarks**: Ctrl+F2 toggles, F2 / Shift+F2 step through all bookmarks of the workspace (wrapping), `Editor.ListBookmarks` (no default
+  key) lists them. They follow edits and are saved in `.tenfold/bookmarks.json`.
 * **Find / replace in the file** (Ctrl+F, Ctrl+H): a bar at the top right of the editor; typing searches at once and
   highlights every match, Enter / F3 next, Shift+Enter / Shift+F3 previous, Alt+C / Alt+W / Alt+R toggle case, whole word,
   regex. In the replace field Enter replaces and moves on, Ctrl+Enter replaces all (one undo step), Tab switches fields,
@@ -382,10 +384,12 @@ conditional ones with a plus. Your breakpoints are saved in `.tenfold/breakpoint
 bookmarks. Only line breakpoints are synced; function breakpoints are ignored. When both sides disagree, Visual
 Studio wins for the state it reports.
 
-**Keys** (Visual Studio's, see the table in [Key bindings](#key-bindings)): F5 start / continue, Ctrl+F5 start without
-debugging, Shift+F5 stop, Ctrl+Shift+F5 restart, F9 toggle breakpoint, Ctrl+F9 enable / disable, Ctrl+Shift+F9 delete all,
-F10 step over, F11 step into, Shift+F11 step out, Ctrl+F10 run to cursor, Ctrl+Alt+Break break all, Ctrl+Alt+B list
-breakpoints (Enter jumps, Space enables / disables, Delete removes). `Debug.EditCondition` (no key) sets the condition
+**Keys** (10x's, which are Visual Studio's, see the table in [Key bindings](#key-bindings)): F5 start / continue, Ctrl+F5
+start without debugging, Shift+F5 stop, Ctrl+Shift+F5 restart, F9 toggle breakpoint, F10 step over, F11 step into,
+Shift+F11 step out; tenfold additions: Ctrl+F9 enable / disable, Ctrl+F10 run to cursor, Ctrl+Alt+Cancel (Break) break all,
+Ctrl+Alt+B list breakpoints (`RemoveAllBreakpoints`, delete all, has no key: Ctrl+Shift+F9 is 10x's
+`RemoveAllBreakpointsFromFile`, not implemented yet). In the breakpoint list Enter jumps, Space enables / disables and
+Delete removes. `Debug.EditCondition` (no key) sets the condition
 of the breakpoint on the caret's line; an empty condition removes it. `Debug.OpenInVisualStudio` opens the current file at
 the caret in Visual Studio's editor (the window command is being added at the same time as this guide; the engine side,
 `Editor::openInVisualStudio`, exists).
@@ -432,29 +436,28 @@ the status bar says `no diff tool found: install p4merge or set vcs.diffTool`. W
 `<file>#have` (Perforce) or `<file>@HEAD` (Git) and `<file> (unsaved)` are passed as well.
 
 `Vcs.RefreshStatus` re-reads the state; tenfold also does that whenever its window regains focus, because commits made
-elsewhere do not touch the files. None of the `Vcs.*` commands has a default key (the key map is waiting for your 10x
-bindings, OPEN_QUESTIONS #1); `assets/keybindings.default.txt` lists commented examples to copy into your own file:
+elsewhere do not touch the files. 10x's Perforce keys are bound: **Control P, Control E** (`PerforceOpenForEdit`, `Vcs.CheckOut`), **Control P, Control D**
+(`PerforceDiff`, `Vcs.DiffFileExternal`) and **Control P, Control R** (`PerforceRevert`, `Vcs.RevertFile`). The other
+`Vcs.*` commands (`NextChange`, `PrevChange`, `ToggleInlineDiff`, `RevertHunk`, `RefreshStatus`) have no key; copy
+examples into your own `KeyMappings.10x_settings`:
 
 ```
-[editor] Alt+Shift+Down = Vcs.NextChange
-[editor] Alt+Shift+Up   = Vcs.PrevChange
-[editor] Alt+Shift+D    = Vcs.ToggleInlineDiff
-[editor] Alt+Shift+Z    = Vcs.RevertHunk
-Alt+Shift+R = Vcs.RevertFile
-Alt+Shift+M = Vcs.DiffFileExternal
-Alt+Shift+F5 = Vcs.RefreshStatus
-Alt+Shift+E = Vcs.CheckOut
+Alt Shift Down: Vcs.NextChange
+Alt Shift Up: Vcs.PrevChange
+Alt Shift D: Vcs.ToggleInlineDiff
+Alt Shift Z: Vcs.RevertHunk
+Alt Shift F5: Vcs.RefreshStatus
 ```
 
 Not done: blame, commit or stage UI, side-by-side diff inside tenfold.
 
 ## Building
 
-`Build.Build` (**Ctrl+Shift+B**) runs the workspace build in the background and opens the Build panel at the bottom of
-the window (**Ctrl+Alt+O** shows / hides it, `Build.Cancel` is **Ctrl+Break**). The command is chosen in this order:
+`Build.Build` (**F7**, 10x's `BuildActiveWorkspace`; also **Ctrl+Shift+B**) runs the workspace build in the background and opens the Build panel at the bottom of
+the window (**Ctrl+Alt+O** shows / hides it, `Build.Cancel` is **Control Cancel**, i.e. Ctrl+Break). The command is chosen in this order:
 
 1. `buildCommand` in `.tenfold/workspace.json` (run through `cmd /s /c` on Windows, `sh -c` elsewhere, in the
-   workspace folder); or an argument to the command: `Ctrl+Shift+B = Build.Build make -j8` in your key file.
+   workspace folder); or an argument to the command: `Control Shift B: Build.Build make -j8` in your key file.
 2. A `.sln` in the folder (the first one): `msbuild <sln> /m /p:Configuration=<vsConfiguration> /p:Platform=<vsPlatform>`;
    or, with no `.sln`, a `.vcxproj` in the folder. `msbuild` is started by name, so it has to be on `PATH`: start
    tenfold from a Visual Studio *Developer Command Prompt*, or set `buildCommand`.
@@ -464,7 +467,7 @@ the window (**Ctrl+Alt+O** shows / hides it, `Build.Cancel` is **Ctrl+Break**). 
 4. A `Makefile`: `make -j<cores>`.
 
 Output streams into the panel (colour codes removed). Lines that are errors or warnings are coloured, and clicking one,
-or pressing Enter on it, jumps to the source; **F4** and **Shift+F4** step through the errors and warnings that have a
+or pressing Enter on it, jumps to the source; **F8** and **Shift+F8** (`GotoNextBuildWarningOrError` / `GotoPrevBuildWarningOrError`) step through the errors and warnings that have a
 location, wrapping around, and the jump goes into the navigation history. The parser understands MSVC (`file(line,col):
 error C1234`, `LINK : fatal error`, MSBuild prefixes and duplicate lines), GCC and Clang, `In file included from`
 chains, NMake and make errors. The same messages are drawn as squiggles in the editor (in a different colour from
@@ -598,97 +601,278 @@ message.
 
 ## Key bindings
 
-Bindings are a text file, one binding per line:
+Key bindings work the way they do in 10x: the same file format, the same command names and 10x's own default key map
+(from 10x's documentation, OPEN_QUESTIONS #1). A binding is one line of a `.10x_settings` file:
 
 ```
-[context] chord [chord ...] = Command.Id [argument]
+<keys>: <command>
 ```
 
-* **Context** is optional: `global` (the default), `editor` (a text view has focus) or `picker` (a popup list is open).
-  A binding in a narrower context beats a `global` one for the same keys.
-* **Chords** are `Modifier+Modifier+Key`; several chords separated by spaces make a sequence (`Ctrl+K Ctrl+C`; a pending
-  sequence shows in the status bar and expires after a timeout). Modifiers: `Ctrl`, `Shift`, `Alt`, `Super` (also
-  `Control`, `Option`, `Win`, `Cmd`, `Meta`). Keys: letters, digits, `F1` to `F24`, `Space Tab Enter KpEnter Escape Backspace
-  Delete Insert Home End PageUp PageDown Left Right Up Down Break Pause`, and punctuation either as the character or by
-  name (`Minus Plus Comma Period Slash Backslash Semicolon Quote Backquote Equals LBracket RBracket`). `Mouse4` and
-  `Mouse5` are the thumb buttons. Key names are case-insensitive.
-* **Command** is a command id, optionally followed by an argument (`Workbench.FocusPanel 2`, `Build.Build make -j8`). A
-  command of `-` removes the binding for those keys from an earlier layer.
-* `#` starts a comment, only at the start of a line.
+* **Keys** are chords written as modifiers then the key, separated by spaces: `Control Shift F`, `Alt Enter`,
+  `Control Shift Alt /`. Modifiers: `Control`, `Shift`, `Alt` (in any order, case-insensitive). A **sequence** is several
+  chords separated by a comma: `Control K, Control C` (the first chord shows in the status bar until the second arrives
+  or the chord times out). Keys: letters, digits, `F1` to `F24`, `Up Down Left Right Home End PageUp PageDown Enter Tab
+  Space Backspace Delete Insert Cancel AppsKey`, the punctuation keys `' . / = [ ] \ -` as the character itself, and
+  `Comma` for the comma (a plain comma separates chords). `Cancel` is the Pause/Break key (`Control Cancel` cancels a
+  build), `AppsKey` the context-menu key. Mouse buttons: `MouseMiddleButton`, `MouseBackButton`,
+  `MouseForwardButton` (the thumb buttons), also with modifiers (`Control MouseMiddleButton`). tenfold also knows
+  `Escape` and `KpEnter`.
+* **Command** is a 10x command name (`GotoSymbolDefinition`, `PrevLocation`, ...; names are case-insensitive) or a
+  tenfold command id (`Editor.GotoDefinition`); both work in key files and in the [command palette](#command-palette).
+  tenfold ids may be followed by an argument (`Workbench.FocusPanel 2`, `Build.Build make -j8`). An **empty** command
+  (`Control Q:`) removes the binding for those keys from an earlier layer.
+* A **space after the colon is required**, as in every 10x settings file. `#` starts a comment when it is the first
+  non-blank character of a line.
+* 10x also accepts **Python statements** as the command. tenfold has no scripting: such a line loads with a warning,
+  and pressing the key says `Python statements are not supported`; the key stays bound to that, so it does not fall
+  back to an earlier layer's binding.
+* A 10x command tenfold does not implement yet is a valid command: pressing its key says `not implemented yet:
+  <Command>` in the status bar (the list is in [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)).
+* The old tenfold format (`Ctrl+K Ctrl+C = Editor.Comment`, in `keybindings.txt`) is **no longer read**. A line in that
+  style is a parse error that points at the new format, and a leftover `keybindings.txt` next to the new file gives a
+  warning.
 
-**Layers**, later wins: the embedded `assets/keybindings.default.txt`, then `%APPDATA%\tenfold\keybindings.txt` (see
-[Settings files](#settings-files) for the other platforms), then `<workspace>\.tenfold\keybindings.txt`. Mistakes
-(unknown key, unknown modifier, missing `=`) are reported in the status bar with the file and line and the line is
-skipped; a duplicate binding in one file warns and the later one wins. **Key bindings are read once at start**; restart
-tenfold after editing them.
+**Layers**, later wins (a later layer replaces the earlier bindings of the same keys):
 
-Example `keybindings.txt`:
+1. the embedded `assets/KeyMappings.default.10x_settings`: 10x's default key map, then a marked "tenfold additions"
+   section;
+2. an installed 10x's own key file, `%APPDATA%\10x\Settings\KeyMappings.10x_settings` (Windows only; setting
+   `keys.import10x`, default on), so your existing 10x customisations apply;
+3. your tenfold file `KeyMappings.10x_settings` in the user config dir (`%APPDATA%\tenfold`, see
+   [Settings files](#settings-files) for the other platforms);
+4. `<workspace>\.tenfold\KeyMappings.10x_settings`.
+
+Mistakes (unknown key or modifier, missing colon, Python statements) are reported in the status bar with the file and
+line, and the line is skipped (Python lines load as described above); a duplicate binding in one file warns and the later
+one wins. **Key bindings are read once at start**; restart tenfold after editing them. (`keys.import10x` is already
+read by the app, but its entry in the settings schema (`settings.default.txt`) is added separately; until then the
+import is always on.)
+
+Example `KeyMappings.10x_settings` in your user config dir:
 
 ```
-Ctrl+Alt+F1 = Help.ShowCompileCommand
-Ctrl+K Ctrl+C = Editor.ToggleLineComment
-Ctrl+Shift+B = Build.Build msbuild /m /p:Configuration=Release /p:Platform=x64
-Alt+Left = -
+Control Alt F1: Help.ShowCompileCommand
+Control K, Control C: ToggleComment
+Control Shift B: Build.Build msbuild /m /p:Configuration=Release /p:Platform=x64
+Control -:
 ```
 
-### The current defaults are provisional
+### The defaults are 10x's
 
-**These are placeholders, not 10x's bindings.** You asked for 10x's own key-binding file format and 10x's own default
-bindings. The format here is tenfold's own, and the defaults come from Visual Studio habits and common editor
-conventions. 10x's real defaults could not be obtained (its documentation was unreachable from the build environment and
-they must not be taken from memory), so the key map is blocked on OPEN_QUESTIONS #1: send an export of your 10x
-`KeyMappings.10x_settings` (plus its command list), or access to 10xeditor.com, and the defaults will be replaced.
-Expect them to change.
+`assets/KeyMappings.default.10x_settings` holds **every binding of 10x's default key map** (183 bindings in 10x's own
+groups, key strings and command names verbatim), followed by a short section of tenfold-only additions. Bindings whose
+command tenfold does not implement yet stay in the file, so it matches 10x; they answer `not implemented yet: <Command>`.
+10x binds some keys twice for different places: `Up`, `Down`, `PageUp` and `PageDown` move the cursor in the editor and
+the highlighted item in the autocomplete list, `Enter` submits a symbol rename. tenfold files each binding under a
+*context* chosen by its command: **editor** (a text view has focus), **popup** (the autocomplete list and the rename
+box, which handle those keys themselves) and **global**. A binding in the focused context beats a global one, and while a
+picker is open the editor bindings are out of the way, so the pickers keep their own arrow keys. Where a 10x binding for a
+command tenfold lacks would take a key from the focused input line or the open picker, the widget gets the key first
+(`Alt R` toggles regex in the find bar; in 10x it is `ReplaceNextInFile`).
 
-Defaults today (`assets/keybindings.default.txt` is the authority):
+`Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files. tenfold saves at the first press and says
+`not implemented yet: SaveAll` at the second.
 
-| Keys | Command | Keys | Command |
+The 92 default bindings that run a tenfold command today (all other defaults are in
+[FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
+differs from the 10x description:
+
+**General**
+
+| Keys | 10x command | tenfold command | Difference |
 | --- | --- | --- | --- |
-| Alt+Left, Ctrl+-, Mouse4 | `Nav.Back` | F12 | `Editor.GotoDefinition` |
-| Alt+Right, Ctrl+Shift+-, Mouse5 | `Nav.Forward` | Ctrl+F12 | `Editor.GotoDeclaration` |
-| Ctrl+Shift+Backspace | `Nav.LastEditLocation` | Shift+F12 | `Editor.FindReferences` |
-| Ctrl+S | `File.Save` | Alt+O | `Editor.SwitchHeaderSource` |
-| Ctrl+Q | `App.Quit` (asks about unsaved edits) | Ctrl+P, Ctrl+O | `File.OpenFile` |
-| Ctrl+, | `Search.SymbolSearch` | Ctrl+Shift+F | `Search.FindInWorkspace` |
-| F8 / Shift+F8 | `Search.NextResult` / `PrevResult` | Ctrl+Shift+M | `View.ShowDiagnostics` |
-| Ctrl+Shift+B | `Build.Build` | Ctrl+Break | `Build.Cancel` |
-| F4 / Shift+F4 | `Build.NextError` / `PrevError` | Ctrl+Alt+O | `View.ToggleBuildPanel` |
-| F5 | `Debug.Start` | Ctrl+F5 | `Debug.StartWithoutDebugging` |
-| Shift+F5 | `Debug.Stop` | Ctrl+Shift+F5 | `Debug.Restart` |
-| F9 | `Debug.ToggleBreakpoint` | Ctrl+F9 | `Debug.ToggleBreakpointEnabled` |
-| Ctrl+Shift+F9 | `Debug.DeleteAllBreakpoints` | Ctrl+Alt+B | `Debug.ShowBreakpoints` |
-| F10 / F11 / Shift+F11 | `Debug.StepOver` / `StepInto` / `StepOut` | Ctrl+F10 | `Debug.RunToCursor` |
-| Ctrl+Alt+Break | `Debug.BreakAll` | Alt+Z | `View.ToggleWordWrap` |
-| Alt+1 .. Alt+4 | `Workbench.FocusPanel 1..4` | Ctrl+Tab / Ctrl+Shift+Tab | `Workbench.CycleMruNext` / `CycleMruPrev` |
-| Ctrl+Z, Ctrl+Y, Ctrl+Shift+Z | undo, redo, redo | Ctrl+A | `Editor.SelectAll` |
-| Ctrl+C, Ctrl+X, Ctrl+V | copy, cut, paste | Ctrl+D | `Editor.AddCaretAtNextOccurrence` |
-| Ctrl+Alt+Up / Down | `Editor.AddCaretAbove` / `AddCaretBelow` | Escape | `Editor.CollapseCarets` |
-| Ctrl+/, Ctrl+Shift+/ | `Editor.ToggleLineComment`, `ToggleBlockComment` | Shift+Tab | `Editor.Outdent` |
-| Ctrl+Shift+D | `Editor.Duplicate` | Alt+Up / Alt+Down | `Editor.MoveLinesUp` / `MoveLinesDown` |
-| Ctrl+J | `Editor.JoinLines` | Ctrl+Shift+K | `Editor.DeleteLines` |
-| Ctrl+G | `Editor.GotoLine` | Ctrl+F / Ctrl+H | `Editor.Find` / `Editor.Replace` |
-| F3 / Shift+F3 | `Editor.FindNext` / `FindPrev` | Ctrl+F2, F2, Shift+F2, Ctrl+Shift+F2 | bookmark toggle, next, previous, list |
-| Ctrl+Shift+P | `App.CommandPalette` | Ctrl+F4 | `Workbench.CloseTab` |
+| `Control Shift X` | `ShowCommandPanel` | `App.CommandPalette` | a list to pick from; it does not take a typed command line |
+| `Alt X` | `OpenCurrentFileInDebugger` | `Debug.OpenInVisualStudio` |  |
 
-The arrow, Home / End, Page, Delete, Backspace, Enter and Tab keys and their Shift / Ctrl word and document variants are
-bound to the `Editor.Caret*`, `Editor.Select*` and editing commands in the `editor` context.
+**File**
 
-Commands **without** a default key: `Help.ShowCompileCommand`, `Clangd.Restart`, `Debug.EditCondition`,
-`Debug.OpenInVisualStudio`, `Build.SelectConfiguration`, `Editor.Indent`, `Editor.LineEndingLF`, `Editor.LineEndingCRLF`,
-and all `Vcs.*` (`NextChange PrevChange ToggleInlineDiff RevertHunk RevertFile DiffFileExternal RefreshStatus CheckOut`).
-They are reachable from the [command palette](#command-palette) (Ctrl+Shift+P); there is no menu yet. A command whose
-user interface is missing says `<name> is not available yet` in the status bar.
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control O` | `OpenFile` | `File.OpenFile` | opens tenfold's file picker, not a native open dialog |
+| `Control F4` | `CloseFile` | `Workbench.CloseTab` | closes the tab (asks about unsaved changes) |
+| `Control S` | `SaveFile` | `File.Save` |  |
+
+**Edit**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control X` | `Cut` | `Editor.Cut` |  |
+| `Control C` | `Copy` | `Editor.Copy` |  |
+| `Control V` | `Paste` | `Editor.Paste` |  |
+| `Control Z` | `Undo` | `Editor.Undo` |  |
+| `Control Y` | `Redo` | `Editor.Redo` |  |
+| `Control Shift Up` | `MoveLineUp` | `Editor.MoveLinesUp` | also moves every line a selection touches |
+| `Control Shift Down` | `MoveLineDown` | `Editor.MoveLinesDown` | also moves every line a selection touches |
+| `Control Shift L` | `DeleteLine` | `Editor.DeleteLines` |  |
+| `Control Shift /` | `ToggleComment` | `Editor.ToggleLineComment` | always toggles line comments (block comments: Editor.ToggleBlockComment) |
+| `Control E, Control V` | `DuplicateLine` | `Editor.Duplicate` | with a selection it duplicates the selected text, not the line |
+| `Control A` | `SelectAll` | `Editor.SelectAll` |  |
+| `Delete` | `Delete` | `Editor.Delete` |  |
+| `Control Insert` | `Copy` | `Editor.Copy` |  |
+| `Shift Insert` | `Paste` | `Editor.Paste` |  |
+| `Control Shift Z` | `Redo` | `Editor.Redo` |  |
+
+**MultiCursor**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control D` | `SelectNextMultiCursor` | `Editor.AddCaretAtNextOccurrence` | no undo of the last selection (UndoSelectNextMultiCursor is missing) |
+| `Shift Alt Up` | `MultiCursorMoveUp` | `Editor.AddCaretAbove` | adds the caret at the same column |
+| `Shift Alt Down` | `MultiCursorMoveDown` | `Editor.AddCaretBelow` | adds the caret at the same column |
+
+**Navigation**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Shift Alt O` | `FindFile` | `File.OpenFile` |  |
+| `Control F` | `FindInFile` | `Editor.Find` |  |
+| `Shift F3` | `FindInFilePrev` | `Editor.FindPrev` |  |
+| `F3` | `FindInFileNext` | `Editor.FindNext` |  |
+| `Control H` | `FindReplaceInFile` | `Editor.Replace` |  |
+| `Control G` | `GoToLine` | `Editor.GotoLine` |  |
+| `Control -` | `PrevLocation` | `Nav.Back` |  |
+| `Control Shift -` | `NextLocation` | `Nav.Forward` |  |
+| `Control Shift Backspace` | `PrevEditLocation` | `Nav.LastEditLocation` |  |
+| `Shift F4` | `GotoPrevResult` | `Search.PrevResult` | steps through find-in-files results only; build messages: GotoPrevBuildWarningOrError |
+| `F4` | `GotoNextResult` | `Search.NextResult` | steps through find-in-files results only; build messages: GotoNextBuildWarningOrError |
+| `Up` | `MoveCursorUp` | `Editor.CaretUp` |  |
+| `Down` | `MoveCursorDown` | `Editor.CaretDown` |  |
+| `Left` | `MoveCursorLeft` | `Editor.CaretLeft` |  |
+| `Right` | `MoveCursorRight` | `Editor.CaretRight` |  |
+| `Shift Up` | `SelectUp` | `Editor.SelectUp` |  |
+| `Shift Down` | `SelectDown` | `Editor.SelectDown` |  |
+| `Shift Left` | `SelectLeft` | `Editor.SelectLeft` |  |
+| `Shift Right` | `SelectRight` | `Editor.SelectRight` |  |
+| `Home` | `MoveToLineStart` | `Editor.CaretLineStart` |  |
+| `End` | `MoveToLineEnd` | `Editor.CaretLineEnd` |  |
+| `Control Home` | `MoveToFileStart` | `Editor.CaretDocStart` |  |
+| `Control End` | `MoveToFileEnd` | `Editor.CaretDocEnd` |  |
+| `Control Shift Home` | `SelectToFileStart` | `Editor.SelectDocStart` |  |
+| `Control Shift End` | `SelectToFileEnd` | `Editor.SelectDocEnd` |  |
+| `Shift Home` | `SelectToLineStart` | `Editor.SelectLineStart` |  |
+| `Shift End` | `SelectToLineEnd` | `Editor.SelectLineEnd` |  |
+| `Control Left` | `MoveCursorPrevWord` | `Editor.CaretWordLeft` |  |
+| `Control Right` | `MoveCursorNextWord` | `Editor.CaretWordRight` |  |
+| `Control Shift Left` | `MoveCursorPrevWordSelect` | `Editor.SelectWordLeft` |  |
+| `Control Shift Right` | `MoveCursorNextWordSelect` | `Editor.SelectWordRight` |  |
+| `PageUp` | `PageUp` | `Editor.CaretPageUp` |  |
+| `PageDown` | `PageDown` | `Editor.CaretPageDown` |  |
+| `Shift PageUp` | `SelectPageUp` | `Editor.SelectPageUp` |  |
+| `Shift PageDown` | `SelectPageDown` | `Editor.SelectPageDown` |  |
+| `MouseBackButton` | `PrevLocation` | `Nav.Back` |  |
+| `MouseForwardButton` | `NextLocation` | `Nav.Forward` |  |
+| `Shift Alt PageUp` | `SelectPageUp` | `Editor.SelectPageUp` |  |
+| `Shift Alt PageDown` | `SelectPageDown` | `Editor.SelectPageDown` |  |
+| `Shift Alt Home` | `MoveToLineStart` | `Editor.CaretLineStart` |  |
+| `Shift Alt End` | `SelectToLineEnd` | `Editor.SelectLineEnd` |  |
+| `Control Shift F` | `Search` | `Search.FindInWorkspace` | tenfold's single find-in-files picker (no extra search panels) |
+
+**FindInFiles**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control Shift G` | `FindInFiles` | `Search.FindInWorkspace` | tenfold's single find-in-files picker |
+
+**Parser**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Alt G` | `GotoSymbolDefinition` | `Editor.GotoDefinition` |  |
+| `Shift Alt S` | `FindSymbol` | `Search.SymbolSearch` |  |
+| `Shift Alt F` | `FindSymbolReferences` | `Editor.FindReferences` |  |
+| `Alt O` | `CppParser.ToggleSourceHeader` | `Editor.SwitchHeaderSource` |  |
+
+**Build**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `F7` | `BuildActiveWorkspace` | `Build.Build` | runs the detected build (solution, CMake or custom command) |
+| `Shift F8` | `GotoPrevBuildWarningOrError` | `Build.PrevError` |  |
+| `F8` | `GotoNextBuildWarningOrError` | `Build.NextError` |  |
+| `Control Cancel` | `CancelBuild` | `Build.Cancel` |  |
+
+**Debugging**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `F5` | `StartDebugging` | `Debug.Start` | drives the Visual Studio debugger |
+| `Control Shift F5` | `RestartDebugging` | `Debug.Restart` |  |
+| `Shift F5` | `StopDebugging` | `Debug.Stop` |  |
+| `F10` | `DebugStepOver` | `Debug.StepOver` |  |
+| `F11` | `DebugStepInto` | `Debug.StepInto` |  |
+| `Shift F11` | `DebugStepOut` | `Debug.StepOut` |  |
+| `Control F5` | `Run` | `Debug.StartWithoutDebugging` |  |
+| `F9` | `ToggleBreakpoint` | `Debug.ToggleBreakpoint` |  |
+
+**Bookmarks**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control F2` | `ToggleBookmark` | `Editor.ToggleBookmark` |  |
+| `Shift F2` | `PrevBookmark` | `Editor.PrevBookmark` |  |
+| `F2` | `NextBookmark` | `Editor.NextBookmark` |  |
+
+**Formatting**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control ]` | `IndentLine` | `Editor.Indent` |  |
+| `Control [` | `UnindentLine` | `Editor.Outdent` |  |
+
+**Panels**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control Tab` | `ShowSwitchPanelPanel` | `Workbench.CycleMruNext` | tenfold's recent-documents switcher; releasing Control ends the cycle |
+| `Control Shift Tab` | `ShowSwitchPanelPrevItem` | `Workbench.CycleMruPrev` | tenfold's recent-documents switcher |
+
+**Perforce**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control P, Control E` | `PerforceOpenForEdit` | `Vcs.CheckOut` |  |
+| `Control P, Control D` | `PerforceDiff` | `Vcs.DiffFileExternal` | diffs against the version control base revision in the external diff tool |
+| `Control P, Control R` | `PerforceRevert` | `Vcs.RevertFile` | asks for confirmation first |
+
+### tenfold additions
+
+Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in the same context):
+
+| Keys | Command |
+| --- | --- |
+| `Backspace`, `Enter` / `KpEnter`, `Tab`, `Escape`, `Control Backspace`, `Control Delete` (editor) | `Editor.Backspace`, `Editor.Enter`, `Editor.Tab`, `Editor.CollapseCarets`, `Editor.DeleteWordLeft`, `Editor.DeleteWordRight` |
+| `Shift Tab` | `UnindentLine` |
+| `Control /` | `Editor.ToggleLineComment` |
+| `Control J` | `Editor.JoinLines` |
+| `Control Shift K` | `DeleteLine` |
+| `F12`, `Control F12`, `Shift F12` | `GotoSymbolDefinition`, `Editor.GotoDeclaration`, `FindSymbolReferences` |
+| `Control Comma` | `FindSymbol` (symbol search) |
+| `Control Q` | `Exit` |
+| `Control Shift B`, `Control Alt O` | `BuildActiveWorkspace`, `ToggleBuildOutputPanel` |
+| `Alt Z` | `ToggleWordWrap` |
+| `Control F9`, `Control F10`, `Control Alt Cancel`, `Control Alt B` | `Debug.ToggleBreakpointEnabled`, `Debug.RunToCursor`, `Debug.BreakAll`, `ListBreakpoints` (breakpoint list) |
+| `Alt 1` to `Alt 4` | `Workbench.FocusPanel 1..4` |
+
+The earlier placeholder defaults that clash with 10x's map are gone, and the same keys now do what 10x does: for example
+`Alt Left` / `Alt Right` are `MovePanelFocusLeft` / `Right` (use `Control -` / `Control Shift -` or the thumb buttons to go
+back and forward), `Control Shift P` is `PlaybackKeySequence` (the command palette is `Control Shift X`), `F4` / `F8`
+step through search results / build messages, and `Control Shift M` selects the bracket scope (the diagnostics list has no
+key now). Commands with no default key: `View.ShowDiagnostics`, `Editor.ListBookmarks`, `Editor.ToggleBlockComment`,
+`Editor.Indent`... see the palette. They are reachable from the [command palette](#command-palette) (`Control Shift X`);
+there is no menu yet. A command whose user interface is missing says `<name> is not available yet` in the status bar.
 
 ### Command palette
 
-**Ctrl+Shift+P** (`App.CommandPalette`; a provisional key like all defaults, OPEN_QUESTIONS #1) opens a list of every
-command: the human name, the command id (dim) and its current key binding on the right (the first one when there are
-several; a command with no key shows none). Type to filter: the query is matched fuzzily against the name, else the id
-(`restart clangd`, `vcsrevertf`), tighter and earlier matches first. Enter closes the palette and runs the command as its
+**Control Shift X** (`ShowCommandPanel`, tenfold's `App.CommandPalette`) opens a list of every command: the 10x
+command name (tenfold's own name for the few commands 10x has no equivalent of), the tenfold command id (dim) and its
+current key binding on the right (the first one when there are several; a command with no key shows none). Type to
+filter: the query is matched fuzzily against the shown name, tenfold's name and the id (`gotosymboldef`,
+`restart clangd`, `vcsrevertf`), tighter and earlier matches first. Enter closes the palette and runs the command as its
 key would; Escape closes it. A command that cannot run right now (no file open, ...) is greyed out and Enter says so in the
-status bar. Not listed: commands that need an argument to do anything (`Workbench.FocusPanel`, which is bound to Alt+1..4)
-and the palette itself. `Build.Build` is listed and runs the detected build; a custom build command still needs a key
-binding with an argument.
+status bar. Not listed: commands that need an argument to do anything (`Workbench.FocusPanel`, which is bound to
+`Alt 1` to `Alt 4`) and the palette itself. `Build.Build` is listed and runs the detected build; a custom build command
+still needs a key binding with an argument. The palette lists the commands tenfold has; 10x commands it lacks are not
+listed (see FEATURE_PARITY).
 
 ## Logs and crash reports
 
@@ -835,7 +1019,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** all placeholders until 10x's map is available (#1).
+* **Key bindings:** 10x's own format and default key map; 91 of its 183 default bindings (88 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session

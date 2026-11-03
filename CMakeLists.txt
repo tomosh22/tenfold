@@ -275,6 +275,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/commands/Command.cpp
     src/ui/commands/CommandRegistry.cpp
     src/ui/commands/KeyMap.cpp
+    src/ui/commands/CommandNames.cpp
     src/ui/commands/EditorCommands.cpp
     src/ui/settings/KeyBindings.cpp
     src/ui/settings/Settings.cpp
@@ -287,7 +288,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/BreakpointList.cpp
   )
   # Default key bindings are embedded as a raw string literal so the app works without the asset dir.
-  set(TENFOLD_DEFAULT_KEYS "${CMAKE_SOURCE_DIR}/assets/keybindings.default.txt")
+  set(TENFOLD_DEFAULT_KEYS "${CMAKE_SOURCE_DIR}/assets/KeyMappings.default.10x_settings")
   set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${TENFOLD_DEFAULT_KEYS}")
   file(READ "${TENFOLD_DEFAULT_KEYS}" _tf_default_keys)
   file(WRITE "${CMAKE_BINARY_DIR}/generated/DefaultKeyBindings.inc" "R\"TFKB(${_tf_default_keys})TFKB\"\n")
