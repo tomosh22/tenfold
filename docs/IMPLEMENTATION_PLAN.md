@@ -513,6 +513,66 @@ group as real commands, sets the alias targets in `src/ui/commands/CommandNames.
 
 ---
 
+### W9 Extreme stress test: varied codebases (user request, after W8)
+
+Goal: put tenfold's code intelligence, indexing, editing and UI through an extensive suite of widely varying codebases
+(hand-written hard cases with known answers, generated pathological workspaces, fuzzed inputs, pinned real-world
+projects) and fix what breaks. Every finding becomes a regression test. Correctness is judged against expected answers
+written in the corpus, or, for real-world code, against clangd queried directly (the oracle); the fast tier is measured
+by how often its first answer agrees with the final (authoritative) one.
+
+**Corpus expectation format (shared by W9a and W9b-e).** A corpus project is a directory under `tests/corpus/<name>/`
+with its sources (and its own `compile_commands.json`, `.sln` / `.vcxproj` or nothing, as the case requires) and a
+`tenfold-expect.txt` at its root.
+* *Anchors* are written in the source as a comment immediately before a token: `/*@name*/token`. The anchor's location
+  is the first character of `token` (the token after the comment, on the same line). Names are `[A-Za-z0-9_.]+`, unique
+  per project. Anchors must not change what the code means (they are comments).
+* *Expectations*, one per line in `tenfold-expect.txt` (`#` comments, blank lines ignored):
+  * `def A -> B` go to definition at A lands on anchor B (`-> B | C` = any of; `-> none` = no result).
+  * `decl A -> B`, `typedef A -> B` (go to type definition), `impl A -> B C ...` (implementations, as a set).
+  * `refs A = B C D ...` find references at A returns exactly these anchors (set; include the declaration only if listed);
+    `refs A >= B C` = at least these.
+  * `hover A ~ "text"` the hover contains the text. `sym "query" -> B` workspace symbol search ranks B first;
+    `sym "query" ∋ B` = B is among the results.
+  * `rename A newName` then the following indented lines `  B C ...` list every anchor whose token must have become
+    `newName` (the harness renames on a scratch copy and checks).
+  * `fast <expectation>` the same expectation for the fast tier only (before clangd answers); without `fast`, an
+    expectation is checked on the final answer. `xfail <expectation> # reason` documents a known wrong answer (reported,
+    not failed; it fails when it starts passing, so it gets promoted).
+  * `config Name|Platform` switches the active Visual Studio configuration for the expectations that follow.
+  * `open <file>` / `edit <file>:<line>:<col> "text"` edits an open document before the following expectations
+    (tests answers on unsaved text).
+* The runner (`tenfold-cli corpus <dir>` and the `tenfold-corpus-tests` target) prints one line per expectation and a
+  JSON report: pass / fail / xfail counts, fast-tier agreement, latency per query kind (fast, final), time to first TU,
+  indexing time, peak RSS.
+
+* **W9a** corpus harness: the format above, the runner, the JSON report, a seed corpus (the cases of
+  `examples/sample_project`), CI job running every corpus on every push.
+* **W9b-W9e** (after W9a) hand-written hard-case corpora, one agent per area: (b) templates, overloads, specialisations,
+  C++20 concepts / constraints, CTAD, variadic packs, operators, conversions; (c) preprocessor: macros that define
+  symbols, token pasting, X-macros, include tricks, `#if` on Visual Studio configurations, force-included headers,
+  same header compiled differently; (d) name lookup and OOP: namespaces, ADL, using-declarations / directives, inline
+  and anonymous namespaces, nested / local classes, friends, virtual / override / final, CRTP, multiple and virtual
+  inheritance, lambdas, ctors / dtors / conversions; (e) C and odd layouts: C99 / C11 projects, K&R definitions,
+  function pointers, extern "C", unity builds, headers without extension, `.inl` / `.ipp`, duplicate file names in
+  different folders, Unicode / spaces in paths, CRLF / BOM / Latin-1 files, symlinks.
+* **W9f** pathological generated workspaces (a generator script plus tests): 100k-file trees, 1M-line files, 100k-char
+  lines, minified one-line files, deep nesting, huge identifiers, binary / invalid UTF-8 files, symlink loops, files
+  changing / deleted during indexing, truncated and unbalanced code. Nothing may crash, hang, or exceed the memory
+  budget; the UI must stay responsive (frame budget) while indexing them.
+* **W9g** real-world projects: a pinned list (shallow clones by commit) chosen for variety (small modern C++, a
+  template-heavy header-only library, a giant single-file C program, macro-heavy C, a game engine, a Visual Studio
+  `.sln` project, a large compiler subset), a fetch script, an oracle that samples navigation points and compares
+  tenfold's answers with clangd's, and a scheduled CI workflow that publishes the report (disagreement rates, crashes,
+  timings, memory) as an artifact. Disk budget about 8 GB locally; clones are deleted after a run.
+* **W9h** fuzzing: mutation fuzzing (seeded from the corpora) of the fast lexer / symbol extractor, the `.sln` /
+  `.vcxproj` / `.props` evaluator, the compile-database reader, the 10x settings / key-mapping parsers, the build
+  output parser, the diff engine and the terminal parser, under ASan; every crash input is kept as a regression test.
+* **W9i** (after W9g) editor-level stress on the real-world projects: scripted UI sessions (hundreds of tabs, find /
+  replace in files across the largest project, 10k carets, folding a huge file, the terminal flooding while indexing,
+  switching configuration mid-index) measured against the frame budget and memory.
+* Findings are fixed in follow-up tasks (one per root cause), each with the corpus entry or input that exposed it.
+
 ## 6. Phase D: release engineering
 
 * D1 Packaging: ship `clangd` (LLVM release binaries) next to the editor on
@@ -567,6 +627,7 @@ Anything else requires a plan amendment.
 | 6 | B2c, B7b, C2a, C3a, C5, D2 (∥) | user answers to #4, #7, #9, #10, #12 received |
 | 7 | C2b, C2c (→ C2a), C3b, C3c (→ C3a), D1, D3 | D4 (user docs) last, after 7 |
 | 8 | B4b, B8b, C2d; then W8a, W8b, W8c (∥), W8d, W8e, then W8f | 10x documentation available (key bindings, settings, VS sync) |
+| 9 | W9a, W9f, W9g, W9h (∥); then W9b-W9e (∥, → W9a), W9i (→ W9g); then fixes | extreme stress test on varied codebases |
 
 A Sonnet task should be at most ~800 lines of new code plus tests; split
 anything larger (B2 and B5 will each need two or three sub-tasks; the
