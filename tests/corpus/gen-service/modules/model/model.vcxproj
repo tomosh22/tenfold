@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{20F35E63-0DAF-44DB-FA4C-3F68F5399D8C}</ProjectGuid>
+    <RootNamespace>model</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)modules\logging\include;$(SolutionDir)modules\domain\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>MODEL_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\address.cpp" />
+    <ClCompile Include="src\chain172.cpp" />
+    <ClCompile Include="src\config.cpp" />
+    <ClCompile Include="src\entry.cpp" />
+    <ClCompile Include="src\funcs_handler.cpp" />
+    <ClCompile Include="src\funcs_session.cpp" />
+    <ClCompile Include="src\result.cpp" />
+    <ClCompile Include="src\table146.cpp" />
+    <ClInclude Include="include\model\address.h" />
+    <ClInclude Include="include\model\chain172\c0.h" />
+    <ClInclude Include="include\model\chain172\c1.h" />
+    <ClInclude Include="include\model\chain172\c2.h" />
+    <ClInclude Include="include\model\chain172\c3.h" />
+    <ClInclude Include="include\model\chain172\c4.h" />
+    <ClInclude Include="include\model\chain172\c5.h" />
+    <ClInclude Include="include\model\config.h" />
+    <ClInclude Include="include\model\entry.h" />
+    <ClInclude Include="include\model\funcs_handler.h" />
+    <ClInclude Include="include\model\funcs_session.h" />
+    <ClInclude Include="include\model\macros_tariff.h" />
+    <ClInclude Include="include\model\macros_token.h" />
+    <ClInclude Include="include\model\model.h" />
+    <ClInclude Include="include\model\result.h" />
+    <ClInclude Include="include\model\table146.h" />
+    <ClInclude Include="include\model\types_account.h" />
+    <ClInclude Include="include\model\types_invoice.h" />
+    <ClInclude Include="include\model\types_mapper.h" />
+    <ClInclude Include="include\model\types_product.h" />
+    <ClInclude Include="include\model\types_product_173.h" />
+    <ClInclude Include="include\model\types_repository.h" />
+    <ClInclude Include="src\result_priv.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

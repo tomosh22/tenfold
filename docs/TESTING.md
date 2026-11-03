@@ -441,3 +441,80 @@ regression inputs, then fuzzes every target for 30 s with seed 1; findings are u
 * Known environment difference: under gcc with `-fsanitize=undefined` the unit test `crash_handler_writes_report`
   fails in its "segv" case (UBSan's null check reports the helper's deliberate null store and exits before the SIGSEGV
   handler runs). The `asan` preset uses clang; this was only seen with gcc, and the fuzz job does not run that test.
+
+## Generated codebases (W9g)
+
+`tools/stress/gen_codebase.py` writes realistic C/C++ projects of 300 to 20,000 files **together with their answers**:
+it knows every definition and every use it generated, so it emits the anchors and the `tenfold-expect.txt` itself. Nothing
+is fetched or copied from real projects; the output is a pure function of `(profile, size, seed, variant, samples)`
+(byte-identical for equal arguments; a private splitmix64 generator, no `random`, no hash or set order).
+
+```sh
+python3 tools/stress/gen_codebase.py /tmp/p --profile game --size small --seed 1 [--variant cmake|vs] [--samples N] \
+        [--impl-position first|last] [--stats stats.json] [--check]
+./build/tenfold-cli corpus /tmp/p --json /tmp/p.json --timeout 600
+
+tools/stress/run_generated.sh medium [game service lib c mixed]    # generate, run, measure RSS, delete, summary.md
+python3 tools/stress/report_table.py reports/ > summary.md           # Markdown tables from runner JSON (+ .meta.json)
+python3 -m unittest discover -s tools/stress -p 'test_gen_codebase.py'    # determinism, anchors, project files (2 s)
+TENFOLD_GEN_CHECK=1 python3 -m unittest ...                         # also compiles every TU with clang -fsyntax-only
+```
+
+* **Sizes**: `small` ~300 files / 10k LOC (committed), `medium` ~3,000 files / 120k LOC, `large` ~20,000 files / 1M LOC
+  (100 MB, 7,000 translation units), or a number of files. `--check` compiles every translation unit and every header on
+  its own with `clang++ -fsyntax-only` (all five profiles are clean at small size; the generated code is valid C++17 / C11).
+* **Profiles**: `game` (math, render, physics, entities: class hierarchies with virtuals, math templates, tables),
+  `service` (layered business code: interfaces and implementations, nested `Impl`/`Node` types, enums, logging macros),
+  `lib` (template-heavy: class templates with specialisations, function templates, aliases, constants), `c` (a C11 project:
+  prefixed names, structs with function-pointer-free "methods", enums, macros, `static` helpers named `helper`/`clamp`,
+  `extern "C"` guards), `mixed` (C and C++ modules together; C++ modules call C headers).
+  Every profile mixes: modules in folders with public (`include/<module>/`) and private (`src/*_priv.h`) headers, an `app/`
+  layer calling several modules, a namespace per module (`gx::render`), classes with fields, static members, virtuals and
+  override chains across modules, overloaded free functions, templates (class, function, an explicit specialisation),
+  enums (scoped and plain), `constexpr` constants, `typedef`/`using` aliases, macros (object-like, function-like and a macro
+  that declares functions), forward declarations used through pointers, deep include chains (5 to 12 headers), long
+  generated tables (data arrays plus up to 120 functions and a function-pointer table), comments and doc comments, and
+  many short names reused across modules (`get`, `size`, `Impl`, `Node`, `update`, ...) so that name-based guesses are wrong.
+* **Variants**: `cmake` writes a `compile_commands.json` with `@CORPUS_ROOT@` (include directories are the module and its
+  transitive dependencies; no build is run). `vs` writes `gen<profile>.sln` and one `.vcxproj` per module (+ `app`), with
+  `$(SolutionDir)modules\<dep>\include` include directories and Debug|x64 / Release|x64. Both are standard-library free:
+  `mstd/mstd.h` is the generator's own mini std (`mstd::vector`, `pair`, `min`, `max`).
+* **How the ground truth is made.** Every place where the generator writes a declared name goes through one function that
+  leaves a marker for `(entity, role)` (`decl`, `def`, `use`, `fwd`, `var`). After generation a deterministic sample
+  (`--samples` entities per category: free functions, methods, static members, virtuals, classes, constants, enums,
+  enumerators, aliases, macros, macro-declared functions, template members, table and chain functions, C structs, ...) is
+  *tracked*: its markers become `/*@name*/` anchors, all other markers vanish. So `refs` sets are exact (a set bigger than 40
+  uses is capped and becomes `>=` on the anchored sample). Per tracked entity the generator writes, as applicable:
+  `def`/`decl` from a use (definition: the out-of-line definition if there is one, else the declaration), `refs`, `hover`
+  (kind, return type, first parameter, type or header taken from clangd's format), `sym "name"` (only when the name is
+  unique in the project, also case-insensitively), `typedef` from a local variable to its class, `impl` over hierarchies
+  (all overriders / subclasses; direct ones as `>=` and the full transitive set as `xfail`, W9d finding 10), `rename`
+  (small symbols only) and `open`/`edit` blocks that insert a call into an open file and ask `def`/`decl`/`refs` at the new
+  anchor.
+* **`fast` and `xfail fast`** come from the generator's own census of names (every function, method, class, field,
+  enumerator, constructor, destructor, ... it declared): `fast def`/`fast sym`/`fast hover` where the word has exactly one
+  definition, `xfail fast def` with the count of definitions where it has more (the lexer index has no scope), macros
+  always `xfail fast` (not indexed) and macro-declared functions `xfail fast` (names in macro arguments).
+* **Placement and stability.** `impl` answers depend on which files are open in the editor (clangd's dynamic index of an
+  open header shadows the background index: the implementation lands on the declaration or the forward declaration instead
+  of the definition, see STRESS_RESULTS G-1). The generator knows which `impl` lines have such a second spelling and puts
+  them first (`--impl-position first`, every fast check then runs after the TU is ready; used for the committed corpora so
+  they are deterministic) or last (default, the nightly runs keep the fast checks cold). Renames come last (G-2).
+* **What is deliberately not asserted** (so that anchors never change meaning and every expectation is about something
+  the generator can state with certainty): classes with explicit constructors or destructors are never tracked (the
+  tokens `Name()` / `~Name()` are not class references the generator wants to bet on); the doc comment of a declaration is
+  not checked in `hover` (the anchor comment between the doc comment and the name keeps clangd from attaching it);
+  `static inline` functions of C headers used from both C and C++ translation units get `xfail refs` (two USRs, G-3);
+  workspace symbol search is asked only for names unique in the project, also ignoring case (fuzzy ranking).
+* **Committed corpora**: `tests/corpus/gen-game` (game, cmake, seed 1), `gen-service` (service, vs, seed 2) and `gen-mixed`
+  (mixed C and C++, cmake, seed 3), each ~310 files, ~0.35 MB, ~560 expectations, 5 to 15 s. They run in the `corpus` job of
+  `ci.yml` like every `tests/corpus/*/`. Regenerate with `tools/stress/regen_committed.sh build/release/tenfold-cli`: it
+  generates, runs, keeps the engine's known wrong answers as `xfail ... # reason` (`xfail_from_report.py`) and runs
+  again. The ground truth stays the generator's; an `xfail` that starts passing is an `XPASS` and fails the corpus.
+* **On demand**: `run_generated.sh` (generate into a temp dir, `tenfold-cli corpus --json`, sample `/proc` for the peak RSS of
+  tenfold and clangd, delete the data) and `.github/workflows/stress.yml` (nightly and `workflow_dispatch`, medium and
+  large, uploads `stress-reports-*` with the JSON reports, `*.meta.json` and `summary.md`; never blocks a push). The result
+  tables are in `docs/STRESS_RESULTS.md` ("Generated codebases").
+* **When an expectation FAILs**: decide whether the generator's ground truth is wrong (fix the generator, add the case to the
+  generator tests) or the engine / clangd is (keep the expectation, mark it `xfail` with the reason and record a finding in
+  `docs/STRESS_RESULTS.md`). Do not "fix" the engine from a generated corpus without a minimal repro.

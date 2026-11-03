@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{05C7E247-0050-2A07-9CDD-88012B5A76D3}</ProjectGuid>
+    <RootNamespace>util</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>UTIL_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\audit_cart.cpp" />
+    <ClCompile Include="src\binned_gateway_job.cpp" />
+    <ClCompile Include="src\buffer.cpp" />
+    <ClCompile Include="src\config.cpp" />
+    <ClCompile Include="src\context.cpp" />
+    <ClCompile Include="src\funcs_account.cpp" />
+    <ClCompile Include="src\funcs_endpoint.cpp" />
+    <ClCompile Include="src\funcs_order.cpp" />
+    <ClCompile Include="src\funcs_product.cpp" />
+    <ClCompile Include="src\funcs_shipment.cpp" />
+    <ClCompile Include="src\lazy_event.cpp" />
+    <ClCompile Include="src\profile.cpp" />
+    <ClCompile Include="src\provider.cpp" />
+    <ClCompile Include="src\queue2.cpp" />
+    <ClCompile Include="src\shared_order.cpp" />
+    <ClCompile Include="src\static_ledger.cpp" />
+    <ClInclude Include="include\util\audit_cart.h" />
+    <ClInclude Include="include\util\binned_gateway_job.h" />
+    <ClInclude Include="include\util\buffer.h" />
+    <ClInclude Include="include\util\config.h" />
+    <ClInclude Include="include\util\context.h" />
+    <ClInclude Include="include\util\funcs_account.h" />
+    <ClInclude Include="include\util\funcs_endpoint.h" />
+    <ClInclude Include="include\util\funcs_order.h" />
+    <ClInclude Include="include\util\funcs_product.h" />
+    <ClInclude Include="include\util\funcs_shipment.h" />
+    <ClInclude Include="include\util\lazy_event.h" />
+    <ClInclude Include="include\util\profile.h" />
+    <ClInclude Include="include\util\provider.h" />
+    <ClInclude Include="include\util\queue2.h" />
+    <ClInclude Include="include\util\radial_policy.h" />
+    <ClInclude Include="include\util\shared_order.h" />
+    <ClInclude Include="include\util\static_ledger.h" />
+    <ClInclude Include="include\util\types_catalog.h" />
+    <ClInclude Include="include\util\types_mapper.h" />
+    <ClInclude Include="include\util\types_profile.h" />
+    <ClInclude Include="include\util\types_profile_13.h" />
+    <ClInclude Include="include\util\types_session.h" />
+    <ClInclude Include="include\util\util.h" />
+    <ClInclude Include="src\context_priv.h" />
+    <ClInclude Include="src\lazy_event_priv.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

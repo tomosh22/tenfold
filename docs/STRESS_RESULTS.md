@@ -647,3 +647,123 @@ Eleven root causes, all fixed (the unfixed observations are listed after the tab
 * `jsonrpc` reports 420 slow inputs (up to 1.6 s for 3 KB) that are not the parser: the harness writes the replies to a
   real child process (`sh -c 'cat >/dev/null'`) and the machine was at load average 15; replaying them alone takes
   15 ms.
+
+## Generated codebases (W9g)
+
+`tools/stress/gen_codebase.py` writes C/C++ projects of 300 to 20,000 files together with the anchors and the
+`tenfold-expect.txt` (the generator knows every definition and use it wrote; nothing is taken from real projects). How it
+works, profiles, variants and the commands are in `docs/TESTING.md` ("Generated codebases (W9g)"). This section has the
+results of running them: three small projects are committed (`tests/corpus/gen-game`, `gen-service`, `gen-mixed`), medium
+(~3k files) and large (~20k files) are generated into a temp dir by `tools/stress/run_generated.sh`, run with
+`tenfold-cli corpus --json`, measured (`/proc` sampling of the peak RSS of tenfold and of clangd) and deleted; the nightly
+workflow `.github/workflows/stress.yml` repeats them. Machine: 4 cores shared with other jobs (load 1 to 16 during these
+runs), Linux, Release build of `a9f2396` + this branch, clangd 22.1.1, generator seed 1. **Latencies and times are from a
+loaded shared machine; compare trends, not absolutes.**
+
+### Results
+
+| run | files | LOC | start+fast index (s) | first TU (s) | clangd index (s) | total (s) | pass / fail / xfail / xpass | fast==final | peak RSS tenfold / clangd (MiB) |
+|---|---:|---:|---:|---:|---:|---:|---|---:|---|
+| gen-game (small) | 310 | 10244 | 0.1 | 0.0 | 0.4 | 5.3 | 513 / 0 / 45 / 0 | 100/255 (39%) | 13 / 350 |
+| gen-service (small) | 324 | 11590 | 0.1 | 0.0 | 0.4 | 5.5 | 498 / 0 / 54 / 0 | 88/258 (34%) | 13 / 192 |
+| gen-mixed (small) | 314 | 9998 | 0.1 | 0.0 | 0.8 | 5.6 | 511 / 0 / 33 / 0 | 104/243 (43%) | 12 / 357 |
+| game-cmake-medium | 3068 | 115145 | 0.3 | 0.2 | 18.6 | 50.9 | 1342 / 9 / 159 / 0 | 236/702 (34%) | 44 / 871 |
+| service-cmake-medium | 3066 | 109994 | 0.3 | 0.3 | 20.8 | 900.0 | 1285 / 21 / 159 / 0 | 218/686 (32%) | 43 / 856 |
+| service-vs-medium | 3066 | 109994 | 0.3 | 0.2 | 8.2 | 900.0 | 1286 / 20 / 159 / 0 | 218/686 (32%) | 44 / 668 |
+| lib-cmake-medium | 3073 | 99092 | 0.3 | 7.3 | 11.6 | 37.1 | 1299 / 1 / 135 / 0 | 226/669 (34%) | 43 / 776 |
+| c-cmake-medium | 3072 | 106464 | 0.2 | 0.2 | 6.6 | 18.0 | 950 / 0 / 58 / 0 | 216/470 (46%) | 34 / 546 |
+| mixed-cmake-medium | 3082 | 107601 | 0.2 | 0.1 | 7.6 | 27.9 | 1379 / 3 / 137 / 0 | 259/700 (37%) | 40 / 845 |
+| game-cmake-large (run 3, quiet) | 20380 | 964136 | 1.0 | 0.3 | -0.0 | 761.2 | 2178 / 220 / 298 / 0 | 399/1282 (31%) | 224 / 2370 |
+| game-cmake-large (run 1) | 20380 | 964136 | 1.3 | 0.2 | -0.0 | 2218.8 | 2350 / 42 / 298 / 6 | 393/1282 (31%) | 214 / 2465 |
+| game-cmake-large (run 2, loaded) | 20380 | 964136 | 5.1 | 0.9 | -0.0 | 1136.6 | 2115 / 283 / 298 / 0 | 401/1282 (31%) | 217 / 2350 |
+
+(`first TU` = first document opened until clangd finished parsing it; `clangd index` = the runner's one wait for clangd's
+background index, `-` when it did not finish within the runner's 120 s cap; `total` includes waits and time-outs: the two
+`service-*-medium` rows and the large rows end in 30 s per-query time-outs, see G-2 and G-5. `fast==final` is the share of
+`def`/`decl` queries on which the fast tier's file:line set equals clangd's: low by design, the generated names are
+deliberately ambiguous. Peak RSS of the runner (the editor model plus the fast index) stays far below the 500 MB budget of
+§1.7; clangd peaks at about 0.3 GB (300 files), 0.6 to 0.9 GB (3k files) and 2.4 GB (20k files).)
+
+Latency in ms, median / 95th percentile (n queries). The fast tier is isolated (`fastOnlyQueries`), so its numbers are the
+lexer index alone:
+
+| run | def fast | def final | refs final | hover final | sym fast | sym final | rename final |
+|---|---:|---:|---:|---:|---:|---:|---:|
+| gen-game (small) | 0.03 / 0.31 (189) | 10 / 22 (189) | 5.67 / 9.75 (99) | 1.19 / 1.83 (85) | 0.12 / 3.72 (31) | 0.97 / 3.92 (39) | 11 / 117 (6) |
+| gen-service (small) | 0.03 / 0.12 (193) | 10 / 25 (193) | 5.48 / 10 (102) | 1.16 / 1.66 (86) | 0.14 / 2.65 (27) | 0.95 / 3.73 (35) | 7.90 / 11 (6) |
+| gen-mixed (small) | 0.03 / 0.15 (179) | 10 / 30 (179) | 5.57 / 11 (95) | 1.13 / 3.60 (79) | 0.16 / 3.62 (33) | 1.05 / 4.19 (49) | 11 / 72 (6) |
+| game-cmake-medium | 0.04 / 0.43 (524) | 19 / 58 (524) | 7.06 / 24 (272) | 1.23 / 6.53 (234) | 1.36 / 11 (76) | 4.66 / 12 (82) | 17 / 748 (16) |
+| service-cmake-medium | 0.04 / 0.47 (513) | 21 / 69 (513) | 6.42 / 20 (270) | 1.20 / 4.74 (229) | 4.00 / 17 (71) | 4.53 / 11 (89) | 30000 / 30000 (15) |
+| service-vs-medium | 0.05 / 0.48 (513) | 14 / 26 (513) | 6.92 / 12 (270) | 1.43 / 2.85 (229) | 1.17 / 6.44 (71) | 1.92 / 4.93 (89) | 30000 / 30000 (15) |
+| lib-cmake-medium | 0.04 / 0.32 (500) | 18 / 52 (500) | 6.80 / 18 (269) | 1.30 / 4.57 (222) | 2.78 / 19 (75) | 4.52 / 11 (96) | 23 / 658 (16) |
+| c-cmake-medium | 0.03 / 0.29 (343) | 12 / 27 (343) | 6.44 / 14 (175) | 1.36 / 3.69 (144) | 1.10 / 3.71 (64) | 1.47 / 5.02 (77) | 11 / 74 (16) |
+| mixed-cmake-medium | 0.03 / 0.32 (528) | 11 / 24 (528) | 6.20 / 11 (280) | 1.26 / 3.21 (236) | 1.52 / 8.46 (87) | 1.79 / 5.72 (103) | 11 / 279 (16) |
+| game-cmake-large (run 3, quiet) | 0.14 / 5.12 (959) | 66 / 208 (959) | 14 / 62 (509) | 2.47 / 20 (427) | 40 / 72 (128) | 24 / 88 (149) | 950 / 30005 (30) |
+| game-cmake-large (run 1) | 0.14 / 4.55 (959) | 22 / 75 (959) | 8.29 / 20 (509) | 1.70 / 5.46 (427) | 55 / 101 (128) | 5.00 / 25 (149) | 30000 / 30004 (30) |
+| game-cmake-large (run 2, loaded) | 0.15 / 3.35 (959) | 44 / 170 (959) | 11 / 50 (509) | 2.02 / 12 (427) | 89 / 273 (128) | 22 / 159 (149) | 18352 / 30002 (30) |
+
+Against the budgets of §1.7: startup of the fast index 0.5 s to 2.4 s for 20k files / 1M LOC (budget: interactive in
+3 s), editor process 217 MiB (≤ 500 MB). **Fast symbol search is at the 50 ms budget at 20k files** (G-6): median 40 / 55 / 89 ms, p95 72 / 101 / 273 ms
+in the three runs (quiet, first, loaded); at 3k files it is 1 to 4 ms.
+
+Pass / fail breakdown (everything a run reports as FAIL, nothing else; `xfail` lines are the known fast-tier and clangd
+limits, all with a reason in the expectation file):
+
+| size | profile | FAIL (cause) |
+|---|---|---|
+| small | game, service, mixed | none (committed; 5 consecutive Release runs of `tenfold-corpus-tests` per project, PASS + XFAIL only; ASan+UBSan `tenfold-cli corpus` once per project, no sanitizer report) |
+| medium | game 9, service 9 + 12 (rename time-outs), lib 1, c 0, mixed 3 | all `impl` ones are G-1; the service ones G-2 |
+| large | game 42 (run 1), 220 (run 3, quiet machine), 283 (run 2, other jobs running) | run 1: 22 rename time-outs (G-2), 10 `refs` and 2 `def` against a background index that was still being built (G-5), 8 G-1 (+ 6 XPASS of a generator rule that was dropped afterwards, G-4); runs 2 and 3: 169 to 210 incomplete `refs`, 16 to 34 incomplete `def`, 10 to 11 G-1, 13 to 15 rename time-outs, a few `sym` / `impl` (all G-5) |
+
+What held: at 3k files **950 to 1,379 expectations pass per profile** in 18 to 51 s (the profiles without the G-2 time-outs), exact `refs`
+sets of functions, methods, static members, fields, classes (with forward declarations and out-of-line `Cls::` qualifiers),
+constants, enumerators, aliases, macros and macro-declared functions across modules; definition / declaration / type
+definition through base references, overloads (exact literal arguments) and template members; `hover` text; workspace
+symbols for unique names; direct `impl` sets; the unsaved-edit blocks; the vcxproj route gave the same counts as the
+compile-database route (service: 1,286 vs 1,285 pass). No `fast` expectation failed or XPASSed anywhere at any size:
+the generator's census of names predicts the fast tier exactly (`fast` on unique names always passes, `xfail fast` on
+ambiguous names never starts passing).
+
+### Findings
+
+Tier: fast = lexer index, final = clangd answer. "Clean clangd" = a raw LSP session (clangd 22.1.1, background index
+settled), used to separate clangd from tenfold's handling.
+
+| # | expectation | expected | actual | tier | fault | minimal repro |
+|---|---|---|---|---|---|---|
+| G-1 | `impl` of a virtual function / a base class (small, medium, large: 1 to 12 lines per run) | the overrider's out-of-line definition (`d.cpp`), the subclass's definition | the in-class declaration (`d.h`) or a forward declaration of the subclass, once an earlier query (go to definition, also a `fast def` navigation) has opened the header; deterministic for a given sequence, the answer flips with the sequence | final | clangd (the dynamic index of an open file lacks the definition and shadows the background index); tenfold exposes it because navigation opens the target file | `b.h: struct B{virtual int f() const=0;};` `d.h: struct D:B{int f() const override;};` `d.cpp: int D::f() const{return 1;}`; implementation at `B::f` gives `d.cpp:2`; after `didOpen d.h` it gives `d.h:2` |
+| G-2 | the `rename` block (16 renames, 3k files) | each rename answered in ms | after 0 to 7 successful renames one `textDocument/rename` gets no answer for ever; the next 10 to 15 expectations (renames, then the edit block and everything else if it comes first) all time out at 30 s | final | clangd (request received, never answered, process idle) triggered by tenfold's rename sequence | medium `service` seed 1 (`tools/stress/gen_codebase.py /tmp/p --profile service --size medium`, `tenfold-cli corpus /tmp/p`): hung in 4 of 6 runs (cmake and vs), `game` 0 of 2 with the renames last and 3 of 3 with the renames in the middle (an earlier generator order), `lib`, `c`, `mixed` 0 of 2 each; large: 13 to 22 of 30 renames time out. Evidence of one hang: gdb: the runner waits in `Editor::waitFor`, every engine thread idle, clangd 0 CPU with all AST workers waiting; `strace -e write`: the 6th `textDocument/rename` (id 1336, `route.h`) was written at 21:30:46 after the previous rename's `didOpen`x6 / `didChange` / `didSave` / `didClose` / `didChangeWatchedFiles` burst, clangd's only output afterwards was `fileStatus: file is queued` for the next file; not reproduced with a single rename (10 ms in a raw session, or alone in tenfold), nor under `strace -e read,write` (slower) |
+| G-3 | `refs` of a `static inline` function defined in a C header (mixed profile) | the uses from the C and from the C++ translation units | only the uses of the language that was indexed first (two USRs) | final | clang / clangd | `h.h: static inline int f(int v){return v;}` included from `a.c` (uses `f`) and `b.cpp` (uses `f`); references of `f` in `a.c` lacks `b.cpp`. Kept `xfail` in `gen-mixed` |
+| G-4 | `refs` / `rename` of a `static` function in a C file (c, mixed; the generator's `static int pick(int)` helpers) | uses in its own file only | also the uses of a same-named static function in a same-named file of another directory (`d1/s.c`, `d2/s.c`) | final | clangd (the USR of an internal-linkage symbol holds only the base name of the file; with C++ the namespace separates them) | `d1/s.c` and `d2/s.c` each with `static int pick(int)` and a call; references of `pick` in `d1/s.c` returns both files |
+| G-5 | any cross-TU answer at 20k files (large) | the same as at 3k files | `refs` missing uses (10 to 210 lines), `def` returning text-match fallbacks (`file:line:col` of unrelated identifiers, 2 to 34 lines), 5 `impl` empty | final | harness: `Runner` waits at most 120 s for clangd's background index (`min(120000, remaining)`), 7k translation units need longer (RSS 2.4 GB at the end), so the first final queries are asked against a partial index; the failure count follows the load of the machine (42, 283 in two runs) | `tools/stress/run_generated.sh large game`; `clangdIndex` is `-1` in the JSON. A `--index-wait` option (or a `waitForClangdIndex` that follows clangd's progress to the end) would make the large run meaningful |
+| G-6 | `fast sym` at 20k files | ≤ 50 ms (§1.7) | median 40 to 89 ms, p95 72 to 273 ms (three runs: quiet, first, loaded) | fast | tenfold (the fuzzy search grows with the symbol count: 1 to 4 ms at 3k files) | any 20k-file project, `sym "name"`; `tools/stress/run_generated.sh large game` |
+
+Everything below is not a wrong answer but shaped the ground truth (found while the generator disagreed with the tools,
+each case checked against clang or clangd and fixed in the generator):
+
+* A base class's injected class name hides a namespace-scope class of the same name inside the derived class, so a
+  pointer member of a forward-declared `Info` was a pointer to the base `Info`: the generator now qualifies member types.
+* Hover does not show the doc comment of a declaration that has an anchor comment between the doc comment and the name,
+  and omits `provided by "header"` when the use is in the header's own source file: neither is asserted.
+* Workspace symbol ranking is fuzzy and case-insensitive (`sym "helper"` ranked the class `Helper` first): `sym` lines are
+  written only for names unique ignoring case.
+* `impl` of a virtual function answers one level only (W9d finding 10): every deeper hierarchy gives a pair `impl >= direct`
+  (passes) and `xfail impl = all` (fails). Class `impl` answers the forward declaration instead of the class when the header
+  with the forward declaration is open (G-1).
+* `rename` and `refs` need exact anchor lists: a class with explicit constructors / a destructor is never tracked, a
+  `usr`-clashing static function (C) is not renamed.
+
+### Open questions and assumptions
+
+* Should `implementations` answer the definition even when the declaring header is open (G-1)? Assumed yes (what a person
+  who opens `d.h` and asks for the implementations of `B::f` expects is a place with a body).
+* Which side should absorb G-2? The engine could stop opening documents for rename edits (apply them on disk) or time the
+  requests out and re-sync; clangd should answer or fail the request.
+* The committed corpora use `--impl-position first` so that every `impl` line is asked before any navigation has opened a
+  header; the consequence is that their `fast` checks all run after the TU is ready (`fastChecksBeforeTu` counts only
+  the cold ones in the nightly runs, where the generator's default `last` keeps them cold).
+* Assumed: a reasonable CI budget is ~60 s per small project (these take 5 to 15 s) and the nightly job can end in
+  time-outs (G-2, G-5) without being red; it only fails when a project cannot be generated or set up.
+* Not done: Windows / macOS runs of the stress workflow, a `lib` / `c` small project in the repo (limit of three), the
+  `.sln` variant for `lib`, `c` and `mixed`, `--check` (clang syntax check) on the 20k-file output (done up to 3k files for
+  game, mixed, lib; small for all profiles).

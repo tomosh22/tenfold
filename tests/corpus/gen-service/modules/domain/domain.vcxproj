@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{AD5F82E8-79A9-C5D6-B5B4-42EB37E50551}</ProjectGuid>
+    <RootNamespace>domain</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)modules\logging\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>DOMAIN_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\funcs_account.cpp" />
+    <ClCompile Include="src\funcs_contract.cpp" />
+    <ClCompile Include="src\funcs_customer.cpp" />
+    <ClCompile Include="src\funcs_event.cpp" />
+    <ClCompile Include="src\funcs_index.cpp" />
+    <ClCompile Include="src\funcs_notice.cpp" />
+    <ClCompile Include="src\funcs_profile.cpp" />
+    <ClCompile Include="src\funcs_queue.cpp" />
+    <ClCompile Include="src\funcs_quota.cpp" />
+    <ClCompile Include="src\funcs_report.cpp" />
+    <ClCompile Include="src\funcs_ticket.cpp" />
+    <ClCompile Include="src\nested_endpoint.cpp" />
+    <ClCompile Include="src\queue_handler.cpp" />
+    <ClCompile Include="src\stable_event.cpp" />
+    <ClInclude Include="include\domain\config.h" />
+    <ClInclude Include="include\domain\domain.h" />
+    <ClInclude Include="include\domain\funcs_account.h" />
+    <ClInclude Include="include\domain\funcs_contract.h" />
+    <ClInclude Include="include\domain\funcs_customer.h" />
+    <ClInclude Include="include\domain\funcs_event.h" />
+    <ClInclude Include="include\domain\funcs_index.h" />
+    <ClInclude Include="include\domain\funcs_notice.h" />
+    <ClInclude Include="include\domain\funcs_profile.h" />
+    <ClInclude Include="include\domain\funcs_queue.h" />
+    <ClInclude Include="include\domain\funcs_quota.h" />
+    <ClInclude Include="include\domain\funcs_report.h" />
+    <ClInclude Include="include\domain\funcs_ticket.h" />
+    <ClInclude Include="include\domain\macros_handler.h" />
+    <ClInclude Include="include\domain\macros_quota.h" />
+    <ClInclude Include="include\domain\nested_endpoint.h" />
+    <ClInclude Include="include\domain\queue_handler.h" />
+    <ClInclude Include="include\domain\sparse_shipment.h" />
+    <ClInclude Include="include\domain\stable_event.h" />
+    <ClInclude Include="include\domain\types_gateway.h" />
+    <ClInclude Include="include\domain\types_ledger.h" />
+    <ClInclude Include="include\domain\types_mailbox.h" />
+    <ClInclude Include="include\domain\types_mailbox_123.h" />
+    <ClInclude Include="include\domain\types_quota.h" />
+    <ClInclude Include="include\domain\types_report.h" />
+    <ClInclude Include="include\domain\types_validator.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>
