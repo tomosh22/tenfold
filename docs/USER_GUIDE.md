@@ -669,6 +669,13 @@ tests.)
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
 | `vcs.p4vPath` | (empty) | string | The program `PerforceShowInP4v` starts; empty means `p4v` from `PATH`. |
+| `terminal.command` | `cmd.exe` | string | The program `NewTerminal` / `ShowTerminal` open, with arguments, split like a command line (double quotes group). 10x: TerminalCommand (cmd.exe). Off Windows `cmd.exe` means `$SHELL`, else `/bin/sh`. |
+| `terminal.claudeCommand` | `claude` | string | The program of `ClaudeCodeTerminal`. 10x: ClaudeTerminalCommand. |
+| `terminal.cursorCommand` | `cmd /c agent` | string | The program of `CursorTerminal`. 10x: CursorTerminalCommand. Off Windows a leading `cmd /c` is dropped (`agent`). |
+| `terminal.font` | (empty) | font | Terminal font as `family or path[, size in pt]`, looked up like `font.editor`. Empty means the editor font. 10x: TerminalFont. |
+| `terminal.fontSize` | `0` | float | Terminal font size in points. 0 means the editor font size (including View.ZoomIn / ZoomOut; a terminal with its own font or size does not zoom). 10x: TerminalFontSize. |
+| `terminal.scrollbackLines` | `10000` | int | Lines of scrollback kept per terminal (the alternate screen of full-screen programs has none). Takes effect for new terminals; shrinking it on a running terminal trims it at once. tenfold only. |
+| `terminal.closeOnExit` | `false` | bool | `true` closes a terminal's tab as soon as its program exits. `false` keeps the final screen and a `[process exited with code N]` line until you close the tab. tenfold only. |
 <!-- settings:end -->
 
 The default file also notes that undo grouping (`undoGrouping`, `undoGroupPauseMs`) does not live here but in
@@ -818,7 +825,7 @@ command tenfold lacks would take a key from the focused input line or the open p
 `Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files, and so does tenfold (`Control Shift S`
 saves all at once). The second press runs `File.SaveAll`; the first one has already saved the current file.
 
-The 175 default bindings that run a tenfold command today (all other defaults are in
+The 177 default bindings that run a tenfold command today (all other defaults are in
 [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
 differs from the 10x description:
 
@@ -827,6 +834,8 @@ differs from the 10x description:
 | Keys | 10x command | tenfold command | Difference |
 | --- | --- | --- | --- |
 | `Control Shift X` | `ShowCommandPanel` | `App.CommandPalette` | a list to pick from; it does not take a typed command line |
+| `Control '` | `NewTerminal` | `Terminal.New` | a terminal tab in the active panel; see [Terminal](#terminal) |
+| `Control Shift I` | `ShowTerminal` | `Terminal.Show` | creates the first terminal, then cycles through the terminal tabs in creation order |
 | `Alt X` | `OpenCurrentFileInDebugger` | `Debug.OpenInVisualStudio` |  |
 | `Control Shift E` | `ToggleWorkspaceExplorer` | `View.ToggleWorkspaceExplorer` | opens the explorer panel on the left (focused) or closes it; see [Workspace explorer](#workspace-explorer) |
 | `F1` | `InternetSearch` | `Editor.InternetSearch` | the word under the caret or the selection, percent-encoded after `editor.internetSearchCommand` |
@@ -1117,8 +1126,8 @@ listed (see FEATURE_PARITY).
 
 * **Editor text**: Cut, Copy, Paste, Go To Definition, Go To Declaration, Find All References, Rename, Quick Info, Switch
   Header/Source, Format Selection, Toggle Comment, Select All, Toggle Breakpoint, Run To Cursor, Revert Change and Show
-  Change (only when the caret is on a version-control change), Open in Visual Studio (Windows), Show in Workspace Tree
-  (once the tree exists), Open Containing Folder, Copy Full Path. A right-click outside the selection moves the caret
+  Change (only when the caret is on a version-control change), Open in Visual Studio (Windows), Show in Workspace Tree,
+  Open Containing Folder, Copy Full Path. A right-click outside the selection moves the caret
   there first, inside it keeps the selection.
 * **A tab**: Close, Close All But This, Close All But Pinned, Pin / Unpin Tab, Copy Full Path, Open Containing Folder. The
   right-clicked tab becomes the active tab first. Tabs holding unsaved changes are left open by the two "close all"
@@ -1136,6 +1145,25 @@ to the next item that starts with it, Right / Left open and close a submenu. Wit
 click runs the item; a click anywhere else closes the menu. The menu opens below the pointer or caret, above it when
 there is no room, and stays inside the window. Colours: `menuBackground`, `menuBorder`, `menuSelection`, `menuSeparator`
 in a theme (they default to the popup colours).
+
+## Terminal
+
+`NewTerminal` (`Control '`) opens a terminal in a new tab of the active editor panel and focuses it; `ShowTerminal`
+(`Control Shift I`) creates one if there is none, else cycles: from a focused terminal to the next one, from anywhere else to
+the terminal shown last. `ClaudeCodeTerminal` and `CursorTerminal` (no default keys) open terminals running
+`terminal.claudeCommand` / `terminal.cursorCommand`. The program starts in the workspace root (else the current file's
+folder, else your home folder). Closing the tab (x, Control F4) kills the program and everything it started. When the
+program exits the tab keeps its last screen and a `[process exited with code N]` line (`terminal.closeOnExit` closes it
+instead). Terminals are not restored at the next start.
+
+Keys go to the program, except the app's tab and panel keys (Control PageUp/PageDown, Control Tab, Alt+arrows, Control F4 ...), the
+terminal commands, the command palette and the window toggles. Copy: select with the mouse (double click = word, triple =
+line), then Control C (copies and clears the selection; without a selection Control C is ^C), Control Shift C or Control Insert.
+Paste: Control V, Control Shift V, Shift Insert or a right click without a selection (a right click with a selection copies it).
+Scrollback: mouse wheel, Shift PageUp/PageDown, the scrollbar; typing scrolls back to the bottom. Hold Shift to select while a
+program is tracking the mouse. Colours come from the theme (`color.terminalBackground`, `terminalForeground`, `terminalCursor`,
+`terminalSelection`, `terminalAnsi0` ... `terminalAnsi15`; `vs-dark` defines them). Settings: `terminal.*` in the table above.
+Not implemented: reflow on resize, search, link detection, split terminals, shell integration. Italic text is drawn upright.
 
 ## Logs and crash reports
 
@@ -1282,7 +1310,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** 10x's own format and default key map; 8 of its 183 default bindings (8 commands) are not implemented yet (FEATURE_PARITY).
+* **Key bindings:** 10x's own format and default key map; 6 of its 183 default bindings (6 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session

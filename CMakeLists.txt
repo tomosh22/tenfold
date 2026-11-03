@@ -262,6 +262,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/TreeView.cpp
     src/ui/widgets/ContextMenu.cpp
     src/ui/features/ContextMenus.cpp
+    src/ui/widgets/TerminalView.cpp
     src/ui/features/PickerUtil.cpp
     src/ui/features/PasteHistory.cpp
     src/ui/features/KeySequence.cpp
@@ -287,6 +288,8 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/DiffTool.cpp
     src/ui/features/CompileInfo.cpp
     src/ui/features/CommandPalette.cpp
+    src/ui/features/TerminalSession.cpp
+    src/ui/features/TerminalPanel.cpp
     src/ui/features/ExternalChanges.cpp
     src/ui/features/UnsavedPrompt.cpp
     src/ui/features/ParserCommands.cpp
@@ -384,6 +387,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_fold.cpp
     tests/ui/test_w8f_ctx.cpp
     tests/ui/test_w8f_misc.cpp
+    tests/ui/test_w8f_term.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

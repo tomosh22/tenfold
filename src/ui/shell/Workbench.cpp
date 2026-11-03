@@ -181,7 +181,10 @@ std::vector<Panel*> Workbench::panels() const {
 
 void Workbench::installTree(std::unique_ptr<Widget> top, bool keepTabs) {
   if (top_) body_->removeChild(top_);
-  if (!keepTabs) tabs_.clear();
+  if (!keepTabs) {
+    tabs_.clear();
+    widgetTabs_.clear();
+  }
   cycle_ = {};
   top_ = body_->addChild(std::move(top));
   addChild(removeChild(overlay_));  // the overlay stays last (on top)
@@ -576,6 +579,18 @@ int Workbench::addTabTo(Panel* p, Document& doc, bool pinned) {
   return id;
 }
 
+int Workbench::addWidgetTab(std::unique_ptr<Widget> content, const std::string& title, Panel* in) {
+  Panel* p = in ? in : active_;
+  if (!p) return -1;
+  const int id = nextId_++;
+  widgetTabs_.insert(id);
+  p->addTab(id, title, std::move(content), false);
+  cycle_ = {};
+  setActivePanel(p);
+  requestLayout();
+  return id;
+}
+
 int Workbench::openFile(const fs::path& path, Panel* in) {
   Document* d = editor_.open(path);
   if (!d) return -1;
@@ -669,6 +684,13 @@ void Workbench::documentRenamed(const fs::path& from, const fs::path& to) {
 bool Workbench::closeTab(int id, bool discard) {
   Panel* p = panelOf(id);
   if (!p) return false;
+  if (widgetTabs_.erase(id)) {  // a widget tab: no document behind it
+    p->removeTab(id);           // destroys the widget (a terminal kills its process tree here)
+    cycle_ = {};
+    if (p == active_) showActiveTab();
+    requestLayout();
+    return true;
+  }
   const fs::path path = tabs_[id].path;
   // Where the caret was, for RestoreRecentlyClosedFile (taken before the Editor switches to another document).
   Position caret;
@@ -1004,6 +1026,7 @@ std::string Workbench::layoutJson() const {
     Json tabs = Json::array();
     int activeIdx = -1, i = 0;
     for (const auto& t : p->tabs().tabs()) {
+      if (isWidgetTab(t.id)) continue;  // terminals are not saved
       const Document* d = editor_.document(tabPath(t.id));
       if (d && d->isUntitled()) continue;  // nothing to reopen
       tabs.push_back({{"path", rel(tabPath(t.id))}, {"pinned", t.pinned}});

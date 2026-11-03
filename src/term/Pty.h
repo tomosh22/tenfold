@@ -55,6 +55,11 @@ class Pty {
   // joins the reader thread. No callback runs after it returns. Idempotent.
   void close();
 
+  // Kills the whole process tree at once (SIGKILL / terminating the job object) but leaves the Pty open: a write()
+  // blocked on a program that does not read its input returns, and the exit is still reported through the callbacks.
+  // Lets an owner stop a writer thread before close() (close() must not run concurrently with write()). Idempotent.
+  void kill();
+
   bool started() const { return backend_ != nullptr; }
   bool running() const { return backend_ && !exited_; }
   bool exited() const { return exited_; }

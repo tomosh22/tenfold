@@ -38,6 +38,7 @@
 #include "ui/features/SaveAsPrompt.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
+#include "ui/features/TerminalPanel.h"
 #include "ui/features/UnsavedPrompt.h"
 #include "ui/features/VcsUi.h"
 #include "ui/features/WorkspaceExplorer.h"
@@ -121,6 +122,9 @@ class EditorApp {
   FunctionPicker& functionPicker() { return *functions_; }
   WorkspaceExplorer* explorer() { return explorer_.get(); }  // the "Explorer" left-dock panel; null without a Workbench
   BuildPanel* buildPanel() { return build_; }                // the "Build" bottom-dock panel; null without a Workbench
+  TerminalPanel* terminalPanel() {
+    return terminals_.get();
+  }  // W8f: NewTerminal, ShowTerminal, ...; null without a Workbench
   VcsUi& vcsUi() { return *vcsUi_; }  // C3c: Vcs.* commands, revert confirmation, external diff tool
   // W8f: PasteHistory (Control Shift V), key-sequence recording / playback, PerforceHistory / PerforceShowInP4v.
   PasteHistory& pasteHistory() { return *pasteHistory_; }
@@ -205,6 +209,8 @@ class EditorApp {
   std::string untitledSuggestion(const Document& d) const;
   bool commandRunnable(const std::string& id) const;
   bool widgetOwnsKey(const std::string& commandId) const;
+  bool terminalSkipsShell(const KeyChord& chord) const;  // the focused terminal lets this stroke reach the app
+  void bindTerminalCommands();
   bool startBuild(BuildOverrides o);
   void bindUiCommands();
   void bindMiscCommands();  // W8f
@@ -291,6 +297,7 @@ class EditorApp {
   };
   std::map<std::string, UntitledName> untitledNames_;  // generic path of an untitled document -> its name
   BuildPanel* build_ = nullptr;                        // owned by the Workbench's bottom dock
+  std::unique_ptr<TerminalPanel> terminals_;           // W8f: terminal tabs of the editor panels
   std::unique_ptr<WorkspaceExplorer> explorer_;        // its TreeView is owned by the Workbench's left dock
   // W8f
   ContextMenu* menu_ = nullptr;  // use contextMenu(): it is stale once another modal replaced the menu

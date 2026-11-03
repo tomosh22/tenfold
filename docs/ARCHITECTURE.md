@@ -957,7 +957,7 @@ real clangd; plus the check that the user guide's settings table matches `assets
 
 ## Terminal engine (W8f, `src/term`, part of `tenfold_core`)
 
-The UI-agnostic half of the terminal panel (`NewTerminal`, `ShowTerminal`); the panel that renders it is a later task.
+The UI-agnostic half of the terminal panel (`NewTerminal`, `ShowTerminal`); the panel that renders it is described under "Terminal panel" below.
 No third-party code. Three independent pieces:
 
 * **`Pty`** runs a program in a pseudo-terminal. `PtyOptions{program, args, cwd, rows, cols, env}`; an empty program is
@@ -1023,6 +1023,42 @@ No third-party code. Three independent pieces:
 
 Threading: `Pty` owns one reader thread; `VtScreen` and the key functions are single-threaded and belong to whoever
 consumes the posted data (the main thread). Lock order is trivial: the backend's `exitMu` is a leaf lock.
+
+
+## Terminal panel (W8f, `src/ui/features/Terminal*`, `src/ui/widgets/TerminalView.*`)
+
+The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`, `ClaudeCodeTerminal`, `CursorTerminal` are
+`Terminal.New`, `Terminal.Show`, `Terminal.NewClaude`, `Terminal.NewCursor` (aliases in `CommandNames.cpp`).
+
+* **Hosting.** A terminal is a tab of an editor panel (`Workbench::addWidgetTab`): the tab strip, drag between panels, split
+  drops, Ctrl+PageUp/Down, Ctrl+Tab, Control F4 and the tab's x all work on it. A widget tab has no `Document`: it is not
+  in `layout.json`, DuplicatePanel/split do not copy it, `closeTab` destroys the widget without asking. Destroying a
+  `TerminalView` destroys its `TerminalSession`, which kills the process tree (`Pty::close`).
+* **`TerminalSession`** (UI-free): `Pty` + `VtScreen` + plumbing. The Pty reader thread only appends bytes to a mutex-guarded
+  chunk queue and calls `Editor::post` (plus an optional `wake`, the SDL wake event) once per burst; the posted task feeds the
+  `VtScreen` **on the main thread** with a 4 ms budget per call and re-posts itself while bytes remain, so a 50 MB burst costs a
+  slice per UI iteration. The reader blocks above 8 MiB queued (backpressure). The `VtScreen` is never touched by two threads.
+  Input (keys, paste, `VtScreen` replies) goes through a write queue served by a writer thread, because `Pty::write` blocks.
+  The destructor stops the writer (`Pty::kill` first when it is stuck in a write), then `Pty::close`. The posted tasks hold a
+  shared state whose `owner` pointer the destructor nulls, so tasks queued for a dead session do nothing. On exit the final
+  screen stays and `[process exited with code N]` is written to it.
+* **`TerminalView`** (widget): paints the cell grid (merged background rects, text runs at exact cell x), 16 ANSI colours from
+  `Theme::terminalAnsi0..15`, 256-colour cube/grays computed, truecolour, bold (bright + double strike), dim, underline,
+  strike, inverse, wide characters, DECSCUSR cursor shapes; the renderer repaints the whole frame, so `VtScreen` dirty rows are
+  only cleared, not used. A custom `terminal.font`/`terminal.fontSize` uses one shared `TextRenderer` (`TerminalFont`) flushed in
+  `paintOverlay`. Scrollback (wheel, Shift+PageUp/Down, scrollbar, keeps its place while output arrives, any key snaps to the
+  bottom), selection (drag, word, line, Shift-extend) in absolute scrollback coordinates, clipboard, bracketed paste, focus
+  reporting, SGR/X10 mouse reporting, alternate-screen wheel to arrow keys. Keys: `encodeTermKey`; Ctrl/Alt combinations from
+  `KeyDown`, printable text from `Text` events (Ctrl+Alt = AltGr is left to `Text`).
+* **Key routing.** While a terminal has the focus `EditorApp::handleEventImpl` sends a `KeyDown` straight to it unless a global
+  binding starting with that stroke runs `Terminal.*`, `Workbench.*` (tabs, panels, close tab, focus/move/duplicate panel),
+  `App.Quit`, `App.CommandPalette` or a window/explorer/zoom toggle (`EditorApp::terminalSkipsShell`).
+* **`TerminalPanel`** (feature): creates views, resolves the command (`terminal.*` settings; off Windows `cmd.exe` = `$SHELL`
+  / `/bin/sh`, a leading `cmd /c` dropped), the working directory (workspace root, else the current file's folder, else home),
+  the initial size (a synchronous layout, so the program starts with the right size), cycling for `ShowTerminal`, tab titles
+  (the program's OSC title) and `terminal.closeOnExit`. Tests: `tests/ui/test_w8f_term.cpp`.
+* ConPTY (Windows) has still only been compile-tested; everything above `Pty` is platform neutral and draws through the same
+  `gfx::Renderer` calls as every widget, so the D3D11 path needs nothing of its own.
 
 ## Portability
 

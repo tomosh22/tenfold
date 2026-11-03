@@ -203,6 +203,14 @@ bool Pty::Backend::start(const PtyOptions& o, std::string* error) {
   STARTUPINFOEXW si{};
   si.StartupInfo.cb = sizeof si;
   si.lpAttributeList = reinterpret_cast<LPPROC_THREAD_ATTRIBUTE_LIST>(attrStorage.data());
+  // The child must get the pseudo console's standard handles, never ours. A parent whose own stdio is redirected (a CI
+  // job, a pipe) otherwise passes those on through the process parameters and the child writes to the real console and
+  // reads the real stdin, bypassing ConPTY. STARTF_USESTDHANDLES with invalid handles (what wezterm and node-pty do;
+  // bInheritHandles stays FALSE) makes conhost attach the pseudo console's handles instead.
+  si.StartupInfo.dwFlags = STARTF_USESTDHANDLES;
+  si.StartupInfo.hStdInput = INVALID_HANDLE_VALUE;
+  si.StartupInfo.hStdOutput = INVALID_HANDLE_VALUE;
+  si.StartupInfo.hStdError = INVALID_HANDLE_VALUE;
   if (!::InitializeProcThreadAttributeList(si.lpAttributeList, 1, 0, &attrSize))
     return fail("InitializeProcThreadAttributeList");
   if (!::UpdateProcThreadAttribute(si.lpAttributeList, 0, PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE, hpc, sizeof(HPCON_),

@@ -12,6 +12,7 @@
 #include "ui/features/ParserCommands.h"
 #include "ui/platform/Clipboard.h"
 #include "ui/settings/Settings.h"
+#include "ui/widgets/TerminalView.h"
 #include "ui/widgets/TextView.h"
 #include "vcs/VcsExec.h"
 
@@ -176,6 +177,10 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     perforceUi_ = std::make_unique<PerforceUi>(pickerEnv_, std::move(ph));
   }
   registerEditorCommands(registry_);
+  if (bench_) {
+    terminals_ = std::make_unique<TerminalPanel>(editor_, *bench_);
+    terminals_->message = [this](const std::string& m) { setMessage(m, kMessageMs); };
+  }
   bindUiCommands();
   bindParserCommands();
   keyOpts_.workspaceRoot = editor.workspace().root();
@@ -399,6 +404,7 @@ void EditorApp::applySettings(const Settings& s) {
   }
   external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
   vcsUi_->applySettings(s);
+  if (terminals_) terminals_->applySettings(s, scale_);
   if (explorer_) explorer_->setTrackActiveFile(s.getBool("explorer.trackActiveFile"));
   pasteHistory_->applySettings(s);
   perforceUi_->applySettings(s);
@@ -843,6 +849,7 @@ void EditorApp::bindUiCommands() {
   bindEditingCommands();
   if (!bench_) return;
   bindPanelCommands();
+  bindTerminalCommands();
   registry_.bind("File.OpenFile", [this](const CommandContext&, std::string_view) {
     closePickers();
     files_->open();
@@ -1230,6 +1237,49 @@ void EditorApp::bindPanelCommands() {
         hasPanel);
 }
 
+// W8f: the terminal commands. A failure to start (unknown program, no ConPTY) is reported in the status bar.
+void EditorApp::bindTerminalCommands() {
+  struct TermCmd {
+    const char* id;
+    TerminalPanel::Kind kind;
+    bool show;
+  };
+  static const TermCmd cmds[] = {{"Terminal.New", TerminalPanel::Kind::Shell, false},
+                                 {"Terminal.Show", TerminalPanel::Kind::Shell, true},
+                                 {"Terminal.NewClaude", TerminalPanel::Kind::Claude, false},
+                                 {"Terminal.NewCursor", TerminalPanel::Kind::Cursor, false}};
+  for (const TermCmd& tc : cmds)
+    registry_.bind(tc.id, [this, tc](const CommandContext&, std::string_view) {
+      closePickers();
+      std::string err;
+      const int id = tc.show ? terminals_->show(&err) : terminals_->create(tc.kind, &err);
+      if (id < 0) setMessage("Terminal: " + err, kMessageMs);
+      return true;
+    });
+}
+
+// The focused terminal sends nearly every key to its program. These are the strokes that still run app commands: the
+// terminal commands themselves, tab and panel switching / moving / closing, quit, the command palette and the window
+// toggles. Everything else (Ctrl+K, Ctrl+F, Ctrl+O, Alt+letters, F-keys ...) belongs to the shell or the full-screen
+// program. A stroke counts when any global binding that starts with it runs one of these commands.
+bool EditorApp::terminalSkipsShell(const KeyChord& chord) const {
+  static const std::set<std::string_view> exact = {"App.Quit",
+                                                   "App.CommandPalette",
+                                                   "View.ToggleWorkspaceExplorer",
+                                                   "View.ToggleBuildPanel",
+                                                   "View.ToggleFullscreen",
+                                                   "View.ToggleFocusMode",
+                                                   "View.ToggleFullscreenFocusMode",
+                                                   "View.ZoomIn",
+                                                   "View.ZoomOut"};
+  for (const KeyBinding& b : keys_.bindings()) {
+    if ((b.context != "global" && b.context != "terminal") || b.chords.empty() || !(b.chords[0] == chord)) continue;
+    const std::string id = resolveCommandName(b.command).id;
+    if (id.rfind("Terminal.", 0) == 0 || id.rfind("Workbench.", 0) == 0 || exact.count(id)) return true;
+  }
+  return false;
+}
+
 const char* EditorApp::activeContext() const {
   if (root_.modal()) return "picker";
   if (rename_ && rename_->isOpen()) return "popup";  // the rename box: Enter is SubmitRenameSymbol
@@ -1310,6 +1360,8 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (e.type == InputType::MouseDown && e.button == MouseButton::Right && !root_.modal() && !root_.captured() &&
       openContextMenuAt(e.x, e.y))
     return true;
+  if (terminals_ && (e.type == InputType::FocusGained || e.type == InputType::FocusLost))
+    terminals_->setWindowFocused(e.type == InputType::FocusGained);
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
     if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the Ctrl+Tab cycle is over
       cycling_ = false;
@@ -1324,6 +1376,11 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     chord = chordFromMouse(e.button, e.mods);
   else return dispatchUnbound(e);
 
+  // A focused terminal owns the keyboard except for the strokes terminalSkipsShell names (and the rest of a chord that
+  // began with one).
+  if (e.type == InputType::KeyDown && !root_.modal() && !keys_.pending() &&
+      dynamic_cast<TerminalView*>(root_.focused()) && !terminalSkipsShell(chord))
+    return root_.dispatch(e);
   const char* ctx = activeContext();
   const KeyMap::Result r = keys_.feed(chord, ctx, nowMs);
   switch (r.status) {
@@ -1444,6 +1501,7 @@ int EditorApp::tick(int64_t nowMs) {
     ttlMs_ = 0;
   }
   if (bench_) bench_->sync();
+  if (terminals_) terminals_->tick();
   updateUntitledNames();
   vcsUi_->tick();
   if (settings_)
