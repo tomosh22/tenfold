@@ -296,6 +296,7 @@ class EditorApp {
   ContextMenu* menu_ = nullptr;  // use contextMenu(): it is stale once another modal replaced the menu
   std::vector<ContextMenuProvider> menuProviders_;
   MenuCommandInfo menuInfo(const std::string& command);
+  bool explorerMenu(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out);
   bool menuRequestFor(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out);
   void closeTabs(const std::vector<int>& ids);
 };

@@ -71,6 +71,11 @@ class TreeView : public Widget {
 
   const std::vector<Row>& rows() const { return rows_; }
   int selectedNode() const { return selected_; }
+  // The node whose row contains the window point, -1 over no row.
+  int nodeAt(float x, float y) const {
+    const int r = rowAtY(y);
+    return r >= 0 && x >= bounds().x && x < bounds().x + bounds().w ? rows_[static_cast<size_t>(r)].node : -1;
+  }
   int selectedRow() const;  // -1 when the selection is not shown
   void select(int node);    // shows the node (clearing a filter that hides it) and scrolls to it
   bool isExpanded(int node) const {

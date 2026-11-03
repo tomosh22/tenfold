@@ -16,6 +16,7 @@ struct MenuEntry {
   std::string command;           // empty = separator
   std::string label;             // empty = the command's own name
   bool onlyOnVcsChange = false;  // shown only when the click / caret is on a version-control change
+  std::string arg;               // passed to the command (a path, for the explorer tree)
 };
 
 struct MenuCommandInfo {
@@ -27,7 +28,7 @@ struct MenuCommandInfo {
 
 struct MenuHooks {
   std::function<MenuCommandInfo(const std::string& command)> info;
-  std::function<void(const std::string& command)> run;
+  std::function<void(const std::string& command, const std::string& arg)> run;
 };
 
 // Items for `entries`; unavailable entries are dropped and separators that would lead, trail or repeat are dropped.

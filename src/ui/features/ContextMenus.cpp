@@ -19,8 +19,8 @@ std::vector<MenuItem> buildMenu(const std::vector<MenuEntry>& entries, const Men
     m.label = e.label.empty() ? info.name : e.label;
     m.shortcut = info.shortcut;
     m.enabled = info.enabled;
-    m.action = [run = hooks.run, cmd = e.command] {
-      if (run) run(cmd);
+    m.action = [run = hooks.run, cmd = e.command, arg = e.arg] {
+      if (run) run(cmd, arg);
     };
     out.push_back(std::move(m));
   }

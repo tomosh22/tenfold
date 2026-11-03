@@ -790,3 +790,167 @@ TEST(ctxmenu_right_click_in_another_panel_makes_it_active) {
   env.key(Key::Escape);
   CHECK(env.bench->focused() == v);
 }
+
+// --- the workspace explorer tree's menu -----------------------------------------------------------------------------
+
+namespace {
+
+struct TreeEnv {
+  fs::path dir;
+  std::unique_ptr<Editor> ed;
+  std::unique_ptr<gfx::TextRenderer> text;
+  NullRenderer nr;
+  std::unique_ptr<Workbench> bench;
+  std::unique_ptr<EditorApp> app;
+  std::string clip;
+  std::vector<std::string> shown;  // paths the file manager was asked for
+  int64_t now = 1000;
+
+  TreeEnv() {
+    static int n = 0;
+    dir = uitest::tempRoot() / ("tf_w8f_treemenu_" + std::to_string(n++) + "_" +
+                                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    fs::create_directories(dir);
+    fs::copy(fs::path(TENFOLD_SOURCE_DIR) / "tests/fixtures/vs/Explorer", dir, fs::copy_options::recursive);
+    text = mockText();
+    Editor::Options o;
+    o.semantic.useClangd = false;
+    o.semantic.persistFastIndex = false;
+    o.watchForcePolling = true;
+    o.watchPollMs = 60000;
+    ed = std::make_unique<Editor>(dir, o);
+    ed->start();
+    bench = std::make_unique<Workbench>(*text, *ed);
+    app = std::make_unique<EditorApp>(*bench, *ed, bench.get());
+    ClipboardBackend cb;
+    cb.get = [this] { return clip; };
+    cb.set = [this](const std::string& s) {
+      clip = s;
+      return true;
+    };
+    setClipboardBackend(cb);
+    OsLauncher l;
+    l.showInFolder = [this](const fs::path& p, std::string*) {
+      shown.push_back(p.generic_string());
+      return true;
+    };
+    app->setLauncher(l);
+    app->runCommand("View.ToggleWorkspaceExplorer");
+    tree().expandAll(true);
+    frame();
+  }
+  ~TreeEnv() {
+    setClipboardBackend({});
+    app.reset();
+    bench.reset();
+    ed.reset();
+    std::error_code ec;
+    fs::remove_all(dir, ec);
+  }
+  TreeView& tree() { return *app->explorer()->view(); }
+  void frame() {
+    ed->pump();
+    app->tick(now);
+    bench->render(nr, 1000, 600);
+  }
+  bool send(const InputEvent& e) {
+    now += 10;
+    const bool r = app->handleEvent(e, now);
+    frame();
+    return r;
+  }
+  int rowNamed(const std::string& name) {
+    for (size_t i = 0; i < tree().rows().size(); ++i)
+      if (tree().model().node(tree().rows()[i].node).name == name) return static_cast<int>(i);
+    return -1;
+  }
+  void rightClickRow(int row) {
+    const RectF r = tree().rowRect(row);
+    send(mouseEv(InputType::MouseDown, r.x + r.w * 0.6f, r.y + r.h / 2, MouseButton::Right));
+    send(mouseEv(InputType::MouseUp, r.x + r.w * 0.6f, r.y + r.h / 2, MouseButton::Right));
+  }
+  ContextMenu* menu() { return app->contextMenu(); }
+  bool has(const std::string& l) { return find(l) >= 0; }
+  int find(const std::string& l) {
+    if (!menu()) return -1;
+    for (size_t i = 0; i < menu()->items().size(); ++i)
+      if (menu()->items()[i].label == l) return static_cast<int>(i);
+    return -1;
+  }
+  void clickItem(const std::string& l) {
+    const int i = find(l);
+    REQUIRE(i >= 0);
+    const RectF r = menu()->itemRect(0, i);
+    send(mouseEv(InputType::MouseDown, r.x + r.w / 2, r.y + r.h / 2));
+    send(mouseEv(InputType::MouseUp, r.x + r.w / 2, r.y + r.h / 2));
+  }
+  std::string selectedName() { return tree().model().node(tree().selectedNode()).name; }
+};
+
+}  // namespace
+
+TEST(ctxmenu_tree_right_click_on_a_file_selects_it_and_offers_file_items) {
+  TreeEnv env;
+  const int row = env.rowNamed("main.cpp");
+  REQUIRE(row >= 0);
+  env.rightClickRow(row);
+  REQUIRE(env.menu() != nullptr);
+  CHECK_EQ(env.selectedName(), std::string("main.cpp"));
+  for (const char* l : {"Open", "Collapse All", "Open Containing Folder", "Copy Full Path", "Build Current File"})
+    CHECK(env.has(l));
+  CHECK(!env.has("Expand") && !env.has("Collapse"));
+  env.clickItem("Copy Full Path");
+  CHECK_EQ(fs::path(env.clip).filename().string(), std::string("main.cpp"));  // the node's file, not the open one
+  env.rightClickRow(env.rowNamed("main.cpp"));
+  env.clickItem("Open Containing Folder");
+  REQUIRE_EQ(env.shown.size(), static_cast<size_t>(1));
+  CHECK(env.shown[0].find("main.cpp") != std::string::npos);
+  env.rightClickRow(env.rowNamed("main.cpp"));
+  env.clickItem("Open");
+  REQUIRE(env.ed->currentDocument() != nullptr);
+  CHECK_EQ(env.ed->currentDocument()->path().filename().string(), std::string("main.cpp"));
+}
+
+TEST(ctxmenu_tree_project_and_folder_nodes_have_no_file_items) {
+  TreeEnv env;
+  const int row = env.rowNamed("App");
+  REQUIRE(row >= 0);
+  env.rightClickRow(row);
+  REQUIRE(env.menu() != nullptr);
+  CHECK_EQ(env.selectedName(), std::string("App"));
+  CHECK(env.has("Collapse") && env.has("Collapse All") && env.has("Copy Full Path") &&
+        env.has("Open Containing Folder"));
+  CHECK(!env.has("Open") && !env.has("Build Current File"));
+  CHECK(!env.has("Settings..."));  // no workspace settings UI to open (OPEN_QUESTIONS)
+  env.clickItem("Collapse");
+  CHECK(!env.tree().isExpanded(env.tree().selectedNode()));
+  env.rightClickRow(env.rowNamed("App"));
+  CHECK(env.has("Expand"));
+  env.clickItem("Collapse All");
+  CHECK(env.tree().rows().size() <= 4);  // the root open, nothing below
+  // A right click below the last row shows no menu.
+  const RectF l = env.tree().listRect();
+  env.send(mouseEv(InputType::MouseDown, l.x + 20, l.y + l.h - 2, MouseButton::Right));
+  CHECK(env.menu() == nullptr);
+}
+
+TEST(ctxmenu_tree_shift_f10_opens_the_menu_of_the_selected_node_at_its_row) {
+  TreeEnv env;
+  const int row = env.rowNamed("main.cpp");
+  REQUIRE(row >= 0);
+  env.tree().select(env.tree().rows()[static_cast<size_t>(row)].node);
+  env.tree().setFocus();
+  env.frame();
+  env.send(keyEv(Key::F10, ModShift));
+  REQUIRE(env.menu() != nullptr);
+  CHECK_EQ(env.menu()->selected(), 0);
+  CHECK_EQ(env.menu()->items()[0].label, std::string("Open"));
+  const RectF r = env.tree().rowRect(env.tree().selectedRow());
+  CHECK(env.menu()->menuRect().y >= r.y + r.h - 1);
+  env.send(keyEv(Key::Escape));
+  CHECK(env.menu() == nullptr);
+  env.send(keyEv(Key::Menu));
+  REQUIRE(env.menu() != nullptr);
+  env.send(keyEv(Key::Enter));  // the first item: Open
+  CHECK_EQ(env.ed->currentDocument()->path().filename().string(), std::string("main.cpp"));
+}
