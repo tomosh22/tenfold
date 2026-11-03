@@ -1,0 +1,116 @@
+# layout-exts: unusual file extensions and layouts. Headers named .hh .hxx .inl .ipp .tpp and one without any extension
+# (include/config); sources named .cxx .cc; a generated-looking 3000-line file; one 29000-character line.
+
+# ---- fast tier ----
+fast def use_scale -> scale_def | scale_decl
+fast def use_legacy_add -> legacy_add_def | legacy_add_decl
+fast def use_config_level -> config_level_fn
+fast def use_Config -> Config
+fast def use_Engine -> Engine
+xfail fast def use_Vec -> Vec  # fast tier answers the class, every constructor (in class and out of line): the word Vec is looked up, not the type
+fast def use_Vec2i -> Vec2i
+fast def use_gen_last -> gen_last
+fast def use_gen_first -> gen_first
+fast def use_far_a -> far_def
+fast sym "legacy_add" -> legacy_add_def | legacy_add_decl
+fast sym "fn_1499" -> gen_mid
+fast sym "config_level" -> config_level_fn
+fast sym "far_sum" -> far_user
+
+# ---- .hh / .inl / .tpp ----
+def use_Vec2i -> Vec2i
+def use_Vec -> Vec
+def use_dot -> Vec_dot_def
+decl use_dot -> Vec_dot_decl
+def use_len2 -> Vec_len2_def
+decl use_len2 -> Vec_len2_decl
+def use_x -> Vec_x
+def use_y -> Vec_y
+def use_scale -> scale_def
+xfail decl use_scale -> scale_decl  # clangd: with scale.inl open (indexed standalone) go to declaration answers the inline definition; with only main.cpp open it answers types.hh
+xfail def use_dot_in_len2 -> Vec_dot_def | Vec_dot_decl  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+xfail def use_x_in_dot -> Vec_x  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+xfail def use_y_in_dot -> Vec_y  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+xfail refs Vec_x = Vec_x use_x use_x_in_dot use_wx  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+refs Vec_x >= Vec_x use_x use_wx
+xfail refs Vec_y = Vec_y use_y use_y_in_dot  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+refs Vec_y >= Vec_y use_y
+refs scale_decl >= scale_decl scale_def use_scale
+hover use_scale ~ "scale" "int"
+hover use_dot ~ "dot"
+hover use_Vec2i ~ "Vec"
+typedef use_Vec2i -> Vec2i | Vec
+rename scale_def scale_by_two
+  scale_decl scale_def use_scale
+sym "Vec" ∋ Vec
+sym "scale" ∋ scale_def
+
+# ---- .hxx / .ipp / .cxx ----
+def use_Engine -> Engine
+def use_run -> Engine_run_def
+decl use_run -> Engine_run_decl
+def use_step -> Engine_step_def
+decl use_step -> Engine_step_decl
+def use_step_in_run -> Engine_step_def
+def use_state_main -> Engine_state_field
+xfail def use_state_in_step -> Engine_state_field  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+def use_state_in_run -> Engine_state_field
+xfail refs Engine_state_field = Engine_state_field use_state_main use_state_in_step use_state_in_run  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+refs Engine_state_field >= Engine_state_field use_state_main use_state_in_run
+xfail refs Engine_step_decl >= Engine_step_decl Engine_step_def use_step use_step_in_run  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+refs Engine_step_decl >= Engine_step_decl use_step use_step_in_run
+hover use_run ~ "run" "int"
+xfail rename Engine_state_field state  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+  Engine_state_field use_state_main use_state_in_step use_state_in_run
+sym "Engine" ∋ Engine
+
+# ---- .hh / .cc ----
+def use_legacy_add -> legacy_add_def
+decl use_legacy_add -> legacy_add_decl
+def use_legacy_mode_main -> legacy_mode_def
+decl use_legacy_mode_main -> legacy_mode_decl
+def use_legacy_mode -> legacy_mode_def
+refs legacy_add_decl = legacy_add_decl legacy_add_def use_legacy_add
+refs legacy_mode_decl >= legacy_mode_decl legacy_mode_def use_legacy_mode use_legacy_mode_main
+hover use_legacy_add ~ "legacy_add" "int"
+rename legacy_add_def legacy_sum
+  legacy_add_decl legacy_add_def use_legacy_add
+
+# ---- header without a file extension ----
+def use_Config -> Config
+def use_config_level -> config_level_fn
+def use_level_main -> Config_level
+def use_level_in_cfg -> Config_level
+def use_CONFIG_LEVEL -> CONFIG_LEVEL_def
+def use_CONFIG_LEVEL_in_cfg -> CONFIG_LEVEL_def
+refs Config_level = Config_level use_level_main use_level_in_cfg
+refs CONFIG_LEVEL_def = CONFIG_LEVEL_def use_CONFIG_LEVEL use_CONFIG_LEVEL_in_cfg
+hover use_CONFIG_LEVEL ~ "CONFIG_LEVEL" "2"
+hover use_config_level ~ "config_level"
+sym "Config" ∋ Config
+sym "config_level" -> config_level_fn
+rename Config_level depth
+  Config_level use_level_main use_level_in_cfg
+
+# ---- generated-looking code: 3000 functions, 3000 lines ----
+def use_gen_last -> gen_last
+def use_gen_first -> gen_first
+def gen_call_last -> gen_pen
+def gen_call_mid -> gen_mid
+refs gen_first >= gen_first use_gen_first
+refs gen_last = gen_last use_gen_last
+hover use_gen_last ~ "fn_2999" "int"
+sym "fn_2999" -> gen_last
+sym "fn_1499" -> gen_mid
+sym "use_gen" -> gen_use
+
+# ---- one very long line: anchors thousands of columns in ----
+def use_far_a -> far_def
+def use_far_b -> far_def2
+def use_table -> table_def
+refs far_def = far_def use_far_a
+refs far_def2 = far_def2 use_far_b
+hover use_far_a ~ "far_a" "int"
+rename far_def far_one
+  far_def use_far_a
+xfail sym "far_sum" -> far_user  # clangd: the index stores a symbol column in 12 bits, so a symbol on a line longer than 4095 columns is reported at column 4096 (the token is at column ~6100)

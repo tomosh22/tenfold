@@ -1,0 +1,7 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/engine.cxx","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/engine.cxx"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/legacy.cc","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/legacy.cc"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/generated.cc","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/generated.cc"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/longline.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/longline.cpp"]}
+]

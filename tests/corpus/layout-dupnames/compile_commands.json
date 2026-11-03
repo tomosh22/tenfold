@@ -1,0 +1,10 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/app/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/app/main.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/a/util.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/a/util.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/b/util.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/b/util.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/sub1/src/engine.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/sub1/include","-c","@CORPUS_ROOT@/sub1/src/engine.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/sub1/src/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/sub1/include","-c","@CORPUS_ROOT@/sub1/src/main.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/sub2/src/engine.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/sub2/include","-c","@CORPUS_ROOT@/sub2/src/engine.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/sub2/src/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/sub2/include","-c","@CORPUS_ROOT@/sub2/src/main.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/deep/l1/l2/l3/l4/l5/l6/l7/l8/l9/l10/l11/l12/leaf.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/deep","-c","@CORPUS_ROOT@/deep/l1/l2/l3/l4/l5/l6/l7/l8/l9/l10/l11/l12/leaf.cpp"]}
+]

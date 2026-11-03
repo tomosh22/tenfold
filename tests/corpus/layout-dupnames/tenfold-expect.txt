@@ -1,0 +1,102 @@
+# layout-dupnames: files with the same name in different folders (a/util.h and b/util.h, both included by app/main.cpp;
+# a/util.cpp and b/util.cpp), two unrelated sub-projects that each define a global `class Engine` in their own engine.h
+# (never in one TU), and a header name reused at depth 12 and at depth 1.
+
+# ---- fast tier ----
+fast sym "Engine" ∋ Engine1 Engine2
+xfail fast def use_Engine1 -> Engine1  # fast tier is name-only: the Engine of the other, unrelated sub-project is answered too
+xfail fast def use_Engine2 -> Engine2  # same
+xfail fast def use_a_helper -> a_helper_def | a_helper_decl  # fast tier ignores the namespace qualifier a_ns:: and answers b_ns::helper too
+xfail fast def use_b_helper -> b_helper_def | b_helper_decl  # same
+xfail fast def use_a_Settings -> a_Settings  # same: b_ns::Settings is answered too
+xfail fast def use_shallow_leaf -> shallow_leaf  # fast tier ignores ::-qualification and file identity: the deep leaf_value is answered too
+fast def use_DeepNode -> DeepNode
+fast def use_render2 -> Engine2_render_def | Engine2_render_decl
+
+# ---- same file name, two folders ----
+def use_a_helper -> a_helper_def
+decl use_a_helper -> a_helper_decl
+def use_b_helper -> b_helper_def
+decl use_b_helper -> b_helper_decl
+def use_a_twice -> a_inline
+def use_b_twice -> b_inline
+def use_a_twice_in_a -> a_inline
+def use_b_twice_in_b -> b_inline
+def use_a_Settings -> a_Settings
+def use_b_Settings -> b_Settings
+def use_a_size -> a_Settings_size
+def use_b_size -> b_Settings_size
+def use_a_size_in_a -> a_Settings_size
+def use_b_size_in_b -> b_Settings_size
+refs a_Settings_size = a_Settings_size use_a_size use_a_size_in_a
+refs b_Settings_size = b_Settings_size use_b_size use_b_size_in_b
+refs a_helper_def = a_helper_decl a_helper_def use_a_helper
+refs b_helper_def = b_helper_decl b_helper_def use_b_helper
+refs a_inline = a_inline use_a_twice use_a_twice_in_a
+refs b_inline = b_inline use_b_twice use_b_twice_in_b
+refs a_Settings >= a_Settings use_a_Settings
+refs b_Settings >= b_Settings use_b_Settings
+hover use_a_helper ~ "helper" "a_ns"
+hover use_b_helper ~ "helper" "b_ns"
+hover use_a_size ~ "size" "int"
+hover use_b_size ~ "size" "double"
+rename a_helper_def helper_a
+  a_helper_decl a_helper_def use_a_helper
+rename b_inline twice_b
+  b_inline use_b_twice use_b_twice_in_b
+rename a_Settings_size n
+  a_Settings_size use_a_size use_a_size_in_a
+sym "helper" ∋ a_helper_def b_helper_def
+sym "twice" ∋ a_inline b_inline
+sym "Settings" ∋ a_Settings b_Settings
+
+# ---- the same class name in two unrelated sub-projects ----
+def use_Engine1 -> Engine1
+def use_Engine2 -> Engine2
+def use_tick1 -> Engine1_tick_def
+decl use_tick1 -> Engine1_tick_decl
+def use_render2 -> Engine2_render_def
+decl use_render2 -> Engine2_render_decl
+def use_count1 -> Engine1_count
+def use_count1_main -> Engine1_count
+def use_frames2 -> Engine2_frames
+def use_frames2_main -> Engine2_frames
+refs Engine1_count = Engine1_count use_count1 use_count1_main
+refs Engine2_frames = Engine2_frames use_frames2 use_frames2_main
+refs Engine1 >= Engine1 use_Engine1
+xfail refs Engine1 = Engine1 use_Engine1  # clangd: both classes are the same global entity (same USR, no namespace) in its index, so references/rename of one include the unrelated other sub-project and the symbol search keeps one of the two (which one varies between runs)
+xfail refs Engine2 = Engine2 use_Engine2  # clangd: both classes are the same global entity (same USR, no namespace) in its index, so references/rename of one include the unrelated other sub-project and the symbol search keeps one of the two (which one varies between runs)
+xfail refs Engine1_id = Engine1_id use_id1  # clangd: both classes are the same global entity (same USR, no namespace) in its index, so references/rename of one include the unrelated other sub-project and the symbol search keeps one of the two (which one varies between runs)
+xfail refs Engine2_id = Engine2_id use_id2  # clangd: both classes are the same global entity (same USR, no namespace) in its index, so references/rename of one include the unrelated other sub-project and the symbol search keeps one of the two (which one varies between runs)
+def use_id1 -> Engine1_id
+def use_id2 -> Engine2_id
+xfail rename Engine1_id id1  # clangd: both classes are the same global entity (same USR, no namespace) in its index, so references/rename of one include the unrelated other sub-project and the symbol search keeps one of the two (which one varies between runs)
+  Engine1_id use_id1
+refs Engine2 >= Engine2 use_Engine2
+refs Engine1_tick_decl = Engine1_tick_decl Engine1_tick_def use_tick1
+refs Engine2_render_decl = Engine2_render_decl Engine2_render_def use_render2
+hover use_Engine1 ~ "Engine"
+hover use_tick1 ~ "tick" "int"
+hover use_render2 ~ "render" "void"
+rename Engine1_count ticks
+  Engine1_count use_count1 use_count1_main
+rename Engine2_frames frame_no
+  Engine2_frames use_frames2 use_frames2_main
+xfail sym "Engine" ∋ Engine1 Engine2  # clangd: both classes are the same global entity (same USR, no namespace) in its index, so references/rename of one include the unrelated other sub-project and the symbol search keeps one of the two (which one varies between runs)
+sym "tick" ∋ Engine1_tick_def
+sym "render" ∋ Engine2_render_def
+
+# ---- a deep tree (depth 12) and a shallow header of the same name ----
+def use_DeepNode -> DeepNode
+def use_depth -> DeepNode_depth
+def use_deep_leaf -> deep_leaf
+def use_shallow_leaf -> shallow_leaf
+refs deep_leaf = deep_leaf use_deep_leaf
+refs shallow_leaf = shallow_leaf use_shallow_leaf
+refs DeepNode_depth = DeepNode_depth use_depth
+hover use_deep_leaf ~ "leaf_value" "deepns"
+hover use_shallow_leaf ~ "leaf_value" "int"
+rename DeepNode_depth level
+  DeepNode_depth use_depth
+sym "DeepNode" -> DeepNode
+sym "leaf_value" ∋ deep_leaf shallow_leaf
