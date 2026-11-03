@@ -1,0 +1,4 @@
+/* SHAPE(Name, sides) */
+/*@xsx_Triangle*/SHAPE(/*@xs_Triangle*/Triangle, 3)
+/*@xsx_Square*/SHAPE(/*@xs_Square*/Square, 4)
+/*@xsx_Hexagon*/SHAPE(/*@xs_Hexagon*/Hexagon, 6)

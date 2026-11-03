@@ -1,0 +1,18 @@
+[
+ {"directory":"@CORPUS_ROOT@/src","file":"guards.cpp","arguments":["clang++","-std=c++20","-I../inc1","-I../inc2","-I../include","-c","guards.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/dirs_quoted.cpp","arguments":["clang++","-std=c++20","-Iinc1","-Iinc2","-c","src/dirs_quoted.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/dirs_angle.cpp","arguments":["clang++","-std=c++20","-Iinc1","-Iinc2","-c","src/dirs_angle.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"other/dirs_other.cpp","arguments":["clang++","-std=c++20","-Iinc1","-Iinc2","-c","other/dirs_other.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"other/dirs_reversed.cpp","arguments":["clang++","-std=c++20","-Iinc2","-Iinc1","-c","other/dirs_reversed.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"other/rel_shared.cpp","arguments":["clang++","-std=c++20","-c","other/rel_shared.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/shared_via_root.cpp","arguments":["clang++","-std=c++20","-I.","-c","src/shared_via_root.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/mode_fast.cpp","arguments":["clang++","-std=c++20","-DMODE_FAST","-Imode","-c","src/mode_fast.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/mode_slow.cpp","arguments":["clang++","-std=c++20","-Imode","-c","src/mode_slow.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/forced.cpp","arguments":["clang++","-std=c++20","-include","@CORPUS_ROOT@/include/force.h","-c","src/forced.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/unforced.cpp","arguments":["clang++","-std=c++20","-c","src/unforced.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/cmd_macros.cpp","arguments":["clang++","-std=c++20","-DA_ON","-DB_ON","-UB_ON","-DVAL=2","-DEMPTY","-DCHAIN=VAL","-c","src/cmd_macros.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/inl_use.cpp","arguments":["clang++","-std=c++20","-Iinclude","-Iinc1","-c","src/inl_use.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/computed.cpp","arguments":["clang++","-std=c++20","-Iinclude","-c","src/computed.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/multi.cpp","arguments":["clang++","-std=c++20","-Iinclude","-c","src/multi.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"src/has_inc.cpp","arguments":["clang++","-std=c++20","-Iinclude","-Iinc1","-Iinc2","-c","src/has_inc.cpp"]}
+]

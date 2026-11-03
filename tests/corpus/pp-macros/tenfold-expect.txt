@@ -1,0 +1,225 @@
+# pp-macros (W9c): object-like / function-like macros, declare-by-macro, token pasting, stringising, variadic macros,
+# __VA_OPT__, #define/#undef order, #if chains. Standard-library free; compile_commands.json (clang++ -std=c++20).
+# Where a macro generates a declaration, the correct landing spot is the place the name is spelled in the source (the
+# macro argument) or the macro invocation that produced it; both are accepted where a name is pasted.
+
+# ---- fast tier ----
+fast def use_helper_sum -> helper_sum
+xfail fast def use_max_items -> MAX_ITEMS  # lexer index does not index #define names: no fast answer for any macro
+xfail fast def use_square -> SQUARE  # same
+xfail fast def use_Gadget -> Gadget  # names declared through macro arguments (DECLARE_CLASS(Gadget)) are not in the lexer index
+xfail fast def use_compute_b -> compute_b  # same: MAKE_FUNC(compute_b, ...)
+xfail fast def use_warm -> Hue_Warm  # same: DECLARE_ENUM(Hue, Warm, Cold)
+fast def use_item_id -> Item_id
+fast def use_twice_arg -> twice_fn
+fast sym "helper_sum" -> helper_sum
+xfail fast sym "Gadget" ∋ Gadget  # same: not declared as a class in the lexer index
+# the lexer index does not know that this spelling is the function and not the macro
+xfail fast def use_clamp01_paren -> clamp01_fn  # the lexer index does not see the function declared as "int (clamp01)(int)" (parenthesised declarator)
+# #undef / #define order is invisible to the lexer index
+xfail fast def use_level2 -> LEVEL_second  # fast index cannot order redefinitions
+fast def use_late_before -> var_late
+
+# ---- object-like and function-like macros ----
+def use_max_items -> MAX_ITEMS
+def use_square -> SQUARE
+def use_add3 -> ADD3
+def use_twice -> TWICE_SQ
+def use_xstr -> XSTR
+def use_max_in_xstr -> MAX_ITEMS
+def use_str -> STR
+def use_alias -> ALIAS_MAX
+def use_pi -> PI_VALUE
+def use_helper_sum -> helper_sum
+def use_max_in_arg -> MAX_ITEMS
+def use_square_outer -> SQUARE
+def use_add3_inner -> ADD3
+def use_helper_in_macro_arg -> helper_sum
+def use_item_id -> Item_id
+hover use_max_items ~ "MAX_ITEMS" "16"
+hover use_square ~ "#define SQUARE(x)" "((x) * (x))"
+hover use_pi ~ "3.14159"
+hover use_helper_sum ~ "helper_sum" "int"
+hover use_alias ~ "ALIAS_MAX"
+refs MAX_ITEMS = MAX_ITEMS max_in_alias use_max_items use_max_in_xstr use_max_in_arg
+refs SQUARE = SQUARE sq_in_twice use_square use_square_outer
+xfail refs ADD3 = ADD3 use_add3 use_add3_inner use_ADD3_via_apply  # clangd: a macro name passed as an argument and expanded on rescan (APPLY(ADD3, ...)) is not recorded as a reference
+refs helper_sum = helper_sum use_helper_sum use_helper_in_macro_arg use_helper_via_apply use_helper_as_arg
+refs Item_id = Item_id use_item_id
+sym "MAX_ITEMS" ∋ MAX_ITEMS
+sym "SQUARE" ∋ SQUARE
+sym "helper_sum" -> helper_sum
+
+# ---- macro bodies in a header: names used inside #define lines ----
+def sq_in_twice -> SQUARE
+def str_in_xstr -> STR
+def cat_in_catexp -> CAT
+def max_in_alias -> MAX_ITEMS
+
+# ---- a function-like macro and a function with the same name ----
+def use_clamp01_macro -> clamp01
+xfail def use_clamp01_paren -> clamp01_fn  # clangd treats a function-like macro name not followed by "(" as a macro use
+xfail def use_clamp01_ptr -> clamp01_fn  # same
+hover use_clamp01_macro ~ "#define clamp01(v)"
+xfail hover use_clamp01_paren ~ "clamp01" "int"  # same: clangd hovers the macro
+xfail refs clamp01_fn = clamp01_fn use_clamp01_paren use_clamp01_ptr  # same: the uses of the function are reported as the macro's
+refs clamp01 = clamp01 use_clamp01_macro
+
+# ---- pasted names (CAT): the declaration is the invocation, the use is an ordinary identifier ----
+def use_var_one -> catv
+def use_var_two -> catv2
+hover use_var_one ~ "var_one" "int"
+refs CAT = CAT cat_in_catexp catv
+
+# ---- declare-by-macro: classes, functions, enums, fields, properties ----
+def use_Gadget -> Gadget
+def use_value -> decl_gadget | Gadget_value
+def use_compute_b -> compute_b
+def use_compute_a_in_b -> compute_a
+def use_warm -> Hue_Warm
+def use_Hue -> Hue
+def use_Hue_scope -> Hue
+def use_gen_fn -> gen_fn
+def use_Holder_base -> Holder
+def use_count_field -> fld_count_arg | fld_count_decl
+def use_get_count -> getter_count_decl
+def use_get_count_in_derived -> getter_count_decl
+def use_set_size -> prop_size_decl
+def use_size -> prop_size_arg | prop_size_decl
+def use_size_call_in_derived -> prop_size_arg | prop_size_decl
+def use_plain -> Holder_plain
+hover use_Gadget ~ "Gadget"
+hover use_warm ~ "Warm"
+hover use_gen_fn ~ "gen_fn" "int"
+hover use_get_count ~ "get_count"
+typedef use_Gadget -> Gadget
+refs Gadget = Gadget use_Gadget
+refs Hue = Hue use_Hue use_Hue_scope
+refs Hue_Warm = Hue_Warm use_warm
+refs compute_a = compute_a use_compute_a_in_b
+refs compute_b = compute_b use_compute_b
+refs gen_fn = gen_fn use_gen_fn
+refs Holder = Holder use_Holder_base use_Holder_local
+sym "Gadget" -> Gadget
+sym "Hue" -> Hue
+sym "compute_a" ∋ compute_a
+sym "gen_fn" -> gen_fn
+rename Hue Tint
+  Hue use_Hue use_Hue_scope
+rename Hue_Warm Hot
+  Hue_Warm use_warm
+rename compute_a compute_first
+  compute_a use_compute_a_in_b
+rename gen_fn make_fn
+  gen_fn use_gen_fn
+rename Gadget Widget
+  Gadget use_Gadget
+# the field name count_ only exists as a paste of "count" and "_": no consistent rename exists, so nothing may change
+# (harness cannot express "rename must change nothing": rename use_count_field total_)
+
+# ---- token pasting and indirection ----
+def use_ab -> pasted_ab
+def use_word_x -> pasted_word
+def use_limit_x -> pasted_limit
+def use_Bytes4 -> pod4
+def use_Bytes16 -> pod16
+def use_unique -> unique_var
+def use_first_in_macro -> Pair_first
+def use_second_in_macro -> Pair_second
+def use_field_of -> FIELD_OF
+def use_wrap_call -> WRAP_CALL
+def use_helper_as_arg -> helper_sum
+def use_Pair_param -> Pair
+def use_WORD_expanded -> WORD
+def use_nameof_a -> NAMEOF
+hover use_ab ~ "ab"
+refs WORD = WORD use_WORD_expanded
+refs CONCAT_ = CONCAT_ concat_in_concat pasted_ab pasted_word
+refs CONCAT = CONCAT concat_in_unique pasted_limit
+refs Pair_first = Pair_first use_first_in_macro
+refs Pair_second = Pair_second use_second_in_macro
+refs Pair = Pair use_Pair_param
+rename Pair_first lhs
+  Pair_first use_first_in_macro
+
+# ---- variadic macros, __VA_OPT__, macro names as arguments ----
+def use_LOG_plain -> LOG
+def use_LOG_args -> LOG
+def use_twice_in_log -> twice_fn
+def use_APPLY -> APPLY
+def use_ADD3_via_apply -> ADD3
+def use_helper_via_apply -> helper_sum
+def use_CALL_BOTH -> CALL_BOTH
+def use_twice_arg -> twice_fn
+def use_thrice_arg -> thrice_fn
+def use_FIRST -> FIRST
+def use_first_arg -> a_local
+def use_REST_COUNT -> REST_COUNT
+hover use_LOG_args ~ "#define LOG(fmt, ...)" "__VA_OPT__"
+hover use_twice_arg ~ "twice" "int"
+refs twice_fn = twice_fn use_twice_in_log use_twice_arg
+refs thrice_fn = thrice_fn use_thrice_arg
+refs LOG = LOG use_LOG_plain use_LOG_args
+refs APPLY = APPLY use_APPLY use_APPLY_b
+refs a_local = a_local use_first_arg use_a_in_b
+refs log_impl >= log_impl
+rename twice_fn double_it
+  twice_fn use_twice_in_log use_twice_arg
+
+# ---- #define / #undef / redefinition order ----
+def use_scale_after_a -> SCALE_a
+def use_scale_after_b -> SCALE_b
+def scale_a_use -> SCALE_a
+def scale_b_use -> SCALE_b
+def use_level1 -> LEVEL_first
+def use_level2 -> LEVEL_second
+def use_level_var -> LEVEL_as_var
+def use_op_add -> OP_add
+def use_op_mul -> OP_mul
+def use_late_before -> var_late
+def use_late_after -> late_macro
+def use_same -> SAME_2
+def use_in_body -> IN_BODY
+def use_in_body_after -> IN_BODY
+hover use_level1 ~ "#define LEVEL 1"
+hover use_level2 ~ "#define LEVEL 2"
+hover use_scale_after_a ~ "#define SCALE 10"
+hover use_scale_after_b ~ "#define SCALE 20"
+hover use_op_mul ~ "((a) * (b))"
+hover use_late_after ~ "#define late_name 99"
+hover use_late_before ~ "late_name" "int"
+refs LEVEL_first = LEVEL_first use_level1 undef_first
+refs LEVEL_second = LEVEL_second use_level2 undef_second
+refs LEVEL_as_var = LEVEL_as_var use_level_var
+refs var_late = var_late use_late_before
+refs late_macro = late_macro use_late_after
+refs SCALE_a = SCALE_a scale_a_use use_scale_after_a
+refs SCALE_b = SCALE_b scale_b_use use_scale_after_b
+rename LEVEL_as_var depth
+  LEVEL_as_var use_level_var
+rename var_late early
+  var_late use_late_before
+
+# ---- #if / #elif chains, defined(), __has_include, command line macros ----
+def use_ver_fn -> ver_ge3
+def use_mode_fn -> mode_on
+def use_fx -> fx_two
+def use_present -> present_fn
+def use_fallback -> fallback_branch
+def use_has_include -> has_include_defined
+def use_lang_fn -> cxx20_branch
+def use_live_fn -> live_fn
+def use_nested_fn -> nested_yes
+hover use_ver_fn ~ "ver_fn" "int"
+hover use_fx ~ "fx" "int"
+refs ver_ge3 = ver_ge3 use_ver_fn
+refs fx_two = fx_two use_fx
+refs live_fn = live_fn use_live_fn
+refs nested_yes = nested_yes use_nested_fn
+sym "ver_fn" -> ver_ge3
+sym "live_fn" -> live_fn
+sym "present_fn" -> present_fn
+fast def use_ver_fn -> ver_ge5 | ver_ge3 | ver_modeb | ver_else
+xfail fast def use_ver_fn -> ver_ge3  # fast index does not evaluate #if/#elif: returns every branch
+xfail fast def use_nested_fn -> nested_yes  # same: nested #if
+xfail fast def use_fx -> fx_two  # same: the -D from the compile command is not applied by the lexer index

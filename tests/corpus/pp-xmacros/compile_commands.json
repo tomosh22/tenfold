@@ -1,0 +1,6 @@
+[
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/colors.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/colors.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/ops.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/ops.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/fields.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/fields.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/shapes.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/shapes.cpp"]}
+]

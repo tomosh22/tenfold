@@ -1,0 +1,4 @@
+/* OP(name, expression): a, b are the operands. */
+/*@xox_add*/OP(/*@xo_add*/add, a + b)
+/*@xox_sub*/OP(/*@xo_sub*/sub, a - b)
+/*@xox_mul*/OP(/*@xo_mul*/mul, a * b)

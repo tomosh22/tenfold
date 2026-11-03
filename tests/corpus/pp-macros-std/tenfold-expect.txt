@@ -1,0 +1,60 @@
+# pp-macros-std (W9c): the macro cases again, with the C++ standard library in the translation unit (compile_commands.json
+# variant: clang++ -std=c++20, libstdc++ headers; the VS .sln route on Linux has no standard headers).
+
+# ---- fast tier ----
+fast def use_sum -> sum_fn
+fast def use_registry -> registry_fn
+fast def use_trace -> trace_on | trace_off
+fast sym "registry" ∋ registry_fn
+fast sym "op_one" -> op_one
+xfail fast def use_trace -> trace_on  # fast index returns both #if branches of trace_name()
+xfail fast def use_Color_names -> decl_enum  # Color_names exists only by pasting inside DEFINE_ENUM: not in the lexer index
+xfail fast def use_Red -> c_Red  # enumerators declared through LIST(ENUM_ITEM): not in the lexer index
+
+# ---- macros around std containers ----
+def use_it -> it_decl
+def use_CHECK -> CHECK
+def use_sum -> sum_fn
+def use_registry -> registry_fn
+def use_VEC_OF -> VEC_OF
+def use_COLORS_arg -> COLORS
+def use_Color -> Color
+def use_Color_names -> decl_enum
+def use_Red -> c_Red | decl_enum
+hover use_it ~ "it"
+hover use_sum ~ "int sum"
+hover use_CHECK ~ "#define CHECK(cond)" "assert(cond)"
+hover use_VEC_OF ~ "#define VEC_OF(T, ...)" "__VA_OPT__"
+hover use_registry ~ "Registry" "registry"
+hover use_Red ~ "Red"
+refs sum_fn = sum_fn use_sum
+refs op_one = op_one reg_op_one
+refs op_two = op_two reg_op_two
+refs registry_fn >= registry_fn use_registry
+xfail refs Color >= Color use_Color  # clangd: the name token in DEFINE_ENUM(Color, ...) is also an operand of ## (Name##_names): "no symbol at the given location"
+refs CHECK = CHECK use_CHECK
+sym "registry" ∋ registry_fn Registry
+sym "op_two" -> op_two
+sym "Color_names" ∋ decl_enum
+sym "sum" ∋ sum_fn
+rename sum_fn total_sum
+  sum_fn use_sum
+rename op_one first_op
+  op_one reg_op_one
+# (renaming Color would also have to rename the pasted Color_names; no consistent edit exists, so no rename is expected)
+
+# ---- one header, two translation units: -DTRACE=1 vs none, -DNDEBUG vs none ----
+def use_trace -> trace_on
+def use_trace_b -> trace_off
+def use_checks -> ndebug_no
+def use_checks_b -> ndebug_yes
+def use_MaybeInt -> maybe_int_opt
+def use_MaybeInt_b -> maybe_int_opt
+hover use_trace ~ "trace_name" "std::string"
+hover use_trace_b ~ "trace_name" "std::string"
+hover use_MaybeInt ~ "MaybeInt"
+hover use_checks_b ~ "checks_enabled" "bool"
+refs trace_on >= trace_on use_trace
+xfail refs trace_off >= trace_off use_trace_b  # clangd: a header position is answered in the first includer (std_a, TRACE=1) where the declaration is in an inactive #else
+xfail sym "trace_name" ∋ trace_on trace_off  # clangd merges the two declarations (same USR in two TUs) into one result with one location
+xfail sym "checks_enabled" ∋ ndebug_yes ndebug_no  # same
