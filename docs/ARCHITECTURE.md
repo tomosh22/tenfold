@@ -1062,6 +1062,38 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
 * ConPTY (Windows) has still only been compile-tested; everything above `Pty` is platform neutral and draws through the same
   `gfx::Renderer` calls as every widget, so the D3D11 path needs nothing of its own.
 
+## Corpus harness (W9a, `src/corpus`, part of `tenfold_core`)
+
+The end-to-end correctness and speed check of the code intelligence: `tenfold-cli corpus <dir>` and the
+`tenfold-corpus-tests` target run annotated projects (`tests/corpus/<name>/`, format and how-to in `docs/TESTING.md`)
+against the real `Editor` / `SemanticEngine` / clangd.
+
+* `corpus/Corpus.{h,cpp}` is pure: the anchor scanner (`/*@name*/token`), the `tenfold-expect.txt` parser (errors as
+  `file:line: message`, all of them at once), the location comparison (`locMatchesAnchor`, `checkLocations`,
+  `checkHover`, `checkRename`) and the latency statistics. It is unit-tested without clangd (`tests/test_corpus_parse.cpp`,
+  in `tenfold-tests`).
+* `corpus/Runner.{h,cpp}` copies the project to a scratch directory (rename, `edit` and `.tenfold/` never touch the
+  repository), starts an `Editor`, waits for the fast index and walks the expectations in order. Queries go through the
+  calls the UI makes: `Editor::gotoDefinition`, `gotoDeclaration`, `findReferences`, `findSymbols`, `hover`,
+  `renameSymbol`, `selectVsConfiguration`, `open`, `replaceRange`; type definition and implementations have no `Editor`
+  wrapper and call `SemanticEngine::gotoTypeDefinition` / `findImplementations` directly.
+* **Isolating the fast tier.** `SemanticEngine::Options::fastOnlyQueries` / `setFastOnlyQueries()` is the one hook the
+  harness needed in the engine: a single `queryClient()` (null while the flag is on, else `clangd()`) replaces
+  `clangd()` at the entry of `deliverWithBudget` (definition, declaration, type definition, implementations, workspace
+  and document symbols), `findReferences`, `hover` and `rename`. With the flag on those paths behave exactly as when
+  clangd is not running (Approximate answer plus the error "clangd not running") while clangd keeps parsing the
+  document, so a `fast` check never races clangd. The flag is off in the product and for every final query; the runner
+  flips it per query.
+* **Final answer.** The first Authoritative callback (or any error). Before it the runner waits for the document's TU
+  (`fileStatus idle`) and, once per project and after each `config`, for clangd's background index; that wait is not
+  in the latency. A thread polls `fileReady` after the first document is opened to measure the time to the first TU.
+* **Agreement.** At every `def` / `decl` line both tiers are queried and compared (same `file:line` set).
+* **Report.** `Report::toJson()` (counts, per-kind fast/final latency median / p95 / max, agreement and every
+  disagreement, start / fast index / first TU / clangd index / total time, peak RSS, one record per line); one text line
+  per expectation while running. `exitCode()`: 0, 1 for a FAIL or XPASS, 2 for a format or setup error.
+* CI: the `corpus` job builds `tenfold-corpus-tests` (Release) with clangd from pip, runs every corpus (blocking) and
+  uploads `corpus-reports/*.json` as an artifact. The target is not in `ctest`.
+
 ## Portability
 
 Everything is standard C++20 except `src/lsp/Process.cpp` (fork/exec and

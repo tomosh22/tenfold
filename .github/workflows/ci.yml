@@ -142,6 +142,47 @@ jobs:
           TSAN_OPTIONS: halt_on_error=1 second_deadlock_stack=1 suppressions=${{ github.workspace }}/tsan.supp
         run: ./build/tsan/tenfold-tests
 
+  # W9a: the corpus projects under tests/corpus/ (anchored sources + tenfold-expect.txt) run against the real engine and
+  # clangd; fails on any FAIL or XPASS. The JSON reports (counts, latencies, fast/final agreement, timings, RSS) are kept.
+  corpus:
+    name: corpus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install clangd and Ninja (pip)
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "clangd==${CLANGD_VERSION}" "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: Configure
+        env:
+          CC: gcc
+          CXX: g++
+        run: cmake --preset release
+
+      - name: Build
+        run: cmake --build --preset release --parallel --target tenfold-corpus-tests tenfold-cli
+
+      - name: Corpus
+        env:
+          TENFOLD_CORPUS_REPORT_DIR: ${{ github.workspace }}/corpus-reports
+        run: ./build/release/tenfold-corpus-tests
+
+      - name: Upload corpus reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corpus-reports
+          path: corpus-reports/*.json
+          if-no-files-found: warn
+
   format:
     name: clang-format (changed files)
     runs-on: ubuntu-24.04

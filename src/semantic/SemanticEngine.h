@@ -122,6 +122,10 @@ class SemanticEngine {
     int restartBackoffMaxMs = 30000;
     int restartHealthyMs = 60000;
     int restartMaxFastCrashes = 5;
+    // Test/measurement hook (corpus harness): navigation, hover, symbol and rename queries behave as if clangd were
+    // not running (fast tier only: an Approximate answer with the error "clangd not running") while clangd itself keeps
+    // running and parsing. Switchable at any time with setFastOnlyQueries(); off in the product.
+    bool fastOnlyQueries = false;
   };
 
   // Lifecycle of the clangd child as the status bar shows it.
@@ -176,6 +180,9 @@ class SemanticEngine {
   bool waitForClangdIndex(int timeoutMs) const;
   bool waitForFile(const std::filesystem::path& file, int timeoutMs) const;  // clangd AST ready
   bool fileReady(const std::filesystem::path& file) const;
+  // See Options::fastOnlyQueries. Thread-safe.
+  void setFastOnlyQueries(bool on) { fastOnly_.store(on, std::memory_order_relaxed); }
+  bool fastOnlyQueries() const { return fastOnly_.load(std::memory_order_relaxed); }
 
   // --- file-system changes (see FileWatcher; wired up by Editor) ---
   // fileChanged / fileRemoved are thread-safe and cheap (one file). Files that
@@ -344,6 +351,9 @@ class SemanticEngine {
   std::shared_ptr<const std::vector<CompileCommand>> compileCommands_;  // guarded by mu_
   std::shared_ptr<LspClient> client() const;  // current client regardless of initialisation state
   std::shared_ptr<LspClient> takeClient();    // detach the current client (caller stops it)
+  std::atomic<bool> fastOnly_{false};
+  // The client a query is sent to: clangd(), except while fast-only queries are switched on (then none).
+  std::shared_ptr<LspClient> queryClient() const { return fastOnlyQueries() ? nullptr : clangd(); }
   std::string compdbSource_ = "none";
   std::string clangdExe_, clangdSource_;  // guarded by mu_
   std::filesystem::path compdbPath_;

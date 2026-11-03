@@ -77,6 +77,7 @@ std::string languageIdFor(const fs::path& p) {
 
 SemanticEngine::SemanticEngine(Workspace& ws, Options opt) : ws_(ws), opt_(std::move(opt)) {
   if (opt_.logDir.empty()) opt_.logDir = ws_.cacheDir();
+  fastOnly_.store(opt_.fastOnlyQueries, std::memory_order_relaxed);
 }
 
 SemanticEngine::~SemanticEngine() { stop(); }
@@ -1125,7 +1126,7 @@ void SemanticEngine::deliverWithBudget(
   st->approx = std::move(approx);
   st->cb = std::move(cb);
 
-  auto c = clangd();
+  auto c = queryClient();
   if (!c) {
     // No authority available: approximate is all we have.
     st->approxDelivered = true;
@@ -1226,7 +1227,7 @@ void SemanticEngine::findImplementations(const Document& doc, Position pos, Loca
 
 void SemanticEngine::findReferences(const Document& doc, Position pos, LocationsCallback cb) {
   // No approximate tier for references (a text search would be misleading); go straight to clangd.
-  auto c = clangd();
+  auto c = queryClient();
   if (!c) return cb(Confidence::Approximate, {}, "clangd not running");
   c->references(doc.uri(), toServer(doc, pos), true, [this, cb](std::vector<LspLocation> ls, const std::string& err) {
     cb(Confidence::Authoritative, fromServer(ls, Confidence::Authoritative), err);
@@ -1352,7 +1353,7 @@ void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> 
 // ---------------------------------------------------------------------------
 
 void SemanticEngine::hover(const Document& doc, Position pos, Callback<std::string> cb) {
-  if (auto c = clangd()) {
+  if (auto c = queryClient()) {
     c->hover(doc.uri(), toServer(doc, pos), std::move(cb));
     return;
   }
@@ -1395,7 +1396,7 @@ void SemanticEngine::signatureHelp(const Document& doc, Position pos, Callback<L
 
 void SemanticEngine::rename(const Document& doc, Position pos, const std::string& newName,
                             Callback<std::map<fs::path, std::vector<std::pair<Range, std::string>>>> cb) {
-  auto c = clangd();
+  auto c = queryClient();
   if (!c) return cb({}, "clangd not running");
   c->rename(doc.uri(), toServer(doc, pos), newName, [this, cb](Json edit, const std::string& err) {
     if (!err.empty()) return cb({}, err);
