@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cstdlib>
 #include <fstream>
+#include <limits>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -49,9 +50,18 @@ bool Workspace::loadSettings(std::string* error) {
     if (error) *error = "workspace.json is not an object";
     return false;
   }
+  // workspace.json is hand-edited: a value of the wrong type is ignored (value() and get<>() throw on it, and
+  // loadSettings runs in the Editor constructor).
   auto getv = [&](const char* k, std::vector<std::string>& out) {
-    if (j.contains(k) && j[k].is_array()) out = j[k].get<std::vector<std::string>>();
+    if (!j.contains(k) || !j[k].is_array()) return;
+    out.clear();
+    for (const Json& e : j[k])
+      if (e.is_string()) out.push_back(e.get<std::string>());
   };
+  auto str = [&](const char* k, const std::string& def) {
+    return j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : def;
+  };
+  auto flag = [&](const char* k, bool def) { return j.contains(k) && j[k].is_boolean() ? j[k].get<bool>() : def; };
   getv("sourceExtensions", settings_.sourceExtensions);
   getv("headerExtensions", settings_.headerExtensions);
   getv("otherExtensions", settings_.otherExtensions);
@@ -64,27 +74,29 @@ bool Workspace::loadSettings(std::string* error) {
   getv("clangdExtraArgs", settings_.clangdExtraArgs);
   if (j.contains("ignoreDirs") && j["ignoreDirs"].is_array()) {
     settings_.ignoreDirs.clear();
-    for (auto& d : j["ignoreDirs"]) settings_.ignoreDirs.insert(d.get<std::string>());
+    for (auto& d : j["ignoreDirs"])
+      if (d.is_string()) settings_.ignoreDirs.insert(d.get<std::string>());
   }
-  settings_.cppStandard = j.value("cppStandard", settings_.cppStandard);
-  settings_.clangdPath = j.value("clangdPath", settings_.clangdPath);
-  settings_.vsConfiguration = j.value("vsConfiguration", settings_.vsConfiguration);
-  settings_.vsPlatform = j.value("vsPlatform", settings_.vsPlatform);
-  settings_.runCMake = j.value("runCMake", settings_.runCMake);
-  settings_.buildCommand = j.value("buildCommand", settings_.buildCommand);
-  settings_.rebuildCommand = j.value("rebuildCommand", settings_.rebuildCommand);
-  settings_.buildDir = j.value("buildDir", settings_.buildDir);
-  settings_.msvcToolchain = j.value("msvcToolchain", settings_.msvcToolchain);
-  settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
-  settings_.watchFiles = j.value("watchFiles", settings_.watchFiles);
-  settings_.debugAttachAtStartup = j.value("debug.attachAtStartup", settings_.debugAttachAtStartup);
-  settings_.visualStudioSync = j.value("debug.visualStudioSync", settings_.visualStudioSync);
+  settings_.cppStandard = str("cppStandard", settings_.cppStandard);
+  settings_.clangdPath = str("clangdPath", settings_.clangdPath);
+  settings_.vsConfiguration = str("vsConfiguration", settings_.vsConfiguration);
+  settings_.vsPlatform = str("vsPlatform", settings_.vsPlatform);
+  settings_.runCMake = flag("runCMake", settings_.runCMake);
+  settings_.buildCommand = str("buildCommand", settings_.buildCommand);
+  settings_.rebuildCommand = str("rebuildCommand", settings_.rebuildCommand);
+  settings_.buildDir = str("buildDir", settings_.buildDir);
+  settings_.msvcToolchain = str("msvcToolchain", settings_.msvcToolchain);
+  settings_.followSymlinks = flag("followSymlinks", settings_.followSymlinks);
+  settings_.watchFiles = flag("watchFiles", settings_.watchFiles);
+  settings_.debugAttachAtStartup = flag("debug.attachAtStartup", settings_.debugAttachAtStartup);
+  settings_.visualStudioSync = flag("debug.visualStudioSync", settings_.visualStudioSync);
   if (j.contains("undoGrouping") && j["undoGrouping"].is_string()) {
     std::string g = j["undoGrouping"].get<std::string>();
     if (g == "word" || g == "char") settings_.undoGrouping = g;
   }
   if (j.contains("undoGroupPauseMs") && j["undoGroupPauseMs"].is_number_integer())
-    settings_.undoGroupPauseMs = std::max(0, j["undoGroupPauseMs"].get<int>());
+    settings_.undoGroupPauseMs = static_cast<int>(
+        std::clamp<long long>(j["undoGroupPauseMs"].get<long long>(), 0, std::numeric_limits<int>::max()));
   return true;
 }
 

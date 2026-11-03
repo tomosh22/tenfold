@@ -110,14 +110,21 @@ std::vector<CompileCommand> CompileDatabase::load(const fs::path& jsonFile, std:
     if (error) *error = "not a JSON array: " + jsonFile.string();
     return out;
   }
+  // A compile_commands.json is written by other tools: an entry that is not an object, or a field of the wrong type,
+  // is skipped (value() / get<std::string>() throw on them, which escaped to the caller).
   for (auto& e : j) {
+    if (!e.is_object()) continue;
+    auto text = [&e](const char* key) {
+      return e.contains(key) && e[key].is_string() ? e[key].get<std::string>() : std::string();
+    };
     CompileCommand c;
-    c.directory = e.value("directory", "");
-    fs::path file = e.value("file", "");
+    c.directory = text("directory");
+    fs::path file = text("file");
     c.file = file.is_absolute() ? file : c.directory / file;
-    if (e.contains("arguments")) {
-      for (auto& a : e["arguments"]) c.arguments.push_back(a.get<std::string>());
-    } else if (e.contains("command")) {
+    if (e.contains("arguments") && e["arguments"].is_array()) {
+      for (auto& a : e["arguments"])
+        if (a.is_string()) c.arguments.push_back(a.get<std::string>());
+    } else if (e.contains("command") && e["command"].is_string()) {
       c.arguments = splitCommand(e["command"].get<std::string>());
     }
     out.push_back(std::move(c));
@@ -828,8 +835,12 @@ std::vector<fs::path> projectsInSolution(const fs::path& sln, std::string* error
   std::string err;
   SolutionInfo info = readSolution(sln, &err);
   if (!err.empty() && error) *error = err;
-  for (auto& p : info.projects)
-    if (p.isVcxproj()) out.push_back(fs::weakly_canonical(p.path));
+  for (auto& p : info.projects) {
+    if (!p.isVcxproj()) continue;
+    std::error_code ec;  // a project path of a hand-edited .sln may be unusable (name too long): keep it as written
+    fs::path c = fs::weakly_canonical(p.path, ec);
+    out.push_back(ec ? p.path : c);
+  }
   return out;
 }
 

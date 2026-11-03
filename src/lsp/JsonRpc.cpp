@@ -1,9 +1,15 @@
 #include "lsp/JsonRpc.h"
 
+#include <cerrno>
+#include <cstdlib>
 #include <cstring>
 #include <vector>
 
 namespace tf {
+
+namespace {
+constexpr unsigned long long kMaxFrameBytes = 1ull << 30;  // far above any real LSP message
+}
 
 JsonRpcConnection::~JsonRpcConnection() { stop(200); }
 
@@ -93,29 +99,53 @@ void JsonRpcConnection::onRequest(const std::string& method, RequestHandler h) {
   reqHandlers_[method] = std::move(h);
 }
 
+void JsonRpcConnection::processBuffer(std::string& buf) {
+  // Parse as many complete frames as we have.
+  while (true) {
+    size_t hdrEnd = buf.find("\r\n\r\n");
+    if (hdrEnd == std::string::npos) break;
+    size_t clPos = buf.find("Content-Length:");
+    if (clPos == std::string::npos || clPos > hdrEnd) {
+      buf.erase(0, hdrEnd + 4);
+      continue;
+    }
+    // The length must be plain digits (strtoul accepted "-5" as 2^64-5, and a value near 2^64 made bodyStart + len
+    // wrap around) and is capped: a larger claim is a garbled header, not a message to wait for.
+    const char* digits = buf.c_str() + clPos + 15;
+    while (*digits == ' ' || *digits == '\t') ++digits;
+    if (*digits < '0' || *digits > '9') {
+      buf.erase(0, hdrEnd + 4);
+      continue;
+    }
+    errno = 0;
+    const unsigned long long claimed = std::strtoull(digits, nullptr, 10);
+    if (errno == ERANGE || claimed > kMaxFrameBytes) {
+      buf.erase(0, hdrEnd + 4);
+      continue;
+    }
+    const size_t len = static_cast<size_t>(claimed);
+    size_t bodyStart = hdrEnd + 4;
+    if (buf.size() < bodyStart + len) break;
+    std::string body = buf.substr(bodyStart, len);
+    buf.erase(0, bodyStart + len);
+    Json msg = Json::parse(body, nullptr, false);
+    if (msg.is_discarded()) continue;
+    if (trace_) trace_("<-", msg);
+    try {
+      dispatch(std::move(msg));
+    } catch (const std::exception& e) {
+      // A handler choked on a message of the wrong shape (the LspClient converters use value() / get<>(), which throw
+      // on a wrong type). The reader thread must survive it: an exception leaving it terminates the process.
+      if (trace_) trace_("!!", Json{{"exception", e.what()}});
+    }
+  }
+}
+
 void JsonRpcConnection::readerLoop() {
   std::string buf;
   char chunk[65536];
   while (running_) {
-    // Parse as many complete frames as we have.
-    while (true) {
-      size_t hdrEnd = buf.find("\r\n\r\n");
-      if (hdrEnd == std::string::npos) break;
-      size_t clPos = buf.find("Content-Length:");
-      if (clPos == std::string::npos || clPos > hdrEnd) {
-        buf.erase(0, hdrEnd + 4);
-        continue;
-      }
-      size_t len = std::strtoul(buf.c_str() + clPos + 15, nullptr, 10);
-      size_t bodyStart = hdrEnd + 4;
-      if (buf.size() < bodyStart + len) break;
-      std::string body = buf.substr(bodyStart, len);
-      buf.erase(0, bodyStart + len);
-      Json msg = Json::parse(body, nullptr, false);
-      if (msg.is_discarded()) continue;
-      if (trace_) trace_("<-", msg);
-      dispatch(std::move(msg));
-    }
+    processBuffer(buf);
     long n = proc_.read(chunk, sizeof(chunk));
     if (n <= 0) break;
     buf.append(chunk, static_cast<size_t>(n));
@@ -131,6 +161,9 @@ void JsonRpcConnection::dispatch(Json msg) {
   if (!msg.is_object()) return;
   const bool hasId = msg.contains("id") && !msg["id"].is_null();
   if (msg.contains("method")) {
+    // A peer's message must not be able to throw out of the reader thread (that terminates the process): a method
+    // that is not a string, or an error object of the wrong shape, is dropped / read leniently.
+    if (!msg["method"].is_string()) return;
     std::string method = msg["method"].get<std::string>();
     Json params = msg.contains("params") ? msg["params"] : Json::object();
     if (hasId) {
@@ -176,9 +209,14 @@ void JsonRpcConnection::dispatch(Json msg) {
     if (!h) return;
     if (msg.contains("error") && !msg["error"].is_null()) {
       RpcError err;
-      err.code = msg["error"].value("code", 0);
-      err.message = msg["error"].value("message", std::string());
-      if (msg["error"].contains("data")) err.data = msg["error"]["data"];
+      const Json& e = msg["error"];
+      if (e.is_object()) {
+        if (e.contains("code") && e["code"].is_number_integer()) err.code = e["code"].get<int>();
+        if (e.contains("message") && e["message"].is_string()) err.message = e["message"].get<std::string>();
+        if (e.contains("data")) err.data = e["data"];
+      } else if (e.is_string()) {
+        err.message = e.get<std::string>();
+      }
       h(nullptr, &err);
     } else {
       Json result = msg.contains("result") ? msg["result"] : Json();

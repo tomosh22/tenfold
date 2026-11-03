@@ -1,0 +1,23 @@
+H:Content-Length: 18446744073709551615
+
+{}
+#--#
+H:Content-Length: -5
+
+{"id":,"result":1}
+#--#
+H:Content-Length: 99999999999999999999999
+
+{}
+#--#
+H:Content-Length: 2000000000
+
+{}
+#--#
+{"method":5,"id":1}
+#--#
+{"method":null,"params":{}}
+#--#
+{"id":,"error":"just a string"}
+#--#
+{"id":,"error":{"code":"x","message":7,"data":{}}}

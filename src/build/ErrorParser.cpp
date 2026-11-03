@@ -315,7 +315,8 @@ bool ErrorParser::parseIncludeChain(std::string_view s) {
     bool digits = true;
     for (size_t i = colon + 1; i < end; ++i) digits = digits && isDigit(t[i]);
     if (!digits) break;
-    nums[n++] = std::atoi(std::string(t.substr(colon + 1, end - colon - 1)).c_str());
+    size_t pos = 0;  // parseInt saturates; atoi wrapped a long digit run (4294967295 -> -1)
+    parseInt(t.substr(colon + 1, end - colon - 1), pos, &nums[n++]);
     end = colon;
   }
   if (n == 0 || end == 0) return false;

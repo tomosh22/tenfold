@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <chrono>
 #include <fstream>
 #include <map>
 #include <set>
@@ -21,6 +22,21 @@ namespace {
 
 constexpr const char* kSolutionFolderType = "{2150E333-8FDC-42A3-9474-1A3956D46DE8}";
 constexpr size_t kMaxGlobResults = 200000;
+// What one Include pattern may spend on reading directories. A pattern like "/**/x.cpp" (or any `**` over a huge tree
+// or a slow network share) would otherwise walk the whole file system and never come back.
+constexpr size_t kMaxGlobDirectories = 100000;
+constexpr std::chrono::milliseconds kMaxGlobTime{1500};
+struct GlobBudget {
+  size_t dirsLeft = kMaxGlobDirectories;
+  std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + kMaxGlobTime;
+  bool alive() const { return dirsLeft != 0 && std::chrono::steady_clock::now() <= deadline; }
+  // Called before every directory read.
+  bool spend() {
+    if (!alive()) return false;
+    --dirsLeft;
+    return true;
+  }
+};
 
 std::string lower(std::string s) {
   for (char& c : s)
@@ -77,15 +93,17 @@ bool wildMatch(const std::string& pat, size_t pi, const std::string& s, size_t s
 }
 
 // Expands `segs` (a '/'-split pattern, "**" = any number of directories) below `base`.
-void globExpand(const fs::path& base, const std::vector<std::string>& segs, size_t i, std::vector<std::string>& out) {
+void globExpand(const fs::path& base, const std::vector<std::string>& segs, size_t i, std::vector<std::string>& out,
+                GlobBudget& budget) {
   if (i >= segs.size() || out.size() >= kMaxGlobResults) return;
   const std::string& seg = segs[i];
   const bool last = i + 1 == segs.size();
   std::error_code ec;
   if (seg == "**") {
-    globExpand(base, segs, i + 1, out);  // zero directories
-    for (fs::directory_iterator it(base, ec), end; !ec && it != end; it.increment(ec))
-      if (it->is_directory(ec)) globExpand(it->path(), segs, i, out);
+    globExpand(base, segs, i + 1, out, budget);  // zero directories
+    if (!budget.spend()) return;
+    for (fs::directory_iterator it(base, ec), end; !ec && it != end && budget.alive(); it.increment(ec))
+      if (it->is_directory(ec)) globExpand(it->path(), segs, i, out, budget);
     return;
   }
   const bool wild = seg.find_first_of("*?") != std::string::npos;
@@ -93,15 +111,16 @@ void globExpand(const fs::path& base, const std::vector<std::string>& segs, size
     const fs::path next = base / seg;
     if (last) {
       if (fs::is_regular_file(next, ec)) out.push_back(next.generic_string());
-    } else globExpand(next, segs, i + 1, out);
+    } else globExpand(next, segs, i + 1, out, budget);
     return;
   }
-  for (fs::directory_iterator it(base, ec), end; !ec && it != end; it.increment(ec)) {
+  if (!budget.spend()) return;
+  for (fs::directory_iterator it(base, ec), end; !ec && it != end && budget.alive(); it.increment(ec)) {
     const std::string name = it->path().filename().string();
     if (!wildMatch(seg, 0, name, 0)) continue;
     if (last) {
       if (it->is_regular_file(ec)) out.push_back(it->path().generic_string());
-    } else if (it->is_directory(ec)) globExpand(it->path(), segs, i + 1, out);
+    } else if (it->is_directory(ec)) globExpand(it->path(), segs, i + 1, out, budget);
   }
 }
 
@@ -130,7 +149,8 @@ std::vector<std::string> resolveInclude(const fs::path& projDir, const fs::path&
     if (inc[0] != '/') segs.erase(segs.begin());
   }
   std::vector<std::string> found;
-  globExpand(base, segs, 0, found);
+  GlobBudget budget;
+  globExpand(base, segs, 0, found, budget);
   std::sort(found.begin(), found.end());
   for (const std::string& f : found) out.push_back(fs::path(f).lexically_normal().generic_string());
   return out;

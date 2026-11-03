@@ -1,0 +1,4 @@
+<Project><ItemGroup><ClCompile Include="/**/x.cpp"/></ItemGroup></Project>
+#--#
+
+#--#
