@@ -1,0 +1,80 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{AD8A2265-FA17-B780-8FCA-5AE77CADA94F}</ProjectGuid>
+    <RootNamespace>logging</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>LOGGING_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\chain95.cpp" />
+    <ClCompile Include="src\dynamic_contract.cpp" />
+    <ClCompile Include="src\frozen_endpoint.cpp" />
+    <ClCompile Include="src\funcs_balance.cpp" />
+    <ClCompile Include="src\funcs_ledger.cpp" />
+    <ClCompile Include="src\funcs_mapper.cpp" />
+    <ClCompile Include="src\funcs_notice.cpp" />
+    <ClCompile Include="src\funcs_policy.cpp" />
+    <ClCompile Include="src\funcs_tariff.cpp" />
+    <ClCompile Include="src\impl.cpp" />
+    <ClCompile Include="src\info.cpp" />
+    <ClCompile Include="src\notice.cpp" />
+    <ClCompile Include="src\radial_index_repository.cpp" />
+    <ClCompile Include="src\registry.cpp" />
+    <ClInclude Include="include\logging\chain95\c0.h" />
+    <ClInclude Include="include\logging\chain95\c1.h" />
+    <ClInclude Include="include\logging\chain95\c2.h" />
+    <ClInclude Include="include\logging\chain95\c3.h" />
+    <ClInclude Include="include\logging\chain95\c4.h" />
+    <ClInclude Include="include\logging\chain95\c5.h" />
+    <ClInclude Include="include\logging\dynamic_contract.h" />
+    <ClInclude Include="include\logging\frozen_endpoint.h" />
+    <ClInclude Include="include\logging\funcs_balance.h" />
+    <ClInclude Include="include\logging\funcs_ledger.h" />
+    <ClInclude Include="include\logging\funcs_mapper.h" />
+    <ClInclude Include="include\logging\funcs_notice.h" />
+    <ClInclude Include="include\logging\funcs_policy.h" />
+    <ClInclude Include="include\logging\funcs_tariff.h" />
+    <ClInclude Include="include\logging\impl.h" />
+    <ClInclude Include="include\logging\info.h" />
+    <ClInclude Include="include\logging\logging.h" />
+    <ClInclude Include="include\logging\macros_account.h" />
+    <ClInclude Include="include\logging\macros_job.h" />
+    <ClInclude Include="include\logging\masked_event_index.h" />
+    <ClInclude Include="include\logging\notice.h" />
+    <ClInclude Include="include\logging\radial_index_repository.h" />
+    <ClInclude Include="include\logging\registry.h" />
+    <ClInclude Include="include\logging\route.h" />
+    <ClInclude Include="include\logging\types_audit.h" />
+    <ClInclude Include="include\logging\types_balance.h" />
+    <ClInclude Include="include\logging\types_mapper.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

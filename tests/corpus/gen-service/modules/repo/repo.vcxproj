@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{89BB6900-7365-48EB-D645-5D0AB07AA5FE}</ProjectGuid>
+    <RootNamespace>repo</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)modules\logging\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>REPO_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\chain191.cpp" />
+    <ClCompile Include="src\fast_product.cpp" />
+    <ClCompile Include="src\frozen_repository_customer.cpp" />
+    <ClCompile Include="src\funcs_job.cpp" />
+    <ClCompile Include="src\funcs_product.cpp" />
+    <ClCompile Include="src\funcs_queue.cpp" />
+    <ClCompile Include="src\sparse_repository.cpp" />
+    <ClCompile Include="src\tiled_rule.cpp" />
+    <ClInclude Include="include\repo\chain191\c0.h" />
+    <ClInclude Include="include\repo\chain191\c1.h" />
+    <ClInclude Include="include\repo\chain191\c2.h" />
+    <ClInclude Include="include\repo\chain191\c3.h" />
+    <ClInclude Include="include\repo\chain191\c4.h" />
+    <ClInclude Include="include\repo\chain191\c5.h" />
+    <ClInclude Include="include\repo\fast_product.h" />
+    <ClInclude Include="include\repo\frozen_repository_customer.h" />
+    <ClInclude Include="include\repo\funcs_job.h" />
+    <ClInclude Include="include\repo\funcs_product.h" />
+    <ClInclude Include="include\repo\funcs_queue.h" />
+    <ClInclude Include="include\repo\macros_task.h" />
+    <ClInclude Include="include\repo\repo.h" />
+    <ClInclude Include="include\repo\sparse_repository.h" />
+    <ClInclude Include="include\repo\tiled_rule.h" />
+    <ClInclude Include="include\repo\types_address.h" />
+    <ClInclude Include="include\repo\types_contract.h" />
+    <ClInclude Include="include\repo\types_product.h" />
+    <ClInclude Include="src\tiled_rule_priv.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

@@ -1,0 +1,79 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{DDECEBDE-A58B-5F26-4D27-F1F7909BAB74}</ProjectGuid>
+    <RootNamespace>storage</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)modules\config\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>STORAGE_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\balance.cpp" />
+    <ClCompile Include="src\base.cpp" />
+    <ClCompile Include="src\contract.cpp" />
+    <ClCompile Include="src\funcs_address.cpp" />
+    <ClCompile Include="src\funcs_endpoint.cpp" />
+    <ClCompile Include="src\funcs_schedule.cpp" />
+    <ClCompile Include="src\funcs_session.cpp" />
+    <ClCompile Include="src\job2.cpp" />
+    <ClCompile Include="src\node.cpp" />
+    <ClCompile Include="src\policy.cpp" />
+    <ClCompile Include="src\primary_ledger.cpp" />
+    <ClCompile Include="src\stable_report.cpp" />
+    <ClCompile Include="src\tariff.cpp" />
+    <ClInclude Include="include\storage\address2.h" />
+    <ClInclude Include="include\storage\balance.h" />
+    <ClInclude Include="include\storage\base.h" />
+    <ClInclude Include="include\storage\contract.h" />
+    <ClInclude Include="include\storage\funcs_address.h" />
+    <ClInclude Include="include\storage\funcs_endpoint.h" />
+    <ClInclude Include="include\storage\funcs_schedule.h" />
+    <ClInclude Include="include\storage\funcs_session.h" />
+    <ClInclude Include="include\storage\job2.h" />
+    <ClInclude Include="include\storage\macros_schedule.h" />
+    <ClInclude Include="include\storage\macros_tenant.h" />
+    <ClInclude Include="include\storage\merged_notice.h" />
+    <ClInclude Include="include\storage\node.h" />
+    <ClInclude Include="include\storage\policy.h" />
+    <ClInclude Include="include\storage\primary_ledger.h" />
+    <ClInclude Include="include\storage\scoped_contract.h" />
+    <ClInclude Include="include\storage\stable_report.h" />
+    <ClInclude Include="include\storage\storage.h" />
+    <ClInclude Include="include\storage\tariff.h" />
+    <ClInclude Include="include\storage\task.h" />
+    <ClInclude Include="include\storage\types_contract.h" />
+    <ClInclude Include="include\storage\types_endpoint.h" />
+    <ClInclude Include="include\storage\types_payment.h" />
+    <ClInclude Include="include\storage\types_rule.h" />
+    <ClInclude Include="include\storage\types_rule_228.h" />
+    <ClInclude Include="include\storage\types_token.h" />
+    <ClInclude Include="src\base_priv.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

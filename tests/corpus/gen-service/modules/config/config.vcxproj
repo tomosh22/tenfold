@@ -1,0 +1,87 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{22450232-65AE-4CF8-7D02-C8B6BA991139}</ProjectGuid>
+    <RootNamespace>config</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>CONFIG_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\active_audit.cpp" />
+    <ClCompile Include="src\chain59.cpp" />
+    <ClCompile Include="src\chain66.cpp" />
+    <ClCompile Include="src\entry.cpp" />
+    <ClCompile Include="src\funcs_address.cpp" />
+    <ClCompile Include="src\funcs_invoice.cpp" />
+    <ClCompile Include="src\funcs_job.cpp" />
+    <ClCompile Include="src\funcs_report.cpp" />
+    <ClCompile Include="src\impl.cpp" />
+    <ClCompile Include="src\sampled_endpoint_gateway.cpp" />
+    <ClCompile Include="src\split_report.cpp" />
+    <ClCompile Include="src\table51.cpp" />
+    <ClCompile Include="src\table62.cpp" />
+    <ClCompile Include="src\tiled_tenant.cpp" />
+    <ClInclude Include="include\config\active_audit.h" />
+    <ClInclude Include="include\config\cart.h" />
+    <ClInclude Include="include\config\chain59\c0.h" />
+    <ClInclude Include="include\config\chain59\c1.h" />
+    <ClInclude Include="include\config\chain59\c2.h" />
+    <ClInclude Include="include\config\chain59\c3.h" />
+    <ClInclude Include="include\config\chain59\c4.h" />
+    <ClInclude Include="include\config\chain59\c5.h" />
+    <ClInclude Include="include\config\chain66\c0.h" />
+    <ClInclude Include="include\config\chain66\c1.h" />
+    <ClInclude Include="include\config\chain66\c2.h" />
+    <ClInclude Include="include\config\chain66\c3.h" />
+    <ClInclude Include="include\config\chain66\c4.h" />
+    <ClInclude Include="include\config\chain66\c5.h" />
+    <ClInclude Include="include\config\config.h" />
+    <ClInclude Include="include\config\entry.h" />
+    <ClInclude Include="include\config\funcs_address.h" />
+    <ClInclude Include="include\config\funcs_invoice.h" />
+    <ClInclude Include="include\config\funcs_job.h" />
+    <ClInclude Include="include\config\funcs_report.h" />
+    <ClInclude Include="include\config\hashed_schedule.h" />
+    <ClInclude Include="include\config\impl.h" />
+    <ClInclude Include="include\config\macros_account.h" />
+    <ClInclude Include="include\config\macros_route.h" />
+    <ClInclude Include="include\config\sampled_endpoint_gateway.h" />
+    <ClInclude Include="include\config\split_report.h" />
+    <ClInclude Include="include\config\table51.h" />
+    <ClInclude Include="include\config\table62.h" />
+    <ClInclude Include="include\config\tiled_tenant.h" />
+    <ClInclude Include="include\config\types_catalog.h" />
+    <ClInclude Include="include\config\types_contract.h" />
+    <ClInclude Include="include\config\types_session.h" />
+    <ClInclude Include="include\config\types_tenant.h" />
+    <ClInclude Include="include\config\types_token.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

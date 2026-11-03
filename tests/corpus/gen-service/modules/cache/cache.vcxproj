@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup Label="ProjectConfigurations">
+    <ProjectConfiguration Include="Debug|x64">
+      <Configuration>Debug</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+    <ProjectConfiguration Include="Release|x64">
+      <Configuration>Release</Configuration>
+      <Platform>x64</Platform>
+    </ProjectConfiguration>
+  </ItemGroup>
+  <PropertyGroup Label="Globals">
+    <ProjectGuid>{0FEA6A13-C52B-4D47-2536-8F24B045CA84}</ProjectGuid>
+    <RootNamespace>cache</RootNamespace>
+  </PropertyGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.Default.props" />
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.props" />
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <LanguageStandard>stdcpp17</LanguageStandard>
+      <AdditionalIncludeDirectories>$(ProjectDir)include;$(SolutionDir)modules\util\include;$(SolutionDir)modules\config\include;$(SolutionDir)mstd;$(ProjectDir)src;%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>CACHE_BUILD=1;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>_DEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|x64'">
+    <ClCompile>
+      <PreprocessorDefinitions>NDEBUG;%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <ItemGroup>
+    <ClCompile Include="src\atomic_policy.cpp" />
+    <ClCompile Include="src\atomic_profile.cpp" />
+    <ClCompile Include="src\bounded_worker_mailbox.cpp" />
+    <ClCompile Include="src\buffer.cpp" />
+    <ClCompile Include="src\config.cpp" />
+    <ClCompile Include="src\funcs_account.cpp" />
+    <ClCompile Include="src\funcs_invoice.cpp" />
+    <ClCompile Include="src\funcs_report.cpp" />
+    <ClCompile Include="src\funcs_route.cpp" />
+    <ClCompile Include="src\funcs_route_272.cpp" />
+    <ClCompile Include="src\helper.cpp" />
+    <ClCompile Include="src\invoice.cpp" />
+    <ClCompile Include="src\node.cpp" />
+    <ClCompile Include="src\product2.cpp" />
+    <ClInclude Include="include\cache\atomic_policy.h" />
+    <ClInclude Include="include\cache\atomic_profile.h" />
+    <ClInclude Include="include\cache\bounded_worker_mailbox.h" />
+    <ClInclude Include="include\cache\buffer.h" />
+    <ClInclude Include="include\cache\cache.h" />
+    <ClInclude Include="include\cache\config.h" />
+    <ClInclude Include="include\cache\funcs_account.h" />
+    <ClInclude Include="include\cache\funcs_invoice.h" />
+    <ClInclude Include="include\cache\funcs_report.h" />
+    <ClInclude Include="include\cache\funcs_route.h" />
+    <ClInclude Include="include\cache\funcs_route_272.h" />
+    <ClInclude Include="include\cache\helper.h" />
+    <ClInclude Include="include\cache\invoice.h" />
+    <ClInclude Include="include\cache\macros_account.h" />
+    <ClInclude Include="include\cache\macros_task.h" />
+    <ClInclude Include="include\cache\node.h" />
+    <ClInclude Include="include\cache\product2.h" />
+    <ClInclude Include="include\cache\remote_account.h" />
+    <ClInclude Include="include\cache\types_cart.h" />
+    <ClInclude Include="include\cache\types_invoice.h" />
+    <ClInclude Include="include\cache\types_profile.h" />
+    <ClInclude Include="include\cache\types_route.h" />
+    <ClInclude Include="include\cache\validator_shipment.h" />
+  </ItemGroup>
+  <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
+</Project>

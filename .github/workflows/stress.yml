@@ -1,0 +1,93 @@
+name: Stress (generated codebases)
+
+# W9g: nightly runs of the generated projects with known answers (tools/stress/gen_codebase.py) at medium (~3k files) and
+# large (~20k files) size against the real engine and clangd.  Not part of the push checks: expectation FAILs are the
+# results (the reports are uploaded and summarised), the job only fails when a run cannot be set up.
+# The small projects (~300 files) are committed under tests/corpus/gen-*/ and run by the `corpus` job of ci.yml.
+
+on:
+  schedule:
+    - cron: "17 2 * * *"
+  workflow_dispatch:
+    inputs:
+      size:
+        description: "Size to run"
+        type: choice
+        options: [medium, large, both]
+        default: medium
+      profiles:
+        description: "Profiles (space separated: game service lib c mixed); empty = the default of the size"
+        type: string
+        default: ""
+      seed:
+        description: "Generator seed"
+        type: string
+        default: "1"
+
+permissions:
+  contents: read
+
+env:
+  CLANGD_VERSION: "22.1.1"
+  NINJA_VERSION: "1.13.0"
+
+jobs:
+  stress:
+    name: stress ${{ matrix.size }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        size: [medium, large]
+    steps:
+      - uses: actions/checkout@v4
+        if: github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size
+
+      - uses: actions/setup-python@v5
+        if: github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size
+        with:
+          python-version: "3.12"
+
+      - name: Install clangd and Ninja (pip)
+        if: github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install "clangd==${CLANGD_VERSION}" "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: Generator tests
+        if: github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size
+        run: python3 -m unittest discover -s tools/stress -p 'test_gen_codebase.py' -v
+
+      - name: Build tenfold-cli
+        if: github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size
+        env:
+          CC: gcc
+          CXX: g++
+        run: |
+          cmake --preset release
+          cmake --build --preset release --parallel --target tenfold-cli
+
+      - name: Generate, run, measure
+        if: github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size
+        env:
+          TENFOLD_CLI: ${{ github.workspace }}/build/release/tenfold-cli
+          OUT: ${{ github.workspace }}/stress-reports/${{ matrix.size }}
+          SEED: ${{ inputs.seed || '1' }}
+        run: tools/stress/run_generated.sh ${{ matrix.size }} ${{ inputs.profiles }}
+
+      - name: Summary
+        if: always() && (github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size)
+        run: |
+          if [ -f stress-reports/${{ matrix.size }}/summary.md ]; then
+            cat stress-reports/${{ matrix.size }}/summary.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload reports
+        if: always() && (github.event_name == 'schedule' || inputs.size == 'both' || inputs.size == matrix.size)
+        uses: actions/upload-artifact@v4
+        with:
+          name: stress-reports-${{ matrix.size }}
+          path: stress-reports/${{ matrix.size }}
+          if-no-files-found: warn
