@@ -47,7 +47,8 @@ OsLauncher systemLauncher() {
   };
   l.showInFolder = [](const fs::path& file, std::string* err) {
 #ifdef _WIN32
-    std::string native = file.make_preferred().string();
+    fs::path preferred = file;
+    std::string native = preferred.make_preferred().string();
     return launch("explorer.exe", {"/select," + native}, "explorer.exe /select,\"" + native + "\"", err);
 #elif defined(__APPLE__)
     return launch("open", {"-R", file.string()}, {}, err);
