@@ -1,7 +1,11 @@
 #include "lsp/JsonRpc.h"
 
+#include <atomic>
 #include <cstring>
 #include <vector>
+
+#include "core/JsonUtil.h"
+#include "core/Log.h"
 
 namespace tf {
 
@@ -48,7 +52,18 @@ void JsonRpcConnection::failPending(const char* why) {
 bool JsonRpcConnection::alive() const { return running_ && proc_.running(); }
 
 void JsonRpcConnection::send(const Json& msg) {
-  std::string body = msg.dump();
+  // Documents are decoded to UTF-8 before they get here (core/TextEncoding.h), so this should never see invalid
+  // bytes; if some path still does (a file name, a bug), the strict dump throws type_error 316, which would
+  // terminate the editor out of Editor::open / every edit. Invalid bytes become U+FFFD instead, logged once.
+  std::string body;
+  try {
+    body = msg.dump();
+  } catch (const Json::type_error& e) {
+    static std::atomic<bool> logged{false};
+    if (!logged.exchange(true))
+      Log::warn("lsp", std::string("invalid UTF-8 in an outgoing message, replaced: ") + e.what());
+    body = dumpSafe(msg);
+  }
   std::string frame = "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
   if (trace_) trace_("->", msg);
   std::lock_guard<std::mutex> lk(writeMu_);

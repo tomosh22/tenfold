@@ -22,14 +22,9 @@ Document Document::untitled(std::filesystem::path path, LineEnding lineEnding) {
 }
 
 bool Document::loadFromDisk(std::string* error) {
-  std::ifstream in(path_, std::ios::binary);
-  if (!in) {
-    if (error) *error = "cannot open " + path_.string();
-    return false;
-  }
-  std::stringstream ss;
-  ss << in.rdbuf();
-  DecodedText dec = decodeFileBytes(ss.str());
+  std::string bytes;
+  if (!readRegularFile(path_, bytes, error)) return false;
+  DecodedText dec = decodeFileBytes(bytes);
   buf_.setText(dec.text);
   encoding_ = dec.encoding;
   saveNote_.clear();

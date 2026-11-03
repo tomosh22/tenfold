@@ -31,4 +31,9 @@ bool pathsEqual(const std::filesystem::path& a, const std::filesystem::path& b);
 std::string pathToUri(const std::string& path, PathStyle style);
 std::string uriToPathString(const std::string& uri, PathStyle style);
 
+// Reads a whole file into `out`. Only regular files are read: a character device (/dev/zero, /dev/urandom) has no end,
+// so reading it exhausts memory, and a FIFO blocks the caller forever. Symlinks are followed. Returns false and sets
+// *error ("not a regular file", "cannot open", ...) when the file is refused or unreadable; `out` is untouched then.
+bool readRegularFile(const std::filesystem::path& path, std::string& out, std::string* error = nullptr);
+
 }  // namespace tf

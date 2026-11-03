@@ -421,6 +421,9 @@ class SemanticEngine {
   std::deque<Pending> pending_;
   std::multimap<std::chrono::steady_clock::time_point, std::function<void()>> delayed_;  // guarded by mu_
 
+  // Large open documents re-index lazily (see didChange): the generation of the pending re-index per uri (mu_).
+  std::map<std::string, uint64_t> reindexGen_;
+
   // Semantic token state per document uri (tokMu_): the previous result id + data for delta, debounce generation.
   struct TokenState {
     std::string resultId;

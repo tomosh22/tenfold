@@ -88,7 +88,7 @@ On start the previous layout (tabs, split panels, pinned tabs, dock state) comes
 empty window.
 
 The folder is scanned recursively. Source extensions are `.cpp .cc .cxx .c .cu .mm .m`, headers `.h .hpp .hh .hxx
-.inl .ipp .tpp .cuh` (and files with no extension), and `.txt .md .json .cmake .py .lua .natvis .def .rc` count as
+.inl .ipp .tpp .cuh .def .inc` (and files with no extension), and `.txt .md .json .cmake .py .lua .natvis .rc` count as
 other files. Directories named `.git .svn .hg .vs .vscode .idea .cache .tenfold node_modules __pycache__` are skipped,
 and so are build-output directories: those named exactly `build`, `out`, `bin` or `obj` (case-insensitive), and those
 whose name starts with `build-` or `cmake-build` (`build-x64`, `cmake-build-debug`). Look-alikes such as `output`,

@@ -662,14 +662,12 @@ void SemanticEngine::fileChanged(const fs::path& file, bool includeOpen) {
     std::lock_guard<std::mutex> lk(mu_);
     if (openDocs_.count(pathToUri(file))) return;
   }
-  std::ifstream in(file, std::ios::binary);
-  if (!in) {
-    fast_.removeFile(file);  // vanished between the event and now
+  std::string text;
+  if (!readRegularFile(file, text)) {
+    fast_.removeFile(file);  // vanished (or turned into a directory / device) between the event and now
     return;
   }
-  std::stringstream ss;
-  ss << in.rdbuf();
-  fast_.updateFile(file, decodeFileBytes(ss.str()).text);
+  fast_.updateFile(file, isValidUtf8(text) ? text : decodeFileBytes(text).text);
 }
 
 void SemanticEngine::fileRemoved(const fs::path& file, bool includeOpen) {
@@ -1018,11 +1016,25 @@ std::vector<SymbolLocation> SemanticEngine::fromServer(const std::vector<LspLoca
 // Document lifecycle
 // ---------------------------------------------------------------------------
 
+// Only C/C++ sources and headers are indexed and synced to clangd. A .txt / .json / .md document used to be lexed as
+// C++ on every keystroke (a 200 MB log file: a 200 MB copy plus a 200 MB lex per key) and sent to clangd as "cpp".
+static bool isCodeDocument(const Workspace& ws, const Document& doc) {
+  return ws.isSource(doc.path()) || ws.isHeader(doc.path());
+}
+
+namespace {
+// Above this size a keystroke does not re-lex the file on the typing thread (about 75 MB/s: 5 MB = 65 ms, 40 MB =
+// half a second per key); the fast index of the file is refreshed once typing pauses.
+constexpr size_t kLazyReindexBytes = 1u << 20;
+constexpr int kLazyReindexMs = 300;
+}  // namespace
+
 void SemanticEngine::didOpen(Document& doc) {
   {
     std::lock_guard<std::mutex> lk(mu_);
     openDocs_[doc.uri()] = &doc;
   }
+  if (!isCodeDocument(ws_, doc)) return;
   fast_.updateFile(doc.path(), doc.buffer().text());
   // clangd gets the document as UTF-8 with the file's real line endings (a continued #define in a CRLF header
   // is not the same input to clang with LF; W9e finding 4). Line/column positions are the same either way.
@@ -1031,8 +1043,36 @@ void SemanticEngine::didOpen(Document& doc) {
 }
 
 void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
-  // Keep the fast index fresh (cheap: single file re-lex).
-  fast_.updateFile(doc.path(), doc.buffer().text());
+  if (!isCodeDocument(ws_, doc)) return;
+  // Keep the fast index fresh: a single-file re-lex, immediately for ordinary files, once typing pauses for big ones.
+  std::function<void(std::function<void()>)> poster;
+  if (doc.buffer().byteSize() >= kLazyReindexBytes) {
+    std::lock_guard<std::mutex> lk(supMu_);
+    poster = poster_;
+  }
+  if (poster) {
+    const std::string uri = doc.uri();
+    uint64_t gen;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      gen = ++reindexGen_[uri];
+    }
+    runLater(kLazyReindexMs, [this, poster, uri, gen] {
+      poster([this, uri, gen] {  // on the thread that owns the documents
+        const Document* d = nullptr;
+        {
+          std::lock_guard<std::mutex> lk(mu_);
+          auto g = reindexGen_.find(uri);
+          if (g == reindexGen_.end() || g->second != gen) return;  // a newer edit re-armed it, or the document closed
+          auto it = openDocs_.find(uri);
+          if (it != openDocs_.end()) d = it->second;
+        }
+        if (d) fast_.updateFile(d->path(), d->buffer().text());
+      });
+    });
+  } else {
+    fast_.updateFile(doc.path(), doc.buffer().text());
+  }
   if (auto c = clangd()) {
     if (c->offsetEncoding() == "utf-8") {
       c->didChangeIncremental(
@@ -1046,6 +1086,7 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
 }
 
 void SemanticEngine::didSave(Document& doc) {
+  if (!isCodeDocument(ws_, doc)) return;
   if (auto c = clangd()) c->didSave(doc.uri());
 }
 
@@ -1054,7 +1095,9 @@ void SemanticEngine::didClose(Document& doc) {
     std::lock_guard<std::mutex> lk(mu_);
     openDocs_.erase(doc.uri());
     fileStatus_.erase(doc.uri());
+    reindexGen_.erase(doc.uri());
   }
+  if (!isCodeDocument(ws_, doc)) return;
   {
     std::lock_guard<std::mutex> lk(tokMu_);
     tokens_.erase(doc.uri());

@@ -102,7 +102,11 @@ void TextRenderer::drawSpans(float x, float y, std::string_view utf8, const std:
   const FontMetrics& m = fonts_.metrics();
   const float base = y + std::round((lineHeight() - (m.ascender + m.descender)) / 2 + m.ascender);
   tmp_.clear();
-  layout_.layoutLine(utf8, x, base, 0, clip.x + clip.w - x, spans, defaultColor, tmp_);
+  // Only the cells inside the clip are laid out. A line scrolled far to the left (x very negative: the caret at the end
+  // of a 1 MB line) used to emit a quad for every glyph from its start to the clip's right edge, 60 ms per frame, only
+  // for record() to throw them away.
+  const float skip = std::max(0.0f, clip.x - x);
+  layout_.layoutLine(utf8, x + skip, base, skip, clip.x + clip.w - (x + skip), spans, defaultColor, tmp_);
   record(palette, clip);
 }
 

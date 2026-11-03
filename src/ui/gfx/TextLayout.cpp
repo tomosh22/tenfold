@@ -76,12 +76,12 @@ struct Cell {
 // Single source of truth for cell boundaries: drawing and all mappings go through here. fn(cell) returns false to
 // stop. Returns the total column count when the whole line was visited (otherwise the column reached).
 template <class Fn>
-int forEachCell(std::string_view line, int tabWidth, Fn&& fn) {
-  const char* p = line.data();
-  const char* end = p + line.size();
+int forEachCell(std::string_view line, int tabWidth, Fn&& fn, size_t startByte = 0, int startCol = 0) {
+  const char* p = line.data() + startByte;
+  const char* end = line.data() + line.size();
   Cell cur;
   bool have = false;
-  int col = 0;
+  int col = startCol;
   while (p < end) {
     int len = 1;
     const unsigned char c0 = static_cast<unsigned char>(*p);
@@ -123,11 +123,24 @@ int forEachCell(std::string_view line, int tabWidth, Fn&& fn) {
 }
 }  // namespace
 
+// True when line[0, n) is printable ASCII only (one cell per byte, no tabs / controls / multi-byte characters) and the
+// byte at n, if any, starts a new cell. Then byte n is column n, and a scan can start there. A branch-free loop: the
+// compiler vectorises it, so a 1 MB prefix costs about 0.1 ms instead of 10 ms through forEachCell.
+static bool plainAsciiPrefix(std::string_view line, size_t n) {
+  if (n > line.size()) return false;
+  unsigned char bad = 0;
+  for (size_t i = 0; i < n; ++i)
+    bad |= static_cast<unsigned char>(static_cast<unsigned char>(line[i]) - 0x20u) >= 0x5Fu;
+  return bad == 0 && (n == line.size() || static_cast<unsigned char>(line[n]) < 0x80);
+}
+
 int TextLayout::columnCount(std::string_view line) const {
   return forEachCell(line, tabWidth_, [](const Cell&) { return true; });
 }
 
 int TextLayout::columnForByte(std::string_view line, size_t byteOffset) const {
+  if (plainAsciiPrefix(line, std::min(byteOffset, line.size())))
+    return static_cast<int>(std::min(byteOffset, line.size()));
   int result = -1;
   int total = forEachCell(line, tabWidth_, [&](const Cell& c) {
     if (c.b1 > byteOffset) {
@@ -191,22 +204,33 @@ void TextLayout::layoutLine(std::string_view line, float originX, float baseline
     else out.runs.push_back({static_cast<uint32_t>(out.quads.size() - 1), 1, color});
   };
 
-  forEachCell(line, tabWidth_, [&](const Cell& c) {
-    const float x0 = static_cast<float>(c.col) * adv;
-    if (x0 >= visEnd) return false;
-    if (x0 + static_cast<float>(c.width) * adv <= scrollX) return true;
-    if (c.kind == Kind::Tab) return true;
-    while (spanIdx < spans.size() && spans[spanIdx].end <= c.b0) ++spanIdx;
-    const uint32_t color = spanIdx < spans.size() && spans[spanIdx].begin <= c.b0 ? spans[spanIdx].color : defaultColor;
-    if (c.kind == Kind::Control) {
-      emit('^', c.col, color);
-      emit(c.cp == 0x7F ? U'?' : static_cast<char32_t>(c.cp + 64), c.col + 1, color);
-      return true;
-    }
-    if (c.cp != ' ') emit(c.cp, c.col, color);
-    for (int i = 0; i < c.nMarks; ++i) emit(c.marks[i], c.col, color);
-    return true;
-  });
+  // A line scrolled far to the right (the caret at the end of a 1 MB line): skip the printable-ASCII prefix that is
+  // entirely left of the view without visiting its cells.
+  size_t startByte = 0;
+  if (scrollX > 2 * adv) {
+    const size_t k = std::min(line.size(), static_cast<size_t>(scrollX / adv) - 1);
+    if (plainAsciiPrefix(line, k)) startByte = k;
+  }
+  forEachCell(
+      line, tabWidth_,
+      [&](const Cell& c) {
+        const float x0 = static_cast<float>(c.col) * adv;
+        if (x0 >= visEnd) return false;
+        if (x0 + static_cast<float>(c.width) * adv <= scrollX) return true;
+        if (c.kind == Kind::Tab) return true;
+        while (spanIdx < spans.size() && spans[spanIdx].end <= c.b0) ++spanIdx;
+        const uint32_t color =
+            spanIdx < spans.size() && spans[spanIdx].begin <= c.b0 ? spans[spanIdx].color : defaultColor;
+        if (c.kind == Kind::Control) {
+          emit('^', c.col, color);
+          emit(c.cp == 0x7F ? U'?' : static_cast<char32_t>(c.cp + 64), c.col + 1, color);
+          return true;
+        }
+        if (c.cp != ' ') emit(c.cp, c.col, color);
+        for (int i = 0; i < c.nMarks; ++i) emit(c.marks[i], c.col, color);
+        return true;
+      },
+      startByte, static_cast<int>(startByte));
 
   const float inv = 1.0f / static_cast<float>(atlas_.size());
   for (size_t i = firstQuad; i < out.quads.size(); ++i) {

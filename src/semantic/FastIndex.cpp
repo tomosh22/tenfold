@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #endif
 
+#include "core/PathUtil.h"
 #include "core/TextEncoding.h"
 #include "semantic/CppLexer.h"
 
@@ -69,11 +70,16 @@ class Extractor {
   bool atKw(std::string_view k) const { return tok().kind == Tok::Keyword && tok().text == k; }
   void advance(size_t n = 1) { i_ = std::min(i_ + n, toks_.size() - 1); }
 
+  // The qualified enclosing scope. Only the innermost kMaxScopeComponents scopes are named: every symbol stores this
+  // string, so 10k nested namespaces / classes (generated code, fuzzed input) would otherwise cost O(depth^2) memory
+  // and time. Real code nests a handful of scopes; the cut keeps the innermost (most specific) ones.
+  static constexpr size_t kMaxScopeComponents = 64;
   std::string scopeName() const {
     std::string s;
-    for (auto& sc : scopes_) {
+    for (size_t i = scopes_.size() > kMaxScopeComponents ? scopes_.size() - kMaxScopeComponents : 0; i < scopes_.size();
+         ++i) {
       if (!s.empty()) s += "::";
-      s += sc.name;
+      s += scopes_[i].name;
     }
     return s;
   }
@@ -853,7 +859,14 @@ class Extractor {
 
 }  // namespace
 
+namespace {
+constexpr size_t kMaxIndexedFileBytes = size_t{64} << 20;  // larger files are not indexed (no symbols, no includes)
+}
+
 std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes, bool isC) {
+  // The extractor holds every token of the file (about 16 bytes of RSS per source byte, times the number of indexing
+  // threads): a 200 MB generated .cpp took 3.4 GB. Such a file is data, not code someone navigates; it is not indexed.
+  if (source.size() > kMaxIndexedFileBytes) return {};
   return Extractor(source, includes, isC).run();
 }
 
@@ -870,11 +883,7 @@ namespace {
 std::string keyFor(const std::filesystem::path& p) { return p.generic_string(); }
 
 bool readFile(const std::filesystem::path& p, std::string& out) {
-  std::ifstream in(p, std::ios::binary);
-  if (!in) return false;
-  std::stringstream ss;
-  ss << in.rdbuf();
-  out = ss.str();
+  if (!readRegularFile(p, out)) return false;
   // The index works on the same UTF-8 text a Document shows, so locations from it land on the right columns in
   // Latin-1 / UTF-16 files (core/TextEncoding.h). Valid UTF-8 (the usual case) is not copied again.
   if (!isValidUtf8(out)) out = decodeFileBytes(out).text;

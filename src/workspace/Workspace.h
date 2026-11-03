@@ -17,9 +17,9 @@ class Workspace {
  public:
   struct Settings {
     std::vector<std::string> sourceExtensions = {".cpp", ".cc", ".cxx", ".c", ".cu", ".mm", ".m"};
-    std::vector<std::string> headerExtensions = {".h", ".hpp", ".hh", ".hxx", ".inl", ".ipp", ".tpp", ".cuh", ""};
-    std::vector<std::string> otherExtensions = {".txt", ".md",     ".json", ".cmake", ".py",
-                                                ".lua", ".natvis", ".def",  ".rc"};
+    std::vector<std::string> headerExtensions = {".h",   ".hpp", ".hh",  ".hxx", ".inl", ".ipp",
+                                                 ".tpp", ".cuh", ".def", ".inc", ""};
+    std::vector<std::string> otherExtensions = {".txt", ".md", ".json", ".cmake", ".py", ".lua", ".natvis", ".rc"};
     std::set<std::string> ignoreDirs = {".git",  ".svn",   ".hg",      ".vs",          ".vscode",
                                         ".idea", ".cache", ".tenfold", "node_modules", "__pycache__"};
     // Build-output directories. ignoreDirNames match the whole directory name (case-insensitive); ignoreDirPrefixes
