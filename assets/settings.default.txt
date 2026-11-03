@@ -14,21 +14,35 @@ editor.caretBlinkMs = 530
 editor.highlightCurrentLine = true
 editor.wheelLines = 3
 editor.tabWidth = 4
-# 0 = off. A column guide (e.g. 90) is only a candidate until verified against 10x.
+# 0 = off (10x VerticalRulers is empty by default; tenfold draws one guide).
 editor.columnGuide = 0
 editor.showWhitespace = false
 
-# Editing conveniences (B8, OPEN_QUESTIONS #8: VERIFY WITH USER, every default below is a guess about 10x).
-# indentUnit: "tab" or the number of spaces of one indent level; used when detectIndent finds nothing in the file.
-editor.indentUnit = 4
-editor.detectIndent = true
-# Enter copies the previous line's indentation (one level deeper after { ( [ or an operator); '}' dedents.
+# Editing conveniences (B8b: the defaults are 10x's documented defaults; the 10x setting each key mirrors is named).
+# indentUnit (10x IndentMode = Tabs): "tab" or the number of spaces of one indent level; used when detectIndent is off
+# or finds nothing in the file.
+editor.indentUnit = tab
+# 10x AutoDetectIndentMode = false.
+editor.detectIndent = false
+# 10x AutoIndent: Enter copies the previous line's indentation (one level deeper after { ( [ or an operator).
 editor.autoIndent = true
-# ( [ { " ' close themselves, typing the closer skips over it, selections are wrapped, Backspace removes empty pairs.
-editor.autoClosePairs = true
+# 10x AutoIndentBraces: '}' typed as the first non-blank character dedents to the line of its '{'.
+editor.autoIndentBraces = true
+# 10x FormatBracesOnEnterSplit: Enter between { and } moves the closer to its own line.
+editor.formatBracesOnEnterSplit = false
+# 10x AutoAddCloseBrace: typing { inserts }; typing the closer steps over it, Backspace removes the empty pair.
+editor.autoAddCloseBrace = false
+# 10x AutoAddCloseBracket: the same for ( and [.
+editor.autoAddCloseBracket = false
+# tenfold only (10x documents no setting for quotes): " and ' insert a second quote and wrap a selection.
+editor.autoCloseQuotes = false
+# 10x BracketSelectedText: typing ( [ { over a selection encloses it.
+editor.bracketSelectedText = true
+# Not documented by 10x; stays off.
 editor.trimTrailingWhitespace = false
 
-# Unsaved changes and files changed on disk (OPEN_QUESTIONS #5; the defaults follow Visual Studio where 10x is unknown).
+# Unsaved changes and files changed on disk (OPEN_QUESTIONS #5). confirmUnsaved matches 10x (RestoreUnsavedFiles =
+# false: it prompts); 10x documents nothing about files changed on disk, that default is a guess.
 # confirmUnsaved: closing the last tab of a modified file, closing the window and App.Quit ask Save / Don't Save / Cancel.
 editor.confirmUnsaved = true
 # reloadExternalChanges: auto (reload a file that changed on disk unless it has unsaved edits, then ask), prompt (always
@@ -46,7 +60,10 @@ ui.theme = vs-dark
 # Show "<- 3 | 1 ->" back/forward counts in the status bar.
 nav.statusCounts = false
 
-# Symbol search shows a preview of the target line on the right (OPEN_QUESTIONS #6, VERIFY WITH USER).
+# Windows: also read the user's %APPDATA%\10x\Settings\KeyMappings.10x_settings as a key-binding layer.
+keys.import10x = true
+
+# Symbol search shows a preview of the target line on the right (OPEN_QUESTIONS #6: not documented by 10x).
 picker.preview = true
 
 # Version control (C3c). vcs.diffTool: the external diff program of Vcs.DiffFileExternal; empty = auto: on Windows

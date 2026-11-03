@@ -39,6 +39,12 @@ struct Fx {
       out << text;
     }
     ed = std::make_unique<Editor>(dir);
+    // These tests are about the behaviours themselves, so they pin them on explicitly; Editor::EditingOptions{} holds
+    // 10x's defaults (see the b8b_* tests at the end of this file).
+    Editor::EditingOptions& o = ed->editing();
+    o.autoCloseBrace = o.autoCloseBracket = o.autoCloseQuotes = o.formatBracesOnEnterSplit = true;
+    o.detectIndent = true;
+    o.indentUnit = "    ";
     doc = ed->open(name);
     if (doc) ed->gotoLocation({doc->path(), {0, 0}});
   }
@@ -69,6 +75,11 @@ struct Fx {
     CHECK_EQ(text(), before);
   }
 };
+
+void noAutoClose(Fx& f) {
+  Editor::EditingOptions& o = f.ed->editing();
+  o.autoCloseBrace = o.autoCloseBracket = o.autoCloseQuotes = false;
+}
 
 }  // namespace
 
@@ -169,7 +180,7 @@ TEST(edit_close_brace_dedents_to_matching_open_brace) {
   CHECK_EQ(f.doc->buffer().line(4), "}");
   Fx g("a {\n    b } ");  // '}' after other text on the line is just typed
   g.set({C(1, 11)});
-  g.ed->editing().autoClosePairs = false;
+  noAutoClose(g);
   g.ed->typeText("}");
   CHECK_EQ(g.doc->buffer().line(1), "    b } }");
 }
@@ -203,7 +214,7 @@ TEST(edit_autoclose_backspace_deletes_empty_pair) {
   CHECK_EQ(g.text(), "a)");
   Fx h("()");
   h.set({C(0, 1)});
-  h.ed->editing().autoClosePairs = false;
+  noAutoClose(h);
   h.ed->backspace();
   CHECK_EQ(h.text(), ")");
 }
@@ -252,7 +263,7 @@ TEST(edit_autoclose_multi_caret_one_undo_step) {
 
 TEST(edit_autoclose_off_types_plain) {
   Fx f("");
-  f.ed->editing().autoClosePairs = false;
+  noAutoClose(f);
   f.type("(\"");
   CHECK_EQ(f.text(), "(\"");
 }
@@ -591,4 +602,108 @@ TEST(edit_typing_still_coalesces_with_smart_typing) {
   CHECK_EQ(f.text(), "ab");
   CHECK(f.ed->undo());
   CHECK_EQ(f.text(), "");  // plain characters keep joining into one word-level step
+}
+
+// --- 10x defaults (B8b) -----------------------------------------------------------------------------------------
+// Editor::EditingOptions{} mirrors 10x's documented defaults: AutoAddCloseBrace / AutoAddCloseBracket false,
+// BracketSelectedText true, FormatBracesOnEnterSplit false, AutoIndent / AutoIndentBraces true, IndentMode Tabs,
+// AutoDetectIndentMode false.
+
+TEST(b8b_default_options_are_10x_defaults) {
+  const Editor::EditingOptions o;
+  CHECK(!o.autoCloseBrace);
+  CHECK(!o.autoCloseBracket);
+  CHECK(!o.autoCloseQuotes);
+  CHECK(o.bracketSelectedText);
+  CHECK(!o.formatBracesOnEnterSplit);
+  CHECK(o.autoIndent);
+  CHECK(o.autoIndentBraces);
+  CHECK(!o.detectIndent);
+  CHECK_EQ(o.indentUnit, "\t");
+}
+
+TEST(b8b_default_typing_does_not_close_or_skip) {
+  Fx f("");
+  f.ed->editing() = Editor::EditingOptions{};
+  f.type("(a)[b]{c}\"d\"");
+  CHECK_EQ(f.text(), "(a)[b]{c}\"d\"");
+  Fx g("()");
+  g.ed->editing() = Editor::EditingOptions{};
+  g.set({C(0, 1)});
+  g.ed->backspace();  // no auto-closed pair to remove
+  CHECK_EQ(g.text(), ")");
+}
+
+TEST(b8b_bracket_selected_text_wraps_brackets_only) {
+  Fx f("hello world");
+  f.ed->editing() = Editor::EditingOptions{};
+  f.set({S(0, 0, 0, 5)});
+  f.type("(");
+  CHECK_EQ(f.text(), "(hello) world");
+  CHECK(f.primary() == S(0, 1, 0, 6));
+  f.type("\"");  // quotes do not wrap unless autoCloseQuotes is on
+  CHECK_EQ(f.text(), "(\") world");
+  Fx g("hello world");
+  g.ed->editing() = Editor::EditingOptions{};
+  g.ed->editing().bracketSelectedText = false;
+  g.set({S(0, 0, 0, 5)});
+  g.type("{");
+  CHECK_EQ(g.text(), "{ world");
+}
+
+TEST(b8b_brace_and_bracket_closing_are_independent) {
+  Fx f("");
+  f.ed->editing() = Editor::EditingOptions{};
+  f.ed->editing().autoCloseBrace = true;
+  f.type("{(");
+  CHECK_EQ(f.text(), "{(}");  // the brace closed, the bracket did not
+  Fx g("");
+  g.ed->editing() = Editor::EditingOptions{};
+  g.ed->editing().autoCloseBracket = true;
+  g.type("[{");
+  CHECK_EQ(g.text(), "[{]");  // the bracket closed, the brace did not
+  Fx h("");
+  h.ed->editing() = Editor::EditingOptions{};
+  h.ed->editing().autoCloseQuotes = true;
+  h.type("\"");
+  CHECK_EQ(h.text(), "\"\"");
+}
+
+TEST(b8b_enter_between_braces_splits_only_with_the_setting) {
+  Fx f("if (x) {}");
+  f.ed->editing() = Editor::EditingOptions{};
+  f.set({C(0, 8)});
+  f.ed->insertNewline();
+  CHECK_EQ(f.text(), "if (x) {\n\t}");  // 10x default: no split, the closer stays after the caret
+  CHECK(f.caret() == (Position{1, 1}));
+  Fx g("if (x) {}");
+  g.ed->editing() = Editor::EditingOptions{};
+  g.ed->editing().formatBracesOnEnterSplit = true;
+  g.set({C(0, 8)});
+  g.ed->insertNewline();
+  CHECK_EQ(g.text(), "if (x) {\n\t\n}");
+  CHECK(g.caret() == (Position{1, 1}));
+}
+
+TEST(b8b_auto_indent_braces_gates_close_brace_dedent) {
+  Fx f("a {\n    b;\n    ");
+  f.ed->editing() = Editor::EditingOptions{};
+  f.set({C(2, 4)});
+  f.ed->typeText("}");
+  CHECK_EQ(f.doc->buffer().line(2), "}");
+  Fx g("a {\n    b;\n    ");
+  g.ed->editing() = Editor::EditingOptions{};
+  g.ed->editing().autoIndentBraces = false;
+  g.set({C(2, 4)});
+  g.ed->typeText("}");
+  CHECK_EQ(g.doc->buffer().line(2), "    }");
+}
+
+TEST(b8b_default_indent_is_a_tab_without_detection) {
+  Fx f("void f() {\n  a;\n  b;\n}\n");
+  f.ed->editing() = Editor::EditingOptions{};
+  CHECK_EQ(f.ed->indentUnitFor(*f.doc), "\t");  // IndentMode = Tabs; the file's two-space style is not detected
+  f.set({C(0, 0)});
+  f.ed->insertTab();
+  CHECK_EQ(f.doc->buffer().line(0), "\tvoid f() {");
 }

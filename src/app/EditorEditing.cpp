@@ -227,8 +227,8 @@ void Editor::insertNewline() {
     CaretEdit e;
     const size_t postBlanks = leadingBlanks(post);
     const char opener = trimRight(pre).empty() ? '\0' : trimRight(pre).back();
-    const bool expand =
-        postBlanks < post.size() && opener != '\0' && opensBlock(code) && post[postBlanks] == closerOf(opener);
+    const bool expand = editing_.formatBracesOnEnterSplit && postBlanks < post.size() && opener != '\0' &&
+                        opensBlock(code) && post[postBlanks] == closerOf(opener);
     if (expand) {
       e.headOffset = text.size();
       text += "\n" + ind;
@@ -245,11 +245,16 @@ void Editor::insertNewline() {
 void Editor::typeText(const std::string& text) {
   if (!current_ || carets_.empty()) return;
   const char c = text.size() == 1 ? text[0] : '\0';
-  const bool opener = c == '(' || c == '[' || c == '{', quote = c == '"' || c == '\'',
-             closer = c == ')' || c == ']' || c == '}';
-  const bool pairs = editing_.autoClosePairs && (opener || quote || closer);
-  const bool dedent = editing_.autoIndent && c == '}';
-  if (!pairs && !dedent) {
+  const bool opener = c == '(' || c == '[' || c == '{', quote = c == '"' || c == '\'';
+  // Which characters this keystroke pairs / skips over / wraps with, per the 10x settings.
+  const bool pairOpener =
+      (c == '{' && editing_.autoCloseBrace) || ((c == '(' || c == '[') && editing_.autoCloseBracket);
+  const bool pairCloser =
+      (c == '}' && editing_.autoCloseBrace) || ((c == ')' || c == ']') && editing_.autoCloseBracket);
+  const bool pairQuote = quote && editing_.autoCloseQuotes;
+  const bool wrap = (opener && editing_.bracketSelectedText) || pairQuote;
+  const bool dedent = editing_.autoIndent && editing_.autoIndentBraces && c == '}';
+  if (!pairOpener && !pairCloser && !pairQuote && !wrap && !dedent) {
     insertText(text);
     return;
   }
@@ -261,7 +266,7 @@ void Editor::typeText(const std::string& text) {
     CaretEdit e{s.range(), text};
     bool skip = false;
     if (!s.empty()) {
-      if (pairs && (opener || quote)) {  // wrap the selection and keep it selected
+      if (wrap) {  // wrap the selection and keep it selected
         e.text = std::string(1, c) + b.textInRange(e.range) + closerOf(c);
         e.anchorOffset = s.reversed() ? e.text.size() - 1 : 1;
         e.headOffset = s.reversed() ? 1 : e.text.size() - 1;
@@ -273,13 +278,13 @@ void Editor::typeText(const std::string& text) {
       const char prev = p.column > 0 ? line[static_cast<size_t>(p.column) - 1] : '\0';
       const bool nextOpen =
           next == '\0' || std::isspace(static_cast<unsigned char>(next)) || std::strchr(")]};,", next);
-      if (pairs && (closer || quote) && next == c && !(quote && prev == '\\')) {
+      if ((pairCloser || pairQuote) && next == c && !(quote && prev == '\\')) {
         skip = true;  // typing over the closer that is already there
         e.range = {p, {p.line, p.column + 1}};
-      } else if (pairs && opener && nextOpen) {
+      } else if (pairOpener && nextOpen) {
         e.text = std::string(1, c) + closerOf(c);
         e.headOffset = 1;
-      } else if (pairs && quote && prev != '\\' && !isIdentCh(prev) && prev != c && nextOpen) {
+      } else if (pairQuote && prev != '\\' && !isIdentCh(prev) && prev != c && nextOpen) {
         e.text = std::string(2, c);
         e.headOffset = 1;
       } else if (dedent && static_cast<size_t>(p.column) <= leadingBlanks(line)) {

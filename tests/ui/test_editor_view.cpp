@@ -293,6 +293,7 @@ TEST(textview_alt_drag_column_and_ctrl_click_carets) {
 
 TEST(textview_keyboard_edits_and_moves) {
   Fx f("one two\nthree\n");
+  f.ed->editing().indentUnit = "    ";  // this test is about Tab inserting one unit, not the default unit (a tab)
   f.type("ab");
   CHECK_EQ(f.txt(), std::string("abone two\nthree\n"));
   f.key(Key::Backspace);

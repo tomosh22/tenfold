@@ -58,13 +58,13 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | UTF-8 text, CRLF preserved | ✅ | |
 | Undo / redo | ✅ | Per document, linear; nestable undo groups restore caret sets; typed-word grouping (A5, setting). **verify** 10x's grouping of typed characters (OPEN_QUESTIONS #3). |
 | Multi-caret / column select | ✅ | Engine (A5) + TextView (B2a): click/drag/double/triple/Alt-drag column select, Ctrl/Alt-click add caret, multi-caret clipboard; keystroke-to-paint 0.36 ms with 1000 carets on 100k lines. |
-| Auto-indent, auto-close brackets and quotes | 🔶 | B8: Enter copies / extends the indentation (brace and operator continuation), `}` dedents, `( [ { " '` close themselves (skip-over, wrap selection, pair Backspace); settings `editor.autoIndent`, `editor.autoClosePairs`, `editor.indentUnit`, `editor.detectIndent`. **verify** against 10x (OPEN_QUESTIONS #8). |
+| Auto-indent, auto-close brackets and quotes | 🔶 | B8 / B8b: Enter copies / extends the indentation (brace and operator continuation), `}` dedents, closing and wrapping are split like 10x's settings (`editor.autoAddCloseBrace`, `editor.autoAddCloseBracket`, `editor.bracketSelectedText`, tenfold-only `editor.autoCloseQuotes`) with 10x's defaults (nothing pairs, selections are bracketed, tab indent, no detection). Formatting, case alignment, re-indent on paste are not done (see "10x settings not yet supported"). |
 | Bracket matching | ✅ | B2b: box behind the matching `(){}[]` of the caret. |
 | Comment toggle, duplicate / move / join / delete line, indent / outdent | 🔶 | B8: Ctrl+/ and Ctrl+Shift+/, Ctrl+Shift+D, Alt+Up/Down, Ctrl+J, Ctrl+Shift+K, Tab / Shift+Tab; multi-caret, one undo step each. Placeholder keys. |
 | Go to line | ✅ | B8: Ctrl+G, `line[:column]`, recorded in the navigation history. |
 | Bookmarks | 🔶 | B8: toggle / next / previous / list, per file, follow edits, `.tenfold/bookmarks.json`, gutter flag. **verify** 10x's behaviour (OPEN_QUESTIONS #8). |
 | Find / replace in file | 🔶 | B8: Ctrl+F / Ctrl+H bar, incremental highlight of all matches, case / word / regex, F3 / Shift+F3, replace one / all (one undo step). Regex group references in the replacement are not expanded. |
-| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off), `Editor.LineEndingLF/CRLF`. Encoding is UTF-8 only. |
+| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off; 10x documents no such setting), `Editor.LineEndingLF/CRLF`. Encoding is UTF-8 only. |
 | Word wrap | ✅ | B2c: soft wrap on by default (`editor.wordWrap`; smooth scrolling off by default), at word boundaries, continuation rows indented, line number on the first row; Up / Down / Home / End by visual row; `View.ToggleWordWrap` (Alt+Z, the Visual Studio binding). No hard wrap / reflow and no wrap at a fixed column (a possible later setting). |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 
@@ -310,3 +310,185 @@ when bound in a key file.)
 - **SVN**: `SVNDiff`, `SVNAdd`, `SVNUpdateFile`, `SVNUpdateWorkspace`
 - **Git**: `GitDiff`, `GitAdd`, `GitBlame`
 - **Misc**: `ListCommands`, `Update`, `ToggleFPS`, `ListWorkspaceFiles`, `ListFileStatusMonitorFiles`, `LogMemory`, `LogMemoryStats`, `CheckParserIntegrity`
+## 10x settings not yet supported
+
+Source: 10x's own settings documentation (names, defaults and one-line meanings only). Python, terminal, MCP,
+telemetry, accessibility, updater, crash-dump and Perforce-connection settings are left out. Effort: S = a setting
+plus a few lines, M = a feature of a day or two, L = a subsystem. "Behaviour exists" means tenfold already does the
+thing, always, with no switch. Where the note says "check", the 10x meaning or the tenfold behaviour is not certain
+from the documentation.
+
+**Settings file format.** 10x stores settings as `Name: Value` lines (a space after the colon is required) in
+`Settings.10x_settings` (shared), `LocalSettings.10x_settings`, a `<workspace>.10x_settings` file next to the workspace
+and a `.10x_user_settings` file for the user; a removed setting reads as the empty string. tenfold keeps its own
+`key = value` `settings.txt` (dotted keys, three layers). Moving to the 10x format and names is a separate task (M).
+
+**Mapped (defaults aligned in B8b).** tenfold key -> 10x setting (10x default):
+
+| tenfold | 10x | Note |
+|---|---|---|
+| `editor.tabWidth` | TabWidth (4) | |
+| `editor.indentUnit` | IndentMode (Tabs) | tenfold also takes a space count |
+| `editor.detectIndent` | AutoDetectIndentMode (false) | |
+| `editor.autoIndent` | AutoIndent (true) | |
+| `editor.autoIndentBraces` | AutoIndentBraces (true) | `}` typed first on a line dedents |
+| `editor.formatBracesOnEnterSplit` | FormatBracesOnEnterSplit (false) | |
+| `editor.autoAddCloseBrace` | AutoAddCloseBrace (false) | `{` |
+| `editor.autoAddCloseBracket` | AutoAddCloseBracket (false) | `(` and `[` |
+| `editor.bracketSelectedText` | BracketSelectedText (true) | |
+| `editor.showWhitespace` | ShowWhitespace (false) | |
+| `editor.columnGuide` | VerticalRulers (empty) | 10x takes a list; tenfold one column |
+| `editor.wheelLines` | MouseWheelScrollStep (3) | |
+| `editor.caretBlink`, `editor.caretBlinkMs` | CursorBlinkRate (auto) | auto = the OS rate; 0 = off. tenfold uses 530 ms |
+| `editor.confirmUnsaved` | RestoreUnsavedFiles (false) | with false 10x prompts to save |
+| `editor.wordWrap` | WordWrap (false) | tenfold true by decision (OPEN_QUESTIONS #4) |
+| `editor.smoothScroll` | SmoothScroll (true) | tenfold false by decision (#4) |
+| `font.editor`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7) |
+| `ui.theme` | ColorScheme (Sunset) | vs-dark by decision (#7) |
+| `vcs.diffTool` | DiffExe (auto) | |
+
+No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTrailingWhitespace` (10x documents none),
+`editor.autoCloseQuotes`, `editor.reloadExternalChanges`, `nav.statusCounts`, `picker.preview`, `vcs.diffToolArgs`.
+
+### Editing
+
+| Setting | 10x default | Description | Effort / note |
+|---|---|---|---|
+| CommentBlockUsesLineComments | true | ToggleComment always uses `//` instead of `/* */` | S. tenfold has separate line and block commands; 10x has one ToggleComment (line without a selection, block with one) plus Commentline / Uncommentline. Needs the command layer (key bindings task) |
+| CommentBlockIncrementLine | false | Comment command moves to the next line after commenting a single line | S. tenfold never moves (= 10x's default) |
+| AutoAddCloseBraceAndFormat | false | Add the close brace and format the braces | M. Needs a formatter for the brace block |
+| AutoFormat | true | Format the statement or block when typing `;` or `}` | L. Needs 10x's formatting rules (the Space* and Format* settings below) |
+| OpenBraceOnNewLine | true | Move the open brace to the next line on auto-format | M. Part of AutoFormat |
+| UpdateIndentsOnCloseBrace | true | Re-indent the current block when `}` is typed | M. tenfold only dedents the `}` line |
+| UpdateIndentsOnPaste | true | Re-indent pasted lines | M. Does not exist |
+| BracketAlignFunctionArgs | true | Align continuation lines to the function's open bracket | M. Listed as "not done" in the OPEN_QUESTIONS #8 detail |
+| BracketAlignConditionals | false | Align conditional continuation lines to the open bracket | M. Same machinery |
+| AlignToEquals | false | Align lines of an assignment to the `=` | M |
+| IndentCaseStatements | true | Indent `case` labels inside a switch block | M. tenfold has no `case` rule |
+| UseSpacesAfterCurrentIndent | false | With tab indent, align with tabs up to the indent and spaces after | S. Needs the alignment features above |
+| ExtendEmptyLines, ExtendEmptyLinesUsingSpaces | false, false | Pad an empty new line with indentation | S. Check against tenfold, which writes the indent on Enter |
+| BackspaceDeletesTabs | false | In Spaces mode Backspace deletes TabWidth spaces | S |
+| SpaceBrackets, SpaceBraces, SpaceAfterConditionals | false, true, true | Formatting: space inside `()`, inside `{}`, after `if` | M each, with AutoFormat |
+| FormatEquals, FormatCommas, FormatExcludeList | true, true, (empty) | Formatting: one space around `=`; none before and one after `,`; words not to format | M, with AutoFormat |
+| AutoFixIndirection | false | Replace `.` with `->` (or back) from the variable's type | M. Needs clangd type info at the caret |
+| AutoFormatBlockComments, AutoFormatBlockCommentsNewLines | false, false | `/**` adds `*/`; Enter continues with a leading `*` | S |
+| MultiCursorPasteMode | Lines | Lines or Block paste of multi-cursor text into a single cursor | S. tenfold pastes per caret when the counts match |
+| TextDrag | true | Drag selected text with the mouse | M |
+| EndKeyUpdatesRectSelect | true | End extends a rectangle selection | S |
+| MoveToNextWordMode, SelectNextWordMode | WordStart, WordStart | Ctrl+Left/Right goes to the word start or end (auto by direction) | S. tenfold has one fixed behaviour |
+| CursorMode, OvertypeCursorMode, OvertypeEnabled | Line, auto, true | Caret shape; overtype mode on Insert | M. No overtype mode in tenfold |
+| ColorBracesByDepth | false | Colour brackets by nesting depth | M |
+| HighlightCurrentSymbol, HighlightCurrentWord, HighlightSelectedWord | true, false, true | Highlight other uses of the symbol, word or selection | M. Does not exist (symbol needs clangd `documentHighlight`) |
+| ShowLineEndings | false | Draw line endings | S |
+| ShowIndentGuideLines | true | Draw indent guides | M |
+| AllowEditingOfReadOnlyFiles | true | Edit read-only files | S. Relates to Perforce auto-checkout (C3b) |
+| DefaultLineEnding | CRLF | Line ending of new files | S, but tenfold has no new-file / untitled command; the engine keeps the ending of the file it opened. Not changed in B8b for that reason |
+| DefaultEncoding | UTF-8 | Encoding of new files | L together with non-UTF-8 support (UTF-16, ANSI, Shift_JIS, BOM variants) |
+| AutoNameUntitledFiles | false | Name an untitled file from the first word typed | S, after untitled files exist |
+
+### Navigation, find and view
+
+| Setting | 10x default | Description | Effort / note |
+|---|---|---|---|
+| FindTextInitialValue, ReplaceTextInitialValue | Current, Current | Seed the find / replace box with the current word, the selection or nothing | S. Check what tenfold seeds today |
+| CloseFindPanelOnEnter | false | Enter in the find box closes it | S |
+| ReverseFindSelection | false | Caret at the start of the found text | S |
+| ShowFindTextMatchCount | false | Match count inside the find box | S |
+| FindPanelCursorKeys | true | Left/Right move between the find panel's boxes and buttons | S |
+| GotoDefScrollMode, GotoResultScrollMode | Center, Visible | How navigation scrolls the target into view | S. tenfold has one behaviour |
+| GotoDefColumn | default | Which column a goto definition / build error opens in | M, with the column presets below |
+| GotoDefResolvesTypedefs, GotoFunctionImplementation | false, true | Typedef resolution; a call goes to the implementation, not the declaration | S/M. Result order comes from clangd; check |
+| FindSymbolFuzzyMatching | true | Fuzzy matching in Find Symbol | S. Behaviour exists (always on) |
+| TrackActiveFileInWorkspaceTree | false | Reveal the active file in the workspace tree | Needs a tree; tenfold has none |
+| ShowLineNumbers, MinLineNumberWidth, RelativeLineNumbers | true, 3, false | Line number gutter | S each |
+| ShowCollapseRegionMargin | true | Fold margin | L. Folding does not exist |
+| ShowUpdatedLinesInMargin, ShowUpdatedLinesInScrollBar | true, true | Mark modified lines | S. Version-control marks exist (C3c) but track the VCS base, not unsaved edits |
+| ScrollBarMode, MapScrollBarWidth | Map, 60 | Minimap-style scroll bar | L |
+| HighlightFindTextInScrollBar, HighlightSelectedWordInScrollBar, ScrollBarHighlightSize | true, false, 1.0 | Marks in the scroll bar | S. Find marks and diagnostics exist; selection marks do not |
+| ShowBreakpointsInScrollBar, ShowBookmarksInScrollBar | false, false | Breakpoint and bookmark marks in the scroll bar | S |
+| SmoothScrollSpeed | 50 | Speed of smooth scrolling | S |
+| VerticalMouseWheelSensitivity, HorizontalMouseWheelSensitivity | 1.0, 1.0 | Wheel scaling | S |
+| MouseWheelZoom | true | Ctrl+wheel zooms the font | S |
+| ControlClickGotoDefinition | true | Ctrl+click goes to definition | S. Check the existing click behaviour |
+| HideHoverBoxOnKeyPress, ShowSymbolHoverBoxOnMouseOver, EnableFunctionInfoHoverBox | true, true, true | Hover box and function-argument box behaviour | S. Hover and signature help exist without switches |
+| HideMouseCursorWhileTyping | false | Hide the pointer while typing | S |
+| VerticalLineGap | 1.0 | Extra line spacing | S |
+| UseLigatures | true | Font ligatures | M. Needs shaping |
+| UIScale, UIFont, UIFontSize | auto, Segoe UI, default | UI scale and font | M. tenfold scales with the display and has no separate UI font |
+| ToolFont, OutputPanelFont, StatusBarFont (and their sizes) | default | Fonts per panel kind | S |
+| FontGamma, FontSubPixelRenderingMode | 2.2, Horizontal | Text rendering | M. Greyscale atlas today |
+
+### Files, tabs and layout
+
+| Setting | 10x default | Description | Effort / note |
+|---|---|---|---|
+| SwitchFileMode | All | Ctrl+Tab cycles all files or only the current panel's | S |
+| NewTabPosition | RightOfCurrent | Where a newly opened tab goes | S |
+| MaxOpenTabs | 100 | Tab limit | S |
+| TabPanelMode | Top | Tab strip on top, left or right | M |
+| ReopenFileInCurrentPanel, OpenFileInActivePanel, RememberFilePanelPos | false, false, false | Which panel a file opens in | M |
+| UseColumnPresets, Column0Presets, Column1Presets, Column2Presets, ColumnGap | true, sources, headers, `*.bat, *.py`, 0 | Open sources in column 0 and headers in column 1 automatically | M. A 10x signature layout; tenfold opens in the active panel |
+| RestoreUnsavedFiles, RememberOpenFiles, OpenLastWorkspaceOnStartup | false, false, false | Restore unsaved buffers; reopen files and the workspace at startup | M |
+| FileBackupFrequency | 5000 | Back up unsaved files every N ms | M. tenfold has no backup files |
+| AutosaveWorkspace, SaveAllOnLoseFocus | false, false | Autosave | S |
+| SaveAsUsesPrevPanelPath | true | Save As starts in the previous file's folder | S, with a Save As dialog |
+| BackslashPaths | true | Show paths with backslashes | S |
+| WindowTitle, WorkspaceTextInTitleBar, RememberWindowPosition | Name, Name, true | Window title and position | S each |
+| HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt (and the secondary-menu variants) | false, true, true | Menu bar visibility | Needs a menu bar |
+| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert, EnableWorkspaceTreeDragDrop | true, false, true, true | Floating tool windows and tree drag and drop | Skipped unless tool windows float |
+
+### Workspace search
+
+| Setting | 10x default | Description | Effort / note |
+|---|---|---|---|
+| Search.Extensions | `.c .cpp .h .inl ...` (long list) | File types the workspace search covers | S |
+| Search.ExcludeList | `*/sqlite/*` | Wildcards to exclude | S. Find in files already takes `!glob` excludes per query |
+| Search.GlobalDirectories | (empty) | Extra directories in the search set | S |
+| Search.MaxResults, Search.MaxFileSize | 1000, 10485760 | Result and file-size limits | S |
+| Search.PathMode | FolderAndFile | Path display in results | S |
+| Search.SearchCurrentWord | true | Seed the search with the current word | S |
+| Search.SortOpenFilesByOpenFrequency | true | Rank files by how often they are opened | M |
+| Search.SetFindText | true | A result jump sets the find text | S |
+
+### Parser, completion and code intelligence
+
+| Setting | 10x default | Description | Effort / note |
+|---|---|---|---|
+| Autocomplete | true | Show completion automatically while typing | S. Behaviour exists (always on) |
+| AutocompleteCount | 6 | Rows in the dropdown | S |
+| AutoCompleteHideLowMatch | true | Hide weak matches behind "more..." | S/M |
+| SubmitFirstAutocomplete | true | Tab accepts the first item with nothing selected | S |
+| SubmitAutocompleteOnEnter | true | Enter accepts the completion | S. tenfold: Tab and Enter accept |
+| SubmitAutocompleteOnOpenBracket | true | Typing `(` accepts the completion | S |
+| AutoAddFunctionBrackets | true | Completing a function adds `(` and `)` when it takes no arguments | S/M. Needs the signature from clangd |
+| AutocompleteInComments | false | Completion inside comments | S |
+| ExactMatchAutoComplete | `else, endif, once` | Dismiss the popup when the typed text equals one of these | S |
+| UnderlineBuildErrors, AutoUnderlineErrors | true, true | Underline build errors in the source | M. Squiggles come from clangd diagnostics only |
+| GlobalDefines | (empty) | Extra defines for the parser | S. tenfold takes defines from the solution / compile commands (OPEN_QUESTIONS #12) |
+| ParserExtensions, ParserExcludeFilters, AdditionalIncludePaths, ParserPriorityFiles | (lists) | Which files the parser reads, extra include directories, unity-build priority | M |
+| ParserMaxFileSize, MaxPreprocessorTokenCount | 52428800, 10000 | Parser limits | S |
+| ShaderFileExtensions | `.glsl .hlsl ...` | Treat these as shader files | S |
+| DefinedOutBrightness | 0.55 | Dim inactive `#if` code | M. Needs clangd inactive regions |
+| AllowPreprocessorLineIndenting, IndentRequires | true, true | Indenting `#` lines and `requires` | S, with the formatter |
+| CPlusPlusDefine, TreatUndefinedDefinesAsTrue, ColourUndefinedKeywords | 199711L, false, false | Settings of 10x's own parser | Not applicable (clangd takes these from the compile flags) |
+
+### Build, debug and source control
+
+| Setting | 10x default | Description | Effort / note |
+|---|---|---|---|
+| BuildBeforeStartDebugging | true | Build before starting the debugger | S. Check what tenfold's start does |
+| BuildBeforeRun | false | Build before running the exe | S |
+| StopDebuggingOnBuild | false | Stop the debugger when a full build starts | S |
+| CloseBuildOutputAfterBuild | false | Close the build panel after a successful build | S |
+| StopScrollingOnError | true | Stop following the output at the first error | S |
+| BuildWarningRegex, BuildErrorRegex | (empty) | Regexes for build output lines | S |
+| OutputPanelWarningRegex, OutputPanelErrorRegex | `\[warning\]`, `\[error\]` | Regexes for output panel lines | S |
+| SyncDebugLine | true | Follow the debugger's current line | S. Behaviour exists (C2c) |
+| ToggleBreakpointsWithMouse | true | Click in the margin toggles a breakpoint | S. Behaviour exists |
+| VisualStudioSync | true | Sync breakpoints and configuration with Visual Studio | S. Breakpoints sync both ways (C2); a switch could be added |
+| VisualStudioEnvBat, VisualStudioInstallPath | auto, default | Where the VS build environment comes from | M. tenfold discovers MSVC itself (A2) |
+| DebuggerExe | (empty) | A debugger other than Visual Studio | Out of scope (OPEN_QUESTIONS #9) |
+| SourceControl | Perforce | Which provider is used | S. tenfold detects Git / Perforce |
+| PerforceOpenForEditOnEdit, PerforceOpenForEditOnSave | true, true | Auto-checkout on edit or save | S. Auto-checkout on edit exists (C3b); a save-time variant is new |
+| PerforceTimeout, PerforceEnableP4Config | 40, true | p4 command timeout; p4 config files | S |
+| InternetSearchCommand | `https://www.google.com/search?q=` | Search the web for the word under the caret | S |

@@ -746,14 +746,17 @@ pending OPEN_QUESTIONS #3.
 
 **Editing conveniences (B8, `src/app/EditorEditing.cpp`, `src/app/Bookmarks.*`).** Everything is an `Editor` method that
 edits at every caret and forms ONE undo step; the behaviours that could differ from 10x live in `Editor::EditingOptions`
-(`autoIndent`, `autoClosePairs`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`; the UI fills them from the
-`editor.*` settings, OPEN_QUESTIONS #8). Two entry points exist for text: `insertText` stays raw (paste, completion,
-tests) and `typeText` is what the view calls for typed characters (auto-close `( [ { " '`, typing over the closer
-that is already there, wrapping a selection, `}` as the first non-blank character dedenting to the line of the `{` it
-closes; everything else falls through to `insertText`, so the typing coalescer is unchanged: both go through
-`typeEdits`). `insertNewline` copies the indentation, adds one unit after a line ending in `{ ( [` or a binary
+(`autoIndent`, `autoIndentBraces`, `formatBracesOnEnterSplit`, `autoCloseBrace`, `autoCloseBracket`, `autoCloseQuotes`,
+`bracketSelectedText`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`; the UI fills them from the `editor.*`
+settings, OPEN_QUESTIONS #8). The struct's defaults are 10x's documented defaults (B8b: nothing auto-closes, tab
+indent, no detection, selections are bracketed); the engine tests pin the behaviours they test explicitly. Two entry
+points exist for text: `insertText` stays raw (paste, completion, tests) and `typeText` is what the view calls for typed
+characters (auto-close per pair kind, typing over the closer that is already there and Backspace between an empty pair,
+both only for a pair kind whose auto-close is on; wrapping a selection with `( [ {` per `bracketSelectedText`, with quotes
+per `autoCloseQuotes`; `}` as the first non-blank character dedenting to the line of the `{` it closes; everything else
+falls through to `insertText`, so the typing coalescer is unchanged: both go through `typeEdits`). `insertNewline` copies the indentation, adds one unit after a line ending in `{ ( [` or a binary
 operator (`+ - * / % & | ^ = ? <<`, not `++ -- */`), returns one unit when a continued statement ends with `;`, splits
-`{|}` into three lines and trims the blanks around the break. `indentUnitFor(doc)` detects tabs vs. the most common
+`{|}` into three lines (only with `formatBracesOnEnterSplit`) and trims the blanks around the break. `indentUnitFor(doc)` detects tabs vs. the most common
 indentation step of the first 400 lines. Line commands (`indentLines/outdentLines`, `toggleLineComment`, `moveLines`,
 `joinLines`, `deleteLines`, `trim on save`, `replaceAll`) compute a sorted batch and go through
 `Editor::runLineEdits` -> `Document::replaceMany` (A5b's single-pass path), carrying carets with `mapThrough`
@@ -1320,9 +1323,11 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   the input filters, Enter -> `gotoBookmarkItem`. Toggle / next / previous (Ctrl+F2, F2, Shift+F2) are engine commands.
   TextView draws a small accent-coloured flag at the left edge of a bookmarked line's gutter (right of the breakpoint
   glyph lane when there is one, see "Debugger UI").
-* **Settings** (`assets/settings.default.txt`): `editor.indentUnit` (`tab` or a number of spaces, default 4),
-  `editor.detectIndent` (true), `editor.autoIndent` (true), `editor.autoClosePairs` (true),
-  `editor.trimTrailingWhitespace` (false). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
+* **Settings** (`assets/settings.default.txt`, defaults = 10x's, B8b): `editor.indentUnit` (`tab` or a number of
+  spaces, default `tab`), `editor.detectIndent` (false), `editor.autoIndent` (true), `editor.autoIndentBraces` (true),
+  `editor.formatBracesOnEnterSplit` (false), `editor.autoAddCloseBrace` (false), `editor.autoAddCloseBracket` (false),
+  `editor.autoCloseQuotes` (false, tenfold only), `editor.bracketSelectedText` (true), `editor.trimTrailingWhitespace`
+  (false). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
   lines indents them. Encoding is UTF-8 only (the status bar shows `UTF-8` and the line ending; `Editor.LineEndingLF` /
   `Editor.LineEndingCRLF` switch the line ending written on save). TODO: other encodings need detection and conversion
