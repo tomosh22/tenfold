@@ -212,6 +212,34 @@ void createDteThread(const std::shared_ptr<CreateState>& st) {
   if (inited) CoUninitialize();
 }
 
+// Platform of a SolutionConfiguration. Items of SolutionBuild.SolutionConfigurations (and ActiveConfiguration) dispatch
+// as the base EnvDTE.SolutionConfiguration, whose IDispatch has no PlatformName (that member is on
+// SolutionConfiguration2: "unknown member", 0x80020006, seen on CI). So: PlatformName if the object has it, else the
+// platform of the first SolutionContext (project platform; the same as the solution platform for the usual
+// single-platform-per-name layout).
+HRESULT configurationPlatform(Dispatch& cfg, std::string& plat, std::string& detail) {
+  std::string d;
+  HRESULT hr = cfg.getString(L"PlatformName", plat, &d);
+  if (SUCCEEDED(hr)) return hr;
+  Dispatch contexts;
+  std::string cd;
+  HRESULT ch = cfg.getObject(L"SolutionContexts", contexts, &cd);
+  long count = 0;
+  if (SUCCEEDED(ch)) ch = contexts.getLong(L"Count", count, &cd);
+  if (SUCCEEDED(ch) && count < 1) {
+    ch = E_FAIL;
+    cd = "no solution contexts";
+  }
+  Variant item;
+  if (SUCCEEDED(ch)) ch = contexts.call(L"Item", {Variant::fromLong(1)}, &item, &cd);
+  Dispatch ctx = SUCCEEDED(ch) ? item.toDispatch() : Dispatch();
+  if (SUCCEEDED(ch) && !ctx) ch = E_NOINTERFACE;
+  if (SUCCEEDED(ch)) ch = ctx.getString(L"PlatformName", plat, &cd);
+  if (SUCCEEDED(ch)) return ch;
+  detail = describeHr("PlatformName", hr, d) + "; " + describeHr("SolutionContexts.Item(1).PlatformName", ch, cd);
+  return hr;
+}
+
 class VsDebugger final : public Debugger {
  public:
   explicit VsDebugger(const VsBusyPolicy& policy) : policy_(policy) {
@@ -286,7 +314,8 @@ class VsDebugger final : public Debugger {
     if (SUCCEEDED(hr)) hr = solution.getObject(L"SolutionBuild", build, &d);
     if (FAILED(hr)) return finish(hr, "Solution.SolutionBuild", d);
     auto names = [](Dispatch& cfg, std::string& name, std::string& plat) {
-      return SUCCEEDED(cfg.getString(L"Name", name)) && SUCCEEDED(cfg.getString(L"PlatformName", plat));
+      std::string ignored;
+      return SUCCEEDED(cfg.getString(L"Name", name)) && SUCCEEDED(configurationPlatform(cfg, plat, ignored));
     };
     Dispatch active;
     std::string an, ap;
@@ -297,10 +326,12 @@ class VsDebugger final : public Debugger {
     // Visual Studio is still loading projects in the background, so look again for a short window before giving up.
     // The failure names what was seen (count, per-item errors) so a log shows which of those it was.
     std::string available;
+    bool nameOnly = false;  // a configuration with the right name whose platform could not be read
     const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
     for (;;) {
       available.clear();
       bool incomplete = false;
+      nameOnly = false;
       std::string cd;
       long count = 0;
       hr = build.getObject(L"SolutionConfigurations", configs, &cd);
@@ -323,10 +354,12 @@ class VsDebugger final : public Debugger {
           }
           std::string nd;
           HRESULT nh = cfg.getString(L"Name", n, &nd);
-          HRESULT ph = SUCCEEDED(nh) ? cfg.getString(L"PlatformName", p, &nd) : nh;
+          HRESULT ph = SUCCEEDED(nh) ? configurationPlatform(cfg, p, nd) : nh;
           if (FAILED(ph)) {
             incomplete = true;
-            available += (available.empty() ? "" : ", ") + n + "|? " + describeHr("PlatformName", ph, nd);
+            if (SUCCEEDED(nh) && equalsNoCase(n, configuration)) nameOnly = true;
+            available +=
+                (available.empty() ? "" : ", ") + n + "|? " + (SUCCEEDED(nh) ? nd : describeHr("Name", nh, nd));
             continue;
           }
           if (equalsNoCase(n, configuration) && equalsNoCase(p, platform))
@@ -341,6 +374,13 @@ class VsDebugger final : public Debugger {
       // A well-formed list that simply lacks the requested pair is final; only an empty or unreadable one is retried.
       if (!incomplete || std::chrono::steady_clock::now() >= deadline) break;
       std::this_thread::sleep_for(std::chrono::milliseconds(500));
+    }
+    if (nameOnly) {
+      // Last resort when no route reads the platform: the toolbar combo commands take the new value as their argument.
+      DebugResult a = executeCommand("Build.SolutionConfigurations", configuration.c_str());
+      DebugResult b = executeCommand("Build.SolutionPlatforms", platform.c_str());
+      if (a && b) return DebugResult::success();
+      available += std::string("; Build.SolutionConfigurations/SolutionPlatforms: ") + (a ? b.error : a.error);
     }
     return DebugResult::failure("Visual Studio has no solution configuration " + configuration + "|" + platform +
                                 " (it has: " + available + ")");
@@ -543,11 +583,13 @@ class VsDebugger final : public Debugger {
     });
   }
 
-  DebugResult executeCommand(const char* command) {
+  DebugResult executeCommand(const char* command, const char* args = nullptr) {
     DebugResult c = ensureConnected();
     if (!c) return c;
     std::string d;
-    HRESULT hr = dte_.call(L"ExecuteCommand", {Variant::fromString(command)}, nullptr, &d);
+    std::vector<Variant> a{Variant::fromString(command)};
+    if (args) a.push_back(Variant::fromString(args));
+    HRESULT hr = dte_.call(L"ExecuteCommand", a, nullptr, &d);
     return finish(hr, command, d);
   }
 
