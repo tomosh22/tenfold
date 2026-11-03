@@ -1,0 +1,159 @@
+# templates-specialisation: full / partial specialisations of class and variable templates, function template
+# specialisation vs. overloading, explicit instantiation, member specialisation, SFINAE / enable_if, tag dispatch,
+# CRTP. Judgement calls are marked "(judgement)": the C++ rules do not say which declaration an IDE must show.
+
+# ---- fast tier ----
+fast def use_Printer_dbl -> Printer | Printer_int | Printer_ptr | Printer_vec
+fast def use_swap_dbl -> swap_primary | swap_int
+fast def use_circle_r -> Circle_r
+fast def use_total_area -> total_area
+fast def use_live -> Countable_live
+fast def use_kind_ptr -> kind_ptr | kind_val
+xfail fast def use_kind_ptr -> kind_ptr  # fast tier returns every kind() overload
+xfail fast def use_name_int -> Printer_int_name  # fast tier returns every Printer<..>::name
+xfail fast def use_circle_area -> Shape_area  # fast tier returns Shape::area and Square::area
+fast sym "Printer" ∋ Printer
+fast sym "Registry" ∋ Registry
+fast hover use_total_area ~ "total_area"
+
+# ---- class template specialisations: the use names the specialisation that is selected (judgement) ----
+def use_Printer_int -> Printer_int
+def use_Printer_ptr -> Printer_ptr
+def use_Printer_vec -> Printer_vec
+def use_Printer_dbl -> Printer
+typedef var_pi -> Printer_int
+typedef var_pp -> Printer_ptr
+typedef var_pv -> Printer_vec
+typedef var_pd -> Printer
+def use_name_int -> Printer_int_name
+def use_name_ptr -> Printer_ptr_name
+def use_name_vec -> Printer_vec_name
+def use_name_dbl -> Printer_name
+def use_extra -> Printer_int_extra
+def use_rank_vec -> Printer_vec_rank
+def use_rank_dbl -> Printer_rank
+def use_pointee -> Printer_ptr_pointee
+refs Printer_int_name = Printer_int_name use_name_int
+refs Printer_name = Printer_name use_name_dbl
+refs Printer_rank = Printer_rank use_rank_dbl
+refs Printer_vec_rank = Printer_vec_rank use_rank_vec
+refs Printer_ptr_pointee = Printer_ptr_pointee use_pointee
+hover use_name_ptr ~ "name"
+hover use_Printer_vec ~ "Printer"
+rename Printer_int_name label
+  Printer_int_name use_name_int
+rename Printer_vec_rank rankVec
+  Printer_vec_rank use_rank_vec
+
+# ---- variable template specialisations ----
+def use_id_v_dbl -> id_v
+def use_id_v_ptr -> id_v_ptr
+def use_id_v_int -> id_v_int
+refs id_v_ptr = id_v_ptr use_id_v_ptr
+refs id_v_int = id_v_int use_id_v_int
+refs id_v >= id_v use_id_v_dbl
+hover use_id_v_int ~ "id_v"
+
+# ---- detection idiom: partial specialisation chosen by SFINAE ----
+def use_has_size_vec -> has_size_yes
+def use_has_size_int -> has_size
+refs has_size_yes >= has_size_yes use_has_size_vec
+
+# ---- function templates: specialisation, overload, explicit arguments ----
+def use_swap_int -> swap_int
+def use_swap_dbl -> swap_primary
+def use_convert_bool -> convert_bool
+def use_convert_int -> convert_primary
+def use_convert_cstr -> convert_str_overload
+def use_convert_expl -> convert_primary
+def use_checked -> convert_checked_def
+decl use_checked -> convert_decl_only
+refs swap_int >= swap_int use_swap_int
+refs convert_bool >= convert_bool use_convert_bool
+refs convert_str_overload >= convert_str_overload use_convert_cstr
+refs convert_primary >= convert_primary use_convert_int use_convert_expl
+rename convert_str_overload convertStr
+  convert_str_overload use_convert_cstr
+def use_Conv_apply -> Conv_apply
+
+# ---- explicit instantiation (inst.cpp) and member specialisation ----
+def inst_Registry_int -> Registry
+def inst_Registry_double -> Registry
+xfail def inst_convert_float -> convert_primary  # clangd answers nothing for the name in an explicit function template instantiation
+xfail def inst_checked_int -> convert_checked_def | convert_decl_only  # same
+xfail refs Registry >= Registry inst_Registry_int inst_Registry_double  # clangd's references omit the template-names of explicit instantiations
+refs Registry >= Registry use_Registry_int
+def use_reg_add_int -> Registry_add_def
+decl use_reg_add_dbl -> Registry_add_decl
+def use_weight_int -> Registry_int_weight
+def use_weight_dbl -> Registry_weight_def
+decl use_weight_dbl -> Registry_weight_decl
+def use_as_double -> Registry_int_as_double
+def use_as_long -> Registry_as_def
+decl use_as_long -> Registry_as_decl
+refs Registry_int_weight >= Registry_int_weight use_weight_int
+refs Registry_weight_decl >= Registry_weight_decl Registry_weight_def use_weight_dbl
+refs Registry_add_decl >= Registry_add_decl Registry_add_def use_reg_add_int use_reg_add_dbl
+rename Registry_add_decl insert
+  Registry_add_decl Registry_add_def use_reg_add_int use_reg_add_dbl
+
+# ---- CRTP ----
+def use_circle_area -> Shape_area
+def use_scaled -> Shape_scaled
+def use_square_area -> Square_area
+def use_square_scaled -> Shape_scaled
+def use_area_in_scaled -> Shape_area
+def use_area_in_total -> Shape_area
+def use_id_in_total -> Shape_id
+def use_circle_r -> Circle_r
+def use_live -> Countable_live
+def use_live_in_ctor -> Countable_live
+def use_total_area -> total_area
+typedef var_circle -> Circle
+typedef var_widget -> Widget
+refs Shape_area >= Shape_area use_circle_area use_area_in_scaled use_area_in_total
+refs Square_area = Square_area use_square_area
+refs Countable_live = Countable_live use_live use_live_in_ctor
+refs Circle_r >= Circle_r use_circle_r
+hover use_square_area ~ "area"
+hover use_circle_area ~ "Shape"
+rename Square_area sideLength
+  Square_area use_square_area
+
+# ---- SFINAE / enable_if / tag dispatch / if constexpr ----
+def use_half_int -> half_int
+def use_half_fp -> half_fp
+def use_kind_ptr -> kind_ptr
+def use_kind_val -> kind_val
+def use_dispatch -> dispatch
+def use_describe -> describe
+# the argument type is dependent here, so any candidate is acceptable (judgement)
+def use_dispatch_impl -> dispatch_impl_true | dispatch_impl_false
+def use_kind_in_describe -> kind_ptr | kind_val
+def use_half_in_describe -> half_int | half_fp
+refs half_int >= half_int use_half_int
+refs half_fp >= half_fp use_half_fp
+refs kind_ptr >= kind_ptr use_kind_ptr
+hover use_half_fp ~ "half"
+# (judgement) half(v) inside describe<T> is a dependent call to the whole overload set; clangd renames it too
+rename half_fp halfFp
+  half_fp use_half_fp use_half_in_describe
+
+# ---- workspace symbols ----
+sym "Printer" -> Printer
+sym "Registry" ∋ Registry
+sym "swap_it" ∋ swap_primary swap_int
+sym "total_area" -> total_area
+sym "Countable" ∋ Countable
+
+# ---- virtual functions of a class template ----
+def use_task_run -> Task_run
+def use_task_name -> Task_name
+def use_task_run_f -> Task_run
+# Task<int>::run is overridden by IntTask (and BigTask); Task<float>::run only by FloatTask. clangd answers nothing
+# at all for the virtual members of a class template: the overrides of an instantiation are not indexed as relations.
+xfail impl Task_run >= IntTask_run FloatTask_run  # clangd: no implementations for virtual members of class templates
+xfail impl use_task_run = IntTask_run BigTask_run  # same
+xfail impl use_task_name = BigTask_name  # same
+refs Task_run >= Task_run use_task_run use_task_run_f
+impl IntTask_run = BigTask_run

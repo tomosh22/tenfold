@@ -1,0 +1,51 @@
+# templates-config: Visual Studio configurations select which templates, specialisations and constrained overloads
+# exist (Release defines TC_FAST). sln mode, so the sources are std-free.
+config Debug|x64
+
+# ---- Debug|x64: no TC_FAST ----
+fast def use_run_int -> Policy_safe_run | Policy_fast_run | Policy_fast_int_run
+def use_run_int -> Policy_safe_run
+def use_run_dbl -> Policy_safe_run
+def use2_run_int -> Policy_safe_run
+def use_Policy -> Policy_safe
+typedef var_pl -> Policy_safe
+def use_run_in_twice -> Policy_safe_run
+def use_twice -> twice
+def use_cost_int -> cost_small
+def use_cost_dbl -> cost_big
+def use2_cost -> cost_small
+xfail decl use_cost_dbl -> cost_big  # clangd: cost<Small T>() and cost() requires(!Small<T>) share one USR (constraints are not part of it), the index's canonical declaration is the first
+xfail refs cost_small = cost_small use_cost_int use2_cost  # same: the references of cost_big are reported too
+refs cost_small >= cost_small use_cost_int use2_cost
+refs cost_big >= cost_big use_cost_dbl
+refs Policy_safe_run >= Policy_safe_run use_run_dbl use_run_in_twice
+hover use_cost_dbl ~ "cost"
+rename Policy_safe_run exec
+  Policy_safe_run use_run_int use_run_dbl use2_run_int use_run_in_twice
+
+# ---- Release|x64: TC_FAST, the other branch of every #if is now inactive ----
+config Release|x64
+def use_run_int -> Policy_fast_int_run
+def use_run_dbl -> Policy_fast_run
+def use2_run_int -> Policy_fast_int_run
+def use_Policy -> Policy_fast
+typedef var_pl -> Policy_fast
+typedef use_Policy -> Policy_fast
+# Policy<T>::run inside twice<T> is dependent: the primary template's run is the best answer
+def use_run_in_twice -> Policy_fast_run
+def use_cost_int -> cost_fast
+def use_cost_dbl -> cost_fast
+def use2_cost -> cost_fast
+refs cost_fast >= cost_fast use_cost_int use_cost_dbl use2_cost
+refs Policy_fast_int_run >= Policy_fast_int_run use_run_int use2_run_int
+refs Policy_fast >= Policy_fast use_Policy
+hover use_run_int ~ "run"
+sym "Policy" ∋ Policy_fast Policy_fast_int
+sym "cost" ∋ cost_fast
+rename Policy_fast_int_run execInt
+  Policy_fast_int_run use_run_int use2_run_int
+
+# ---- and back to Debug: the answers follow the configuration ----
+config Debug|x64
+def use_cost_int -> cost_small
+def use_Policy -> Policy_safe

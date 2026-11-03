@@ -1,0 +1,138 @@
+# templates-cxx20: concepts, requires-clauses (leading, trailing, requires-expressions), abbreviated templates,
+# constraint-ordered overloads, constrained partial specialisation and members, NTTP class types, consteval /
+# constexpr / constinit, aggregate CTAD, designated initialisers, using enum.
+
+# ---- fast tier ----
+fast def use_Numeric_sa -> Numeric
+fast def use_Holder_num -> Holder | Holder_num | Holder_ptr
+fast def use_Triple -> Triple
+fast def use_Tag -> Tag
+fast def use_Const -> Const
+fast def use_ce_len -> ce_len
+fast def use_cx_pow -> cx_pow
+fast def use_g_counter -> g_counter
+fast def use_Red -> Color_Red
+fast def use_cube -> cube_decl
+fast def use_port -> Config_port
+fast def use_halve -> halve
+xfail fast def use_describe_num -> describe_num  # fast tier returns all four describe() overloads
+fast sym "Numeric" ∋ Numeric
+fast sym "describe" ∋ describe_num describe_cont describe_sized describe_any
+fast hover use_halve ~ "halve"
+
+# ---- concepts ----
+def use_Numeric_sa -> Numeric
+def use_Numeric_req -> Numeric
+def use_Container_ifc -> Container
+def use_Printable_tp -> Printable
+def use_Container_in_Sized -> Container
+refs Numeric >= Numeric use_Numeric_sa use_Numeric_req
+refs Container >= Container use_Container_in_Sized use_Container_ifc
+refs Printable >= Printable use_Printable_tp
+hover use_Numeric_sa ~ "Numeric"
+rename Printable Streamable
+  Printable use_Printable_tp
+typedef use_Numeric_sa -> none  # a concept is not a type
+
+# ---- constrained templates: declaration vs. definition, requires clauses ----
+decl use_square -> sq_decl
+def use_cube -> cube_decl
+def use_quad -> quad_decl
+def use_halve -> halve
+def use_combine -> combine
+def use_wide_only -> wide_only
+decl use2_square -> sq_decl
+refs sq_decl >= sq_decl sq_def use_square use2_square use_square_in_req quad_sq1 quad_sq2
+refs cube_decl >= cube_decl use_cube
+refs halve >= halve use_halve
+rename cube_decl cubed
+  cube_decl use_cube
+rename sq_decl squared
+  sq_decl sq_def use_square use2_square use_square_in_req quad_sq1 quad_sq2
+hover use_cube ~ "cube"
+hover use_halve ~ "auto"
+
+# ---- overloads ordered by constraints ----
+def use_describe_num -> describe_num
+def use_describe_sized -> describe_sized
+def use_describe_sized2 -> describe_sized
+def use_describe_any -> describe_any
+# inside a template the argument is dependent: any candidate is acceptable
+def use_describe_in_tmpl -> describe_num | describe_cont | describe_sized | describe_any
+def use_dispatch -> dispatch
+def use_same_bytes -> same_bytes
+refs describe_sized >= describe_sized use_describe_sized use_describe_sized2
+refs describe_any >= describe_any use_describe_any
+refs describe_num >= describe_num use_describe_num
+# clang's USR ignores type-constraints, so describe(const Numeric auto&), (const Container auto&), (const Sized auto&)
+# and (const auto&) are ONE symbol in clangd's index: references and rename of one overload hit all call sites.
+xfail refs describe_num = describe_num use_describe_num  # clangd: the four describe() overloads share one USR (constraints are not part of it)
+xfail refs describe_sized = describe_sized use_describe_sized use_describe_sized2  # same
+xfail rename describe_num describeNumber  # same: also renames the calls that resolve to the other three overloads
+  describe_num use_describe_num
+
+# ---- partial specialisation chosen by a constraint ----
+def use_kind_primary -> Holder_kind
+def use_kind_num -> Holder_num_kind
+def use_kind_ptr -> Holder_ptr_kind
+def use2_float -> none  # float is a keyword: nothing to jump to
+def use_Holder_num -> Holder_num
+typedef use_Holder_num -> Holder_num
+refs Holder_num_kind >= Holder_num_kind use_kind_num use2_kind
+refs Holder_ptr_kind >= Holder_ptr_kind use_kind_ptr
+xfail refs Holder_num_kind = Holder_num_kind use_kind_num use2_kind  # clangd: the two constrained partial specialisations share one USR, so the Pointerish use is reported too
+xfail refs Holder_ptr_kind = Holder_ptr_kind use_kind_ptr  # same (the Numeric uses are reported too)
+refs Holder_kind >= Holder_kind use_kind_primary
+
+# ---- members constrained by the class parameter ----
+def use_get_num -> Buf_get_num
+def use_get_other -> Buf_get_other
+def use2_get_num -> Buf_get_num
+refs Buf_get_num >= Buf_get_num use_get_num use2_get_num
+refs Buf_get_other >= Buf_get_other use_get_other
+
+# ---- non-type template parameters, evaluation ----
+def use_Tag -> Tag
+def use_Tag_n -> Tag_n
+def use_Fixed_n_in_Tag -> Fixed_n
+def use_Const -> Const
+def use_Const_value -> Const_value
+def use_ce_len -> ce_len
+def use_cx_pow -> cx_pow
+def use_g_counter -> g_counter
+refs Const_value >= Const_value use_Const_value
+refs ce_len >= ce_len use_ce_len
+refs Fixed_n >= Fixed_n use_Fixed_n_in_Tag
+hover use_ce_len ~ "consteval"
+hover use_cx_pow ~ "constexpr"
+hover use_g_counter ~ "constinit"
+
+# ---- aggregate CTAD, designated initialisers, using enum ----
+def use_Triple -> Triple
+hover var_t ~ "Triple<int>"
+typedef var_t -> Triple
+def use_Triple_a -> Triple_a
+def use_port -> Config_port
+def use_tls -> Config_tls
+refs Config_port >= Config_port use_port
+refs Config_tls >= Config_tls use_tls
+rename Config_port portNumber
+  Config_port use_port
+def use_Red -> Color_Red
+def use_Green -> Color_Green
+refs Color_Red >= Color_Red use_Red
+
+# ---- workspace symbols ----
+sym "Numeric" -> Numeric
+sym "Holder" ∋ Holder
+sym "ce_len" -> ce_len
+sym "Triple" -> Triple
+
+# ---- LAST: definitions that land in functions.tpp, which is not self-contained (it has no #include). Jumping into it
+# opens it, clangd parses it standalone and from then on loses what the earlier lines checked (see templates-basic).
+def use_square -> sq_def
+def use2_square -> sq_def
+def use_square_in_req -> sq_def
+
+# fast tier: the candidates include functions.tpp, so this must come after everything else too
+fast def use_square -> sq_decl | sq_def

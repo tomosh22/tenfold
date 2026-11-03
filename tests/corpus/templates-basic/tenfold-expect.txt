@@ -1,0 +1,221 @@
+# templates-basic: class and function templates, members defined out of line (stack.tpp), templates split across .h and
+# .inl, dependent names, variadic packs and folds, CTAD, alias / variable templates, template template parameters,
+# a<b<c>> nesting and chained calls. Expected answers follow the C++ rules (an IDE should jump from an instantiation
+# use to the template's pattern, from a call to the template function that is called).
+
+# ---- fast tier ----
+xfail fast def use_Stack -> Stack  # fast tier returns the class and its constructor / destructor declarations (same word)
+xfail fast def use_Pair -> Pair  # fast tier also returns the constructor Pair(A, B)
+xfail fast def use_Wrap -> Wrap  # fast tier also returns the constructor template Wrap(It, It)
+fast def use_Stack -> Stack | Stack_ctor_decl | Stack_dtor_decl
+fast def use_Vec_t -> Vec_t
+fast def use_Holder -> Holder
+fast def use_is_small_v -> is_small_v
+fast def use_pi_v -> pi_v
+fast def use_vmax_base -> vmax_base | vmax_rec
+xfail fast def use_vmax_base -> vmax_base  # fast tier cannot tell the two vmax overloads apart
+fast def use_square -> square
+fast def use_fact -> fact
+fast hover use_twice ~ "twice"
+fast sym "Stack" ∋ Stack
+fast sym "apply_each" ∋ apply_each_decl apply_each_def
+
+# ---- class template: instantiation use -> pattern ----
+def use_Stack -> Stack
+typedef use_Stack -> Stack
+def use_value_type -> Stack_value_type
+def use_Node -> Stack_Node
+def use_Node_value -> Node_value
+def use_live -> Stack_live
+decl use_made -> Stack_made
+def use_data_in_size -> Stack_data
+
+# ---- members defined out of line: definition vs. declaration, overloads by qualifier ----
+# s.push(1): a prvalue int binds to T&&, so the rvalue overload is called
+decl use_push -> Stack_push_rv_decl
+decl use_push_rv -> Stack_push_rv_decl
+decl use_top -> Stack_top_decl
+decl use_top_c -> Stack_top_c_decl
+decl use_push_all -> Stack_push_all_decl
+decl use2_top -> Stack_top_decl
+refs Stack_push_decl >= Stack_push_decl Stack_push_def use_push_lv use_push_in_all
+refs Stack_push_rv_decl >= Stack_push_rv_decl Stack_push_rv_def use_push use_push_rv use2_push
+refs Stack_top_decl >= Stack_top_decl Stack_top_def use_top use2_top
+refs Stack_top_c_decl >= Stack_top_c_decl Stack_top_c_def use_top_c
+refs Stack_made >= Stack_made use_made use_made_in_push
+refs Stack_data >= Stack_data use_data_in_size use_data_in_top
+hover use_push ~ "push"
+hover use_top_c ~ "const"
+
+# ---- chained calls ----
+decl use_map1 -> Stack_map_decl
+def use_size_chain -> Stack_size
+refs Stack_map_decl >= Stack_map_decl Stack_map_def use_map1 use_map2
+refs Stack_size >= Stack_size use_size_chain
+hover use_size_chain ~ "size_type"
+
+# ---- the same shape with a self-contained queue.inl: everything resolves, also when queue.inl is open ----
+def use_q_push -> Queue_push_def
+decl use_q_push -> Queue_push_decl
+def use_q_pop -> Queue_pop_def
+def use_q_empty -> Queue_empty
+def use_items_in_push -> Queue_items
+def use_items_in_pop -> Queue_items
+def use_empty_in_push -> Queue_empty
+def Queue_items_use -> Queue_items
+refs Queue_items = Queue_items Queue_items_use use_items_in_push use_items_in_pop use_items_in_pop2
+refs Queue_push_decl = Queue_push_decl Queue_push_def use_q_push
+refs Queue_pop_decl >= Queue_pop_decl Queue_pop_def use_q_pop
+refs Queue_empty = Queue_empty use_q_empty use_empty_in_push
+rename Queue_pop_decl take
+  Queue_pop_decl Queue_pop_def use_q_pop
+rename Queue_items elems
+  Queue_items Queue_items_use use_items_in_push use_items_in_pop use_items_in_pop2
+
+# ---- function templates split across algo.h and algo.inl ----
+decl use_apply_each -> apply_each_decl
+decl use_clamp -> clamp_decl
+refs apply_each_decl >= apply_each_decl apply_each_def use_apply_each
+refs clamp_decl >= clamp_decl clamp_def use_clamp
+
+# ---- auto / decltype / constexpr / consteval ----
+def use_twice -> twice
+def use_add_tr -> add_tr
+def use_first_ref -> first_ref
+def use_fact -> fact
+def use_square -> square
+refs fact >= fact use_fact
+hover use_twice ~ "double"
+hover use_add_tr ~ "add"
+hover use_fact ~ "consteval"
+hover use_square ~ "constexpr"
+
+# ---- variadic templates and folds ----
+def use_count_args -> count_args
+def use_sum_fold -> sum_fold
+def use_all_of_fold -> all_of_fold
+def use_call_with -> call_with
+def use_vmax_base -> vmax_base
+def use_vmax_rec -> vmax_rec
+def use_Ts_sizeof -> Ts_list
+def use_args_sizeof -> args_param
+def use_ts_fold -> ts_param
+def use_TypeList_size -> TypeList_size
+def use_IntSeq -> IntSeq
+def use_IntSeq_len -> IntSeq_len
+def use_Ts_int -> none
+xfail refs args_param = args_param use_args_sizeof  # clangd does not report the pack in sizeof...(args) as a reference
+refs args_param = args_param
+refs ts_param = ts_param use_ts_fold
+xfail refs Ts_list >= Ts_list use_Ts_sizeof  # clangd does not report the pack in sizeof...(Ts) as a reference
+refs Ts_list >= Ts_list
+refs vmax_base >= vmax_base use_vmax_base
+refs vmax_rec >= vmax_rec use_vmax_rec
+rename ts_param values
+  ts_param use_ts_fold
+
+# ---- dependent names ----
+def dep_type -> Box_type
+def dep_val -> Box_val
+def dep_rebind -> Box_Rebind
+xfail def dep_rebind_type -> Rebind_type  # clangd resolves one dependent step (Box<T>::Rebind) but not the member of the dependent Rebind<int>
+def dep_get -> Box_get
+def dep_size -> Box_size
+refs Box_val >= Box_val dep_val
+refs Box_get >= Box_get dep_get
+refs Box_size >= Box_size dep_size
+rename Box_val value
+  Box_val dep_val
+
+# ---- CTAD ----
+def use_Pair -> Pair
+typedef use_Pair -> Pair
+def use_Wrap -> Wrap
+def use_Pair_first -> Pair_first
+refs Pair_first >= Pair_first use_Pair_first
+typedef use_Pair_first -> none  # the type of Pair::first is the dependent parameter A: no type definition
+hover var_p ~ "Pair<int, double>"
+hover var_w ~ "Wrap<int>"
+typedef var_p -> Pair
+typedef var_w -> Wrap
+refs Wrap >= Wrap use_Wrap use_Wrap_nested
+
+# ---- alias / variable templates, template template parameter ----
+def use_Vec_t -> Vec_t
+def use_Map_str -> Map_str
+def use_is_small_v -> is_small_v
+def use_pi_v -> pi_v
+def use_Holder -> Holder
+def use_Holder_items -> Holder_items
+def use_TT_in_Holder -> TT
+refs Vec_t >= Vec_t use_Vec_t
+refs is_small_v >= is_small_v use_is_small_v
+refs pi_v >= pi_v use_pi_v
+refs TT = TT use_TT_in_Holder
+hover use_pi_v ~ "pi_v"
+hover use_is_small_v ~ "bool"
+rename pi_v piConst
+  pi_v use_pi_v
+
+# ---- nested template arguments a<b<c>> ----
+def use_Pair_nested -> Pair
+def use_Box_nested -> Box
+def use_Wrap_nested -> Wrap
+refs Box >= Box use_Box_nested
+refs Pair >= Pair use_Pair use_Pair_nested
+
+# ---- workspace symbols ----
+sym "Stack" -> Stack
+sym "vmax" ∋ vmax_base vmax_rec
+sym "pi_v" -> pi_v
+sym "Holder" ∋ Holder
+sym "twice" ∋ twice
+
+# ---- renames that edit stack.tpp: applying the edit opens it in the editor, so they come after every other check that
+# reads references from stack.tpp, and the file stays open from here on ----
+rename Stack_push_all_decl pushMany
+  Stack_push_all_decl Stack_push_all_def use_push_all
+rename Stack_top_c_decl topConst
+  Stack_top_c_decl Stack_top_c_def use_top_c
+rename clamp_decl clampTo
+  clamp_decl clamp_def use_clamp
+
+# ---- definitions that land in the non-self-contained stack.tpp / algo.inl. Jumping there opens the file (as a click
+# would), and clangd then parses it standalone: from here on the lines above must not be repeated. Order matters.
+def use_made -> Stack_made_def
+def use_push -> Stack_push_rv_def
+def use_push_lv -> Stack_push_def
+def use_push_rv -> Stack_push_rv_def
+def use_top -> Stack_top_def
+def use_top_c -> Stack_top_c_def
+def use_push_all -> Stack_push_all_def
+def use2_push -> Stack_push_rv_def
+def use2_top -> Stack_top_def
+def use_map1 -> Stack_map_def
+def use_map2 -> Stack_map_def
+def use_apply_each -> apply_each_def
+def use_clamp -> clamp_def
+
+# ---- LAST: queries anchored inside stack.tpp, which is not self-contained (it relies on stack.h being included first).
+# Opening it makes clangd parse it standalone: Stack is undeclared there, so names resolve to garbage and, as the open
+# document replaces the index shard, the references that used to be found in stack.tpp disappear. This must stay at
+# the end of the file so it cannot spoil the lines above.
+# Wait until clangd has finished the standalone parse of the open stack.tpp, so that the answers below are stable.
+open include/tb/stack.tpp
+xfail def use_data_in_top -> Stack_data  # clangd parses the non-self-contained stack.tpp standalone: answers the namespace line
+xfail def use_made_in_push -> Stack_made_def  # same
+xfail def use_push_in_all -> Stack_push_def | Stack_push_rv_def  # same
+xfail refs Stack_top_decl >= Stack_top_decl Stack_top_def use_top use2_top  # same: with stack.tpp open its references are lost
+xfail refs Stack_map_decl >= Stack_map_decl Stack_map_def use_map1 use_map2  # same
+xfail rename Stack_push_all_decl pushMany  # same: the rename misses the definition in stack.tpp
+  Stack_push_all_decl Stack_push_all_def use_push_all
+xfail rename Stack_top_c_def topConst2  # same: clangd refuses ("symbol is not a supported kind") when asked from inside the standalone stack.tpp
+  Stack_top_c_decl Stack_top_c_def use_top_c
+
+
+# ---- fast lines whose candidates include the non-self-contained files stack.tpp / algo.inl: the answer is a set of
+# candidates (the fast tier cannot tell overloads or decl/def apart). Last, because the lines run in order.
+xfail fast def use_push -> Stack_push_rv_decl | Stack_push_rv_def  # fast tier returns every push() of Stack and Queue (6 locations)
+fast def use_push -> Stack_push_decl | Stack_push_def | Stack_push_rv_decl | Stack_push_rv_def | Queue_push_decl | Queue_push_def
+fast def use_apply_each -> apply_each_decl | apply_each_def
+fast def use_clamp -> clamp_decl | clamp_def
