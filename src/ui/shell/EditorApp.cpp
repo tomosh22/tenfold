@@ -251,7 +251,12 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.indentUnit = unit == "tab" ? "\t" : std::string(static_cast<size_t>(n >= 1 && n <= 16 ? n : 4), ' ');
   o.detectIndent = s.getBool("editor.detectIndent");
   o.autoIndent = s.getBool("editor.autoIndent");
-  o.autoClosePairs = s.getBool("editor.autoClosePairs");
+  o.autoIndentBraces = s.getBool("editor.autoIndentBraces");
+  o.formatBracesOnEnterSplit = s.getBool("editor.formatBracesOnEnterSplit");
+  o.autoCloseBrace = s.getBool("editor.autoAddCloseBrace");
+  o.autoCloseBracket = s.getBool("editor.autoAddCloseBracket");
+  o.autoCloseQuotes = s.getBool("editor.autoCloseQuotes");
+  o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
 }
 

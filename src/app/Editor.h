@@ -228,12 +228,19 @@ class Editor {
   // --- editing conveniences (B8) ---
   // Every command below edits at every caret and forms ONE undo step. The behaviours that could differ from 10x
   // (OPEN_QUESTIONS #8) are switched by EditingOptions; the UI fills them from the editor.* settings.
+  // Defaults are 10x's documented defaults (AutoIndent, AutoIndentBraces, FormatBracesOnEnterSplit, AutoAddCloseBrace,
+  // AutoAddCloseBracket, BracketSelectedText, AutoDetectIndentMode, IndentMode).
   struct EditingOptions {
-    bool autoIndent = true;               // Enter copies / extends the indentation; '}' dedents
-    bool autoClosePairs = true;           // ( [ { " ' close themselves, skip-over, wrap selections, pair backspace
-    bool detectIndent = true;             // take the indent unit from the document's first lines
-    std::string indentUnit = "    ";      // "\t" or N spaces; the fallback when detection finds nothing
-    bool trimTrailingWhitespace = false;  // on save()
+    bool autoIndent = true;                 // Enter copies / extends the indentation
+    bool autoIndentBraces = true;           // '}' typed first on a line dedents to the line of its '{'
+    bool formatBracesOnEnterSplit = false;  // Enter between "{" and "}" moves the closer to its own line
+    bool autoCloseBrace = false;            // "{" inserts "}" (with skip-over and pair Backspace)
+    bool autoCloseBracket = false;          // "(" and "[" insert their closer (with skip-over and pair Backspace)
+    bool autoCloseQuotes = false;           // tenfold only: quotes pair (10x documents no setting for it)
+    bool bracketSelectedText = true;        // typing ( [ { over a selection encloses it (quotes: autoCloseQuotes)
+    bool detectIndent = false;              // take the indent unit from the document's first lines
+    std::string indentUnit = "\t";          // "\t" or N spaces; the fallback when detection finds nothing
+    bool trimTrailingWhitespace = false;    // on save()
   };
   EditingOptions& editing() { return editing_; }
   const EditingOptions& editing() const { return editing_; }

@@ -77,6 +77,12 @@ struct Env {
         U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-:,;/()[]{}<>+*&#?=!\"'\\|"));
     text = gfx::TextRenderer::fromFonts(std::move(stack));
     ed = std::make_unique<Editor>(dir);
+    // The scenarios below are about the pairing / indent behaviours, so they switch them on explicitly (the defaults
+    // are 10x's: nothing pairs, tabs, no detection; b8b_* tests cover those).
+    Editor::EditingOptions& o = ed->editing();
+    o.autoCloseBrace = o.autoCloseBracket = o.autoCloseQuotes = o.formatBracesOnEnterSplit = true;
+    o.detectIndent = true;
+    o.indentUnit = "    ";
     bench = std::make_unique<Workbench>(*text, *ed);
     app = std::make_unique<EditorApp>(*bench, *ed, bench.get());
     open("a.cpp");
@@ -140,11 +146,17 @@ TEST(b8_defaults_parse_clean_and_bind_the_new_commands) {
   Settings s;
   CHECK_EQ(s.diagnostics().size(), size_t(0));
   CHECK(s.getBool("editor.autoIndent"));
-  CHECK(s.getBool("editor.autoClosePairs"));
-  CHECK(s.getBool("editor.detectIndent"));
+  // 10x's documented defaults (B8b), except wordWrap (OPEN_QUESTIONS #4, the user's decision).
+  CHECK(s.getBool("editor.autoIndentBraces"));           // AutoIndentBraces
+  CHECK(!s.getBool("editor.formatBracesOnEnterSplit"));  // FormatBracesOnEnterSplit
+  CHECK(!s.getBool("editor.autoAddCloseBrace"));         // AutoAddCloseBrace
+  CHECK(!s.getBool("editor.autoAddCloseBracket"));       // AutoAddCloseBracket
+  CHECK(!s.getBool("editor.autoCloseQuotes"));           // tenfold only
+  CHECK(s.getBool("editor.bracketSelectedText"));        // BracketSelectedText
+  CHECK(!s.getBool("editor.detectIndent"));              // AutoDetectIndentMode
   CHECK(!s.getBool("editor.trimTrailingWhitespace"));
-  CHECK(s.getBool("editor.wordWrap"));  // OPEN_QUESTIONS #4: soft wrap on by default
-  CHECK_EQ(s.getString("editor.indentUnit"), std::string("4"));
+  CHECK(s.getBool("editor.wordWrap"));                             // OPEN_QUESTIONS #4: soft wrap on by default
+  CHECK_EQ(s.getString("editor.indentUnit"), std::string("tab"));  // IndentMode = Tabs
 
   KeyMap map;
   std::vector<KeyBindingDiag> diags;
@@ -223,15 +235,26 @@ TEST(b8_typing_autoclose_autoindent_and_tab_keys) {
 TEST(b8_settings_switch_the_behaviours) {
   Env env("");
   SettingsService svc({.workspaceRoot = env.dir, .userDir = {}});
-  svc.settings().loadTexts("", "editor.autoClosePairs = false\neditor.indentUnit = tab\neditor.autoIndent = false\n");
+  svc.settings().loadTexts("",
+                           "editor.autoAddCloseBracket = false\neditor.indentUnit = tab\neditor.autoIndent = false\n");
   env.app->attachSettings(svc);
-  CHECK(!env.ed->editing().autoClosePairs);
+  CHECK(!env.ed->editing().autoCloseBracket);
   CHECK(!env.ed->editing().autoIndent);
   CHECK_EQ(env.ed->editing().indentUnit, std::string("\t"));
   env.type("(");
   CHECK_EQ(env.txt(), std::string("("));
-  svc.settings().loadTexts("", "editor.indentUnit = 2\neditor.trimTrailingWhitespace = true\n");
-  CHECK(env.ed->editing().autoClosePairs);
+  svc.settings().loadTexts(
+      "",
+      "editor.indentUnit = 2\neditor.trimTrailingWhitespace = true\neditor.autoAddCloseBrace = true\n"
+      "editor.autoAddCloseBracket = true\neditor.autoCloseQuotes = true\n"
+      "editor.bracketSelectedText = false\neditor.formatBracesOnEnterSplit = true\n"
+      "editor.autoIndentBraces = false\n");
+  CHECK(env.ed->editing().autoCloseBrace);
+  CHECK(env.ed->editing().autoCloseBracket);
+  CHECK(env.ed->editing().autoCloseQuotes);
+  CHECK(!env.ed->editing().bracketSelectedText);
+  CHECK(env.ed->editing().formatBracesOnEnterSplit);
+  CHECK(!env.ed->editing().autoIndentBraces);
   CHECK_EQ(env.ed->editing().indentUnit, std::string("  "));
   CHECK(env.ed->editing().trimTrailingWhitespace);
   env.app.reset();  // the app unregisters from the service: it must go first

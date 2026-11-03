@@ -257,20 +257,22 @@ each. Escape collapses to the primary caret (it does not quit).
 whitespace, after a 1 s pause, or when the caret moves. Set `"undoGrouping": "char"` in `.tenfold/workspace.json` for one
 step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing is not confirmed (OPEN_QUESTIONS #3).
 
-**Conveniences** (all default keys are placeholders, see [Key bindings](#key-bindings); the behaviours are guesses about
-10x that need your check, OPEN_QUESTIONS #8):
+**Conveniences** (the defaults follow 10x's documented settings, see the settings table below; key bindings are
+described under [Key bindings](#key-bindings)):
 
 * Auto-indent on Enter (`editor.autoIndent`): copies the previous line's indentation, one level deeper after a line
   ending in `{`, `(`, `[` or a binary operator, returns one level when a continued statement ends with `;`; Enter
-  between `{` and `}` opens a block with the closer on its own line; typing `}` as the first character on a line dedents
-  it to the line of its `{`. Not done: the body of a brace-less `if` / `for`, aligning continuation lines under an open
+  between `{` and `}` moves the closer to its own line when `editor.formatBracesOnEnterSplit` is on; typing `}` as the
+  first character on a line dedents it to the line of its `{` (`editor.autoIndentBraces`). Not done: the body of a brace-less `if` / `for`, aligning continuation lines under an open
   parenthesis, `case` labels.
-* Indent unit (`editor.indentUnit`, `editor.detectIndent`): detected per file from its first 400 lines, else the
-  setting. Tab inserts one unit (a multi-line selection indents its lines); Shift+Tab outdents.
-* Auto-close (`editor.autoClosePairs`): `( [ { " '` close themselves when the next character is blank, the end of
-  the line or one of `) ] } ; ,`; quotes are not paired after an identifier character, a backslash or the same quote;
-  typing the closer steps over it (tenfold does not remember which closers it inserted); a selection is wrapped; Backspace
-  inside an empty pair deletes both.
+* Indent unit (`editor.indentUnit`, a tab by default; `editor.detectIndent`, off by default): when detection is on, taken
+  per file from its first 400 lines, else the setting. Tab inserts one unit (a multi-line selection indents its lines); Shift+Tab outdents.
+* Auto-close, all off by default as in 10x (`editor.autoAddCloseBrace` for `{`, `editor.autoAddCloseBracket` for `( [`,
+  `editor.autoCloseQuotes` for `" '`): the closer is inserted when the next character is blank, the end of the line or
+  one of `) ] } ; ,`; quotes are not paired after an identifier character, a backslash or the same quote; typing the
+  closer steps over it (tenfold does not remember which closers it inserted); Backspace inside an empty pair deletes
+  both. Typing `(`, `[` or `{` over a selection encloses it (`editor.bracketSelectedText`, on by default, independent of
+  auto-close); quotes wrap a selection only with `editor.autoCloseQuotes`.
 * **Ctrl+/** toggles `//` comments at the lines' minimum indentation; **Ctrl+Shift+/** wraps each selection in `/* */`
   (a bare caret: its line's text) and unwraps again. C and C++ comment syntax only.
 * **Ctrl+Shift+D** duplicates the line (or the selection), **Alt+Up / Alt+Down** move lines, **Ctrl+J** joins lines,
@@ -281,7 +283,7 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
   highlights every match, Enter / F3 next, Shift+Enter / Shift+F3 previous, Alt+C / Alt+W / Alt+R toggle case, whole word,
   regex. In the replace field Enter replaces and moves on, Ctrl+Enter replaces all (one undo step), Tab switches fields,
   Escape closes. Regex replacements do not expand group references (`$1`).
-* `editor.trimTrailingWhitespace` removes trailing blanks on save (off by default).
+* `editor.trimTrailingWhitespace` removes trailing blanks on save (off by default; 10x documents no such setting).
 * The matching bracket of the one at the caret is highlighted. `editor.showWhitespace`, `editor.columnGuide`,
   `editor.highlightCurrentLine` and the caret blink are settings.
 
@@ -506,13 +508,18 @@ tests.)
 | `editor.highlightCurrentLine` | `true` | bool | Highlight the line with the primary caret (an outline in `vs-dark`). |
 | `editor.wheelLines` | `3` | int | Lines scrolled per mouse-wheel notch. |
 | `editor.tabWidth` | `4` | int | Display width of a tab character, in columns. |
-| `editor.columnGuide` | `0` | int | Draw a vertical guide line at this column. 0 turns it off. A guide such as 90 is only a candidate until compared with 10x. |
+| `editor.columnGuide` | `0` | int | Draw a vertical guide line at this column. 0 turns it off. 10x's VerticalRulers is empty by default. |
 | `editor.showWhitespace` | `false` | bool | Draw dots for spaces and arrows for tabs (first 4000 bytes of each line). |
-| `editor.indentUnit` | `4` | string | One indent level: `tab`, or a number of spaces from 1 to 16 (anything else means 4). Used when `editor.detectIndent` finds nothing in the file, or is off. |
-| `editor.detectIndent` | `true` | bool | Take the indent unit from the file itself (its first 400 lines: tabs, or the most common step) instead of `editor.indentUnit`. |
-| `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator); `}` typed first on a line dedents. |
-| `editor.autoClosePairs` | `true` | bool | `( [ { " '` insert their closer, typing the closer steps over it, a selection is wrapped, Backspace between an empty pair removes both. |
-| `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). Off by default (VERIFY against 10x). |
+| `editor.indentUnit` | `tab` | string | One indent level: `tab`, or a number of spaces from 1 to 16 (anything else means 4). Used when `editor.detectIndent` finds nothing in the file, or is off. 10x: IndentMode (Tabs). |
+| `editor.detectIndent` | `false` | bool | Take the indent unit from the file itself (its first 400 lines: tabs, or the most common step) instead of `editor.indentUnit`. 10x: AutoDetectIndentMode (false). |
+| `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator). 10x: AutoIndent. |
+| `editor.autoIndentBraces` | `true` | bool | `}` typed first on a line dedents to the line of its `{`. 10x: AutoIndentBraces. |
+| `editor.formatBracesOnEnterSplit` | `false` | bool | Enter between `{` and `}` moves the `}` to its own line below the new indented line. 10x: FormatBracesOnEnterSplit. |
+| `editor.autoAddCloseBrace` | `false` | bool | `{` inserts `}`; typing the closer steps over it, Backspace between an empty pair removes both. 10x: AutoAddCloseBrace. |
+| `editor.autoAddCloseBracket` | `false` | bool | The same for `(` and `[`. 10x: AutoAddCloseBracket. |
+| `editor.autoCloseQuotes` | `false` | bool | `"` and `'` insert a second quote (not after an identifier character, a backslash or the same quote) and wrap a selection. tenfold only: 10x documents no setting for quotes. |
+| `editor.bracketSelectedText` | `true` | bool | Typing `(`, `[` or `{` with text selected encloses the selection in the pair. 10x: BracketSelectedText. |
+| `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). 10x documents no such setting. |
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
 | `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
 | `font.editor` | (empty) | font | Editor font as `family or path[, size in pt]`. Empty means unset: `font.fallbacks` are tried in order. A family name is matched against font file names in the system font folders (case and spaces ignored), so give a full path if it is not found. |
@@ -520,7 +527,8 @@ tests.)
 | `font.size` | `10` | float | Font size in points when `font.editor` does not carry one. |
 | `ui.theme` | `vs-dark` | string | Theme name: `.tenfold/themes/<name>.txt` in the workspace, then `themes/<name>.txt` in the user config folder, then the built-ins `dark`, `light`, `vs-dark`. |
 | `nav.statusCounts` | `false` | bool | Show the back and forward counts in the status bar (an arrow with the number of entries in each direction). |
-| `picker.preview` | `true` | bool | Symbol search shows a preview of the target line on the right (VERIFY against 10x, OPEN_QUESTIONS #6). |
+| `keys.import10x` | `true` | bool | On Windows, read the 10x key mappings file `%APPDATA%\10x\Settings\KeyMappings.10x_settings` as a key-binding layer. |
+| `picker.preview` | `true` | bool | Symbol search shows a preview of the target line on the right (10x documents nothing about it, OPEN_QUESTIONS #6). |
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
 <!-- settings:end -->

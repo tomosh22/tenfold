@@ -1370,8 +1370,13 @@ void Editor::backspace() {
       else if (p.line > 0) r.start = {p.line - 1, static_cast<int>(b.line(p.line - 1).size())};
       // Between an empty auto-closed pair ("(|)", "\"|\""): delete both characters.
       const std::string& l = b.line(p.line);
-      if (editing_.autoClosePairs && p.column > 0 && p.column < static_cast<int>(l.size()) &&
-          isPair(l[static_cast<size_t>(p.column) - 1], l[static_cast<size_t>(p.column)]))
+      const char open =
+          p.column > 0 && p.column <= static_cast<int>(l.size()) ? l[static_cast<size_t>(p.column) - 1] : '\0';
+      const bool enabled = open == '{'                  ? editing_.autoCloseBrace
+                           : open == '(' || open == '[' ? editing_.autoCloseBracket
+                                                        : editing_.autoCloseQuotes;
+      if (enabled && p.column > 0 && p.column < static_cast<int>(l.size()) &&
+          isPair(open, l[static_cast<size_t>(p.column)]))
         r.end = {p.line, p.column + 1};
     }
     edits.push_back({r, {}});
