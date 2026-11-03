@@ -1,0 +1,4 @@
+/* X(name, value, label): expanded several times by colors.cpp. No include guard on purpose. */
+/*@xcx_Red*/X(/*@xc_Red*/Red, 1, "red")
+/*@xcx_Green*/X(/*@xc_Green*/Green, 2, "green")
+/*@xcx_Blue*/X(/*@xc_Blue*/Blue, 4, "blue")

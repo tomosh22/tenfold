@@ -1,0 +1,8 @@
+[
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/a_basic.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/a_basic.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/b_declare.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/b_declare.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/c_paste.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/c_paste.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/d_variadic.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/d_variadic.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/e_redef.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/e_redef.cpp"]},
+ {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/f_cond.cpp","arguments":["clang++","-std=c++20","-DFEATURE_X=2","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/f_cond.cpp"]}
+]

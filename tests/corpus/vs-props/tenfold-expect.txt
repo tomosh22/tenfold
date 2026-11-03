@@ -1,0 +1,155 @@
+# vs-props (W9c): property sheets and MSBuild evaluation. Two projects (engine, plugin) share props\common.props, which
+# imports props\$(Configuration).props if it exists (Debug.props, Release.props; Profile has none). Directory.Build.props
+# adds DIRBUILD_PROPS. engine overrides <Level> after the sheets (Win32 only), and the sheets' item definitions must see
+# the final property values (MSBuild evaluates ItemDefinitionGroups after all properties). Defines and include directories
+# come from $(SolutionDir), $(ProjectDir), $(MSBuildThisFileDirectory), $(Configuration), $(Platform), $(SolutionName),
+# $(ProjectName). Standard-library free.
+
+# ---- fast tier ----
+fast def use_level_value -> level_nine | level_three | level_one | level_none
+fast def use_sheet_kind -> sheet_debug | sheet_release | sheet_none
+fast sym "release_only" ∋ release_only_fn
+fast sym "gen_a" ∋ gen_a_fn
+fast sym "special_only" ∋ special_only_fn
+fast sym "feature_impl" ∋ feature_debug feature_release
+xfail fast def use_level_value -> level_three  # fast index cannot know which LEVEL_n the configuration defines (returns all four)
+
+
+# ================= Debug|x64 =================
+config Debug|x64
+def use_level_value -> level_three
+def use_sheet_kind -> sheet_debug
+def use_common_kind -> common_yes
+def use_dirbuild_kind -> dirbuild_yes
+def use_fast_kind -> fast_no
+def use_proj_marker -> proj_engine_yes
+def use_sln_marker -> sln_yes
+def use_extra_marker -> extra_yes
+def use_plat_marker -> plat_x64_yes
+def use_feature_marker -> feature_present
+def use_level_in_gen_a -> level_three
+def use_sheet_in_gen_b -> sheet_debug
+hover use_level_value ~ "level_value" "int"
+hover use_feature_marker ~ "feature_marker"
+def use_level_plugin -> level_three
+def use_sheet_plugin -> sheet_debug
+def use_common_plugin -> common_yes
+def use_dirbuild_plugin -> dirbuild_yes
+def use_fast_plugin -> fast_no
+def use_pproj_marker -> proj_plugin_yes
+def use_pbuild_marker -> plugin_build_yes
+def use_pextra_marker -> pextra_no
+def use_special_marker -> special_yes
+def use_special_only -> special_only_fn
+refs level_three >= level_three use_level_value
+refs sheet_debug >= sheet_debug use_sheet_kind
+sym "level_value" -> level_three
+sym "sheet_kind" -> sheet_debug
+def use_feature_impl -> feature_debug
+hover use_feature_impl ~ "feature_impl"
+#? sym "feature_impl" -> feature_debug   # DISABLED: history dependent: features_Debug/feature.h of an earlier configuration stays in the index and can rank first
+fast sym "release_only" ∋ release_only_fn
+
+# ================= Release|x64 =================
+config Release|x64
+def use_level_value -> level_one
+def use_sheet_kind -> sheet_release
+def use_common_kind -> common_yes
+def use_dirbuild_kind -> dirbuild_yes
+def use_fast_kind -> fast_yes
+def use_proj_marker -> proj_engine_yes
+def use_sln_marker -> sln_yes
+def use_extra_marker -> extra_yes
+def use_plat_marker -> plat_x64_yes
+def use_feature_marker -> feature_present
+def use_level_in_gen_a -> level_one
+def use_sheet_in_gen_b -> sheet_release
+hover use_level_value ~ "level_value" "int"
+hover use_feature_marker ~ "feature_marker"
+def use_level_plugin -> level_one
+def use_sheet_plugin -> sheet_release
+def use_common_plugin -> common_yes
+def use_dirbuild_plugin -> dirbuild_yes
+def use_fast_plugin -> fast_no
+def use_pproj_marker -> proj_plugin_yes
+def use_pbuild_marker -> plugin_build_yes
+def use_pextra_marker -> pextra_no
+def use_special_marker -> special_yes
+def use_special_only -> special_only_fn
+refs level_one >= level_one use_level_value
+refs sheet_release >= sheet_release use_sheet_kind
+sym "level_value" -> level_one
+sym "sheet_kind" -> sheet_release
+def use_feature_impl -> feature_release
+hover use_feature_impl ~ "feature_impl"
+#? sym "feature_impl" -> feature_release   # DISABLED: history dependent: features_Debug/feature.h of an earlier configuration stays in the index and can rank first
+def use_level_in_release_only -> level_one
+fast sym "release_only" ∋ release_only_fn
+sym "release_only" ∋ release_only_fn
+
+# ================= Debug|x86 =================
+config Debug|x86
+def use_level_value -> level_nine
+def use_sheet_kind -> sheet_debug
+def use_common_kind -> common_yes
+def use_dirbuild_kind -> dirbuild_yes
+def use_fast_kind -> fast_no
+def use_proj_marker -> proj_engine_yes
+def use_sln_marker -> sln_yes
+def use_extra_marker -> extra_yes
+def use_plat_marker -> plat_x64_no
+def use_feature_marker -> feature_present
+def use_level_in_gen_a -> level_nine
+def use_sheet_in_gen_b -> sheet_debug
+hover use_level_value ~ "level_value" "int"
+hover use_feature_marker ~ "feature_marker"
+xfail def use_level_plugin -> level_three  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
+def use_sheet_plugin -> sheet_debug
+def use_common_plugin -> common_yes
+def use_dirbuild_plugin -> dirbuild_yes
+def use_fast_plugin -> fast_no
+xfail def use_pproj_marker -> proj_plugin_yes  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
+xfail def use_pbuild_marker -> plugin_build_yes  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
+xfail def use_pextra_marker -> pextra_no  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
+def use_special_marker -> special_yes
+def use_special_only -> special_only_fn
+refs level_nine >= level_nine use_level_value
+refs sheet_debug >= sheet_debug use_sheet_kind
+sym "level_value" -> level_nine
+sym "sheet_kind" -> sheet_debug
+def use_feature_impl -> feature_debug
+hover use_feature_impl ~ "feature_impl"
+#? sym "feature_impl" -> feature_debug   # DISABLED: history dependent: features_Debug/feature.h of an earlier configuration stays in the index and can rank first
+fast sym "release_only" ∋ release_only_fn
+
+# ================= Profile|x64 =================
+config Profile|x64
+def use_level_value -> level_one
+def use_sheet_kind -> sheet_none
+def use_common_kind -> common_yes
+def use_dirbuild_kind -> dirbuild_yes
+def use_fast_kind -> fast_no
+def use_proj_marker -> proj_engine_yes
+def use_sln_marker -> sln_yes
+def use_extra_marker -> extra_yes
+def use_plat_marker -> plat_x64_yes
+def use_feature_marker -> feature_absent
+def use_level_in_gen_a -> level_one
+def use_sheet_in_gen_b -> sheet_none
+hover use_level_value ~ "level_value" "int"
+hover use_feature_marker ~ "feature_marker"
+def use_level_plugin -> level_one
+def use_sheet_plugin -> sheet_release
+def use_common_plugin -> common_yes
+def use_dirbuild_plugin -> dirbuild_yes
+def use_fast_plugin -> fast_no
+def use_pproj_marker -> proj_plugin_yes
+def use_pbuild_marker -> plugin_build_yes
+def use_pextra_marker -> pextra_no
+def use_special_marker -> special_yes
+def use_special_only -> special_only_fn
+refs level_one >= level_one use_level_value
+refs sheet_none >= sheet_none use_sheet_kind
+sym "level_value" -> level_one
+sym "sheet_kind" -> sheet_none
+fast sym "release_only" ∋ release_only_fn

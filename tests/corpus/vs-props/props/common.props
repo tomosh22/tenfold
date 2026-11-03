@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <PropertyGroup Label="UserMacros">
+    <CommonInc>$(MSBuildThisFileDirectory)..\common_inc</CommonInc>
+    <Level>1</Level>
+    <ExtraDefs>PROPS_COMMON</ExtraDefs>
+  </PropertyGroup>
+  <ItemDefinitionGroup>
+    <ClCompile>
+      <AdditionalIncludeDirectories>$(CommonInc);%(AdditionalIncludeDirectories)</AdditionalIncludeDirectories>
+      <PreprocessorDefinitions>$(ExtraDefs);LEVEL_$(Level);SLN_$(SolutionName);PROJ_$(ProjectName);%(PreprocessorDefinitions)</PreprocessorDefinitions>
+    </ClCompile>
+  </ItemDefinitionGroup>
+  <!-- A sheet named after the configuration, if there is one (Profile has none). -->
+  <Import Project="$(MSBuildThisFileDirectory)$(Configuration).props" Condition="Exists('$(MSBuildThisFileDirectory)$(Configuration).props')" />
+</Project>

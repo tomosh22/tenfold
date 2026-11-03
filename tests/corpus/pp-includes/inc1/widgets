@@ -1,0 +1,6 @@
+// Extensionless header, found through -Iinc1 like <vector> would be.
+#ifndef PPI_WIDGETS
+#define PPI_WIDGETS
+struct /*@Widget*/Widget { int /*@Widget_id*/id; };
+inline int /*@make_widget_id*/make_widget_id() { return 3; }
+#endif

@@ -1,0 +1,185 @@
+# pp-includes (W9c): include guards vs #pragma once, the same header through several spellings and include directories,
+# include_next, extensionless and .inl headers, macro-computed includes, __has_include, a header compiled differently by
+# two translation units, force-included headers (-include), command line -D/-U order. Standard-library free.
+# compile_commands.json has relative paths and a "directory" other than the root for guards.cpp on purpose.
+
+# ---- fast tier ----
+fast def use_guarded_fn -> guarded_fn
+fast def use_once_fn -> once_fn
+fast def use_peer_fn -> peer_fn
+fast def use_forced_fn -> forced_fn
+fast def use_comp_b -> comp_b
+fast def use_Widget -> Widget
+fast def use_size -> Stack_size
+fast def use_Stack -> Stack
+fast sym "guarded_fn" -> guarded_fn
+fast sym "Widget" ∋ Widget
+fast sym "FastOnly" -> FastOnly
+fast def use_dup_angle -> dup_value_src | dup_value_inc1 | dup_value_inc2
+xfail fast def use_dup_angle -> dup_value_inc1  # fast index returns every dup_value() definition
+xfail fast def use_dup_quoted -> dup_value_src  # same
+xfail fast def use_dup_reversed -> dup_value_inc2  # same
+xfail fast def use_branch_forced -> branch_forced  # fast index does not evaluate #ifdef/-include
+
+# ---- rename (before any query is located inside an .inl / .def / header-only file, which would open it standalone) ----
+# (a non-fast query must precede the first rename: right after a fast line the runner renames at the previous cursor)
+def use_guarded_fn -> guarded_fn
+rename GuardBox_v val
+  GuardBox_v use_GuardBox_v
+rename OnceBox_v val
+  OnceBox_v use_OnceBox_v
+rename use_guarded_fn guarded_two
+  guarded_fn use_guarded_fn
+rename peer_fn peer_two
+  peer_fn use_peer_fn use_peer_in_inner
+#? rename next_b next_second   # DISABLED: editor session leaves use_next_b_in_a unrenamed, a clean clangd session renames it
+#?  next_b use_next_b use_next_b_in_a
+xfail rename use_dup_reversed dup_two  # clangd renames all three same-USR declarations and every use
+  dup_value_inc2 use_dup_reversed
+rename use_forced_fn forced_two
+  forced_fn use_forced_fn
+rename use_ForcedType ForcedKind
+  ForcedType use_ForcedType
+#? rename use_size length   # DISABLED: editor session (after go-to-definition landed in the .inl) renames the use only; a clean clangd session renames both
+#?  Stack_size use_size
+#? rename use_top peek   # DISABLED: editor session (after go-to-definition landed in the .inl) leaves stack_impl.inl unrenamed; a clean clangd session renames all three
+#?  Stack_top Stack_top_def use_top
+rename Widget_id ident
+  Widget_id use_Widget_id
+xfail rename use_box_double box_dbl  # clangd renames the use only; the name is spelled in "#define BOX_FN box_double", which is left, so the code stops compiling
+  def_box_double use_box_double
+rename comp_c third
+  comp_c use_comp_c
+
+# ---- definition / declaration / hover (answered from the open translation unit) ----
+def use_guarded_fn -> guarded_fn
+def use_once_fn -> once_fn
+def use_GuardBox -> GuardBox
+def use_OnceBox -> OnceBox
+def use_GuardBox_v -> GuardBox_v
+def use_OnceBox_v -> OnceBox_v
+def use_inner_fn -> inner_fn
+def use_sibling_fn -> sibling_fn
+def use_peer_fn -> peer_fn
+def use_peer_in_inner -> peer_fn
+def use_sibling_in_inner -> sibling_fn
+hover use_guarded_fn ~ "guarded_fn" "int"
+hover use_GuardBox ~ "GuardBox" "struct"
+hover use_inner_fn ~ "inner_fn"
+def use_dup_quoted -> dup_value_src
+def use_dup_angle -> dup_value_inc1
+def use_dup_other -> dup_value_inc1
+def use_dup_reversed -> dup_value_inc2
+#? decl use_dup_angle -> dup_value_inc1   # DISABLED: non-deterministic: clangd picks one of the three merged declarations (observed inc1 and inc2 on different runs)
+#? decl use_dup_reversed -> dup_value_inc2   # DISABLED: same
+def use_next_a -> next_a
+def use_next_b -> next_b
+xfail def use_next_b_in_a -> next_b  # clangd parses inc1/next.h standalone as a main file: the #include_next position is lost and the call is answered with next_a
+def use_util_rel -> util_fn
+def use_util_root -> util_fn
+hover use_dup_quoted ~ "dup_value" "int"
+def use_impl_fast -> mode_fast_impl
+def use_impl_slow -> mode_slow_impl
+def use_common_fast -> mode_common
+def use_common_slow -> mode_common
+def use_FastOnly -> FastOnly
+def use_SlowOnly -> SlowOnly
+def use_FastOnly_v -> FastOnly_v
+def use_SlowOnly_v -> SlowOnly_v
+def use_impl_in_common -> mode_fast_impl | mode_slow_impl
+hover use_impl_fast ~ "impl_mode" "int"
+hover use_FastOnly ~ "FastOnly"
+hover use_impl_in_common ~ "impl_mode"
+def use_forced_fn -> forced_fn
+def use_FORCED_MACRO -> FORCED_MACRO
+def use_ForcedType -> ForcedType
+def use_ForcedType_v -> ForcedType_v
+def use_branch_forced -> branch_forced
+def ifdef_forced -> FORCED_MACRO
+def use_u_branch -> u_branch_unforced
+def use_a_marker -> a_on_yes
+def use_b_marker -> b_on_no
+def use_chain_marker -> chain_two
+def use_empty_marker -> empty_yes
+hover use_FORCED_MACRO ~ "#define FORCED_MACRO 42"
+hover use_forced_fn ~ "forced_fn" "int"
+hover use_ForcedType ~ "ForcedType"
+def use_Stack -> Stack
+def use_push -> Stack_push_def
+decl use_push -> Stack_push
+def use_top -> Stack_top_def
+decl use_top -> Stack_top
+def use_size -> Stack_size
+def use_empty -> Stack_empty
+def use_count -> Stack_count
+def use_Widget -> Widget
+def use_make_widget_id -> make_widget_id
+def use_Widget_id -> Widget_id
+hover use_size ~ "size" "int"
+hover use_empty ~ "empty" "bool"
+hover use_Widget ~ "Widget"
+def use_comp_a -> comp_a
+def use_comp_b -> comp_b
+def use_comp_c -> comp_c
+def use_comp_d -> comp_d
+def use_box_int -> gen_boxfn | def_box_int
+def use_box_double -> gen_boxfn | def_box_double
+def use_impl_choice -> default_impl
+def use_only_inc2 -> only_inc2
+def use_inc2_marker -> inc2_branch
+hover use_comp_b ~ "comp_b" "int"
+hover use_box_int ~ "box_int" "int"
+hover use_box_double ~ "box_double" "double"
+# ---- workspace symbols ----
+sym "guarded_fn" -> guarded_fn
+sym "once_fn" -> once_fn
+sym "inner_fn" -> inner_fn
+sym "GuardBox" -> GuardBox
+sym "peer_fn" -> peer_fn
+xfail sym "dup_value" ∋ dup_value_src dup_value_inc1 dup_value_inc2  # clangd keeps one location for the three same-USR declarations
+sym "next_a" -> next_a
+sym "util_fn" -> util_fn
+xfail sym "impl_mode" ∋ mode_fast_impl mode_slow_impl  # clangd background index indexes a header once (by content digest): the declaration seen under the other macro state never reaches the index
+#? sym "FastOnly" -> FastOnly   # DISABLED: flaky (index timing): needs the background index to have reached mode.h
+#? sym "SlowOnly" -> SlowOnly   # DISABLED: flaky XPASS/XFAIL by index timing (the #else variant of mode.h is never indexed by a settled clangd)
+sym "common_mode" -> mode_common
+sym "forced_fn" -> forced_fn
+sym "ForcedType" -> ForcedType
+sym "FORCED_MACRO" ∋ FORCED_MACRO
+sym "Stack" -> Stack
+sym "Widget" -> Widget
+sym "make_widget_id" -> make_widget_id
+sym "comp_c" -> comp_c
+xfail sym "box_double" -> gen_boxfn | def_box_double  # clangd: while multi.cpp is open its dynamic index hides the background-index symbol box_double (declared in gen.h through the object-like macro BOX_FN, name spelled in multi.cpp); found when another file is open
+sym "only_inc2_fn" -> only_inc2
+
+# ---- references ----
+refs guarded_fn = guarded_fn use_guarded_fn
+refs GuardBox = GuardBox use_GuardBox
+refs OnceBox = OnceBox use_OnceBox
+refs peer_fn = peer_fn use_peer_fn use_peer_in_inner
+refs sibling_fn = sibling_fn use_sibling_fn use_sibling_in_inner
+refs GuardBox_v = GuardBox_v use_GuardBox_v
+refs OnceBox_v = OnceBox_v use_OnceBox_v
+xfail refs dup_value_src = dup_value_src use_dup_quoted  # clangd merges the three dup_value() declarations (same USR) and returns the uses of all of them
+xfail refs dup_value_inc1 = dup_value_inc1 use_dup_angle use_dup_other  # clangd merges the three dup_value() declarations (same USR) and returns the uses of all of them
+xfail refs dup_value_inc2 = dup_value_inc2 use_dup_reversed  # clangd merges the three dup_value() declarations (same USR) and returns the uses of all of them
+#? refs next_b = next_b use_next_b use_next_b_in_a   # DISABLED: editor session returns 2 of 3 (use_next_b_in_a missing), a clean clangd session returns all 3; see docs/STRESS_RESULTS.md
+refs util_fn = util_fn use_util_rel use_util_root
+refs mode_common = mode_common use_common_fast use_common_slow
+refs FastOnly = FastOnly use_FastOnly
+xfail refs SlowOnly = SlowOnly use_SlowOnly  # the header position is answered in the first includer (mode_fast.cpp) where SlowOnly is inactive: none
+xfail refs mode_fast_impl = mode_fast_impl use_impl_fast use_impl_in_common  # clangd merges fast and slow impl_mode() (same USR): use_impl_slow is returned too
+xfail refs mode_slow_impl = mode_slow_impl use_impl_slow use_impl_in_common  # same: the #else declaration is inactive in the first includer
+refs forced_fn = forced_fn use_forced_fn
+refs FORCED_MACRO = FORCED_MACRO FORCED_in_fn use_FORCED_MACRO ifdef_forced
+refs ForcedType = ForcedType use_ForcedType
+refs use_top >= Stack_top use_top
+refs use_push >= Stack_push use_push
+refs use_size >= use_size
+refs Widget = Widget use_Widget
+refs Widget_id = Widget_id use_Widget_id
+refs use_count >= use_count
+refs comp_a = comp_a use_comp_a
+refs only_inc2 = only_inc2 use_only_inc2 use_only_inc2_init
+refs default_impl = default_impl use_impl_choice
