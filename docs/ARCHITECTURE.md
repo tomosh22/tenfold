@@ -1335,6 +1335,52 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
   diagnostics lane (`Scrollbar::Lane::BuildError/BuildWarning`, drawn below clangd's). Notes are not drawn. A new build
   clears them (Editor). Line numbers are those of the build time (not remapped on edits).
 
+#### Workspace explorer and left dock (W8f, `Workbench`, `src/ui/widgets/TreeView.*`, `src/ui/features/WorkspaceExplorer.*`)
+
+* **Left dock** (`Workbench::addSidePanel / showSidePanel / hideSidePanel / toggleSidePanel / sideVisible / sideWidth`):
+  the same machinery as the bottom dock, mirrored. The root's child is a horizontal `DockSplit` (now constructed with an
+  orientation and a "dock first" flag) whose first child is the side `Dock` and whose second is the vertical bottom
+  `DockSplit`; closed (the default), the dock gets a zero-width rectangle and the divider neither paints nor reacts, so
+  nothing moves and every existing golden is unchanged. The side dock spans the area between the top bar and the status
+  bar, the bottom dock only the editor column. `layout.json` gets an additive `"left": {"visible", "panel", "width"}`
+  (written only once the dock was used; `width` is a fraction of the window width, 5-70 %); a file without it loads with the
+  dock hidden, and a panel registered later (EditorApp adds "Explorer" after `restoreLayout`) picks up the restored state.
+  Focus mode hides it like the bottom dock. `Workbench::lastCaretOf(file)` exposes the caret a tab had when it was left.
+* **`TreeModel` / `TreeView`**: the model is flat (`TreeNode`: name, path, parent, kind, kids; nodes are added parent first,
+  so a backwards sweep reaches every ancestor), with a path index keyed by `tf::pathKey`. The view keeps a flat row list
+  (`node`, `depth`) that is rebuilt on expand / collapse / filter and paints only the rows inside the viewport (pixel
+  scroll offset, a thin scroll bar thumb). Expansion is a byte per node; across a model swap it is carried by node *key*
+  (names from the root), found by descending only through expanded nodes, so the cost follows what the user opened. The
+  filter marks nodes whose name passes `FastIndex::fuzzyScore` for every space-separated token, propagates to ancestors in
+  one backwards sweep and lists the marked nodes in tree order, everything expanded. Per-row decoration is a callback
+  (`markOf`, called for visible file rows only). Theme keys (optional, `Theme::orElse`): `treeBackground`,
+  `treeSelection` (focused), `treeSelectionInactive`, `treeFolder`; `vs-dark` sets the last three.
+* **`WorkspaceExplorer`**: builds the model. Solution mode (`Workspace::solutionFiles().front()` lists at least one
+  project): `readSolution` for the projects, a small pass over the `.sln` text for `NestedProjects` and
+  `ProjectSection(SolutionItems)`, `xml::parseFile` for each project's item groups (every item with an `Include` except
+  references and configurations; `$(ProjectDir)`, `$(MSBuildProjectDirectory)` and `$(SolutionDir)` are substituted,
+  other `$(...)` skipped; `*`, `?` and `**` expanded) and for `<project>.vcxproj.filters` (Filter elements, each item's
+  `<Filter>`). Files go under their filter (filters are split on `\`, declared-but-empty ones included), else, with no
+  filters file, under the folders of their path relative to the project (leading `..` dropped). Folder mode: the three file
+  lists of `Workspace` (so the scan's ignore rules and extension lists apply) split by directory; consecutive files of
+  one directory reuse the last node. Both end with `sortAll` (containers first, case-insensitive) and `indexPaths`.
+* **Refresh**: only while the panel is open. `EditorApp::tick` calls `WorkspaceExplorer::tick`, which looks (at most every
+  300 ms; a skipped look asks for one more wake-up) at `Workspace::revision()` (a counter bumped by `scan` and by every
+  incremental file-list change, i.e. the file watcher's events) and at a stamp of the size and mtime of the `.sln`, the
+  projects and their `.filters`; a change arms a 250 ms debounce, then the model is rebuilt and handed to
+  `TreeView::setModel`. The VCS marker follows `VcsManager::generation()` (repaint). Closing the panel drops the
+  "built" flag, so reopening builds afresh and nothing is polled meanwhile.
+* **Commands**: `View.ToggleWorkspaceExplorer` (10x `ToggleWorkspaceExplorer`, Control Shift E), `View.ShowInWorkspaceTree`
+  (Control T), `View.ShowInWorkspaceTreeWithToggle` (unbound); setting `explorer.trackActiveFile` (10x
+  TrackActiveFileInWorkspaceTree). Enter / double click: `Editor::gotoLocation` at the file's current caret (the open
+  document's, else the tab's last one, else the start), `Workbench::sync`, keys back to the editor view.
+* **Measured** (Release, `w8f_perf_50k_file_tree_open_scroll_filter`: 50 000 files in 400 x 5 x 25 directories, all
+  folders expanded = 52 401 rows, mock font, recording renderer so GL submit is not included; budgets enforced with
+  `TENFOLD_ENFORCE_PERF=1`): building the model from the sorted path list 36-58 ms; opening the panel (build + set model
+  + all rows expanded + first paint) 38-60 ms against a 400 ms budget; a scroll frame 0.03-0.05 ms average, p99 0.09-0.13
+  ms (8 ms budget; only the ~30 visible rows are touched); a filter keystroke (fuzzy match of 52k names, rebuild of the
+  row list, paint) 1.7-3 ms worst of seven queries (100 ms budget); collapse all 0.1 ms.
+
 Two small framework additions came with the editor view: an **overlay layer** (`Widget::paintOverlay`, run after the glyphs
 are emitted, so carets draw over text at the cost of one extra rect batch) and **ticks** (`RootWidget::tick(nowMs)` calls
 `Widget::onTick`, which returns the ms until it next wants a tick; the app waits at most that long, so caret blink and

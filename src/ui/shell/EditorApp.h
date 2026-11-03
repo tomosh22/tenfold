@@ -36,6 +36,7 @@
 #include "ui/features/SymbolSearch.h"
 #include "ui/features/UnsavedPrompt.h"
 #include "ui/features/VcsUi.h"
+#include "ui/features/WorkspaceExplorer.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/settings/Settings.h"
 #include "ui/shell/Workbench.h"
@@ -114,8 +115,9 @@ class EditorApp {
   // W8c parser commands: the inline rename box (Control R) and the "functions in this file" picker (Alt M).
   RenameInput& renameInput() { return *rename_; }
   FunctionPicker& functionPicker() { return *functions_; }
-  BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
-  VcsUi& vcsUi() { return *vcsUi_; }           // C3c: Vcs.* commands, revert confirmation, external diff tool
+  WorkspaceExplorer* explorer() { return explorer_.get(); }  // the "Explorer" left-dock panel; null without a Workbench
+  BuildPanel* buildPanel() { return build_; }                // the "Build" bottom-dock panel; null without a Workbench
+  VcsUi& vcsUi() { return *vcsUi_; }  // C3c: Vcs.* commands, revert confirmation, external diff tool
   void closePickers();
 
   // W8b. The window belongs to the program: it gives EditorApp what View.ToggleFullscreen needs (null: the command
@@ -253,6 +255,7 @@ class EditorApp {
   };
   std::map<std::string, UntitledName> untitledNames_;  // generic path of an untitled document -> its name
   BuildPanel* build_ = nullptr;                        // owned by the Workbench's bottom dock
+  std::unique_ptr<WorkspaceExplorer> explorer_;        // its TreeView is owned by the Workbench's left dock
 };
 
 }  // namespace tf::ui

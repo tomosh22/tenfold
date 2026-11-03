@@ -86,6 +86,10 @@ const std::vector<ColorMember>& colorMembers() {
       {"tabVcsAdded", &Theme::tabVcsAdded, true},
       {"tabVcsCheckedOut", &Theme::tabVcsCheckedOut, true},
       {"tabVcsReadOnly", &Theme::tabVcsReadOnly, true},
+      {"treeBackground", &Theme::treeBackground, true},
+      {"treeSelection", &Theme::treeSelection, true},
+      {"treeSelectionInactive", &Theme::treeSelectionInactive, true},
+      {"treeFolder", &Theme::treeFolder, true},
   };
   return m;
 }

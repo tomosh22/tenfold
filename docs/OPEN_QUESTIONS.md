@@ -169,3 +169,27 @@ against a running 10x.
   build started last (`Editor::lastResultSource`); stepping continues from where that list left off. After a build the keys
   walk the build's errors and warnings that have a source location, exactly like `GotoNextBuildWarningOrError` (F8), which
   keeps walking the build whatever came last.
+## #5 detail: the workspace explorer (W8f)
+
+The 10x documentation names the tree ("workspace tree", "workspace explorer") in `ToggleWorkspaceExplorer`,
+`ShowInWorkspaceTree[WithToggle]`, `TrackActiveFileInWorkspaceTree` and `EnableWorkspaceTreeDragDrop`, and says a 10x
+workspace shows files and folders (exclude filters, folder sync). It does not describe the tree's look, keys or default
+state, so these are choices, taken from Visual Studio's Solution Explorer:
+
+* Closed at start; a dock on the left (default 22 % of the window), saved in `layout.json` as `"left"`.
+* A `.sln` workspace shows solution -> solution folders -> projects -> files (filters from `.vcxproj.filters`, else
+  folders on disk); other workspaces show the scanned folder tree, whose file list is the workspace scan's (known source,
+  header and text extensions only, ignore rules applied) rather than every file on disk. With several `.sln` files in the
+  folder the first (alphabetical) is shown, the one the build and the debugger also pick.
+* Sort: folders / filters / projects first, then files, case-insensitive. Visual Studio sorts the same way.
+* Not shown: "External Dependencies", references, project properties, a node per configuration.
+* `ToggleWorkspaceExplorer` focuses the tree when it opens it (a toggle that left the keys in the editor would need a
+  second command to reach the tree). `ShowInWorkspaceTree` also focuses it, because it is the way to jump into the tree.
+  Escape with an empty filter hands the keys back; Enter on a file does too.
+* `ShowInWorkspaceTreeWithToggle` "if it's already being shown": read as the panel is open and the current file is the
+  selection and is on screen. Otherwise it reveals.
+* Single click selects, double click opens (Visual Studio's preview-on-click is not done). Typing filters instead of
+  jumping to the next name starting with the letters.
+* `TrackActiveFileInWorkspaceTree` (default false in 10x) is `explorer.trackActiveFile`; tracking never takes the keys.
+* `EnableWorkspaceTreeDragDrop`, the 10x workspace file's "Sync Folder" and exclude filters, and file operations (new,
+  rename, delete, show in file manager from the tree) are not implemented.

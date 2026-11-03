@@ -73,7 +73,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 21 of the 183 default bindings (20 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 19 of the 183 default bindings (18 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 162 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 21 bindings (20 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 164 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 19 bindings (18 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -116,15 +116,8 @@ the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `ToggleWorkspaceExplorer` | `Control Shift E` | Toggle the workspace explorer panel |
 | `NewTerminal` | `Control '` | Create a terminal panel |
 | `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. |
-
-**File**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `ShowInWorkspaceTree` | `Control T` | Show the current file in the workspace tree |
 
 **Edit**
 
@@ -182,7 +175,7 @@ PageDown itself while it is open.
 (10x commands that are in Commands but have no entry in the default key map; they also resolve to `not implemented yet:`
 when bound in a key file.)
 
-- **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ShowInWorkspaceTreeWithToggle`, `ToggleReadOnly`
+- **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ToggleReadOnly`
 - **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
 - **General**: `CreateSecondaryWindow`, `Show10XOutput`, `ClaudeCodeTerminal`, `CursorTerminal`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
@@ -310,7 +303,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | GotoDefColumn | default | Which column a goto definition / build error opens in | M, with the column presets below |
 | GotoDefResolvesTypedefs, GotoFunctionImplementation | false, true | Typedef resolution; a call goes to the implementation, not the declaration | S/M. Result order comes from clangd; check |
 | FindSymbolFuzzyMatching | true | Fuzzy matching in Find Symbol | S. Behaviour exists (always on) |
-| TrackActiveFileInWorkspaceTree | false | Reveal the active file in the workspace tree | Needs a tree; tenfold has none |
 | ShowLineNumbers, MinLineNumberWidth, RelativeLineNumbers | true, 3, false | Line number gutter | S each |
 | ShowCollapseRegionMargin | true | Fold margin | L. Folding does not exist |
 | ShowUpdatedLinesInMargin, ShowUpdatedLinesInScrollBar | true, true | Mark modified lines | S. Version-control marks exist (C3c) but track the VCS base, not unsaved edits |
@@ -346,7 +338,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | BackslashPaths | true | Show paths with backslashes | S |
 | WindowTitle, WorkspaceTextInTitleBar, RememberWindowPosition | Name, Name, true | Window title and position | S each |
 | HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt (and the secondary-menu variants) | false, true, true | Menu bar visibility | Needs a menu bar |
-| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert, EnableWorkspaceTreeDragDrop | true, false, true, true | Floating tool windows and tree drag and drop | Skipped unless tool windows float |
+| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert, EnableWorkspaceTreeDragDrop | true, false, true, true | Floating tool windows and tree drag and drop (the tree exists, W8f, without drag and drop) | Skipped unless tool windows float |
 
 ### Workspace search
 

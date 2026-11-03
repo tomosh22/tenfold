@@ -198,6 +198,10 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     };
     bench_->addBottomPanel("Build", std::move(bp));
     bench_->status().setOnClick("build", [this](const std::string&) { bench_->toggleBottomPanel("Build"); });
+    WorkspaceExplorer::Hooks eh;
+    eh.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
+    eh.focusEditor = [this] { bench_->setActivePanel(bench_->activePanel()); };
+    explorer_ = std::make_unique<WorkspaceExplorer>(editor_, *bench_, std::move(eh));
   }
   showDiagnostics();
   // Clangd semantic tokens go to every view of the document they describe (they replace the previous set).
@@ -211,8 +215,9 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 
 EditorApp::~EditorApp() {
   if (bench_) bench_->confirmClose = nullptr;
-  vcsUi_.reset();  // unhooks VcsManager::onError, closes its confirmation
-  closePickers();  // their callbacks point into this object
+  explorer_.reset();  // its tree callbacks point into this object
+  vcsUi_.reset();     // unhooks VcsManager::onError, closes its confirmation
+  closePickers();     // their callbacks point into this object
   palette_.reset();
   external_.reset();  // unhooks Editor::onExternalChange
   unsaved_.reset();
@@ -374,6 +379,7 @@ void EditorApp::applySettings(const Settings& s) {
   }
   external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
   vcsUi_->applySettings(s);
+  if (explorer_) explorer_->setTrackActiveFile(s.getBool("explorer.trackActiveFile"));
 }
 
 void EditorApp::closePickers() {
@@ -759,6 +765,21 @@ void EditorApp::bindUiCommands() {
       [this](const CommandContext&) { return bench_->activePanel() && bench_->activePanel()->activeId() >= 0; });
   registry_.bind("View.ToggleBuildPanel", [this](const CommandContext&, std::string_view) {
     bench_->toggleBottomPanel("Build");
+    return true;
+  });
+  registry_.bind("View.ToggleWorkspaceExplorer", [this](const CommandContext&, std::string_view) {
+    if (!explorer_) return false;
+    explorer_->toggle();
+    return true;
+  });
+  registry_.bind("View.ShowInWorkspaceTree", [this](const CommandContext&, std::string_view) {
+    if (!explorer_) return false;
+    explorer_->showCurrentFile(false);
+    return true;
+  });
+  registry_.bind("View.ShowInWorkspaceTreeWithToggle", [this](const CommandContext&, std::string_view) {
+    if (!explorer_) return false;
+    explorer_->showCurrentFile(true);
     return true;
   });
   registry_.bind("Workbench.FocusPanel", [this](const CommandContext&, std::string_view arg) {
@@ -1211,6 +1232,9 @@ int EditorApp::tick(int64_t nowMs) {
   soonest(external_->tick(nowMs));
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
+  if (explorer_) {
+    if (const int due = explorer_->tick(nowMs); due >= 0) soonest(due);
+  }
   if (bench_) bench_->status().setText("config", configPicker_->statusText());
   breakpointList_->refresh();
   if (const DebugSession& dbg = editor_.debug(); dbg.generation() != debugErrorGen_) {  // C2c: session errors

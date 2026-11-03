@@ -323,6 +323,9 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Build.NextError", "Next Build Error");
   addUi(r, "Build.PrevError", "Previous Build Error");
   addUi(r, "View.ToggleBuildPanel", "Toggle Build Panel");
+  addUi(r, "View.ToggleWorkspaceExplorer", "Toggle Workspace Explorer");
+  addUi(r, "View.ShowInWorkspaceTree", "Show Current File in Workspace Tree");
+  addUi(r, "View.ShowInWorkspaceTreeWithToggle", "Show Current File in Workspace Tree (Close if Shown)");
   addUi(r, "View.ToggleWordWrap", "Toggle Word Wrap");
   addUi(r, "Help.ShowCompileCommand", "Show Compile Command for Current File");
   addUi(r, "Vcs.NextChange", "Next Change");

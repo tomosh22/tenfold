@@ -88,6 +88,12 @@ struct Theme {
   Color tabVcsAdded{0, 0, 0, 0};          // new / untracked / opened for add; unset = the added colour
   Color tabVcsCheckedOut{0, 0, 0, 0};     // Perforce checked out; unset = the deleted colour (red)
   Color tabVcsReadOnly{0, 0, 0, 0};       // Perforce read-only, not checked out (outlined marker); unset = textDim
+  // Workspace explorer (W8f), optional: tree background (unset = panelBackground), selected row while the tree has the
+  // keyboard focus (unset = selection) and while it has not (unset = currentLine), folder icon (unset = dirtyMarker).
+  Color treeBackground{0, 0, 0, 0};
+  Color treeSelection{0, 0, 0, 0};
+  Color treeSelectionInactive{0, 0, 0, 0};
+  Color treeFolder{0, 0, 0, 0};
   Color vcsAdded() const { return orElse(diffAdded, {0.341f, 0.651f, 0.290f, 1}); }
   Color vcsModified() const { return orElse(diffModified, tabAccent); }
   Color vcsDeleted() const { return orElse(diffDeleted, diagnosticError); }

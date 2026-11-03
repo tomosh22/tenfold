@@ -147,6 +147,24 @@ class Workbench : public RootWidget {
   void setBottomHeight(float fraction);
   RectF bottomRect() const;  // window coordinates, empty when hidden
 
+  // ---- left side dock (W8f, the workspace explorer) ----
+  // Same shape as the bottom dock, on the left of the whole window area (between the top bar and the status bar):
+  // hidden until shown, named panels of which one is visible, resizable by its divider. `width` is a fraction of the
+  // window width (kept while hidden). Saved in layout.json under "left"; a layout without it (or a focus-mode
+  // window) has the dock hidden.
+  Widget* addSidePanel(const std::string& name, std::unique_ptr<Widget> w);  // not shown yet; replaces a same-named one
+  Widget* sidePanel(const std::string& name) const;
+  bool showSidePanel(const std::string& name);  // false for an unknown name
+  void hideSidePanel();
+  bool toggleSidePanel(const std::string& name);  // true = now visible
+  bool sideVisible() const;
+  const std::string& sidePanelName() const { return sideState_.name; }
+  float sideWidth() const;
+  void setSideWidth(float fraction);
+  RectF sideRect() const;  // window coordinates, empty when hidden
+  // The caret the tab of `file` last had when another tab was shown (line 0, column 0 when unknown).
+  Position lastCaretOf(const std::filesystem::path& file) const;
+
   // ---- persistence (<workspace>/.tenfold/layout.json) ----
   std::filesystem::path layoutPath() const;
   std::string layoutJson() const;
@@ -197,6 +215,7 @@ class Workbench : public RootWidget {
   void collect(Widget* w, std::vector<Panel*>& out) const;
   void refreshStatus();
   void applyDock();
+  void applySide();
   void applyFocusMode();
   void swapPanels(Panel* a, Panel* b);
   std::string tabTitle(const std::filesystem::path& file) const;
@@ -205,6 +224,13 @@ class Workbench : public RootWidget {
   DockSplit* split_ = nullptr;  // body_ above, dock_ below
   Widget* body_ = nullptr;      // holds top_
   Dock* dockWidget_ = nullptr;
+  DockSplit* side_ = nullptr;  // sideWidget_ | split_
+  Dock* sideWidget_ = nullptr;
+  struct SideState {
+    bool visible = false;
+    std::string name;
+    float width = 0.22f;
+  } sideState_;
   struct DockState {
     bool visible = false;
     std::string name;
