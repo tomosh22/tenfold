@@ -278,6 +278,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/view/Scrollbar.cpp
     src/ui/view/WrapLayout.cpp
     src/ui/view/RowBlocks.cpp
+    src/ui/view/FoldModel.cpp
     src/ui/widgets/ShellDemo.cpp
     src/ui/commands/Command.cpp
     src/ui/commands/CommandRegistry.cpp
@@ -356,6 +357,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8b.cpp
     tests/ui/test_w8a_commands.cpp
     tests/ui/test_w8c.cpp
+    tests/ui/test_w8f.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

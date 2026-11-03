@@ -304,9 +304,35 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
 * The matching bracket of the one at the caret is highlighted. `editor.showWhitespace`, `editor.columnGuide`,
   `editor.highlightCurrentLine` and the caret blink are settings.
 
-Not available yet: code actions and fix-its, call and type hierarchy, inlay hints, folding, the document outline.
+Not available yet: code actions and fix-its, call and type hierarchy, inlay hints, the document outline.
 The engine has them; the GUI does not (see [What does not exist yet](#what-does-not-exist-yet)). Rename and formatting
 are the Control R and Control K, Control F commands above.
+
+## Code folding
+
+C and C++ files have regions you can collapse (10x's CollapseRegions commands). A region is a `{ ... }` block that
+spans at least two lines, a multi-line `/* ... */` comment, or a `#pragma region` / `#pragma endregion` pair; braces in
+strings, character literals and comments do not count. (10x documents no region syntax; `#if` blocks are not regions.)
+A collapsed region shows its first line followed by a marker (`...}` after a line ending in `{`, else `{...}`; `...*/`
+for a comment) and hides the other lines, including the closing one. Hidden lines are skipped by the caret keys, mouse
+clicks, the scrollbar and selections.
+
+| Key | 10x command | tenfold id | What it does |
+|---|---|---|---|
+| `Control Shift [` | `CollapseRegion` | `Editor.CollapseRegion` | collapses the innermost open region around the caret line |
+| `Control Shift ]` | `ExpandRegion` | `Editor.ExpandRegion` | expands the collapsed region whose first line has the caret |
+| `Control M, Control M` | `ToggleCollapseExpandRegion` | `Editor.ToggleCollapseExpandRegion` | the two above in one key |
+| `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | everything collapsed (or hidden by a collapsed region): expand all; otherwise collapse all |
+| | `CollapseAllRegions` / `ExpandAllRegions` | `Editor.CollapseAllRegions` / `Editor.ExpandAllRegions` | collapse the outermost regions / expand the collapsed ones that are visible; nested ones keep their state |
+| | `CollapseAllRegionsRecursive` / `ExpandAllRegionsRecursive` | `Editor.CollapseAllRegionsRecursive` / `Editor.ExpandAllRegionsRecursive` | every region of the file, at every depth |
+
+A caret that lands in a collapsed region (go to line, find, a build error, Left from the line below) opens it, and so
+does any edit that touches its lines, including typing at the end of its first line. Collapsed regions move with
+their lines when you edit elsewhere. Click the marker to expand. `editor.showFoldGlyphs` (default off; 10x's
+ShowCollapseRegionMargin defaults to on) adds a gutter lane with a triangle on every region start: click it to collapse
+or expand. The marker colours are the theme keys `foldMarkerBackground`, `foldMarkerText` and `foldGlyph`. Regions are
+found in the background once typing pauses; the commands compute them on the spot when they are out of date. Folds are
+kept per open document view for the session, not saved.
 
 ## Word wrap
 
@@ -529,6 +555,7 @@ tests.)
 | `editor.tabWidth` | `4` | int | Display width of a tab character, in columns. |
 | `editor.columnGuide` | `0` | int | Draw a vertical guide line at this column. 0 turns it off. 10x's VerticalRulers is empty by default. |
 | `editor.showWhitespace` | `false` | bool | Draw dots for spaces and arrows for tabs (first 4000 bytes of each line). |
+| `editor.showFoldGlyphs` | `false` | bool | A gutter lane between the line numbers and the change strip with a triangle on every region start (click to collapse / expand). 10x: ShowCollapseRegionMargin (default true there). |
 | `editor.indentUnit` | `tab` | string | One indent level: `tab`, or a number of spaces from 1 to 16 (anything else means 4). Used when `editor.detectIndent` finds nothing in the file, or is off. 10x: IndentMode (Tabs). |
 | `editor.detectIndent` | `false` | bool | Take the indent unit from the file itself (its first 400 lines: tabs, or the most common step) instead of `editor.indentUnit`. 10x: AutoDetectIndentMode (false). |
 | `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator). 10x: AutoIndent. |
@@ -768,6 +795,17 @@ differs from the 10x description:
 | `Control D` | `SelectNextMultiCursor` | `Editor.AddCaretAtNextOccurrence` | no undo of the last selection (UndoSelectNextMultiCursor is missing) |
 | `Shift Alt Up` | `MultiCursorMoveUp` | `Editor.AddCaretAbove` | adds the caret at the same column |
 | `Shift Alt Down` | `MultiCursorMoveDown` | `Editor.AddCaretBelow` | adds the caret at the same column |
+
+**CollapseRegions** (see [Code folding](#code-folding))
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control Shift [` | `CollapseRegion` | `Editor.CollapseRegion` | C/C++ files only; brace blocks, multi-line comments, `#pragma region` |
+| `Control Shift ]` | `ExpandRegion` | `Editor.ExpandRegion` | the collapsed region starting on the caret line |
+| `Control M, Control M` | `ToggleCollapseExpandRegion` | `Editor.ToggleCollapseExpandRegion` | |
+| `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | all folded: expand all, else collapse all (every depth) |
+| | `CollapseAllRegions`, `ExpandAllRegions` | `Editor.CollapseAllRegions`, `Editor.ExpandAllRegions` | outermost regions / visible collapsed regions only |
+| | `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive` | `Editor.CollapseAllRegionsRecursive`, `Editor.ExpandAllRegionsRecursive` | every depth |
 
 **Navigation**
 
@@ -1084,7 +1122,7 @@ unverified items in the next sections; the log and the output of those two comma
 
 * Opening a folder from the window, menus, a recent-workspaces list, drag and drop.
 * Autosave and recovery of unsaved buffers after a crash.
-* GUI for code actions / fix-its, call and type hierarchy, inlay hints, folding, the document outline.
+* GUI for code actions / fix-its, call and type hierarchy, inlay hints, the document outline.
 * An "open log" command.
 * Scripting (the Python API of 10x is deliberately not implemented, OPEN_QUESTIONS #11), `.10x` workspace import (not
   wanted, #12), Unreal Engine awareness.

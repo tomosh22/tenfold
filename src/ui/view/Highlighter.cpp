@@ -179,17 +179,26 @@ bool Highlighter::ensureExact(int line) {
 
 const std::vector<LexSpan>* Highlighter::spansOf(int line) const {
   if (line < consistent_) return &e_[static_cast<size_t>(line)].spans;
-  if (provValid_ && line >= provBase_ && line < provBase_ + static_cast<int>(prov_.size()))
-    return &prov_[static_cast<size_t>(line - provBase_)].spans;
+  if (provValid_)
+    for (const Seg& g : provs_)
+      if (line >= g.base && line < g.base + static_cast<int>(g.e.size()))
+        return &g.e[static_cast<size_t>(line - g.base)].spans;
   return nullptr;
 }
 
-void Highlighter::prepare(int first, int last) {
+void Highlighter::prepare(int first, int last) { prepareRuns({{first, last}}); }
+
+void Highlighter::prepareRuns(const std::vector<std::pair<int, int>>& runs) {
   if (!buf_) return;
   const int n = buf_->lineCount();
   if (e_.size() != static_cast<size_t>(n)) reset();  // changed behind our back: start over
-  last = std::min(last, n);
-  if (first >= last) return;
+  std::vector<std::pair<int, int>> want;             // clamped, non-empty, ascending
+  for (const auto& r : runs) {
+    const int a = std::max(0, r.first), z = std::min(r.second, n);
+    if (a < z) want.push_back({a, z});
+  }
+  if (want.empty()) return;
+  const int last = want.back().second;
   int budget = kSyncBudget;
   if (advance(last - 1, budget)) {
     provValid_ = pending_ = false;
@@ -197,14 +206,39 @@ void Highlighter::prepare(int first, int last) {
   }
   wantLast_ = last;
   pending_ = true;
-  if (provValid_ && first >= provBase_ && last <= provBase_ + static_cast<int>(prov_.size())) return;
-  provBase_ = std::max(consistent_, first - kLookback);
-  prov_.assign(static_cast<size_t>(last - provBase_), Entry{});
-  LexState st = provBase_ == consistent_ && consistent_ ? e_[static_cast<size_t>(consistent_ - 1)].end : LexState{};
-  for (int i = provBase_; i < last; ++i) {
-    Entry& e = prov_[static_cast<size_t>(i - provBase_)];
-    relex(e, i, st);
-    st = e.end;
+  // Runs inside the exact prefix need nothing provisional.
+  want.erase(
+      std::remove_if(want.begin(), want.end(), [&](const std::pair<int, int>& r) { return r.second <= consistent_; }),
+      want.end());
+  if (want.empty()) {
+    provValid_ = false;
+    return;
+  }
+  auto covered = [&](const std::pair<int, int>& r) {
+    for (const Seg& g : provs_)
+      if (r.first >= g.base && r.second <= g.base + static_cast<int>(g.e.size())) return true;
+    return false;
+  };
+  if (provValid_ && std::all_of(want.begin(), want.end(), covered)) return;
+  // One provisional segment per run (runs whose lookback windows touch share one).
+  std::vector<std::pair<int, int>> segs;
+  for (const auto& r : want) {
+    const int base = std::max(consistent_, r.first - kLookback);
+    if (!segs.empty() && base <= segs.back().second) segs.back().second = std::max(segs.back().second, r.second);
+    else segs.push_back({base, r.second});
+  }
+  provs_.clear();
+  for (const auto& sg : segs) {
+    Seg g;
+    g.base = sg.first;
+    g.e.assign(static_cast<size_t>(sg.second - sg.first), Entry{});
+    LexState st = g.base == consistent_ && consistent_ ? e_[static_cast<size_t>(consistent_ - 1)].end : LexState{};
+    for (int i = g.base; i < sg.second; ++i) {
+      Entry& e = g.e[static_cast<size_t>(i - g.base)];
+      relex(e, i, st);
+      st = e.end;
+    }
+    provs_.push_back(std::move(g));
   }
   provValid_ = true;
 }

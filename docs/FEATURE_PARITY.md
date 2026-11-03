@@ -143,15 +143,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `MultiCursorMoveLeft` | `Shift Alt Left` | Increase selection end for all multi-cursors |
 | `MultiCursorMoveRight` | `Shift Alt Right` | Decrease selection end for all multi-cursors |
 
-**CollapseRegions**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `CollapseRegion` | `Control Shift [` | Collapse the current region |
-| `ExpandRegion` | `Control Shift ]` | Expand the current region |
-| `ToggleCollapseExpandRegion` | `Control M, Control M` | Toggle the collapse/expand of the current region |
-| `ToggleCollapseExpandAllRegions` | `Control M, Control L` | Toggle the collapse/expand of the all regions in the file |
-
 **Tabs**
 
 | Command | Default keys | 10x description |
@@ -248,7 +239,6 @@ when bound in a key file.)
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
 - **Formatting**: `ToggleIndentMode`, `FormatFile`
 - **MultiCursor**: `StartDraggingRectSelect`
-- **CollapseRegions**: `CollapseAllRegions`, `ExpandAllRegions`, `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`
 - **Navigation**: `NextEditLocation`, `NewSearchPanel`
 - **Bookmarks**: `RemoveAllBookmarks`
 - **FindInFiles**: `ShowFindInFilesResults1`, `ShowFindInFilesResults2`, `ShowFindInFilesResults3`, `ShowFindInFilesResults4`, `ToggleFindInFilesResultsPanel1`, `ToggleFindInFilesResultsPanel2`, `ToggleFindInFilesResultsPanel3`, `ToggleFindInFilesResultsPanel4`
@@ -288,6 +278,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.autoAddCloseBracket` | AutoAddCloseBracket (false) | `(` and `[` |
 | `editor.bracketSelectedText` | BracketSelectedText (true) | |
 | `editor.showWhitespace` | ShowWhitespace (false) | |
+| `editor.showFoldGlyphs` | ShowCollapseRegionMargin (true) | default **false** here: the gutter stays as it was until asked; a collapsed region always shows its `{...}` marker |
 | `editor.columnGuide` | VerticalRulers (empty) | 10x takes a list; tenfold one column |
 | `editor.wheelLines` | MouseWheelScrollStep (3) | |
 | `editor.caretBlink`, `editor.caretBlinkMs` | CursorBlinkRate (auto) | auto = the OS rate; 0 = off. tenfold uses 530 ms |
@@ -352,7 +343,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | FindSymbolFuzzyMatching | true | Fuzzy matching in Find Symbol | S. Behaviour exists (always on) |
 | TrackActiveFileInWorkspaceTree | false | Reveal the active file in the workspace tree | Needs a tree; tenfold has none |
 | ShowLineNumbers, MinLineNumberWidth, RelativeLineNumbers | true, 3, false | Line number gutter | S each |
-| ShowCollapseRegionMargin | true | Fold margin | L. Folding does not exist |
 | ShowUpdatedLinesInMargin, ShowUpdatedLinesInScrollBar | true, true | Mark modified lines | S. Version-control marks exist (C3c) but track the VCS base, not unsaved edits |
 | ScrollBarMode, MapScrollBarWidth | Map, 60 | Minimap-style scroll bar | L |
 | HighlightFindTextInScrollBar, HighlightSelectedWordInScrollBar, ScrollBarHighlightSize | true, false, 1.0 | Marks in the scroll bar | S. Find marks and diagnostics exist; selection marks do not |

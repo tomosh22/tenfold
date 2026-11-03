@@ -20,6 +20,11 @@ class Layout {
   // A glyph lane (C2c: breakpoints, current statement) left of the numbers adds its width to the gutter; 0 = none.
   void setGlyphLane(float width) { lane_ = width; }
   float glyphLane() const { return lane_; }
+  // Fold lane (W8f, editor.showFoldGlyphs): a lane between the numbers and the change strip that holds the fold glyphs;
+  // 0 = none (the default, so the gutter is unchanged). The numbers end foldLane() earlier.
+  void setFoldLane(float width) { fold_ = width; }
+  float foldLane() const { return fold_; }
+  float numbersRight(int lineCount) const { return gutterWidth(lineCount) - cellWidth() - fold_; }
   float gutterWidth(int lineCount) const;
   float textOffset(int lineCount) const { return gutterWidth(lineCount) + cellWidth() / 2; }
 
@@ -44,7 +49,7 @@ class Layout {
 
  private:
   const gfx::TextLayout* tl_;
-  float lane_ = 0;
+  float lane_ = 0, fold_ = 0;
 };
 
 }  // namespace tf::ui

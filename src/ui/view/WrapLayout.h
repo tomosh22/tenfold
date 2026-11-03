@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -25,6 +26,12 @@ namespace tf::ui {
 // the edit on (rows before it cannot change) and shifts the rest; there is never a pass over the document.
 //
 // With cols <= 0 (wrap off) every line is exactly one row and all the functions reduce to the identity mapping.
+//
+// Hidden lines (W8f, code folding): setHidden() takes disjoint ranges of lines that have no rows at all. Every
+// whole-document function (firstRowOf, totalRows, lineOfRow, visualRowOf, nextRow, prevRow) then works on the
+// visible lines only, with or without wrapping; a hidden line maps to the first row of the next visible line.
+// Per-line functions (rowsOf, rowStart, xOf ...) still answer for a hidden line, they are just never asked for one by
+// the view. Costs: a binary search over the ranges per query, and rebuild() visits the wrapped lines once per change.
 // Not thread-safe; mutating state is hidden behind const-less methods only.
 class WrapLayout {
  public:
@@ -39,6 +46,23 @@ class WrapLayout {
 
   // Document change (Document::addListener): keeps the rows the edit cannot have touched.
   void onChange(const Document::Change& c);
+
+  // ---- hidden lines (folded regions) ----
+  struct HiddenRange {
+    int first = 0, last = 0;  // inclusive line numbers
+  };
+  // Replaces the hidden lines; `ranges` must be sorted and disjoint (the fold model merges them). Not touched by
+  // bind() / reset(): hiding belongs to the fold model, not to the width.
+  void setHidden(std::vector<HiddenRange> ranges);
+  bool hasHidden() const { return !hid_.empty(); }
+  bool isHidden(int line) const;
+  int hiddenTotal() const { return hiddenTotal_; }
+  int hiddenBefore(int line) const;  // number of hidden lines with an index below `line`
+  // The visible line at or after / before `line` (lineCount() / -1 when there is none).
+  int nextVisible(int line) const;
+  int prevVisible(int line) const;
+  // The hidden range holding `line`, if any.
+  std::optional<HiddenRange> hiddenRangeOf(int line) const;
 
   // ---- one line ----
   // Exact number of rows (scans the whole line). rowsEstimate: what is known so far, never scans past the first row.
@@ -83,6 +107,10 @@ class WrapLayout {
   };
 
   Entry* touch(int line);  // the entry of a wrapped line, or null for a line that fits one row
+  struct Hid {
+    int first, last, before;  // `before`: hidden lines in the ranges ahead of this one
+  };
+  int lineOfVisible(int v) const;  // the line holding the v-th visible line
   size_t lowerBound(int line) const;
   int availFor(const Entry& e, int row) const;
   int breakAt(const std::string& line, int from, int avail) const;
@@ -99,8 +127,11 @@ class WrapLayout {
   int cols_ = 0, tabWidth_ = 0;
   uint32_t gen_ = 1;
   std::vector<Entry> entries_;  // wrapped lines only, sorted by line
-  // pre_[i] = rows beyond the first of entries_[0, i); valid when !dirty_.
+  // pre_[i] = rows beyond the first of the visible entries_[0, i); valid when !dirty_.
   std::vector<int> pre_;
+  std::vector<int> base_;  // base_[i]: first row of entries_[i] (meaningless for hidden entries)
+  std::vector<Hid> hid_;
+  int hiddenTotal_ = 0;
   bool dirty_ = true;
 };
 

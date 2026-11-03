@@ -2,13 +2,16 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
+#include <thread>
 #include <utility>
 #include <vector>
 
 #include "app/Editor.h"
 #include "ui/settings/Settings.h"
+#include "ui/view/FoldModel.h"
 #include "ui/view/Highlighter.h"
 #include "ui/view/Layout.h"
 #include "ui/view/RowBlocks.h"
@@ -62,6 +65,15 @@ namespace tf::ui {
 // WrapLayout rows to display rows; WrapLayout and the Document never know about it), follows edits above it and
 // goes away when its hunk changes.
 //
+// Code folding (W8f, 10x CollapseRegions): C/C++ files have regions (FoldModel: brace blocks, multi-line comments,
+// #pragma region) and the view can collapse them. A collapsed region shows its head line followed by a {...} marker
+// and hides the rest; hidden lines have no rows at all (WrapLayout::setHidden, so the row model that scrolling, the
+// scrollbar, hit testing, selections and caret movement already go through simply skips them, with or without
+// wrap). Regions are computed on a copy of the lines off the main thread once typing pauses (a result for an older
+// version is dropped), the commands compute them on the spot when the set is stale. A caret that lands in a hidden
+// line (a jump, a search hit, Left from below) expands the region; so does any edit touching its lines. A click on
+// the marker expands; editor.showFoldGlyphs adds a gutter lane with a triangle per region start.
+//
 // Dirtiness: input handling and onTick() compare the Editor state (document, version, selections) with what was last
 // drawn, so changes made elsewhere (LSP edits, Back/Forward, another view) repaint too. Drive onTick through
 // RootWidget::tick(nowMs) after each batch of events and wait for at most the returned ms (blink / scroll animation).
@@ -77,6 +89,7 @@ class TextView : public Widget {
     int tabWidth = 4;                // editor.tabWidth (applied to the shared TextLayout)
     int columnGuide = 0;             // editor.columnGuide: column of the vertical guide, 0 = off
     bool showWhitespace = false;     // editor.showWhitespace: dots for spaces, arrows for tabs
+    bool showFoldGlyphs = false;     // editor.showFoldGlyphs: gutter lane with a triangle per region start
     std::function<int64_t()> clock;  // monotonic ms for blink; null = steady_clock
   };
 
@@ -142,6 +155,33 @@ class TextView : public Widget {
   bool diffStripActive() const;  // version control has a base for this document
   RectF diffStripRect() const;   // the strip column (window pixels), full view height
 
+  // ---- code folding (W8f) ----
+  enum class FoldOp {
+    Collapse,
+    Expand,
+    Toggle,
+    CollapseAll,
+    ExpandAll,
+    CollapseAllRecursive,
+    ExpandAllRecursive,
+    ToggleAll
+  };
+  // The 10x CollapseRegions commands on the primary caret's line. False when the file has no regions (not C/C++),
+  // or nothing changed.
+  bool foldCommand(FoldOp op);
+  bool foldingActive() const { return colouring() && document(); }
+  const FoldModel& folds() const { return fold_; }
+  // Computes the regions on the calling thread now (waits for a running job); for the commands and for tests.
+  void foldRefreshNow();
+  // Collapses / expands the region starting on `line` (the gutter glyph and the marker click use these).
+  bool toggleFoldAt(int line);
+  void setShowFoldGlyphs(bool on);
+  float foldLaneWidth() const;  // 0 unless editor.showFoldGlyphs and the file has folding
+  RectF foldLaneRect() const;
+  // Where the {...} marker of the collapsed region starting on `line` is drawn (window pixels); zero size when the
+  // line is not a collapsed head or not on screen.
+  RectF foldMarkerRect(int line) const;
+
   // Makes this view's document the Editor's current one (no history entry; the caret this view last had) and takes
   // focus.
   void activate();
@@ -182,6 +222,15 @@ class TextView : public Widget {
     int line, row, vrow, start, end, indent;
   };
   Layout geometry() const;
+  // ---- folding internals ----
+  struct FoldJob;
+  void foldOnChange(const Document::Change& c);
+  void applyHidden(bool keepTop);
+  void foldPoll(int64_t nowMs);
+  void foldCancel();
+  void foldMoveCarets();  // carets in hidden lines go to the end of their head line
+  std::string foldMarkerText(const FoldModel::Region& r, int line, float* gap) const;
+  void paintFoldGlyph(PaintContext& ctx, const Layout& L, const RowRef& r, float y);
   std::optional<int> statementLine() const;  // the line of the debugger's current statement when it is in this document
   void paintGlyphMargin(PaintContext& ctx, const Layout& L, const RowRef& r, float y, bool arrow);
   void toggleBreakpointAt(int line);
@@ -240,6 +289,10 @@ class TextView : public Widget {
   Viewport vp_;
   Highlighter hl_;
   mutable WrapLayout wrap_;
+  FoldModel fold_;
+  std::shared_ptr<FoldJob> foldJob_;
+  std::thread foldThread_;
+  int64_t foldEditMs_ = -1000000;
   mutable std::vector<RowRef> vis_;                // the visible rows of the last collectVisibleRows
   std::vector<int> markLines_[Scrollbar::kLanes];  // scrollbar markers as document lines (the bar gets display rows)
   uint32_t markGen_ = 0;

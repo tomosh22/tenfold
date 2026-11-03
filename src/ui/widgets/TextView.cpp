@@ -1,6 +1,7 @@
 #include "ui/widgets/TextView.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cmath>
@@ -14,8 +15,18 @@ namespace {
 Color mix(Color a, Color b, float t) {
   return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1};
 }
-constexpr int kBracketLines = 1000;  // how far a bracket search looks
+constexpr int kBracketLines = 1000;   // how far a bracket search looks
+constexpr int kFoldDebounceMs = 150;  // typing pause before the regions are recomputed
 }  // namespace
+
+// A region computation off the main thread: owns a copy of the lines, so nothing it reads can change.
+struct TextView::FoldJob {
+  const Document* doc = nullptr;
+  int version = 0;
+  std::vector<std::string> lines;
+  std::vector<FoldModel::Region> out;
+  std::atomic<bool> done{false};
+};
 
 TextView::TextView(Editor& editor, Document* pinned) : editor_(editor), pinned_(pinned) {
   auto sb = std::make_unique<Scrollbar>();
@@ -27,7 +38,10 @@ TextView::TextView(Editor& editor, Document* pinned) : editor_(editor), pinned_(
   addChild(std::move(sb));
 }
 
-TextView::~TextView() { bindListener(nullptr); }
+TextView::~TextView() {
+  foldCancel();
+  bindListener(nullptr);
+}
 
 void TextView::bindDocument() {
   Document* d = document();
@@ -35,6 +49,9 @@ void TextView::bindDocument() {
   bindListener(d);
   hl_.attach(d ? &d->buffer() : nullptr);
   wrap_.reset();
+  foldCancel();
+  fold_.clear();
+  wrap_.setHidden({});
   anchorLine_ = -1;
   prefSel_.clear();
   if (!blocks_.empty()) {  // blocks belong to the previous document
@@ -54,6 +71,7 @@ void TextView::bindListener(Document* d) {
     hl_.onChange(c);
     wrap_.onChange(c);
     blocksOnChange(c);
+    foldOnChange(c);
   });
 }
 
@@ -79,6 +97,7 @@ void TextView::applySettings(const EditorSettings& s) {
   settings_.tabWidth = s.tabWidth;
   settings_.columnGuide = s.columnGuide;
   settings_.showWhitespace = s.showWhitespace;
+  settings_.showFoldGlyphs = s.showFoldGlyphs;
   if (root()) root()->text().setTabWidth(s.tabWidth);
   setWordWrap(s.wordWrap);
   markDirty();
@@ -143,6 +162,7 @@ void TextView::updateDiagMarkers() {
 Layout TextView::geometry() const {
   Layout L(root()->text().textLayout());
   L.setGlyphLane(glyphLaneWidth());
+  L.setFoldLane(foldLaneWidth());
   return L;
 }
 
@@ -343,7 +363,7 @@ void TextView::collectVisibleRows(std::vector<RowRef>& out) const {
   int line = W.lineOfRow(wrow, &r0);
   const int n = d->buffer().lineCount();
   int vrow = M.display(wrow);
-  for (bool firstLine = true; line < n && vrow < vr1; ++line, firstLine = false) {
+  for (bool firstLine = true; line < n && vrow < vr1; line = W.nextVisible(line + 1), firstLine = false) {
     for (int r = firstLine ? r0 : 0; vrow < vr1; ++r) {
       const int end = W.rowEnd(line, r);  // scans, so the row count below is current
       if (r >= W.rowsEstimate(line)) break;
@@ -385,12 +405,15 @@ void TextView::forSegments(int line, int b0, int b1, bool withBreak, Fn fn) cons
 // the wrap map changed).
 void TextView::setMarkLines(Scrollbar::Lane lane, std::vector<int> lines) {
   markLines_[static_cast<int>(lane)] = lines;
-  if (!wrap_.enabled() && blocks_.empty()) {
+  if (!wrap_.enabled() && blocks_.empty() && !wrap_.hasHidden()) {
     sb_->setMarkers(lane, std::move(lines));
     return;
   }
   const RowBlocks& M = rowMap();
-  for (int& l : lines) l = M.display(wrap_.firstRowOf(l));
+  for (int& l : lines) {
+    if (wrap_.isHidden(l)) l = wrap_.prevVisible(l);  // a mark in a folded region sits on its head line
+    l = M.display(wrap_.firstRowOf(l));
+  }
   sb_->setMarkers(lane, std::move(lines));
 }
 
@@ -543,7 +566,7 @@ void TextView::scrollBy(float dx, float dy) {
     return;
   }
   int first, last;
-  if (blocks_.empty()) {
+  if (blocks_.empty() && !wrap_.hasHidden()) {
     L.visibleLines(vp_.targetY(), bounds().h, b.lineCount(), first, last);
   } else {  // display rows are not lines: map the first and the last visible row back to lines
     const RowBlocks& M = rowMap();
@@ -553,7 +576,7 @@ void TextView::scrollBy(float dx, float dy) {
     last = std::clamp(wrapLayout().lineOfRow(M.wrapRow(d1)) + 1, first, b.lineCount());
   }
   float widest = 0;
-  for (int i = first; i < last; ++i) widest = std::max(widest, L.lineWidth(b.line(i)));
+  for (int i = first; i < last; i = wrap_.nextVisible(i + 1)) widest = std::max(widest, L.lineWidth(b.line(i)));
   const float maxX =
       std::max(0.0f, widest + 2 * L.cellWidth() - (bounds().w - scrollbarWidth() - L.textOffset(b.lineCount())));
   vp_.scrollTo(std::clamp(vp_.targetX() + dx, 0.0f, std::max(maxX, vp_.targetX())),
@@ -586,6 +609,11 @@ bool TextView::syncState() {
   seenDoc_ = d;
   seenVersion_ = ver;
   if (docChanged) bindDocument();
+  if (cur && fold_.hasCollapsed()) {  // a caret that landed in a folded region (a jump, a search hit) opens it
+    bool opened = false;
+    for (const Selection& s : editor_.selections()) opened |= fold_.expandCovering(d->buffer().clamp(s.head).line);
+    if (opened) applyHidden(true);
+  }
   if (cur) {
     seenSel_ = editor_.selections();
     lastCaret_ = seenSel_[0].head;
@@ -624,6 +652,8 @@ int TextView::onTick(int64_t nowMs) {
     if (hl_.step(Highlighter::kSyncBudget)) markDirty();
     if (hl_.pending()) wait = wait < 0 ? 1 : std::min(wait, 1);
   }
+  foldPoll(nowMs);
+  if (foldJob_ || (!fold_.fresh() && foldingActive())) wait = wait < 0 ? 20 : std::min(wait, 20);
   if (settings_.caretBlink && hasFocus() && isCurrent()) {
     const int64_t ms = std::max(50, settings_.caretBlinkMs), el = std::max<int64_t>(0, nowMs - activityMs_);
     const bool on = (el / ms) % 2 == 0;
@@ -700,7 +730,16 @@ void TextView::paint(PaintContext& ctx) {
   auto rowY = [&](const RowRef& r) { return b.y + L.lineTop(r.vrow, sy); };
   ctx.fill(gutterClip, th.gutterBackground);
   const bool colour = colouring();
-  if (colour) hl_.prepare(first, last);
+  if (colour) {
+    std::vector<std::pair<int, int>> runs;  // the visible lines, folded regions in between left out
+    for (const RowRef& r : vis_) {
+      if (!runs.empty() && r.line < runs.back().second) continue;
+      if (!runs.empty() && r.line == runs.back().second) runs.back().second = r.line + 1;
+      else runs.push_back({r.line, r.line + 1});
+    }
+    if (runs.empty()) runs.push_back({first, last});
+    hl_.prepareRuns(runs);
+  }
   const RowBlocks& rowsMap = rowMap();
   if (W.generation() != markGen_ || rowSerial_ != markSerial_) pushMarkers();
   sb_->setMetrics(maxScrollY(), b.h, sy, W.totalRows() + rowsMap.extraRows());
@@ -761,7 +800,7 @@ void TextView::paint(PaintContext& ctx) {
       if (s.empty()) continue;
       const Range r = s.range();
       if (r.end.line < first || r.start.line >= last) continue;
-      for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); ++l) {
+      for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); l = W.nextVisible(l + 1)) {
         const int len = static_cast<int>(buf.line(l).size());
         forSegments(l, l == r.start.line ? r.start.column : 0, l == r.end.line ? r.end.column : len, l != r.end.line,
                     [&](const RowRef& row, float x0, float x1) {
@@ -797,13 +836,24 @@ void TextView::paint(PaintContext& ctx) {
         ctx.fill({b.x + L.glyphLane() + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
       }
       number_ = std::to_string(r.line + 1);
-      ctx.text(b.x + gw - cw - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText, gutterClip);
+      paintFoldGlyph(ctx, L, r, y);
+      ctx.text(b.x + L.numbersRight(n) - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText,
+               gutterClip);
     }
     if (colour && r.line != spanLine) {
       spanLine = r.line;
       spans = &hl_.colorSpans(r.line);
     }
     drawRowText(ctx, r, textX, y, clip, colour ? spans : nullptr);
+    if (fold_.hasCollapsed() && r.end >= static_cast<int>(buf.line(r.line).size()))
+      if (const FoldModel::Region* cr = fold_.collapsedAt(r.line)) {
+        float gap = 0;
+        const std::string txt = foldMarkerText(*cr, r.line, &gap);
+        const float mx = textX + W.xOf(r.line, r.row, r.end) + gap * cw, mw = static_cast<float>(txt.size()) * cw;
+        ctx.fill(intersect({mx, y, mw, lh}, clip),
+                 Theme::orElse(th.foldMarkerBackground, mix(th.panelBackground, th.text, 0.12f)));
+        ctx.text(mx, y, txt, Theme::orElse(th.foldMarkerText, th.textDim), clip);
+      }
     if (settings_.showWhitespace) {
       const std::string& text = buf.line(r.line);
       paintWhitespace(ctx, L,
@@ -900,7 +950,7 @@ void TextView::paintSquiggles(PaintContext& ctx, const Layout& L, float sx, floa
                         : g.severity <= 1 ? ctx.theme.diagnosticError
                         : g.severity == 2 ? ctx.theme.diagnosticWarning
                                           : ctx.theme.diagnosticInfo;
-      for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); ++l) {
+      for (int l = std::max(first, r.start.line); l <= std::min(last - 1, r.end.line); l = wrap_.nextVisible(l + 1)) {
         const int len = static_cast<int>(buf.line(l).size());
         forSegments(l, l == r.start.line ? r.start.column : 0, l == r.end.line ? r.end.column : len, false,
                     [&](const RowRef& row, float a, float e) {
@@ -953,8 +1003,8 @@ void TextView::paintOverlay(PaintContext& ctx) {
 bool TextView::moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool extend) {
   using D = Editor::Direction;
   const bool vertical = dir == D::Up || dir == D::Down || dir == D::PageUp || dir == D::PageDown;
-  if (!(vertical || dir == D::LineStart || dir == D::LineEnd) || !isCurrent() || !root() || !wordWrapActive())
-    return false;
+  if (!(vertical || dir == D::LineStart || dir == D::LineEnd) || !isCurrent() || !root()) return false;
+  if (!wordWrapActive() && !(vertical && wrapLayout().hasHidden())) return false;  // folds alone: rows are lines
   const TextBuffer& b = document()->buffer();
   WrapLayout& W = wrapLayout();
   const float cw = root()->text().cellWidth();
@@ -990,6 +1040,201 @@ bool TextView::moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool e
     prefCol_ = std::move(cols);
   }
   return true;
+}
+
+// ---- code folding (W8f) ----
+
+float TextView::foldLaneWidth() const {
+  if (!settings_.showFoldGlyphs || !root() || !colouring()) return 0.0f;
+  return std::max(8.0f, std::floor(root()->text().lineHeight()));
+}
+
+RectF TextView::foldLaneRect() const {
+  const Document* d = document();
+  if (foldLaneWidth() <= 0 || !d) return {0, 0, 0, 0};
+  const Layout L = geometry();
+  return {bounds().x + L.numbersRight(d->buffer().lineCount()), bounds().y, foldLaneWidth(), bounds().h};
+}
+
+void TextView::setShowFoldGlyphs(bool on) {
+  if (settings_.showFoldGlyphs == on) return;
+  settings_.showFoldGlyphs = on;
+  markDirty();
+}
+
+// Hands the fold model's hidden lines to the row map. keepTop: a command changed them, so the first visible line
+// stays where it is on screen (rows above it may have appeared or vanished); after an edit the lines just moved.
+void TextView::applyHidden(bool keepTop) {
+  const Document* d = document();
+  if (!d || !root()) {
+    wrap_.setHidden(fold_.hidden());
+    return;
+  }
+  WrapLayout& W = wrapLayout();
+  const int n = d->buffer().lineCount();
+  const bool anchored = keepTop && anchorLine_ >= 0 && anchorLine_ < n;
+  const int before = anchored ? rowMap().display(W.firstRowOf(anchorLine_)) : 0;
+  W.setHidden(fold_.hidden());
+  bool closed = false;  // an inline diff block under a folded line goes with it
+  for (size_t i = blocks_.size(); i-- > 0;)
+    if (blocks_[i].anchor >= 0 && W.isHidden(blocks_[i].anchor)) {
+      blocks_.erase(blocks_.begin() + static_cast<long>(i));
+      closed = true;
+    }
+  if (closed) ++blocksGen_;
+  if (anchored) {
+    anchorLine_ = W.isHidden(anchorLine_) ? W.prevVisible(anchorLine_) : anchorLine_;
+    const int after = rowMap().display(W.firstRowOf(anchorLine_));
+    vp_.shiftY(static_cast<float>(after - before) * root()->text().lineHeight());
+    if (vp_.targetY() > maxScrollY()) vp_.jumpTo(vp_.x(), maxScrollY());
+  }
+  markDirty();
+}
+
+void TextView::foldOnChange(const Document::Change& c) {
+  foldEditMs_ = now();
+  if (fold_.onChange(c)) applyHidden(false);
+}
+
+// Carets and selection ends inside hidden lines (after a collapse) go to the end of the head line.
+void TextView::foldMoveCarets() {
+  const Document* d = document();
+  if (!d || !isCurrent()) return;
+  const TextBuffer& b = d->buffer();
+  std::vector<Selection> next = editor_.selections();
+  bool moved = false;
+  for (Selection& s : next)
+    for (Position* p : {&s.head, &s.anchor}) {
+      if (!fold_.isHidden(p->line)) continue;
+      const int h = fold_.headOf(p->line);
+      *p = {h, static_cast<int>(b.line(h).size())};
+      moved = true;
+    }
+  if (moved) editor_.setSelections(std::move(next));
+}
+
+void TextView::foldCancel() {
+  if (foldThread_.joinable()) foldThread_.join();
+  foldJob_.reset();
+}
+
+void TextView::foldRefreshNow() {
+  Document* d = document();
+  foldCancel();
+  if (!d || !colouring()) return;
+  if (fold_.setRegions(FoldModel::detect(d->buffer().lines()))) applyHidden(true);
+  markDirty();
+}
+
+// Collects a finished region job and starts one when the regions are stale and typing paused.
+void TextView::foldPoll(int64_t nowMs) {
+  Document* d = document();
+  if (foldJob_ && foldJob_->done.load(std::memory_order_acquire)) {
+    foldThread_.join();
+    std::shared_ptr<FoldJob> job = std::move(foldJob_);
+    if (d && job->doc == d && job->version == d->version() && !fold_.fresh()) {  // never for a changed buffer
+      if (fold_.setRegions(std::move(job->out))) applyHidden(true);
+      markDirty();
+    }
+  }
+  if (foldJob_ || !d || !colouring() || fold_.fresh() || nowMs - foldEditMs_ < kFoldDebounceMs) return;
+  auto job = std::make_shared<FoldJob>();
+  job->doc = d;
+  job->version = d->version();
+  job->lines = d->buffer().lines();
+  foldJob_ = job;
+  foldThread_ = std::thread([job] {
+    job->out = FoldModel::detect(job->lines);
+    job->done.store(true, std::memory_order_release);
+  });
+}
+
+bool TextView::foldCommand(FoldOp op) {
+  const Document* d = document();
+  if (!d || !root() || !colouring()) return false;
+  if (!fold_.fresh()) foldRefreshNow();
+  const int line = isCurrent() ? std::clamp(editor_.selections()[0].head.line, 0, d->buffer().lineCount() - 1) : 0;
+  bool changed = false;
+  switch (op) {
+    case FoldOp::Collapse: changed = fold_.collapseAt(line); break;
+    case FoldOp::Expand: changed = fold_.expandAt(line); break;
+    case FoldOp::Toggle: changed = fold_.toggleAt(line); break;
+    case FoldOp::CollapseAll: changed = fold_.collapseAll(false); break;
+    case FoldOp::ExpandAll: changed = fold_.expandAll(false); break;
+    case FoldOp::CollapseAllRecursive: changed = fold_.collapseAll(true); break;
+    case FoldOp::ExpandAllRecursive: changed = fold_.expandAll(true); break;
+    case FoldOp::ToggleAll: changed = fold_.toggleAll(); break;
+  }
+  if (!changed) return false;
+  applyHidden(true);
+  foldMoveCarets();
+  return true;
+}
+
+bool TextView::toggleFoldAt(int line) {
+  const Document* d = document();
+  if (!d || !root() || !colouring()) return false;
+  if (!fold_.fresh()) foldRefreshNow();
+  bool changed = false;
+  if (fold_.isCollapsedAt(line)) {
+    changed = fold_.expandAt(line);
+  } else if (const FoldModel::Region* r = fold_.regionStartingAt(line)) {
+    changed = fold_.collapse(*r);
+  }
+  if (!changed) return false;
+  applyHidden(true);
+  foldMoveCarets();
+  return true;
+}
+
+// The text after a collapsed head line. A brace region whose head line ends in '{' reads `head {...}` (the marker
+// completes the braces, no gap); anything else gets a cell of space first.
+std::string TextView::foldMarkerText(const FoldModel::Region& r, int line, float* gap) const {
+  *gap = 1;
+  if (r.kind == FoldModel::Kind::Comment) return "...*/";
+  if (r.kind == FoldModel::Kind::Pragma) return "...";
+  const std::string& s = document()->buffer().line(line);
+  size_t e = s.size();
+  while (e > 0 && (s[e - 1] == ' ' || s[e - 1] == '\t' || s[e - 1] == '\r')) --e;
+  if (e > 0 && s[e - 1] == '{') {
+    *gap = 0;
+    return "...}";
+  }
+  return "{...}";
+}
+
+RectF TextView::foldMarkerRect(int line) const {
+  const Document* d = document();
+  if (!d || !root() || !fold_.isCollapsedAt(line) || line < 0 || line >= d->buffer().lineCount()) return {0, 0, 0, 0};
+  const auto [lo, hi] = visibleRange(line);
+  if (lo == hi) return {0, 0, 0, 0};
+  const RowRef& r = vis_[hi - 1];
+  const Layout L = geometry();
+  const int n = d->buffer().lineCount();
+  float gap = 0;
+  const std::string txt = foldMarkerText(*fold_.collapsedAt(line), line, &gap);
+  const float cw = L.cellWidth();
+  const float x = bounds().x + L.textOffset(n) - scrollX() + wrap_.xOf(line, r.row, r.end) + gap * cw;
+  return {x, bounds().y + L.lineTop(r.vrow, std::floor(vp_.y())), static_cast<float>(txt.size()) * cw, L.lineHeight()};
+}
+
+// The gutter triangle of a line that starts a region: pointing down when open, right when collapsed.
+void TextView::paintFoldGlyph(PaintContext& ctx, const Layout& L, const RowRef& r, float y) {
+  const float lane = L.foldLane();
+  if (lane <= 0) return;
+  const bool collapsed = fold_.isCollapsedAt(r.line);
+  if (!collapsed && !fold_.regionStartingAt(r.line)) return;
+  const Color c = Theme::orElse(ctx.theme.foldGlyph, ctx.theme.gutterText);
+  const float lh = L.lineHeight();
+  const int s = std::max(5, static_cast<int>(std::floor(std::min(lane, lh) * 0.45f)) | 1);  // odd: a symmetric tip
+  const int w = (s + 1) / 2;
+  const float cx = bounds().x + L.numbersRight(document()->buffer().lineCount()) + std::floor(lane / 2),
+              cy = y + std::floor(lh / 2);
+  for (int i = 0; i < w; ++i) {
+    const float len = static_cast<float>(s - 2 * i), fi = static_cast<float>(i);
+    if (collapsed) ctx.fill({cx - static_cast<float>(w / 2) + fi, cy - std::floor(len / 2), 1, len}, c);
+    else ctx.fill({cx - std::floor(len / 2), cy - static_cast<float>(w / 2) + fi, len, 1}, c);
+  }
 }
 
 // ---- version control (C3c) ----
@@ -1274,7 +1519,8 @@ void TextView::paintDiffStrip(PaintContext& ctx, const Layout& L, float sy) {
   for (; it != hs.end() && it->newStart <= last; ++it) {
     const DiffHunk& h = *it;
     if (h.newCount > 0) {
-      const int lo = std::max(first, h.newStart), hi = std::min(last, h.newStart + h.newCount);
+      const int lo = wrap_.nextVisible(std::max(first, h.newStart)),
+                hi = wrap_.prevVisible(std::min(last, h.newStart + h.newCount) - 1) + 1;  // folded lines have no rows
       if (lo >= hi) continue;
       const auto [a0, a1] = visibleRange(lo);
       const auto [b0, b1] = visibleRange(hi - 1);
@@ -1383,18 +1629,39 @@ void TextView::mouseDown(const InputEvent& e) {
       toggleBreakpointAt(document()->buffer().clamp(positionAt(e.x, e.y)).line);
     return;
   }
+  if (const float fl = foldLaneWidth(); fl > 0) {
+    const Layout L = geometry();
+    const float x0 = bounds().x + L.numbersRight(document()->buffer().lineCount());
+    const float lh = root()->text().lineHeight();
+    const int vrow = static_cast<int>(std::floor((e.y - bounds().y + std::floor(vp_.y())) / lh));
+    if (e.x >= x0 && e.x < x0 + fl) {
+      if (vrow >= 0 && vrow < wrapLayout().totalRows())
+        toggleFoldAt(document()->buffer().clamp(positionAt(e.x, e.y)).line);
+      return;
+    }
+  }
   if (!isCurrent()) activate();
   if (vcsClick(e)) return;  // the change strip and the inline diff blocks (C3c)
   const TextBuffer& b = document()->buffer();
+  if (fold_.hasCollapsed()) {  // a click on the {...} marker opens the region
+    const int line = b.clamp(positionAt(e.x, e.y)).line;
+    if (fold_.isCollapsedAt(line) && ui::contains(foldMarkerRect(line), e.x, e.y)) {
+      fold_.expandAt(line);
+      applyHidden(true);
+      return;
+    }
+  }
   const Position pos = b.clamp(positionAt(e.x, e.y));
   const bool shift = e.mods & ModShift, ctrl = e.mods & ModCtrl, alt = e.mods & ModAlt;
   drag_ = Drag::Char;
   anchor_ = anchorEnd_ = lastDragPos_ = pos;
   base_.clear();
-  if (e.clicks >= 3) {  // whole line including its break (the last line: up to its end)
+  if (e.clicks >= 3) {       // whole line including its break (the last line: up to its end)
+    int endLine = pos.line;  // a collapsed head line takes its folded lines with it
+    if (const auto hr = wrap_.hiddenRangeOf(pos.line + 1)) endLine = hr->last;
     anchor_ = {pos.line, 0};
-    anchorEnd_ = pos.line + 1 < b.lineCount() ? Position{pos.line + 1, 0}
-                                              : Position{pos.line, static_cast<int>(b.line(pos.line).size())};
+    anchorEnd_ = endLine + 1 < b.lineCount() ? Position{endLine + 1, 0}
+                                             : Position{endLine, static_cast<int>(b.line(endLine).size())};
     editor_.setSelections({{anchor_, anchorEnd_}});
   } else if (e.clicks == 2) {
     const Range w = b.wordAt(pos).range;
