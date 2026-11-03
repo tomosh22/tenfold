@@ -121,10 +121,12 @@ cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
 ```
 
 Tabs, split panels (drag a tab to a panel edge) and the status bar are the Workbench; each tab is a text view. Key
-bindings are placeholders until the 10x key map is known (`docs/OPEN_QUESTIONS.md` #1): the current defaults are in
-[`assets/keybindings.default.txt`](assets/keybindings.default.txt) (overridable in `<workspace>/.tenfold/keybindings.txt`
-and the user config dir; parse errors show in the status bar), and **`Ctrl+Shift+P` opens the command palette**, which lists
-every command with its key. Pickers, search, editing, build, debugger and version-control commands, settings and themes are
+bindings work like 10x's: the same `.10x_settings` format (`Control Shift F: Search`), 10x's command names and 10x's default
+key map in [`assets/KeyMappings.default.10x_settings`](assets/KeyMappings.default.10x_settings) (overridable in
+`KeyMappings.10x_settings` in the user config dir and in `<workspace>/.tenfold/`; an installed 10x's own key file is imported
+below them; parse errors show in the status bar), and **`Control Shift X` opens the command palette**, which lists every
+command with its 10x name and key. The 10x commands tenfold does not implement yet are listed in
+[`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md). Pickers, search, editing, build, debugger and version-control commands, settings and themes are
 described in [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md). Quitting or closing a modified tab asks to save first.
 
 `tenfold-ui --shell` is the widget demo and `--demo` the renderer scene; `--screenshot out.png [--size WxH]` renders one

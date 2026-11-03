@@ -150,31 +150,32 @@ TEST(b8_defaults_parse_clean_and_bind_the_new_commands) {
   std::vector<KeyBindingDiag> diags;
   parseKeyBindings(defaultKeyBindingsText(), "defaults", map, diags);
   CHECK_EQ(diags.size(), size_t(0));
-  const std::pair<const char*, const char*> want[] = {{"Ctrl+/", "Editor.ToggleLineComment"},
-                                                      {"Ctrl+Shift+/", "Editor.ToggleBlockComment"},
-                                                      {"Ctrl+Shift+D", "Editor.Duplicate"},
-                                                      {"Alt+Up", "Editor.MoveLinesUp"},
-                                                      {"Alt+Down", "Editor.MoveLinesDown"},
-                                                      {"Ctrl+J", "Editor.JoinLines"},
-                                                      {"Ctrl+Shift+K", "Editor.DeleteLines"},
-                                                      {"Ctrl+G", "Editor.GotoLine"},
-                                                      {"Shift+Tab", "Editor.Outdent"},
-                                                      {"Ctrl+F2", "Editor.ToggleBookmark"},
+  const std::pair<const char*, const char*> want[] = {{"Control /", "Editor.ToggleLineComment"},  // tenfold addition
+                                                      {"Control Shift /", "Editor.ToggleLineComment"},  // ToggleComment
+                                                      {"Control Shift Up", "Editor.MoveLinesUp"},
+                                                      {"Control Shift Down", "Editor.MoveLinesDown"},
+                                                      {"Control E, Control V", "Editor.Duplicate"},
+                                                      {"Control J", "Editor.JoinLines"},
+                                                      {"Control Shift L", "Editor.DeleteLines"},
+                                                      {"Control G", "Editor.GotoLine"},
+                                                      {"Shift Tab", "Editor.Outdent"},
+                                                      {"Control [", "Editor.Outdent"},
+                                                      {"Control ]", "Editor.Indent"},
+                                                      {"Control F2", "Editor.ToggleBookmark"},
                                                       {"F2", "Editor.NextBookmark"},
-                                                      {"Shift+F2", "Editor.PrevBookmark"},
-                                                      {"Ctrl+Shift+F2", "Editor.ListBookmarks"},
-                                                      {"Ctrl+F", "Editor.Find"},
-                                                      {"Ctrl+H", "Editor.Replace"},
+                                                      {"Shift F2", "Editor.PrevBookmark"},
+                                                      {"Control F", "Editor.Find"},
+                                                      {"Control H", "Editor.Replace"},
                                                       {"F3", "Editor.FindNext"},
-                                                      {"Shift+F3", "Editor.FindPrev"}};
-  for (const auto& [chord, cmd] : want) {
+                                                      {"Shift F3", "Editor.FindPrev"}};
+  for (const auto& [chords, cmd] : want) {
     bool found = false;
     for (const KeyBinding& b : map.bindings()) {
-      KeyChord kc;
+      std::vector<KeyChord> kc;
       std::string err;
-      if (b.command == cmd && !b.chords.empty() && parseKeyChord(chord, kc, err) && b.chords[0] == kc) found = true;
+      if (b.command == cmd && parseKeyChords(chords, kc, err) && b.chords == kc) found = true;
     }
-    if (!found) std::cerr << "    missing default: " << chord << " = " << cmd << "\n";
+    if (!found) std::cerr << "    missing default: " << chords << ": " << cmd << "\n";
     CHECK(found);
   }
 }
@@ -209,11 +210,12 @@ TEST(b8_typing_autoclose_autoindent_and_tab_keys) {
   CHECK_EQ(env.line(1), std::string("    // x = y;"));
   env.key(Key('/'), ModCtrl);
   CHECK_EQ(env.line(1), std::string("    x = y;"));
-  env.key(Key('D'), ModCtrl | ModShift);
+  env.key(Key('E'), ModCtrl);  // DuplicateLine is the chord Control E, Control V
+  env.key(Key('V'), ModCtrl);
   CHECK_EQ(env.line(2), std::string("    x = y;"));
   env.key(Key('K'), ModCtrl | ModShift);
   CHECK_EQ(env.line(2), std::string("    z();"));
-  env.key(Key::Up, ModAlt);
+  env.key(Key::Up, ModCtrl | ModShift);  // MoveLineUp
   CHECK_EQ(env.line(1), std::string("    z();"));
   CHECK_EQ(env.line(2), std::string("    x = y;"));
   env.key(Key('J'), ModCtrl);
@@ -333,9 +335,9 @@ TEST(b8_go_to_line_popup_jumps_through_history) {
   env.type("100:2");
   env.key(Key::Enter);
   CHECK_EQ(env.sel(), std::string("100:2-100:2"));
-  CHECK(env.key(Key::Left, ModAlt));  // the jump is in the navigation history
+  CHECK(env.key(Key('-'), ModCtrl));  // the jump is in the navigation history
   CHECK_EQ(env.ed->selections()[0].head.line, 41);
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.ed->selections()[0].head.line, 0);
   env.key(Key('G'), ModCtrl);
   env.type("x");  // not a number: Enter does nothing
@@ -384,10 +386,10 @@ TEST(b8_bookmarks_toggle_gutter_jump_list_persist_and_follow_edits) {
   CHECK_EQ(env.ed->selections()[0].head.line, 10);
   env.key(Key::F2, ModShift);
   CHECK_EQ(env.ed->selections()[0].head.line, 30);
-  CHECK(env.key(Key::Left, ModAlt));  // Back works from a bookmark jump
+  CHECK(env.key(Key('-'), ModCtrl));  // Back works from a bookmark jump
   CHECK(env.ed->selections()[0].head.line != 30);
   // The list popup.
-  env.key(Key::F2, ModCtrl | ModShift);
+  env.app->runCommand("Editor.ListBookmarks");  // Control Shift F2 is RemoveAllBookmarksFromFile in 10x
   ListPopup* p = dynamic_cast<ListPopup*>(env.bench->modal());
   REQUIRE(p != nullptr);
   REQUIRE(p->rows().size() == 2);

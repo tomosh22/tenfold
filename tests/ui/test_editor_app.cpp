@@ -71,7 +71,7 @@ struct Env {
       std::ofstream out(dir / f, std::ios::binary);
       for (int i = 0; i < 10; ++i) out << "int " << f[0] << i << ";\n";
     }
-    if (!userKeys.empty()) std::ofstream(dir / ".tenfold" / "keybindings.txt", std::ios::binary) << userKeys;
+    if (!userKeys.empty()) std::ofstream(dir / ".tenfold" / "KeyMappings.10x_settings", std::ios::binary) << userKeys;
     gfx::FontStack stack;
     stack.add(std::make_shared<tftext::MockFont>(U"abcdefghijklmnopqrstuvwxyz0123456789 ._-:,;×●…ABCLMNTUFDK"));
     text = gfx::TextRenderer::fromFonts(std::move(stack));
@@ -142,11 +142,11 @@ TEST(app_tab_switch_records_no_history_but_goto_does_and_alt_left_returns) {
   CHECK_EQ(env.activeFile(), std::string("c.cpp"));
   CHECK(env.ed->navigation().entries().size() > base);
 
-  // Alt+Left (default binding Nav.Back) returns to the previous tab.
-  CHECK(env.key(Key::Left, ModAlt));
+  // Control - (PrevLocation, tenfold's Nav.Back) returns to the previous tab.
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.curFile(), std::string("a.cpp"));
   CHECK_EQ(env.activeFile(), std::string("a.cpp"));
-  CHECK(env.key(Key::Right, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl | ModShift));
   CHECK_EQ(env.activeFile(), std::string("c.cpp"));
   // The revealed tab's view has focus: typing edits c.cpp.
   env.type("Z");
@@ -154,12 +154,12 @@ TEST(app_tab_switch_records_no_history_but_goto_does_and_alt_left_returns) {
 }
 
 TEST(app_pending_chord_text_in_status_bar) {
-  Env env("Ctrl+K Ctrl+U = Editor.Undo\n");
+  Env env("Control K, Control U: Editor.Undo\n");
   env.bench->openFile("a.cpp");
   env.type("Q");
   CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("Qint a0;"));
   CHECK(env.key(Key('K'), ModCtrl));
-  CHECK(env.status("message").find("Ctrl+K") != std::string::npos);
+  CHECK(env.status("message").find("Control K") != std::string::npos);
   CHECK_EQ(env.status("message"), env.app->message());
   CHECK(env.app->keys().pending());
   CHECK(env.key(Key('U'), ModCtrl));
@@ -181,7 +181,8 @@ TEST(app_pending_chord_text_in_status_bar) {
 TEST(app_unbound_ui_commands_say_not_available_and_escape_does_not_quit) {
   Env env;
   env.bench->openFile("a.cpp");
-  CHECK(env.key(Key('P'), ModCtrl));  // File.OpenFile: B5a opens the picker (key context "picker" while it is open)
+  CHECK(env.key(Key('O'),
+                ModCtrl));  // OpenFile (File.OpenFile): B5a opens the picker (key context "picker" while it is open)
   CHECK(env.bench->modal() != nullptr);
   CHECK(env.key(Key::Escape));  // closes the picker; Escape never reaches the editor's CollapseCarets binding
   CHECK(env.bench->modal() == nullptr);
@@ -189,7 +190,7 @@ TEST(app_unbound_ui_commands_say_not_available_and_escape_does_not_quit) {
   CHECK(env.bench->modal() != nullptr);
   CHECK(env.key(Key::Escape));
   CHECK(env.bench->modal() == nullptr);
-  CHECK(env.key(Key::F8));  // next result with no search yet
+  CHECK(env.key(Key::F4));  // GotoNextResult with no search yet
   CHECK(env.status("message").find("No search results") != std::string::npos);
   CHECK(env.key(Key(','), ModCtrl));  // symbol search needs a started Editor (this fixture has none): disabled
   CHECK(env.bench->modal() == nullptr);
@@ -206,10 +207,10 @@ TEST(app_unbound_ui_commands_say_not_available_and_escape_does_not_quit) {
 }
 
 TEST(app_keybinding_file_errors_show_in_status_bar_and_other_bindings_work) {
-  Env env("# comment\nCtrl+Shift+Bogus = Editor.Undo\nCtrl+Shift+J = Editor.CaretDocEnd\nF5 Foo\n");
+  Env env("# comment\nControl Shift Bogus: Editor.Undo\nControl Shift J: Editor.CaretDocEnd\nF5 Foo\n");
   CHECK(!env.app->diagnostics().empty());
   const std::string m = env.status("message");
-  CHECK(m.find("keybindings.txt:2") != std::string::npos);
+  CHECK(m.find("KeyMappings.10x_settings:2") != std::string::npos);
   CHECK(m.find("more") != std::string::npos);  // two bad lines: "(+1 more)"
   CHECK_EQ(m, formatDiag(env.app->diagnostics()[0]) + " (+1 more)");
   env.bench->openFile("a.cpp");
@@ -299,4 +300,92 @@ TEST(app_panel_focus_and_save_commands) {
   std::string l;
   std::getline(in, l);
   CHECK_EQ(l, std::string("Hiint a0;"));
+}
+
+TEST(app_unimplemented_10x_commands_say_so_and_python_bindings_are_unsupported) {
+  Env env("Alt H: HelloWorld()\nAlt J: SomethingUnknown\n");
+  env.bench->openFile("a.cpp");
+  // A 10x default binding whose command tenfold lacks.
+  CHECK(env.key(Key('N'), ModCtrl));  // NewTextFile
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: NewTextFile"));
+  CHECK(env.key(Key::F1));  // InternetSearch
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: InternetSearch"));
+  // The binding with a Python statement: a load warning, and the key says it is unsupported.
+  bool warned = false;
+  for (const auto& d : env.app->diagnostics())
+    warned = warned || (d.warning && d.message.find("Python") != std::string::npos);
+  CHECK(warned);
+  CHECK(env.key(Key('H'), ModAlt));
+  CHECK(env.app->message().find("Python statements are not supported") != std::string::npos);
+  CHECK(env.app->message().find("HelloWorld()") != std::string::npos);
+  // A name that is neither a tenfold nor a 10x command.
+  CHECK(env.key(Key('J'), ModAlt));
+  CHECK_EQ(env.app->message(), std::string("Unknown command SomethingUnknown"));
+  // 10x and tenfold names run the same command.
+  env.type("Q");
+  CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("Qint a0;"));
+  env.app->runCommand("Undo");
+  CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("int a0;"));
+  env.type("Q");
+  env.app->runCommand("Editor.Undo");
+  CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("int a0;"));
+  env.app->runCommand("SaveAll");
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: SaveAll"));
+}
+
+TEST(app_control_s_saves_and_a_second_control_s_is_save_all) {
+  Env env;
+  env.bench->openFile("a.cpp");
+  env.type("Hi");
+  CHECK(env.ed->currentDocument()->dirty());
+  CHECK(env.key(Key('S'), ModCtrl));  // SaveFile
+  CHECK(!env.ed->currentDocument()->dirty());
+  CHECK(env.app->message().empty());
+  CHECK(env.key(Key('S'), ModCtrl));  // the second stroke of "Control S, Control S": SaveAll, not implemented yet
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: SaveAll"));
+  // A different key after the first Control S is an ordinary key press.
+  CHECK(env.key(Key('S'), ModCtrl));
+  env.type("!");
+  CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("Hi!int a0;"));
+}
+
+TEST(app_middle_click_still_reaches_the_widgets_while_its_commands_are_missing) {
+  Env env;
+  env.bench->openFile("a.cpp");
+  InputEvent e;
+  e.type = InputType::MouseDown;
+  e.button = MouseButton::Middle;
+  e.x = 500;
+  e.y = 300;
+  env.app->handleEvent(e, env.now += 10);
+  // MouseMiddleButton is GotoSymbolDefinitionUnderMouse in 10x; unimplemented: no status message, no swallowing.
+  CHECK(env.app->message().find("not implemented") == std::string::npos);
+  e.mods = ModCtrl;  // Control MouseMiddleButton: AddCursorAtMousePos
+  env.app->handleEvent(e, env.now += 10);
+  CHECK(env.app->message().find("not implemented") == std::string::npos);
+}
+
+TEST(app_imports_the_10x_key_file_between_defaults_and_the_tenfold_file) {
+  Env env("F5: Editor.CaretDocEnd\n");  // the workspace file wins over the import
+  const fs::path imp = env.dir / "imported.10x_settings";
+  {
+    std::ofstream out(imp, std::ios::binary);
+    out << "# a 10x user's file\nF5: Editor.CaretDocStart\nF6: Editor.CaretDocEnd\nAlt H: HelloWorld()\nbroken\n";
+  }
+  env.bench->openFile("a.cpp");
+  env.app->setKeyImportFile(imp);
+  CHECK(!env.app->diagnostics().empty());
+  CHECK(env.key(Key::F6));  // from the 10x file
+  CHECK_EQ(env.ed->selections()[0].head.line, 10);
+  env.ed->setSelections({caretAt({3, 0})});
+  CHECK(env.key(Key::F5));  // the workspace file beats the import
+  CHECK_EQ(env.ed->selections()[0].head.line, 10);
+  // keys.import10x off: the 10x file's bindings go away, the defaults come back.
+  env.app->setKeyImport10x(false);
+  env.ed->setSelections({caretAt({3, 0})});
+  env.key(Key::F6);
+  CHECK_EQ(env.ed->selections()[0].head.line, 3);  // F6 is unbound again
+  env.app->setKeyImport10x(true);
+  env.key(Key::F6);
+  CHECK_EQ(env.ed->selections()[0].head.line, 10);
 }

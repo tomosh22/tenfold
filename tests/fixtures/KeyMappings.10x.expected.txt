@@ -1,0 +1,201 @@
+# Expected 10x default key bindings: <keys><TAB><command>, generated once from the 10x documentation (KeyMappings.txt).
+# General
+Control Shift E	ToggleWorkspaceExplorer
+Control '	NewTerminal
+Control Shift I	ShowTerminal
+Control Shift X	ShowCommandPanel
+F1	InternetSearch
+Control Shift .	ZoomIn
+Control Shift Comma	ZoomOut
+Alt Enter	ToggleFullscreen
+Control Alt Enter	ToggleFocusMode
+Shift Alt Enter	ToggleFullScreenFocusMode
+Alt X	OpenCurrentFileInDebugger
+# File
+Control O	OpenFile
+Control F4	CloseFile
+Control S	SaveFile
+Control S, Control S	SaveAll
+Control N	NewTextFile
+Control T	ShowInWorkspaceTree
+Control Shift Alt /	OpenFolderForActivefile
+Control Shift S	SaveAll
+# Edit
+Control X	Cut
+Control C	Copy
+Control V	Paste
+Control Shift V	PasteHistory
+Control Z	Undo
+Control Y	Redo
+Control Shift U	MakeSelectionUppercase
+Control U	MakeSelectionLowercase
+Control Shift Up	MoveLineUp
+Control Shift Down	MoveLineDown
+Shift Delete	CutLine
+Control Shift L	DeleteLine
+Control K, Control C	Commentline
+Control K, Control U	Uncommentline
+Control Shift /	ToggleComment
+Control L	DeleteToEndOfLine
+Control E, Control V	DuplicateLine
+Control Enter	InsertLine
+Control Shift Enter	InsertLineAfter
+Control A	SelectAll
+Control W	SelectCurrentWord
+Shift Alt =	SelectCurrentScope
+Control Shift M	SelectCurrentBracketScope
+Delete	Delete
+Control Shift W	ToggleWhitespace
+Control Insert	Copy
+Shift Insert	Paste
+Control Shift Z	Redo
+# MultiCursor
+Control D	SelectNextMultiCursor
+Control Shift D	UndoSelectNextMultiCursor
+Control Shift Alt J	SelectAllOccurrences
+Control MouseMiddleButton	AddCursorAtMousePos
+Alt A	AlignMultiCursor
+Shift Alt Up	MultiCursorMoveUp
+Shift Alt Down	MultiCursorMoveDown
+Shift Alt Left	MultiCursorMoveLeft
+Shift Alt Right	MultiCursorMoveRight
+Alt F3	SelectAllOccurrences
+# CollapseRegions
+Control Shift [	CollapseRegion
+Control Shift ]	ExpandRegion
+Control M, Control M	ToggleCollapseExpandRegion
+Control M, Control L	ToggleCollapseExpandAllRegions
+# Tabs
+Control PageUp	PrevPanelTab
+Control PageDown	NextPanelTab
+Control Shift PageUp	MovePrevPanelTab
+Control Shift PageDown	MoveNextPanelTab
+# Navigation
+Shift Alt O	FindFile
+Control F	FindInFile
+Shift F3	FindInFilePrev
+F3	FindInFileNext
+Control Shift F3	FindInFilePrevCurrentWord
+Control F3	FindInFileNextCurrentWord
+Control H	FindReplaceInFile
+Control G	GoToLine
+Control -	PrevLocation
+Control Shift -	NextLocation
+Control =	PrevLocationCurrentFile
+Control Shift =	NextLocationCurrentFile
+Control Shift Backspace	PrevEditLocation
+Shift F4	GotoPrevResult
+F4	GotoNextResult
+Control Shift T	RestoreRecentlyClosedFile
+Control Shift \	MoveToMatchingBracket
+Up	MoveCursorUp
+Down	MoveCursorDown
+Left	MoveCursorLeft
+Right	MoveCursorRight
+Shift Up	SelectUp
+Shift Down	SelectDown
+Shift Left	SelectLeft
+Shift Right	SelectRight
+Home	MoveToLineStart
+End	MoveToLineEnd
+Control Home	MoveToFileStart
+Control End	MoveToFileEnd
+Control Shift Home	SelectToFileStart
+Control Shift End	SelectToFileEnd
+Shift Home	SelectToLineStart
+Shift End	SelectToLineEnd
+Control Left	MoveCursorPrevWord
+Control Right	MoveCursorNextWord
+Control Shift Left	MoveCursorPrevWordSelect
+Control Shift Right	MoveCursorNextWordSelect
+Control Up	ScrollOneLineUp
+Control Down	ScrollOneLineDown
+PageUp	PageUp
+PageDown	PageDown
+Shift PageUp	SelectPageUp
+Shift PageDown	SelectPageDown
+MouseBackButton	PrevLocation
+MouseForwardButton	NextLocation
+Shift Alt PageUp	SelectPageUp
+Shift Alt PageDown	SelectPageDown
+Shift Alt Home	MoveToLineStart
+Shift Alt End	SelectToLineEnd
+Control Shift F	Search
+Control Shift A	NewSearchPanel
+# FindInFiles
+Control Shift G	FindInFiles
+Control Shift H	ReplaceInFiles
+Alt R	ReplaceNextInFile
+Shift Alt R	ReplaceAllInFile
+# Parser
+Alt G	GotoSymbolDefinition
+MouseMiddleButton	GotoSymbolDefinitionUnderMouse
+Shift Alt S	FindSymbol
+Shift Alt F	FindSymbolReferences
+Control R	RenameSymbol
+Enter	SubmitRenameSymbol
+Alt M	FindFunction
+Control Space	Autocomplete
+Up	AutocompleteUp
+Down	AutocompleteDown
+PageUp	AutocompletePageUp
+PageDown	AutocompletePageDown
+Control Shift Space	ShowFunctionArgsInfo
+Shift F14	InsertPrevAutocomplete
+F14	InsertNextAutocomplete
+Control K, Control I	ShowSymbolInfo
+Alt O	CppParser.ToggleSourceHeader
+# Build
+F7	BuildActiveWorkspace
+Control Alt F7	RebuildActiveWorkspace
+Control F7	BuildCurrentFile
+Shift F8	GotoPrevBuildWarningOrError
+F8	GotoNextBuildWarningOrError
+Control Cancel	CancelBuild
+# Debugging
+F5	StartDebugging
+Control Shift F5	RestartDebugging
+Shift F5	StopDebugging
+F10	DebugStepOver
+F11	DebugStepInto
+Shift F11	DebugStepOut
+Control F5	Run
+F9	ToggleBreakpoint
+Control Shift F9	RemoveAllBreakpointsFromFile
+# MacroRecording
+Control Shift R	RecordKeySequence
+Control Shift P	PlaybackKeySequence
+# Bookmarks
+Control F2	ToggleBookmark
+Shift F2	PrevBookmark
+F2	NextBookmark
+Shift Alt F2	PrevBookmarkInFile
+Alt F2	NextBookmarkInFile
+Control Shift F2	RemoveAllBookmarksFromFile
+# Formatting
+Control K, Control F	FormatSelection
+Control ]	IndentLine
+Control [	UnindentLine
+# Panels
+Control Alt Left	MovePanelLeft
+Control Alt Right	MovePanelRight
+Control Alt Up	MovePanelUp
+Control Alt Down	MovePanelDown
+Alt Left	MovePanelFocusLeft
+Alt Right	MovePanelFocusRight
+Alt Up	MovePanelFocusUp
+Alt Down	MovePanelFocusDown
+Control Tab	ShowSwitchPanelPanel
+Control Shift Tab	ShowSwitchPanelPrevItem
+Shift Alt D	DuplicatePanel
+Alt Comma	DuplicatePanelLeft
+Alt .	DuplicatePanelRight
+# Misc
+Shift F10	ShowContextMenu
+AppsKey	ShowContextMenu
+# Perforce
+Control P, Control E	PerforceOpenForEdit
+Control P, Control D	PerforceDiff
+Control P, Control H	PerforceHistory
+Control P, Control V	PerforceShowInP4v
+Control P, Control R	PerforceRevert

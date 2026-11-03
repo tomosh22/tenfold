@@ -1,0 +1,399 @@
+#include "ui/commands/CommandNames.h"
+
+#include <algorithm>
+#include <cctype>
+#include <map>
+
+namespace tf::ui {
+
+namespace {
+
+// Generated once from the 10x documentation (Commands.txt / KeyMappings.txt); maintained by hand afterwards.
+// Rows with an empty tenfold id are 10x commands tenfold does not implement. The first row per tenfold id is the
+// name the command palette shows.
+const CommandAlias kAliases[] = {
+    {"FindFile", "File.OpenFile", "global", ""},
+    {"OpenFile", "File.OpenFile", "global", "opens tenfold's file picker, not a native open dialog"},
+    {"CloseFile", "Workbench.CloseTab", "global", "closes the tab (asks about unsaved changes)"},
+    {"SaveFile", "File.Save", "global", ""},
+    {"ShowCommandPanel", "App.CommandPalette", "global", "a list to pick from; it does not take a typed command line"},
+    {"OpenCurrentFileInDebugger", "Debug.OpenInVisualStudio", "global", ""},
+    {"Cut", "Editor.Cut", "editor", ""},
+    {"Copy", "Editor.Copy", "editor", ""},
+    {"Paste", "Editor.Paste", "editor", ""},
+    {"Undo", "Editor.Undo", "editor", ""},
+    {"Redo", "Editor.Redo", "editor", ""},
+    {"Delete", "Editor.Delete", "editor", ""},
+    {"DeleteLine", "Editor.DeleteLines", "editor", ""},
+    {"MoveLineUp", "Editor.MoveLinesUp", "editor", "also moves every line a selection touches"},
+    {"MoveLineDown", "Editor.MoveLinesDown", "editor", "also moves every line a selection touches"},
+    {"DuplicateLine", "Editor.Duplicate", "editor", "with a selection it duplicates the selected text, not the line"},
+    {"SelectAll", "Editor.SelectAll", "editor", ""},
+    {"ToggleWordWrap", "View.ToggleWordWrap", "global", ""},
+    {"ToggleComment", "Editor.ToggleLineComment", "editor",
+     "always toggles line comments (block comments: Editor.ToggleBlockComment)"},
+    {"IndentLine", "Editor.Indent", "editor", ""},
+    {"UnindentLine", "Editor.Outdent", "editor", ""},
+    {"MultiCursorMoveUp", "Editor.AddCaretAbove", "editor", "adds the caret at the same column"},
+    {"MultiCursorMoveDown", "Editor.AddCaretBelow", "editor", "adds the caret at the same column"},
+    {"SelectNextMultiCursor", "Editor.AddCaretAtNextOccurrence", "editor",
+     "no undo of the last selection (UndoSelectNextMultiCursor is missing)"},
+    {"MoveCursorUp", "Editor.CaretUp", "editor", ""},
+    {"MoveCursorDown", "Editor.CaretDown", "editor", ""},
+    {"MoveCursorLeft", "Editor.CaretLeft", "editor", ""},
+    {"MoveCursorRight", "Editor.CaretRight", "editor", ""},
+    {"SelectUp", "Editor.SelectUp", "editor", ""},
+    {"SelectDown", "Editor.SelectDown", "editor", ""},
+    {"SelectLeft", "Editor.SelectLeft", "editor", ""},
+    {"SelectRight", "Editor.SelectRight", "editor", ""},
+    {"MoveToLineStart", "Editor.CaretLineStart", "editor", ""},
+    {"MoveToLineEnd", "Editor.CaretLineEnd", "editor", ""},
+    {"SelectToLineStart", "Editor.SelectLineStart", "editor", ""},
+    {"SelectToLineEnd", "Editor.SelectLineEnd", "editor", ""},
+    {"MoveToFileStart", "Editor.CaretDocStart", "editor", ""},
+    {"MoveToFileEnd", "Editor.CaretDocEnd", "editor", ""},
+    {"SelectToFileStart", "Editor.SelectDocStart", "editor", ""},
+    {"SelectToFileEnd", "Editor.SelectDocEnd", "editor", ""},
+    {"MoveCursorPrevWord", "Editor.CaretWordLeft", "editor", ""},
+    {"MoveCursorNextWord", "Editor.CaretWordRight", "editor", ""},
+    {"MoveCursorPrevWordSelect", "Editor.SelectWordLeft", "editor", ""},
+    {"MoveCursorNextWordSelect", "Editor.SelectWordRight", "editor", ""},
+    {"PageUp", "Editor.CaretPageUp", "editor", ""},
+    {"PageDown", "Editor.CaretPageDown", "editor", ""},
+    {"SelectPageUp", "Editor.SelectPageUp", "editor", ""},
+    {"SelectPageDown", "Editor.SelectPageDown", "editor", ""},
+    {"PrevLocation", "Nav.Back", "global", ""},
+    {"NextLocation", "Nav.Forward", "global", ""},
+    {"PrevEditLocation", "Nav.LastEditLocation", "global", ""},
+    {"FindInFile", "Editor.Find", "global", ""},
+    {"FindInFilePrev", "Editor.FindPrev", "global", ""},
+    {"FindInFileNext", "Editor.FindNext", "global", ""},
+    {"FindReplaceInFile", "Editor.Replace", "global", ""},
+    {"GotoPrevResult", "Search.PrevResult", "global",
+     "steps through find-in-files results only; build messages: GotoPrevBuildWarningOrError"},
+    {"GotoNextResult", "Search.NextResult", "global",
+     "steps through find-in-files results only; build messages: GotoNextBuildWarningOrError"},
+    {"GoToLine", "Editor.GotoLine", "global", ""},
+    {"Search", "Search.FindInWorkspace", "global", "tenfold's single find-in-files picker (no extra search panels)"},
+    {"FindInFiles", "Search.FindInWorkspace", "global", "tenfold's single find-in-files picker"},
+    {"ToggleBookmark", "Editor.ToggleBookmark", "global", ""},
+    {"PrevBookmark", "Editor.PrevBookmark", "global", ""},
+    {"NextBookmark", "Editor.NextBookmark", "global", ""},
+    {"ShowSwitchPanelPanel", "Workbench.CycleMruNext", "global",
+     "tenfold's recent-documents switcher; releasing Control ends the cycle"},
+    {"ShowSwitchPanelPrevItem", "Workbench.CycleMruPrev", "global", "tenfold's recent-documents switcher"},
+    {"BuildActiveWorkspace", "Build.Build", "global", "runs the detected build (solution, CMake or custom command)"},
+    {"CancelBuild", "Build.Cancel", "global", ""},
+    {"ToggleBuildOutputPanel", "View.ToggleBuildPanel", "global", ""},
+    {"GotoPrevBuildWarningOrError", "Build.PrevError", "global", ""},
+    {"GotoNextBuildWarningOrError", "Build.NextError", "global", ""},
+    {"StartDebugging", "Debug.Start", "global", "drives the Visual Studio debugger"},
+    {"RestartDebugging", "Debug.Restart", "global", ""},
+    {"StopDebugging", "Debug.Stop", "global", ""},
+    {"DebugStepOver", "Debug.StepOver", "global", ""},
+    {"DebugStepInto", "Debug.StepInto", "global", ""},
+    {"DebugStepOut", "Debug.StepOut", "global", ""},
+    {"Run", "Debug.StartWithoutDebugging", "global", ""},
+    {"ToggleBreakpoint", "Debug.ToggleBreakpoint", "global", ""},
+    {"RemoveAllBreakpoints", "Debug.DeleteAllBreakpoints", "global", ""},
+    {"ListBreakpoints", "Debug.ShowBreakpoints", "global",
+     "opens the breakpoint picker instead of writing to the output panel"},
+    {"GotoSymbolDefinition", "Editor.GotoDefinition", "global", ""},
+    {"FindSymbol", "Search.SymbolSearch", "global", ""},
+    {"FindSymbolReferences", "Editor.FindReferences", "global", ""},
+    {"CppParser.ToggleSourceHeader", "Editor.SwitchHeaderSource", "global", ""},
+    {"PerforceOpenForEdit", "Vcs.CheckOut", "global", ""},
+    {"PerforceDiff", "Vcs.DiffFileExternal", "global",
+     "diffs against the version control base revision in the external diff tool"},
+    {"PerforceRevert", "Vcs.RevertFile", "global", "asks for confirmation first"},
+    {"GitRestore", "Vcs.RevertFile", "global", "same command as PerforceRevert (works for any version control system)"},
+    {"Exit", "App.Quit", "global", ""},
+    {"SaveFileAs", "", "global", ""},
+    {"SaveAll", "", "global", ""},
+    {"CloseAll", "", "global", ""},
+    {"NewTextFile", "", "global", ""},
+    {"CopyActiveFilePath", "", "global", ""},
+    {"OpenFolderForActivefile", "", "global", ""},
+    {"ShowInWorkspaceTree", "", "global", ""},
+    {"ShowInWorkspaceTreeWithToggle", "", "global", ""},
+    {"ToggleReadOnly", "", "global", ""},
+    {"CreateWorkspace", "", "global", ""},
+    {"OpenWorkspace", "", "global", ""},
+    {"SaveWorkspace", "", "global", ""},
+    {"CloseWorkspace", "", "global", ""},
+    {"OpenSolution", "", "global", ""},
+    {"OpenFolder", "", "global", ""},
+    {"WorkspaceSettings", "", "global", ""},
+    {"ActiveWorkspaceSettings", "", "global", ""},
+    {"LogWorkspaceSettings", "", "global", ""},
+    {"SyncWorkspace", "", "global", ""},
+    {"CreateSecondaryWindow", "", "global", ""},
+    {"Show10XOutput", "", "global", ""},
+    {"NewTerminal", "", "global", ""},
+    {"ShowTerminal", "", "global", ""},
+    {"ClaudeCodeTerminal", "", "global", ""},
+    {"CursorTerminal", "", "global", ""},
+    {"CloseOutputPanel", "", "global", ""},
+    {"CloseFindFilePanel", "", "global", ""},
+    {"CloseCommandPanel", "", "global", ""},
+    {"ToggleOutputPanel", "", "global", ""},
+    {"ToggleWorkspaceExplorer", "", "global", ""},
+    {"Settings", "", "global", ""},
+    {"LocalSettings", "", "global", ""},
+    {"EditKeyBindings", "", "global", ""},
+    {"EditCurrentColourScheme", "", "global", ""},
+    {"Colours", "", "global", ""},
+    {"InternetSearch", "", "global", ""},
+    {"ZoomIn", "", "global", ""},
+    {"ZoomOut", "", "global", ""},
+    {"ToggleFullscreen", "", "global", ""},
+    {"ToggleFocusMode", "", "global", ""},
+    {"ToggleFullScreenFocusMode", "", "global", ""},
+    {"ToggleAccessibility", "", "global", ""},
+    {"ToggleTextToSpeech", "", "global", ""},
+    {"ImportKeyBindingsFromVS", "", "global", ""},
+    {"PasteHistory", "", "editor", ""},
+    {"CutLine", "", "editor", ""},
+    {"InsertLine", "", "editor", ""},
+    {"InsertLineAfter", "", "editor", ""},
+    {"SelectCurrentWord", "", "editor", ""},
+    {"SelectCurrentScope", "", "editor", ""},
+    {"MakeSelectionUppercase", "", "editor", ""},
+    {"MakeSelectionLowercase", "", "editor", ""},
+    {"SelectCurrentBracketScope", "", "editor", ""},
+    {"ToggleWhitespace", "", "global", ""},
+    {"ToggleLineEndings", "", "global", ""},
+    {"ToggleWordWrapForCurrentPanel", "", "global", ""},
+    {"Commentline", "", "editor", ""},
+    {"Uncommentline", "", "editor", ""},
+    {"DeleteToEndOfLine", "", "editor", ""},
+    {"ClearUpdatedLines", "", "global", ""},
+    {"RefreshUpdatedLines", "", "global", ""},
+    {"ToggleIndentMode", "", "global", ""},
+    {"FormatFile", "", "editor", ""},
+    {"FormatSelection", "", "editor", ""},
+    {"MultiCursorMoveLeft", "", "editor", ""},
+    {"MultiCursorMoveRight", "", "editor", ""},
+    {"UndoSelectNextMultiCursor", "", "editor", ""},
+    {"SelectAllOccurrences", "", "editor", ""},
+    {"AddCursorAtMousePos", "", "editor", ""},
+    {"StartDraggingRectSelect", "", "editor", ""},
+    {"AlignMultiCursor", "", "editor", ""},
+    {"CollapseRegion", "", "editor", ""},
+    {"ExpandRegion", "", "editor", ""},
+    {"CollapseAllRegions", "", "editor", ""},
+    {"ExpandAllRegions", "", "editor", ""},
+    {"CollapseAllRegionsRecursive", "", "editor", ""},
+    {"ExpandAllRegionsRecursive", "", "editor", ""},
+    {"ToggleCollapseExpandRegion", "", "editor", ""},
+    {"ToggleCollapseExpandAllRegions", "", "editor", ""},
+    {"RecordKeySequence", "", "global", ""},
+    {"PlaybackKeySequence", "", "global", ""},
+    {"ScrollOneLineUp", "", "editor", ""},
+    {"ScrollOneLineDown", "", "editor", ""},
+    {"PrevLocationCurrentFile", "", "global", ""},
+    {"NextLocationCurrentFile", "", "global", ""},
+    {"NextEditLocation", "", "global", ""},
+    {"FindInFilePrevCurrentWord", "", "global", ""},
+    {"FindInFileNextCurrentWord", "", "global", ""},
+    {"RestoreRecentlyClosedFile", "", "global", ""},
+    {"MoveToMatchingBracket", "", "editor", ""},
+    {"NewSearchPanel", "", "global", ""},
+    {"PrevBookmarkInFile", "", "global", ""},
+    {"NextBookmarkInFile", "", "global", ""},
+    {"RemoveAllBookmarks", "", "global", ""},
+    {"RemoveAllBookmarksFromFile", "", "global", ""},
+    {"ReplaceInFiles", "", "global", ""},
+    {"ShowFindInFilesResults1", "", "global", ""},
+    {"ShowFindInFilesResults2", "", "global", ""},
+    {"ShowFindInFilesResults3", "", "global", ""},
+    {"ShowFindInFilesResults4", "", "global", ""},
+    {"ToggleFindInFilesResultsPanel1", "", "global", ""},
+    {"ToggleFindInFilesResultsPanel2", "", "global", ""},
+    {"ToggleFindInFilesResultsPanel3", "", "global", ""},
+    {"ToggleFindInFilesResultsPanel4", "", "global", ""},
+    {"ReplaceAllInFile", "", "global", ""},
+    {"ReplaceNextInFile", "", "global", ""},
+    {"MovePanelFocusLeft", "", "global", ""},
+    {"MovePanelFocusRight", "", "global", ""},
+    {"MovePanelFocusUp", "", "global", ""},
+    {"MovePanelFocusDown", "", "global", ""},
+    {"MovePanelLeft", "", "global", ""},
+    {"MovePanelRight", "", "global", ""},
+    {"MovePanelUp", "", "global", ""},
+    {"MovePanelDown", "", "global", ""},
+    {"DuplicatePanel", "", "global", ""},
+    {"DuplicatePanelLeft", "", "global", ""},
+    {"DuplicatePanelRight", "", "global", ""},
+    {"CloseAllTabs", "", "global", ""},
+    {"CloseAllOtherTabs", "", "global", ""},
+    {"CloseAllButPinnedTabs", "", "global", ""},
+    {"CloseTabsLeft", "", "global", ""},
+    {"CloseTabsRight", "", "global", ""},
+    {"CloseUnmodifiedTabs", "", "global", ""},
+    {"PrevPanelTab", "", "global", ""},
+    {"NextPanelTab", "", "global", ""},
+    {"MovePrevPanelTab", "", "global", ""},
+    {"MoveNextPanelTab", "", "global", ""},
+    {"PinTab", "", "global", ""},
+    {"TogglePinTab", "", "global", ""},
+    {"ToggleTabs", "", "global", ""},
+    {"SetColumnCountAuto", "", "global", ""},
+    {"SetColumnCount1", "", "global", ""},
+    {"SetColumnCount2", "", "global", ""},
+    {"SetColumnCount3", "", "global", ""},
+    {"SetColumnCount4", "", "global", ""},
+    {"SetColumnCount5", "", "global", ""},
+    {"SetColumnCount6", "", "global", ""},
+    {"SetColumnCount7", "", "global", ""},
+    {"SetColumnCount8", "", "global", ""},
+    {"SetRowCountAuto", "", "global", ""},
+    {"SetRowCount1", "", "global", ""},
+    {"SetRowCount2", "", "global", ""},
+    {"SetRowCount3", "", "global", ""},
+    {"SetRowCount4", "", "global", ""},
+    {"SetRowCount5", "", "global", ""},
+    {"SetRowCount6", "", "global", ""},
+    {"SetRowCount7", "", "global", ""},
+    {"SetRowCount8", "", "global", ""},
+    {"BuildAll", "", "global", ""},
+    {"RebuildAll", "", "global", ""},
+    {"CleanAll", "", "global", ""},
+    {"RebuildActiveWorkspace", "", "global", ""},
+    {"CleanActiveWorkspace", "", "global", ""},
+    {"BuildCurrentFile", "", "global", ""},
+    {"ShowBuildOutput", "", "global", ""},
+    {"CloseBuildPanel", "", "global", ""},
+    {"GotoPrevBuildError", "", "global", ""},
+    {"GotoNextBuildError", "", "global", ""},
+    {"GotoPrevBuildWarning", "", "global", ""},
+    {"GotoNextBuildWarning", "", "global", ""},
+    {"VSDebuggerReconnect", "", "global", ""},
+    {"PrevBreakpoint", "", "global", ""},
+    {"NextBreakpoint", "", "global", ""},
+    {"PrevBreakpointInFile", "", "global", ""},
+    {"NextBreakpointInFile", "", "global", ""},
+    {"RemoveAllBreakpointsFromFile", "", "global", ""},
+    {"CommandLineArgSelector", "", "global", ""},
+    {"ToggleCommandLineArgSelector", "", "global", ""},
+    {"OpenDebugPanels", "", "global", ""},
+    {"OpenCallstackPanel", "", "global", ""},
+    {"OpenWatchPanel", "", "global", ""},
+    {"OpenAttachDebuggerPanel", "", "global", ""},
+    {"ReparseFile", "", "global", ""},
+    {"ReparseAll", "", "global", ""},
+    {"GotoSymbolDefinitionUnderMouse", "", "global", ""},
+    {"Autocomplete", "", "editor", ""},
+    {"AutocompleteUp", "", "popup", ""},
+    {"AutocompleteDown", "", "popup", ""},
+    {"AutocompletePageUp", "", "popup", ""},
+    {"AutocompletePageDown", "", "popup", ""},
+    {"CancelAutocomplete", "", "global", ""},
+    {"InsertPrevAutocomplete", "", "editor", ""},
+    {"InsertNextAutocomplete", "", "editor", ""},
+    {"ShowFunctionArgsInfo", "", "editor", ""},
+    {"FindFunction", "", "global", ""},
+    {"RenameSymbol", "", "editor", ""},
+    {"SubmitRenameSymbol", "", "popup", ""},
+    {"ToggleParserVerboseLogging", "", "global", ""},
+    {"ShowSymbolInfo", "", "global", ""},
+    {"CppParser.LogParseStatus", "", "global", ""},
+    {"CppParser.ListWorkspaceFiles", "", "global", ""},
+    {"CppParser.FindBrokenDef", "", "global", ""},
+    {"CppParser.DumpStringTable", "", "global", ""},
+    {"CppParser.WriteFileStatsCsv", "", "global", ""},
+    {"CppParser.LogIncludePaths", "", "global", ""},
+    {"PerforceAdd", "", "global", ""},
+    {"PerforceHistory", "", "global", ""},
+    {"PerforceShowInP4v", "", "global", ""},
+    {"PerforceAnnotate", "", "global", ""},
+    {"PerforceTimelapse", "", "global", ""},
+    {"PerforceRevisionGraph", "", "global", ""},
+    {"PerforceRevertIfUnchanged", "", "global", ""},
+    {"SVNDiff", "", "global", ""},
+    {"SVNAdd", "", "global", ""},
+    {"SVNUpdateFile", "", "global", ""},
+    {"SVNUpdateWorkspace", "", "global", ""},
+    {"GitDiff", "", "global", ""},
+    {"GitAdd", "", "global", ""},
+    {"GitBlame", "", "global", ""},
+    {"ListCommands", "", "global", ""},
+    {"Update", "", "global", ""},
+    {"ToggleFPS", "", "global", ""},
+    {"ShowContextMenu", "", "global", ""},
+    {"ListWorkspaceFiles", "", "global", ""},
+    {"ListFileStatusMonitorFiles", "", "global", ""},
+    {"LogMemory", "", "global", ""},
+    {"LogMemoryStats", "", "global", ""},
+    {"CheckParserIntegrity", "", "global", ""},
+};
+
+// Commands tenfold has that 10x does not: the key context their bindings need.
+struct NativeContext {
+  const char* id;
+  const char* context;
+};
+const NativeContext kNativeContexts[] = {
+    {"Editor.Enter", "editor"},          {"Editor.Tab", "editor"},
+    {"Editor.Backspace", "editor"},      {"Editor.CollapseCarets", "editor"},
+    {"Editor.DeleteWordLeft", "editor"}, {"Editor.DeleteWordRight", "editor"},
+    {"Editor.JoinLines", "editor"},      {"Editor.ToggleBlockComment", "editor"},
+};
+
+std::string lowered(std::string_view s) {
+  std::string r(s);
+  for (char& c : r) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return r;
+}
+
+struct Index {
+  std::map<std::string, const CommandAlias*> by10x;      // lower-case 10x name
+  std::map<std::string, const CommandAlias*> byTenfold;  // tenfold id -> first (preferred) row
+  Index() {
+    for (const CommandAlias& a : kAliases) {
+      by10x.emplace(lowered(a.name10x), &a);
+      if (*a.tenfoldId) byTenfold.emplace(a.tenfoldId, &a);
+    }
+  }
+};
+const Index& index() {
+  static const Index i;
+  return i;
+}
+
+}  // namespace
+
+std::span<const CommandAlias> commandAliases() { return kAliases; }
+
+ResolvedCommand resolveCommandName(std::string_view name) {
+  const Index& ix = index();
+  ResolvedCommand r;
+  if (auto it = ix.by10x.find(lowered(name)); it != ix.by10x.end()) {
+    const CommandAlias& a = *it->second;
+    r.known10x = true;
+    r.name10x = a.name10x;
+    r.context = a.context;
+    r.implemented = *a.tenfoldId != 0;
+    r.id = r.implemented ? a.tenfoldId : a.name10x;
+    return r;
+  }
+  r.id = std::string(name);
+  r.context = "global";
+  r.implemented = true;  // a tenfold id (or an unknown name; the registry decides)
+  if (auto it = ix.byTenfold.find(r.id); it != ix.byTenfold.end()) {
+    r.name10x = it->second->name10x;
+    r.context = it->second->context;
+  } else {
+    for (const NativeContext& n : kNativeContexts)
+      if (r.id == n.id) r.context = n.context;
+  }
+  return r;
+}
+
+std::string_view displayName10x(std::string_view tenfoldId) {
+  const Index& ix = index();
+  auto it = ix.byTenfold.find(std::string(tenfoldId));
+  return it == ix.byTenfold.end() ? std::string_view{} : std::string_view(it->second->name10x);
+}
+
+}  // namespace tf::ui

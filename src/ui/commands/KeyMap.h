@@ -19,14 +19,16 @@ struct KeyChord {
 
 KeyChord chordFromKey(Key k, uint8_t mods);
 KeyChord chordFromMouse(MouseButton b, uint8_t mods);
-std::string formatChord(const KeyChord& c);                  // "Ctrl+Shift+-", "Mouse4"
-std::string formatChords(const std::vector<KeyChord>& seq);  // "Ctrl+K Ctrl+C"
+// 10x spelling: modifiers Control, Shift, Alt, then the key; the chords of a sequence are joined with ", ".
+std::string formatChord(const KeyChord& c);                  // "Control Shift -", "MouseBackButton"
+std::string formatChords(const std::vector<KeyChord>& seq);  // "Control K, Control C"
 
 struct KeyBinding {
   std::vector<KeyChord> chords;    // 1 stroke, or several for a multi-stroke chord
   std::string context = "global";  // "global", "editor", "picker", ...
-  std::string command;
+  std::string command;  // the tenfold command id; for a 10x command tenfold lacks, its 10x name (CommandNames.h)
   std::string arg;
+  std::string written;  // the command exactly as the binding file spells it ("GotoSymbolDefinition")
 };
 
 // Binding table + chord state machine. Pure logic: the front end feeds key/mouse presses and a monotonic
@@ -50,6 +52,9 @@ class KeyMap {
   // `activeContext` is the focused widget's context ("editor", "picker"); bindings scoped to it win over
   // "global" ones. A pending chord is dropped when more than timeoutMs passed since its last stroke, or when the
   // next stroke does not continue it (that stroke is swallowed and reported as abortedChord).
+  // A stroke that is a complete binding and also the start of a longer one ("Control S" and "Control S, Control S")
+  // matches at once and stays open for the longer chord; a following stroke that does not continue it is then an
+  // ordinary fresh stroke, not swallowed.
   Result feed(const KeyChord& c, std::string_view activeContext, int64_t nowMs);
   bool pending() const { return !pending_.empty(); }
   void reset() { pending_.clear(); }
@@ -61,6 +66,7 @@ class KeyMap {
  private:
   std::vector<KeyBinding> bindings_;
   std::vector<KeyChord> pending_;
+  bool pendingOptional_ = false;  // pending_ is a complete binding that already ran
   int64_t lastMs_ = 0;
 };
 

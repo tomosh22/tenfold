@@ -4,6 +4,7 @@
 #include <cstdlib>
 #include <set>
 
+#include "ui/commands/CommandNames.h"
 #include "ui/commands/EditorCommands.h"
 #include "ui/platform/Clipboard.h"
 #include "ui/settings/Settings.h"
@@ -143,7 +144,10 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   }
   registerEditorCommands(registry_);
   bindUiCommands();
-  keys_ = loadKeyBindings(editor.workspace().root(), userDir, diags_);
+  keyOpts_.workspaceRoot = editor.workspace().root();
+  keyOpts_.userDir = userDir;
+  if (!userDir.empty() && userDir == userConfigDir()) keyOpts_.import10xFile = default10xKeyMappingsPath();
+  reloadKeyBindings();
   if (bench_) {
     bench_->status().addSegment("message", StatusBar::Align::Left);
     bench_->status().addSegment("config", StatusBar::Align::Left, [this](const std::string&) {
@@ -208,6 +212,29 @@ EditorApp::~EditorApp() {
     settings_->settings().removeOnChanged(settingsToken_);
     settings_->onThemeChanged(nullptr);
   }
+}
+
+void EditorApp::reloadKeyBindings() {
+  diags_.clear();
+  keys_ = loadKeyBindings(keyOpts_, diags_);
+}
+
+void EditorApp::setKeyImport10x(bool enabled) {
+  if (keyOpts_.import10x == enabled) return;
+  keyOpts_.import10x = enabled;
+  reloadKeyBindings();
+  showDiagnostics();
+}
+
+void EditorApp::setKeyImportFile(const std::filesystem::path& file) {
+  keyOpts_.import10xFile = file;
+  reloadKeyBindings();
+  showDiagnostics();
+}
+
+bool EditorApp::commandRunnable(const std::string& id) const {
+  const Command* c = registry_.find(id);
+  return c && c->handler;
 }
 
 void EditorApp::forEachView(const std::function<void(TextView&)>& fn) {
@@ -285,6 +312,9 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
 // settings (applySettings stays public for callers without a SettingsService).
 void EditorApp::applySettings(const Settings& s) {
   pickerEnv_.preview = s.getBool("picker.preview");
+  // keys.import10x joins the settings schema in a later change; until it exists the import stays on.
+  for (const SettingInfo& si : settingsSchema())
+    if (std::string_view(si.key) == "keys.import10x") setKeyImport10x(s.getBool("keys.import10x"));
   confirmUnsaved_ = s.getBool("editor.confirmUnsaved");
   external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
   vcsUi_->applySettings(s);
@@ -617,7 +647,8 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   KeyChord chord;
   if (e.type == InputType::KeyDown && e.key != Key::Unknown)  // a lone modifier press is not a stroke
     chord = chordFromKey(e.key, e.mods);
-  else if (e.type == InputType::MouseDown && (e.button == MouseButton::X1 || e.button == MouseButton::X2))
+  else if (e.type == InputType::MouseDown &&
+           (e.button == MouseButton::X1 || e.button == MouseButton::X2 || e.button == MouseButton::Middle))
     chord = chordFromMouse(e.button, e.mods);
   else return root_.dispatch(e);
 
@@ -630,12 +661,31 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
       return r.abortedChord || root_.dispatch(e);  // an aborted chord's stroke is swallowed
     case KeyMap::Status::Matched: break;
   }
+  if (!commandRunnable(r.binding->command)) {
+    // The middle button also closes tabs and so on: while its 10x commands (GotoSymbolDefinitionUnderMouse,
+    // AddCursorAtMousePos) are missing, the click goes to the widgets as before.
+    if (chord.mouse && chord.button == MouseButton::Middle) return root_.dispatch(e);
+    // A 10x binding for a command tenfold lacks must not take keys away from the focused input or the open picker
+    // (Alt+R toggles regex in the find bar, ReplaceNextInFile is Alt+R in 10x): they get the key first.
+    if (std::string_view(ctx) != "editor" && root_.dispatch(e)) return true;
+  }
   setMessage("");
   runCommandId(r.binding->command, r.binding->arg, ctx);
   return true;
 }
 
-void EditorApp::runCommandId(const std::string& id, const std::string& arg, const char* ctx) {
+void EditorApp::runCommandId(const std::string& written, const std::string& arg, const char* ctx) {
+  if (written == kPythonCommand) {
+    setMessage("Python statements are not supported: " + arg, kMessageMs);
+    return;
+  }
+  // Bindings, the palette and tests may name a command the 10x way or by its tenfold id.
+  const ResolvedCommand rc = resolveCommandName(written);
+  if (rc.known10x && !rc.implemented) {
+    setMessage("not implemented yet: " + rc.name10x, kMessageMs);
+    return;
+  }
+  const std::string id = rc.id;
   CommandContext cc;
   cc.editor = &editor_;
   cc.context = ctx;

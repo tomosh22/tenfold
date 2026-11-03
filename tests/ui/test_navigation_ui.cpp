@@ -72,7 +72,7 @@ struct Env {
       std::ofstream out(dir / f, std::ios::binary);
       for (int i = 0; i < 40; ++i) out << "int " << f[0] << i << ";\n";
     }
-    if (!userKeys.empty()) std::ofstream(dir / ".tenfold" / "keybindings.txt", std::ios::binary) << userKeys;
+    if (!userKeys.empty()) std::ofstream(dir / ".tenfold" / "KeyMappings.10x_settings", std::ios::binary) << userKeys;
     gfx::FontStack stack;
     stack.add(std::make_shared<tftext::MockFont>(U"abcdefghijklmnopqrstuvwxyz0123456789 ._-:,;×●…ABCLMNTUFDK>"));
     text = gfx::TextRenderer::fromFonts(std::move(stack));
@@ -128,11 +128,11 @@ struct Env {
 TEST(navui_def_def_back_back_forward_by_keys) {
   Env env;
   env.defDef();
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK(env.ed->cursor() == env.at("b.cpp", 5));
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK(env.ed->cursor() == env.at("a.cpp", 0));
-  CHECK(env.key(Key::Right, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl | ModShift));
   CHECK(env.ed->cursor() == env.at("b.cpp", 5));
   CHECK_EQ(env.activeFile(), std::string("b.cpp"));  // Workbench::sync revealed the tab
 }
@@ -178,9 +178,9 @@ TEST(navui_button_enabled_state_follows_history) {
   CHECK_EQ(env.curFile(), std::string("a.cpp"));
   env.defDef();
   CHECK(env.nav().enabled(Which::Back) && !env.nav().enabled(Which::Forward));
-  env.key(Key::Left, ModAlt);
+  env.key(Key('-'), ModCtrl);
   CHECK(env.nav().enabled(Which::Back) && env.nav().enabled(Which::Forward));
-  env.key(Key::Left, ModAlt);
+  env.key(Key('-'), ModCtrl);
   CHECK(!env.nav().enabled(Which::Back) && env.nav().enabled(Which::Forward));
   CHECK(env.nav().enabled(Which::Back) == env.ed->navigation().canGoBack());
   CHECK(env.nav().enabled(Which::Forward) == env.ed->navigation().canGoForward());
@@ -188,22 +188,22 @@ TEST(navui_button_enabled_state_follows_history) {
 
 TEST(navui_tooltip_shows_the_bound_key) {
   Env env;
-  CHECK_EQ(env.nav().tooltip(Which::Back), std::string("Navigate Backward (Alt+Left)"));
-  CHECK_EQ(env.nav().tooltip(Which::Forward), std::string("Navigate Forward (Alt+Right)"));
+  CHECK_EQ(env.nav().tooltip(Which::Back), std::string("Navigate Backward (Control -)"));
+  CHECK_EQ(env.nav().tooltip(Which::Forward), std::string("Navigate Forward (Control Shift -)"));
   // After the hover delay the tooltip is on screen; leaving hides it.
   const RectF b = env.btn(Which::Back);
   env.send(mouseEv(InputType::MouseMove, b.x + 2, b.y + 2));
   CHECK(env.nav().shownTooltip().empty());
   env.advance(NavigationUi::kTooltipMs + 20);
-  CHECK_EQ(env.nav().shownTooltip(), std::string("Navigate Backward (Alt+Left)"));
+  CHECK_EQ(env.nav().shownTooltip(), std::string("Navigate Backward (Control -)"));
   env.send(mouseEv(InputType::MouseMove, 700, 400));
   CHECK(env.nav().shownTooltip().empty());
 
   // A user binding changes the text (the defaults for Back are removed, F7 added).
-  Env env2("Alt+Left = -\nCtrl+- = -\nF7 = Nav.Back\n");
+  Env env2("Control -:\nF7: Nav.Back\n");
   CHECK_EQ(env2.nav().tooltip(Which::Back), std::string("Navigate Backward (F7)"));
-  CHECK_EQ(env2.nav().tooltip(Which::Forward), std::string("Navigate Forward (Alt+Right)"));
-  Env env3("Alt+Left = -\nCtrl+- = -\nMouse4 = -\n");
+  CHECK_EQ(env2.nav().tooltip(Which::Forward), std::string("Navigate Forward (Control Shift -)"));
+  Env env3("Control -:\nMouseBackButton:\n");
   CHECK_EQ(env3.nav().tooltip(Which::Back), std::string("Navigate Backward"));
 }
 
@@ -246,9 +246,9 @@ TEST(navui_dropdown_lists_entries_and_jumping_adds_nothing) {
   CHECK_EQ(env.ed->navigation().entries().size(), before);
   CHECK_EQ(env.activeFile(), std::string("b.cpp"));
   // Plain Back / Forward keep working from where the jump left the cursor.
-  env.key(Key::Right, ModAlt);
+  env.key(Key('-'), ModCtrl | ModShift);
   CHECK(env.ed->cursor() == env.at("c.cpp", 20));
-  env.key(Key::Left, ModAlt);
+  env.key(Key('-'), ModCtrl);
   CHECK(env.ed->cursor() == env.at("b.cpp", 5));
 }
 
@@ -298,7 +298,7 @@ TEST(navui_long_press_opens_dropdown_and_release_does_not_navigate) {
   CHECK(env.ed->cursor() == env.at("b.cpp", 5));
   // The long press on a disabled direction opens nothing.
   const RectF f = env.btn(Which::Forward);
-  env.key(Key::Right, ModAlt);  // now at the live position again: Forward disabled
+  env.key(Key('-'), ModCtrl | ModShift);  // now at the live position again: Forward disabled
   env.send(mouseEv(InputType::MouseDown, f.x + 3, f.y + 3));
   env.advance(NavigationUi::kLongPressMs + 50);
   CHECK(!env.nav().dropdownOpen());
@@ -312,9 +312,9 @@ TEST(navui_status_counts_follow_the_setting) {
   env.app->setNavStatusCounts(true);
   env.frame();
   CHECK_EQ(env.status("navcounts"), std::string("\xE2\x86\x90 2 | 0 \xE2\x86\x92"));
-  env.key(Key::Left, ModAlt);
+  env.key(Key('-'), ModCtrl);
   CHECK_EQ(env.status("navcounts"), std::string("\xE2\x86\x90 1 | 1 \xE2\x86\x92"));
-  env.key(Key::Left, ModAlt);
+  env.key(Key('-'), ModCtrl);
   CHECK_EQ(env.status("navcounts"), std::string("\xE2\x86\x90 0 | 2 \xE2\x86\x92"));
   env.app->setNavStatusCounts(false);
   env.frame();
@@ -349,7 +349,7 @@ TEST(navui_last_edit_location_command_and_key) {
   CHECK(env.ed->cursor() == env.at("a.cpp", 10, 1));
   CHECK_EQ(env.activeFile(), std::string("a.cpp"));
   CHECK(env.ed->navigation().entries().size() >= entries);  // it is a jump: Back returns
-  CHECK(env.key(Key::Left, ModAlt));
+  CHECK(env.key(Key('-'), ModCtrl));
   CHECK_EQ(env.curFile(), std::string("c.cpp"));
 }
 

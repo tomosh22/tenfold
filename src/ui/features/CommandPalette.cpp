@@ -4,6 +4,8 @@
 #include <cctype>
 #include <tuple>
 
+#include "ui/commands/CommandNames.h"
+
 namespace tf::ui {
 
 namespace {
@@ -13,9 +15,16 @@ std::string lowered(std::string s) {
   return s;
 }
 
+// What a row shows: the 10x command name when 10x has the command, else tenfold's own name.
+std::string labelOf(const Command& c) {
+  const std::string_view n10 = displayName10x(c.id);
+  return n10.empty() ? c.name : std::string(n10);
+}
+
 struct Hit {
   const Command* cmd = nullptr;
-  std::vector<int> match;  // positions in the name (empty when only the id matched)
+  std::string label;
+  std::vector<int> match;  // positions in the label (empty when only the name or id matched)
   std::tuple<int, int, size_t> score{0, 0, 0};
 };
 
@@ -64,30 +73,33 @@ void CommandPalette::refresh() {
     if (!listed(*c)) continue;
     Hit h;
     h.cmd = c;
+    h.label = labelOf(*c);
     if (!q.empty()) {
-      std::vector<int> inName = fuzzyMatchPositions(q, c->name);
+      // The shown label (the 10x name when 10x has the command), tenfold's name and tenfold's id all match.
+      std::vector<int> inLabel = fuzzyMatchPositions(q, h.label);
+      std::vector<int> inName = h.label == c->name ? std::vector<int>{} : fuzzyMatchPositions(q, c->name);
       std::vector<int> inId = fuzzyMatchPositions(q, c->id);
-      if (inName.empty() && inId.empty()) continue;
-      const auto sn =
-          inName.empty() ? std::tuple<int, int, size_t>{1 << 20, 0, 0} : scoreOf(inName, q.size(), c->name.size());
-      const auto si =
-          inId.empty() ? std::tuple<int, int, size_t>{1 << 20, 0, 0} : scoreOf(inId, q.size(), c->id.size());
-      // The name wins ties and is the only one highlighted; a clearly tighter id match still ranks first.
-      h.score = sn <= si ? sn : si;
-      if (sn <= si) h.match = std::move(inName);
+      if (inLabel.empty() && inName.empty() && inId.empty()) continue;
+      const std::tuple<int, int, size_t> none{1 << 20, 0, 0};
+      const auto sl = inLabel.empty() ? none : scoreOf(inLabel, q.size(), h.label.size());
+      const auto sn = inName.empty() ? none : scoreOf(inName, q.size(), c->name.size());
+      const auto si = inId.empty() ? none : scoreOf(inId, q.size(), c->id.size());
+      // The label wins ties and is the only one highlighted; a clearly tighter name or id match still ranks first.
+      h.score = std::min({sl, sn, si});
+      if (sl <= sn && sl <= si) h.match = std::move(inLabel);
     }
     hits.push_back(std::move(h));
   }
   std::stable_sort(hits.begin(), hits.end(), [&](const Hit& a, const Hit& b) {
     if (a.score != b.score) return a.score < b.score;
-    return lowered(a.cmd->name) < lowered(b.cmd->name);
+    return lowered(a.label) < lowered(b.label);
   });
   std::vector<ListRow> rows;
   shown_.clear();
   for (const Hit& h : hits) {
     ListRow r;
     r.key = h.cmd->id;
-    r.primary = h.cmd->name;
+    r.primary = h.label;
     r.secondary = h.cmd->id;
     r.match = h.match;
     r.dim = !h.cmd->isEnabled(ctx);
