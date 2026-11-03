@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 168 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 15 bindings (14 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 170 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 13 bindings (12 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -111,13 +111,6 @@ move-line keys also move every line of a selection, `DuplicateLine` duplicates a
 tenfold's fuzzy file picker, `ShowSwitchPanelPanel` is the recent-documents switcher, `Search` / `FindInFiles` are one
 find-in-files picker (`NewSearchPanel` keeps up to three earlier result lists in it; there are no separate result panels, so
 the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
-
-**General**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `NewTerminal` | `Control '` | Create a terminal panel |
-| `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. |
 
 **Edit**
 
@@ -168,7 +161,7 @@ when bound in a key file.)
 
 - **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ToggleReadOnly`
 - **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
-- **General**: `CreateSecondaryWindow`, `Show10XOutput`, `ClaudeCodeTerminal`, `CursorTerminal`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
+- **General**: `CreateSecondaryWindow`, `Show10XOutput`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
 - **Formatting**: `ToggleIndentMode`, `FormatFile`
 - **MultiCursor**: `StartDraggingRectSelect`
@@ -206,7 +199,7 @@ lacks (the replace picker takes the same query line, so it lacks the same things
 
 ## 10x settings not yet supported
 
-Source: 10x's own settings documentation (names, defaults and one-line meanings only). Python, terminal, MCP,
+Source: 10x's own settings documentation (names, defaults and one-line meanings only). Python, MCP,
 telemetry, accessibility, updater, crash-dump and Perforce-connection settings are left out. Effort: S = a setting
 plus a few lines, M = a feature of a day or two, L = a subsystem. "Behaviour exists" means tenfold already does the
 thing, always, with no switch. Where the note says "check", the 10x meaning or the tenfold behaviour is not certain

@@ -134,6 +134,12 @@ int Pty::wait(int timeoutMs) {
   return exitCode_;
 }
 
+void Pty::kill() {
+  if (!backend_ || closing_ || exited_) return;
+  backend_->killTree(false);
+  backend_->killTree(true);
+}
+
 void Pty::close() {
   if (!backend_) return;
   closing_ = true;

@@ -88,6 +88,12 @@ class Workbench : public RootWidget {
   // Shows `title` instead of the file name on the tabs of `file` (untitled files named after their first word); an
   // empty title removes it.
   void setTitleOverride(const std::filesystem::path& file, const std::string& title);
+  // A tab hosting any widget that is not a document view (the terminal panel, W8f): a new tab in `in` (default the
+  // active panel), active and with the panel focused. The widget is destroyed when the tab closes (closeTab,
+  // requestCloseTab, the x, a panel merge). Such tabs have no document: they are not saved in layout.json, are not
+  // duplicated by DuplicatePanel / split, move between panels like any tab, and closeTab never asks about them.
+  int addWidgetTab(std::unique_ptr<Widget> content, const std::string& title, Panel* in = nullptr);
+  bool isWidgetTab(int id) const { return widgetTabs_.count(id) != 0; }
   bool closeTab(int id, bool discard = false);  // discard: also close a dirty document in the Editor (changes lost)
   // A close the user asked for. When `confirmClose` is set and the tab is the last view of a dirty document, it is
   // called instead of closing and returns true if it took over (it calls closeTab itself once the user agrees).
@@ -243,6 +249,7 @@ class Workbench : public RootWidget {
   Overlay* overlay_ = nullptr;
   Panel* active_ = nullptr;
   std::map<int, TabInfo> tabs_;
+  std::set<int> widgetTabs_;  // tab ids hosting a non-document widget (addWidgetTab)
   std::map<std::string, Position> lastCaret_;
   std::map<std::string, std::string> titles_;  // generic path -> tab title override
   bool focusMode_ = false;

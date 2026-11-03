@@ -9,6 +9,7 @@
 #     #3E3E42 and thumb #686868, closeHover #E81123, dirtyMarker #DCDCAA.
 #   * Editor: current-line outline #464646, selection #264F78 (inactive #3A3D41), find highlight #613315 (current
 #     #8A4B1E), bracket match, line numbers #2B91AF, whitespace dots, column guide, caret, build error / warning marks.
+#   * Terminal: all of it (background #1E1E1E, foreground #CCCCCC, the ANSI palette).
 #   * Squiggles: warning green #4CAF50 and info #75BEFF are approximations (VS draws info as a grey dotted line).
 #   * Tokens: function / method #DCDCAA, field / property / variable / parameter #C8C8C8, enum #B8D7A3, template
 #     parameter and concept #4EC9B0, string #D69D85, punctuation #DCDCDC, macro #BD63C5, comment #57A64A.
@@ -102,6 +103,28 @@ color.treeBackground = #252526
 color.treeSelection = #094771
 color.treeSelectionInactive = #3F3F46
 color.treeFolder = #DCB67A
+# Integrated terminal [?]: background / foreground, cursor, selection and the 16 ANSI colours (the Windows console
+# "Campbell" palette, which Visual Studio's terminal inherits from ConPTY; the exact VS 2022 values are from memory).
+color.terminalBackground = #1E1E1E
+color.terminalForeground = #CCCCCC
+color.terminalCursor = #FFFFFF
+color.terminalSelection = #264F78
+color.terminalAnsi0 = #0C0C0C
+color.terminalAnsi1 = #C50F1F
+color.terminalAnsi2 = #13A10E
+color.terminalAnsi3 = #C19C00
+color.terminalAnsi4 = #0037DA
+color.terminalAnsi5 = #881798
+color.terminalAnsi6 = #3A96DD
+color.terminalAnsi7 = #CCCCCC
+color.terminalAnsi8 = #767676
+color.terminalAnsi9 = #E74856
+color.terminalAnsi10 = #16C60C
+color.terminalAnsi11 = #F9F1A5
+color.terminalAnsi12 = #3B78FF
+color.terminalAnsi13 = #B4009E
+color.terminalAnsi14 = #61D6D6
+color.terminalAnsi15 = #F2F2F2
 
 # --- Token colours (lexical kinds, then clangd semantic types / modifiers) -------------------------------------------
 token.keyword = #569CD6

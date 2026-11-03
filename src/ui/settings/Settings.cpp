@@ -71,7 +71,14 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"picker.preview", SettingType::Bool},
                                              {"explorer.trackActiveFile", SettingType::Bool},
                                              {"vcs.diffTool", SettingType::String},
-                                             {"vcs.diffToolArgs", SettingType::String}};
+                                             {"vcs.diffToolArgs", SettingType::String},
+                                             {"terminal.command", SettingType::String},
+                                             {"terminal.claudeCommand", SettingType::String},
+                                             {"terminal.cursorCommand", SettingType::String},
+                                             {"terminal.font", SettingType::Font},
+                                             {"terminal.fontSize", SettingType::Float},
+                                             {"terminal.scrollbackLines", SettingType::Int},
+                                             {"terminal.closeOnExit", SettingType::Bool}};
   return s;
 }
 

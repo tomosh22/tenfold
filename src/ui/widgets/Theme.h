@@ -98,6 +98,40 @@ struct Theme {
   Color treeSelection{0, 0, 0, 0};
   Color treeSelectionInactive{0, 0, 0, 0};
   Color treeFolder{0, 0, 0, 0};
+  // Integrated terminal (W8f), optional: background (unset = editorBackground, else panelBackground), foreground (unset
+  // = text), cursor (unset = the terminal foreground) and selection (unset = selectionActive, else selection). The 16
+  // ANSI colours always have a value: the Windows console "Campbell" palette unless the theme sets them.
+  Color terminalBackground{0, 0, 0, 0};
+  Color terminalForeground{0, 0, 0, 0};
+  Color terminalCursor{0, 0, 0, 0};
+  Color terminalSelection{0, 0, 0, 0};
+  Color terminalAnsi0{0.047f, 0.047f, 0.047f, 1};   // black         #0C0C0C
+  Color terminalAnsi1{0.773f, 0.059f, 0.122f, 1};   // red           #C50F1F
+  Color terminalAnsi2{0.075f, 0.631f, 0.055f, 1};   // green         #13A10E
+  Color terminalAnsi3{0.757f, 0.612f, 0.0f, 1};     // yellow        #C19C00
+  Color terminalAnsi4{0.0f, 0.216f, 0.855f, 1};     // blue          #0037DA
+  Color terminalAnsi5{0.533f, 0.090f, 0.596f, 1};   // magenta       #881798
+  Color terminalAnsi6{0.227f, 0.588f, 0.867f, 1};   // cyan          #3A96DD
+  Color terminalAnsi7{0.8f, 0.8f, 0.8f, 1};         // white         #CCCCCC
+  Color terminalAnsi8{0.463f, 0.463f, 0.463f, 1};   // bright black  #767676
+  Color terminalAnsi9{0.906f, 0.282f, 0.337f, 1};   // bright red    #E74856
+  Color terminalAnsi10{0.086f, 0.776f, 0.047f, 1};  // bright green  #16C60C
+  Color terminalAnsi11{0.976f, 0.945f, 0.647f, 1};  // bright yellow #F9F1A5
+  Color terminalAnsi12{0.231f, 0.471f, 1.0f, 1};    // bright blue   #3B78FF
+  Color terminalAnsi13{0.706f, 0.0f, 0.62f, 1};     // bright magenta #B4009E
+  Color terminalAnsi14{0.38f, 0.839f, 0.839f, 1};   // bright cyan   #61D6D6
+  Color terminalAnsi15{0.949f, 0.949f, 0.949f, 1};  // bright white  #F2F2F2
+  Color terminalBg() const { return orElse(terminalBackground, orElse(editorBackground, panelBackground)); }
+  Color terminalFg() const { return orElse(terminalForeground, text); }
+  Color terminalCursorColor() const { return orElse(terminalCursor, terminalFg()); }
+  const Color& terminalAnsi(int i) const {
+    static constexpr Color Theme::*kAnsi[16] = {
+        &Theme::terminalAnsi0,  &Theme::terminalAnsi1,  &Theme::terminalAnsi2,  &Theme::terminalAnsi3,
+        &Theme::terminalAnsi4,  &Theme::terminalAnsi5,  &Theme::terminalAnsi6,  &Theme::terminalAnsi7,
+        &Theme::terminalAnsi8,  &Theme::terminalAnsi9,  &Theme::terminalAnsi10, &Theme::terminalAnsi11,
+        &Theme::terminalAnsi12, &Theme::terminalAnsi13, &Theme::terminalAnsi14, &Theme::terminalAnsi15};
+    return this->*kAnsi[i & 15];
+  }
   Color vcsAdded() const { return orElse(diffAdded, {0.341f, 0.651f, 0.290f, 1}); }
   Color vcsModified() const { return orElse(diffModified, tabAccent); }
   Color vcsDeleted() const { return orElse(diffDeleted, diagnosticError); }

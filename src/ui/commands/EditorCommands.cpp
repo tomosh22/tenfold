@@ -380,6 +380,11 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.Copy", "Copy");
   addUi(r, "Editor.Cut", "Cut");
   addUi(r, "Editor.Paste", "Paste");
+  // W8f terminal panel
+  addUi(r, "Terminal.New", "New Terminal");
+  addUi(r, "Terminal.Show", "Show Terminal");
+  addUi(r, "Terminal.NewClaude", "New Claude Code Terminal");
+  addUi(r, "Terminal.NewCursor", "New Cursor Terminal");
   // W8c parser commands
   addUi(r, "Editor.RenameSymbol", "Rename Symbol...");
   addUi(r, "Editor.SubmitRenameSymbol", "Submit Rename Symbol");

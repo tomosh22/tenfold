@@ -219,3 +219,31 @@ The 10x documentation gives one sentence per command and one setting (ShowCollap
   has its marker, which can be clicked. Decide whether the default should follow 10x. 10x's MarginWidth (16) is not mirrored:
   the lane is one line height wide.
 * Folds are per view and per session; they are not saved in `layout.json` and are lost when the tab's view is rebuilt.
+
+## W8f detail: terminal panel
+
+The 10x documentation gives one sentence per terminal command ("Create a terminal panel", "Create or show an existing terminal.
+Cycle through if there are multiple.", "Create a new Claude Code terminal", "Create a new Cursor terminal") and the settings
+TerminalCommand (`cmd.exe`), ClaudeTerminalCommand (`claude`), CursorTerminalCommand (`cmd /c agent`), TerminalFont,
+TerminalFontSize. Everything else below is tenfold's choice, to be checked against a running 10x.
+
+* Host: a **tab in an editor panel**. 10x's panels hold tabs and "Create a terminal panel" reads as a panel-tab; the alternative
+  (a bottom dock like Build) would give one terminal only and no cycling. A terminal can be dragged to any panel. No setting.
+* `ShowTerminal` cycling: creation order; focused terminal -> next (wraps); terminal shown but not focused -> focus it; not
+  shown -> the one shown last. `NewTerminal` always creates.
+* Windows defaults on other platforms: `terminal.command = cmd.exe` means `$SHELL`, else `/bin/sh`; a leading `cmd /c` is dropped
+  (`cmd /c agent` runs `agent`). 10x has no Linux default, this is the guess. Settings are the 10x names in tenfold's
+  dotted style: `terminal.command`, `terminal.claudeCommand`, `terminal.cursorCommand`, `terminal.font`, `terminal.fontSize` (0 =
+  the editor size; 10x: "the tool font / size", read as tenfold's editor font).
+* Working directory: workspace root, else the current file's folder, else home (10x documents none).
+* Exit: the tab stays with the final screen and `[process exited with code N]`; `terminal.closeOnExit` (default false) closes it.
+  No restart key. Closing a tab kills the process tree without asking even if a program is running; so does quitting.
+* Scrollback 10000 lines (`terminal.scrollbackLines`). Copy/paste follows Visual Studio's terminal: Control C copies a selection
+  (and clears it; no selection = ^C), Control V pastes, right click pastes/copies (Windows Terminal style). No copy-on-select.
+* Keys that stay the app's while a terminal is focused: terminal commands, `Workbench.*` (tab/panel keys), quit, command palette,
+  explorer/build-panel/fullscreen/focus-mode/zoom toggles. Everything else, including Control K/F/O/W and Alt+letters, goes to
+  the program. Ctrl+Alt letters are treated as AltGr (text), not as a shortcut.
+* Look: `vs-dark` terminal background #1E1E1E, foreground #CCCCCC, ANSI palette "Campbell" (Windows console), steady block cursor
+  (blinking only when the program asks), bold = bright + double strike, no italic face. Values marked `[?]` in vs-dark.txt (see #19).
+* Not done: reflow, search, links, split inside a terminal, persistence across sessions, shell integration, OSC 52, a context menu.
+* ConPTY is untested at run time (compile-tested only); the first run on Windows may show problems the Linux tests cannot.

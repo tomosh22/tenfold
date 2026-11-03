@@ -94,3 +94,17 @@ explorer.trackActiveFile = false
 # default arguments the titles are passed as well (-nl "<file>#have" -nr "<file> (unsaved)").
 vcs.diffTool =
 vcs.diffToolArgs = ""{base}" "{current}""
+
+# Terminal panel (W8f). The first five mirror 10x's TerminalCommand (cmd.exe), ClaudeTerminalCommand (claude),
+# CursorTerminalCommand (cmd /c agent), TerminalFont and TerminalFontSize; command lines are split like a shell command
+# line (double quotes group). Off Windows, 10x's Windows defaults are translated: `cmd.exe` means $SHELL (else /bin/sh)
+# and a leading `cmd /c` is dropped. terminal.font empty = the editor font; terminal.fontSize 0 = the editor font size.
+terminal.command = cmd.exe
+terminal.claudeCommand = claude
+terminal.cursorCommand = cmd /c agent
+terminal.font =
+terminal.fontSize = 0
+# tenfold only (10x documents neither): lines of scrollback per terminal, and whether a terminal tab closes by itself
+# when its program exits (false: the tab keeps the final screen and "[process exited with code N]").
+terminal.scrollbackLines = 10000
+terminal.closeOnExit = false
