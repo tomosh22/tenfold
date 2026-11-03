@@ -84,10 +84,14 @@ struct Theme {
   Color diffBlockBackground{0, 0, 0, 0};  // rows of an inline diff block; unset = panelBackground 20% towards deleted
   Color diffBlockText{0, 0, 0, 0};        // the base (old) lines in that block; unset = textDim
   Color diffBlockHeader{0, 0, 0, 0};      // the block's header row with the buttons; unset = tabInactive
-  Color tabVcsModified{0, 0, 0, 0};       // tab marker, file modified (Git / Perforce); unset = dirtyMarker
-  Color tabVcsAdded{0, 0, 0, 0};          // new / untracked / opened for add; unset = the added colour
-  Color tabVcsCheckedOut{0, 0, 0, 0};     // Perforce checked out; unset = the deleted colour (red)
-  Color tabVcsReadOnly{0, 0, 0, 0};       // Perforce read-only, not checked out (outlined marker); unset = textDim
+  Color foldMarkerBackground{0, 0, 0,
+                             0};     // the {...} marker of a collapsed region; unset = panelBackground 12% towards text
+  Color foldMarkerText{0, 0, 0, 0};  // its text; unset = textDim
+  Color foldGlyph{0, 0, 0, 0};       // the gutter triangles (editor.showFoldGlyphs); unset = gutterText
+  Color tabVcsModified{0, 0, 0, 0};  // tab marker, file modified (Git / Perforce); unset = dirtyMarker
+  Color tabVcsAdded{0, 0, 0, 0};     // new / untracked / opened for add; unset = the added colour
+  Color tabVcsCheckedOut{0, 0, 0, 0};  // Perforce checked out; unset = the deleted colour (red)
+  Color tabVcsReadOnly{0, 0, 0, 0};    // Perforce read-only, not checked out (outlined marker); unset = textDim
   // Workspace explorer (W8f), optional: tree background (unset = panelBackground), selected row while the tree has the
   // keyboard focus (unset = selection) and while it has not (unset = currentLine), folder icon (unset = dirtyMarker).
   Color treeBackground{0, 0, 0, 0};

@@ -121,9 +121,69 @@ void WrapLayout::trim() {
 void WrapLayout::rebuild() {
   if (!dirty_) return;
   pre_.resize(entries_.size() + 1);
+  base_.resize(entries_.size());
   pre_[0] = 0;
-  for (size_t i = 0; i < entries_.size(); ++i) pre_[i + 1] = pre_[i] + entries_[i].rows - 1;
+  for (size_t i = 0; i < entries_.size(); ++i) {
+    const int line = entries_[i].line;
+    base_[i] = line - hiddenBefore(line) + pre_[i];
+    pre_[i + 1] = pre_[i] + (isHidden(line) ? 0 : entries_[i].rows - 1);
+  }
   dirty_ = false;
+}
+
+// ---- hidden lines ----
+
+void WrapLayout::setHidden(std::vector<HiddenRange> ranges) {
+  hid_.clear();
+  hiddenTotal_ = 0;
+  for (const HiddenRange& r : ranges) {
+    if (r.last < r.first) continue;
+    hid_.push_back({r.first, r.last, hiddenTotal_});
+    hiddenTotal_ += r.last - r.first + 1;
+  }
+  dirty_ = true;
+  ++gen_;
+}
+
+std::optional<WrapLayout::HiddenRange> WrapLayout::hiddenRangeOf(int line) const {
+  if (hid_.empty()) return std::nullopt;
+  auto it = std::upper_bound(hid_.begin(), hid_.end(), line, [](int l, const Hid& h) { return l < h.first; });
+  if (it == hid_.begin() || line > (it - 1)->last) return std::nullopt;
+  return HiddenRange{(it - 1)->first, (it - 1)->last};
+}
+
+bool WrapLayout::isHidden(int line) const {
+  if (hid_.empty()) return false;
+  auto it = std::upper_bound(hid_.begin(), hid_.end(), line, [](int l, const Hid& h) { return l < h.first; });
+  return it != hid_.begin() && line <= (it - 1)->last;
+}
+
+int WrapLayout::hiddenBefore(int line) const {
+  if (hid_.empty()) return 0;
+  auto it = std::upper_bound(hid_.begin(), hid_.end(), line, [](int l, const Hid& h) { return l < h.first; });
+  if (it == hid_.begin()) return 0;
+  const Hid& h = *(it - 1);
+  return h.before + std::min(line, h.last + 1) - h.first;
+}
+
+int WrapLayout::nextVisible(int line) const {
+  const int n = buf_ ? buf_->lineCount() : 0;
+  if (const auto r = hiddenRangeOf(line)) line = r->last + 1;
+  return std::min(line, n);
+}
+
+int WrapLayout::prevVisible(int line) const {
+  if (const auto r = hiddenRangeOf(line)) line = r->first - 1;
+  return line;
+}
+
+int WrapLayout::lineOfVisible(int v) const {
+  if (hid_.empty()) return v;
+  // The first visible line after range i has visible index first - before; lines from there on lie past range i.
+  auto it = std::upper_bound(hid_.begin(), hid_.end(), v, [](int x, const Hid& h) { return x < h.first - h.before; });
+  if (it == hid_.begin()) return v;
+  const Hid& h = *(it - 1);
+  return v + h.before + (h.last - h.first + 1);
 }
 
 WrapLayout::Entry* WrapLayout::touch(int line) {
@@ -259,18 +319,19 @@ float WrapLayout::xOf(int line, int row, int column) {
 // ---- whole document ----
 
 int WrapLayout::firstRowOf(int line) {
-  if (!enabled()) return line;
+  if (!enabled()) return line - hiddenBefore(line);
   trim();
   rebuild();
-  return line + pre_[lowerBound(line)];
+  return line - hiddenBefore(line) + pre_[lowerBound(line)];
 }
 
 int WrapLayout::totalRows() {
   if (!buf_) return 1;
-  if (!enabled()) return buf_->lineCount();
+  const int lines = std::max(1, buf_->lineCount() - hiddenTotal_);
+  if (!enabled()) return lines;
   trim();
   rebuild();
-  return buf_->lineCount() + pre_.back();
+  return lines + pre_.back();
 }
 
 int WrapLayout::lineOfRow(int vrow, int* row) {
@@ -278,33 +339,39 @@ int WrapLayout::lineOfRow(int vrow, int* row) {
     if (row) *row = 0;
     return 0;
   }
-  const int n = buf_->lineCount();
+  const int n = buf_->lineCount(), nv = std::max(1, n - hiddenTotal_);  // visible lines
   vrow = std::max(0, vrow);
   int line = vrow, r = 0;
   if (!enabled()) {
-    line = std::min(vrow, n - 1);
+    line = lineOfVisible(std::min(vrow, nv - 1));
   } else {
     trim();
     rebuild();
     size_t lo = 0, hi = entries_.size();  // entries whose first row is <= vrow
     while (lo < hi) {
       const size_t mid = (lo + hi) / 2;
-      if (entries_[mid].line + pre_[mid] <= vrow) lo = mid + 1;
+      if (base_[mid] <= vrow) lo = mid + 1;
       else hi = mid;
     }
+    int v = vrow;  // the row as an index into the visible lines when no wrapped line holds it
+    bool inside = false;
     if (lo > 0) {
       const Entry& e = entries_[lo - 1];
-      const int g = e.line + pre_[lo - 1];
-      if (vrow < g + e.rows) {
+      if (!isHidden(e.line) && vrow < base_[lo - 1] + e.rows) {
         line = e.line;
-        r = vrow - g;
+        r = vrow - base_[lo - 1];
+        inside = true;
       } else {
-        line = vrow - pre_[lo];
+        v = vrow - pre_[lo];
       }
     }
-    if (line >= n) {
-      line = n - 1;
-      r = std::max(0, rowsEstimate(line) - 1);
+    if (!inside) {
+      if (v >= nv) {
+        line = lineOfVisible(nv - 1);
+        r = std::max(0, rowsEstimate(line) - 1);
+      } else {
+        line = lineOfVisible(v);
+      }
     }
   }
   if (row) *row = r;
@@ -331,8 +398,9 @@ bool WrapLayout::nextRow(int& line, int& row) {
     ++row;
     return true;
   }
-  if (line + 1 >= buf_->lineCount()) return false;
-  ++line;
+  const int next = nextVisible(line + 1);
+  if (next >= buf_->lineCount()) return false;
+  line = next;
   row = 0;
   return true;
 }
@@ -342,8 +410,10 @@ bool WrapLayout::prevRow(int& line, int& row) {
     --row;
     return true;
   }
-  if (line <= 0) return false;
-  row = rowsOf(--line) - 1;
+  const int prev = prevVisible(line - 1);
+  if (prev < 0) return false;
+  line = prev;
+  row = rowsOf(line) - 1;
   return true;
 }
 

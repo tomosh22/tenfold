@@ -327,6 +327,15 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "View.ShowInWorkspaceTree", "Show Current File in Workspace Tree");
   addUi(r, "View.ShowInWorkspaceTreeWithToggle", "Show Current File in Workspace Tree (Close if Shown)");
   addUi(r, "View.ToggleWordWrap", "Toggle Word Wrap");
+  // Code folding (W8f): bound to the focused text view by EditorApp.
+  addUi(r, "Editor.CollapseRegion", "Collapse Region");
+  addUi(r, "Editor.ExpandRegion", "Expand Region");
+  addUi(r, "Editor.ToggleCollapseExpandRegion", "Toggle Collapse/Expand Region");
+  addUi(r, "Editor.ToggleCollapseExpandAllRegions", "Toggle Collapse/Expand All Regions");
+  addUi(r, "Editor.CollapseAllRegions", "Collapse All Regions");
+  addUi(r, "Editor.ExpandAllRegions", "Expand All Regions");
+  addUi(r, "Editor.CollapseAllRegionsRecursive", "Collapse All Regions Recursively");
+  addUi(r, "Editor.ExpandAllRegionsRecursive", "Expand All Regions Recursively");
   addUi(r, "Help.ShowCompileCommand", "Show Compile Command for Current File");
   addUi(r, "Vcs.NextChange", "Next Change");
   addUi(r, "Vcs.PrevChange", "Previous Change");

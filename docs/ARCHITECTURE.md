@@ -1534,6 +1534,54 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   `Editor.LineEndingCRLF` switch the line ending written on save). TODO: other encodings need detection and conversion
   that must not be invented without a decision.
 
+#### Code folding (W8f, `src/ui/view/FoldModel.*`, `WrapLayout`, `TextView`)
+
+The 10x CollapseRegions commands. The model is split in three, each of which exists for another reason:
+
+* **`FoldModel`** (pure value logic). `detect(lines)` scans a copy of the lines with the Highlighter's `lexLine`, so
+  braces in strings, character literals and comments do not count: brace pairs spanning >= 2 lines, multi-line block
+  comments (the line where `LexState::Block` begins to the line where it ends) and `#pragma region` / `#pragma
+  endregion` pairs (a `Preprocessor` span at the start of a directive). `#if` / `#endif` are not regions: the 10x
+  documentation names no region syntax at all (OPEN_QUESTIONS, "W8f detail"). One region per start line, the outermost.
+  A region is `{start, end}`; collapsing it hides `[start + 1, end]`, so the closing line is inside the marker.
+  `collapsed_` is the model's own sorted list, independent of the region set: edits move it (`onChange`: before the
+  edit it stays, after it it shifts by `lineDelta`, touching any of its lines expands it), `setRegions` reconciles it with
+  a fresh set by head line. `hidden()` merges the collapsed ranges into disjoint `WrapLayout::HiddenRange`s.
+* **Staleness.** Regions are recomputed off the main thread: `TextView::foldPoll` (from `onTick`) starts a
+  `std::thread` on a copy of the lines once typing paused for 150 ms and the set is stale; the result carries the
+  document and version it was computed for and is applied only if both still match (`foldJob_`, joined in the
+  destructor and when the document changes). Every edit patches the set in place (`FoldModel::onChange`: regions
+  before the edit stay, after it shift, around it keep their head and move their end, touched ones go) and marks it
+  not `fresh()`; the gutter glyphs use the patched set, the commands call `foldRefreshNow()` first when it is stale
+  (a synchronous scan: about 40 ms for 100k lines, on a key press, never on a keystroke that types text).
+* **`WrapLayout::setHidden`** is how hidden lines enter the row model, so RowBlocks, the scrollbar, hit testing,
+  selection painting and the caret keys keep using one mapping. A hidden line has no rows. `hid_` holds the ranges with the
+  count of hidden lines before each; `firstRowOf` = line - `hiddenBefore(line)` + the extra rows of the visible wrapped
+  lines before it (`rebuild()` skips hidden entries and keeps `base_[i]`, the first row of each entry);
+  `lineOfRow` maps a visible index back with `lineOfVisible`; `nextRow` / `prevRow` jump over a range;
+  `totalRows` subtracts the hidden lines. Everything works with wrap on or off (with wrap off `moveCaretsVisual` takes
+  over only the vertical keys, because `Editor::moveCarets` knows nothing about hidden lines). A hidden line maps to the
+  row of the next visible line (`firstRowOf`), but scrollbar marks of hidden lines are moved to their head line.
+  Cost: O(log ranges) per query, `rebuild()` is O(wrapped entries x log ranges) once per change.
+* **Display.** After the head line's last row the view draws a marker box (`...}` when the head line ends in `{`, else
+  `{...}`; `...*/` for comments; `...` for pragma regions; theme keys `foldMarkerBackground`, `foldMarkerText`), a click on it
+  expands. With `editor.showFoldGlyphs` (default off, so every golden is byte-identical) `Layout::setFoldLane` widens
+  the gutter by one line height between the numbers and the change strip and each region start gets a triangle
+  (`foldGlyph`; down = open, right = collapsed); a click toggles. A collapsed region moves nothing else: the gutter,
+  the text origin and the wrap width are the same with and without folds.
+* **Carets and jumps.** After a collapse, carets and selection ends in hidden lines go to the end of the head line
+  (`foldMoveCarets`). `syncState` opens every collapsed region that hides the head of any selection (go to line, find,
+  build error, Left from below, undo), `FoldModel::onChange` opens one an edit touches (typing at the end of its head
+  line included). Triple click on a collapsed head selects through the hidden lines. Inline diff blocks anchored in newly
+  hidden lines are closed. Collapsing / expanding keeps the first visible line where it is (`Viewport::shiftY`).
+* **Highlighter.** `prepareRuns` takes the visible lines as several runs: with a collapsed region between them the
+  hidden lines are not lexed provisionally (a lookback before each run only).
+* **Commands** (`EditorApp::bindEditingCommands`, `Editor.CollapseRegion` ... `Editor.ExpandAllRegionsRecursive`, 10x
+  names in `CommandNames.cpp`): they act on the focused (else the current visible) `TextView`; outside C/C++ files they
+  say so in the status bar. Semantics are in the user guide and OPEN_QUESTIONS.
+* **Measured** (Release, llvmpipe, 1920x1080, wrap on, 100k lines with 1000 collapsed regions): see
+  `foldview_perf_keystroke_to_paint_100k_lines_1000_collapsed_regions` (budget 8 ms; the numbers are printed by the test).
+
 ### EditorApp: input to commands (`src/ui/shell/EditorApp.*`, B-INT)
 
 `EditorApp(root, editor, workbench*)` is the glue the window's event loop calls. `handleEvent(e, nowMs)` turns a KeyDown

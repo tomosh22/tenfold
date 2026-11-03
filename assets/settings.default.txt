@@ -17,6 +17,10 @@ editor.tabWidth = 4
 # 0 = off (10x VerticalRulers is empty by default; tenfold draws one guide).
 editor.columnGuide = 0
 editor.showWhitespace = false
+# 10x ShowCollapseRegionMargin (default true there): triangles in the gutter, between the line numbers and the change
+# strip, that collapse / expand the region starting on a line. Off here so the gutter is unchanged until asked for
+# (a collapsed region always shows its {...} marker; the commands and click-on-marker work either way).
+editor.showFoldGlyphs = false
 
 # Editing conveniences (B8b: the defaults are 10x's documented defaults; the 10x setting each key mirrors is named).
 # indentUnit (10x IndentMode = Tabs): "tab" or the number of spaces of one indent level; used when detectIndent is off

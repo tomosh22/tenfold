@@ -506,6 +506,33 @@ void EditorApp::bindEditingCommands() {
         return true;
       },
       hasDoc);
+  // Code folding (W8f): the 10x CollapseRegions commands act on the focused (else the current visible) text view.
+  static const std::pair<const char*, TextView::FoldOp> kFoldCommands[] = {
+      {"Editor.CollapseRegion", TextView::FoldOp::Collapse},
+      {"Editor.ExpandRegion", TextView::FoldOp::Expand},
+      {"Editor.ToggleCollapseExpandRegion", TextView::FoldOp::Toggle},
+      {"Editor.ToggleCollapseExpandAllRegions", TextView::FoldOp::ToggleAll},
+      {"Editor.CollapseAllRegions", TextView::FoldOp::CollapseAll},
+      {"Editor.ExpandAllRegions", TextView::FoldOp::ExpandAll},
+      {"Editor.CollapseAllRegionsRecursive", TextView::FoldOp::CollapseAllRecursive},
+      {"Editor.ExpandAllRegionsRecursive", TextView::FoldOp::ExpandAllRecursive}};
+  for (const auto& [id, op] : kFoldCommands)
+    registry_.bind(
+        id,
+        [this, op = op](const CommandContext&, std::string_view) {
+          TextView* target = nullptr;
+          forEachView([&](TextView& v) {
+            if (v.isCurrent() && v.visible() && (!target || v.hasFocus())) target = &v;
+          });
+          if (!target) return false;
+          if (!target->foldingActive()) {
+            setMessage("Code folding is available in C/C++ files", kMessageMs);
+            return true;
+          }
+          target->foldCommand(op);
+          return true;
+        },
+        hasDoc);
   for (bool fwd : {true, false})
     registry_.bind(
         fwd ? "Editor.FindNextCurrentWord" : "Editor.FindPrevCurrentWord",

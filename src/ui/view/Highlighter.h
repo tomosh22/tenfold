@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 #include "core/Document.h"
@@ -53,6 +54,9 @@ class Highlighter {
 
   // Makes lines [first, last) available to colorSpans (exact when affordable, else provisional).
   void prepare(int first, int last);
+  // The same for several ascending runs of lines (a folded view shows lines with hidden ones in between): hidden
+  // lines are not lexed provisionally, only a lookback before each run.
+  void prepareRuns(const std::vector<std::pair<int, int>>& runs);
   // Spans of one prepared line, sorted, for TextRenderer::drawSpans with palette().
   const std::vector<gfx::ColorSpan>& colorSpans(int line);
   const std::vector<gfx::Color>& palette() const { return pal_; }
@@ -86,9 +90,13 @@ class Highlighter {
   const TextBuffer* buf_ = nullptr;
   std::vector<Entry> e_;
   int consistent_ = 0;
-  // Provisional lexing of [provBase_, provBase_ + prov_.size()) when the exact prefix is too far behind.
-  std::vector<Entry> prov_;
-  int provBase_ = 0, wantLast_ = 0;
+  // Provisional lexing of the wanted runs when the exact prefix is too far behind.
+  struct Seg {
+    int base = 0;
+    std::vector<Entry> e;
+  };
+  std::vector<Seg> provs_;
+  int wantLast_ = 0;
   bool provValid_ = false, pending_ = false;
 
   std::vector<TokenSpan> sem_;  // len == 0: dropped by an edit

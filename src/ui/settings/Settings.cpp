@@ -45,6 +45,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.tabWidth", SettingType::Int},
                                              {"editor.columnGuide", SettingType::Int},
                                              {"editor.showWhitespace", SettingType::Bool},
+                                             {"editor.showFoldGlyphs", SettingType::Bool},
                                              {"editor.indentUnit", SettingType::String},
                                              {"editor.detectIndent", SettingType::Bool},
                                              {"editor.autoIndent", SettingType::Bool},
@@ -299,7 +300,7 @@ EditorSettings editorSettings(const Settings& s) {
           s.getBool("editor.caretBlink"),     s.getBool("editor.highlightCurrentLine"),
           s.getBool("editor.showWhitespace"), s.getInt("editor.caretBlinkMs"),
           s.getInt("editor.wheelLines"),      s.getInt("editor.tabWidth"),
-          s.getInt("editor.columnGuide")};
+          s.getInt("editor.columnGuide"),     s.getBool("editor.showFoldGlyphs")};
 }
 
 // ---- SettingsService ----

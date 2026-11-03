@@ -193,3 +193,29 @@ state, so these are choices, taken from Visual Studio's Solution Explorer:
 * `TrackActiveFileInWorkspaceTree` (default false in 10x) is `explorer.trackActiveFile`; tracking never takes the keys.
 * `EnableWorkspaceTreeDragDrop`, the 10x workspace file's "Sync Folder" and exclude filters, and file operations (new,
   rename, delete, show in file manager from the tree) are not implemented.
+## W8f detail: code folding (CollapseRegions)
+
+The 10x documentation gives one sentence per command and one setting (ShowCollapseRegionMargin); nothing on what a
+"region" is or how the recursive variants differ. tenfold's reading, to be checked against a running 10x:
+
+* **What a region is.** `{ ... }` blocks spanning at least two lines, multi-line `/* */` comments and `#pragma region` /
+  `#pragma endregion` pairs, from the lexer (braces in strings and comments do not count). `#if` / `#endif` blocks and
+  runs of `//` comments are not regions. Only C and C++ files have regions.
+* **What collapsing hides.** Every line after the first one through the closing line, shown as a marker after the first
+  line (`head {...}`); text after the closing brace (`} else {`, `};`) is hidden with it. 10x's exact marker is unknown.
+* **"The current region"** (`CollapseRegion`, `ToggleCollapseExpandRegion`): the innermost region around the caret line
+  that is not collapsed already (so repeating the key walks outwards). `ExpandRegion`: the collapsed region that starts on
+  the caret line (the caret is never inside a collapsed one).
+* **"All regions"**: `CollapseAllRegions` / `ExpandAllRegions` act on the outermost level (collapse: regions not
+  inside another region; expand: collapsed regions whose first line is visible, nested ones keep their state), the
+  `...Recursive` variants on every depth. 10x may mean something else by "recursive".
+* **`ToggleCollapseExpandAllRegions`** (Visual Studio's Toggle All Outlining): when every region is collapsed or hidden by a
+  collapsed one it expands everything, otherwise it collapses everything (all depths).
+* **Opening on landing.** A caret that lands in a collapsed region (jump, find, build error, Left/Right/Up/Down onto a hidden
+  line is not possible for Up/Down, but is for Left/Right and word moves) expands every region that hides it; so does an edit
+  touching a region's lines, including typing at the end of its first line.
+* **`editor.showFoldGlyphs`** mirrors ShowCollapseRegionMargin (10x default true) but defaults to **false**: turning it on
+  widens the gutter, which would change every existing golden image and the text position. A collapsed region always
+  has its marker, which can be clicked. Decide whether the default should follow 10x. 10x's MarginWidth (16) is not mirrored:
+  the lane is one line height wide.
+* Folds are per view and per session; they are not saved in `layout.json` and are lost when the tab's view is rebuilt.

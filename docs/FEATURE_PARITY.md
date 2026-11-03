@@ -73,7 +73,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 19 of the 183 default bindings (18 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 15 of the 183 default bindings (14 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 164 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 19 bindings (18 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 168 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 15 bindings (14 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -124,15 +124,6 @@ the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the
 | Command | Default keys | 10x description |
 | --- | --- | --- |
 | `PasteHistory` | `Control Shift V` | Show the paste history dropdown |
-
-**CollapseRegions**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `CollapseRegion` | `Control Shift [` | Collapse the current region |
-| `ExpandRegion` | `Control Shift ]` | Expand the current region |
-| `ToggleCollapseExpandRegion` | `Control M, Control M` | Toggle the collapse/expand of the current region |
-| `ToggleCollapseExpandAllRegions` | `Control M, Control L` | Toggle the collapse/expand of the all regions in the file |
 
 **Parser**
 
@@ -181,7 +172,6 @@ when bound in a key file.)
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
 - **Formatting**: `ToggleIndentMode`, `FormatFile`
 - **MultiCursor**: `StartDraggingRectSelect`
-- **CollapseRegions**: `CollapseAllRegions`, `ExpandAllRegions`, `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`
 - **Navigation**: `NextEditLocation`
 - **Bookmarks**: `RemoveAllBookmarks`
 - **FindInFiles**: `ShowFindInFilesResults1`, `ShowFindInFilesResults2`, `ShowFindInFilesResults3`, `ShowFindInFilesResults4`, `ToggleFindInFilesResultsPanel1`, `ToggleFindInFilesResultsPanel2`, `ToggleFindInFilesResultsPanel3`, `ToggleFindInFilesResultsPanel4`
@@ -241,6 +231,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.autoAddCloseBracket` | AutoAddCloseBracket (false) | `(` and `[` |
 | `editor.bracketSelectedText` | BracketSelectedText (true) | |
 | `editor.showWhitespace` | ShowWhitespace (false) | |
+| `editor.showFoldGlyphs` | ShowCollapseRegionMargin (true) | default **false** here: the gutter stays as it was until asked; a collapsed region always shows its `{...}` marker |
 | `editor.columnGuide` | VerticalRulers (empty) | 10x takes a list; tenfold one column |
 | `editor.wheelLines` | MouseWheelScrollStep (3) | |
 | `editor.caretBlink`, `editor.caretBlinkMs` | CursorBlinkRate (auto) | auto = the OS rate; 0 = off. tenfold uses 530 ms |
@@ -304,7 +295,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | GotoDefResolvesTypedefs, GotoFunctionImplementation | false, true | Typedef resolution; a call goes to the implementation, not the declaration | S/M. Result order comes from clangd; check |
 | FindSymbolFuzzyMatching | true | Fuzzy matching in Find Symbol | S. Behaviour exists (always on) |
 | ShowLineNumbers, MinLineNumberWidth, RelativeLineNumbers | true, 3, false | Line number gutter | S each |
-| ShowCollapseRegionMargin | true | Fold margin | L. Folding does not exist |
 | ShowUpdatedLinesInMargin, ShowUpdatedLinesInScrollBar | true, true | Mark modified lines | S. Version-control marks exist (C3c) but track the VCS base, not unsaved edits |
 | ScrollBarMode, MapScrollBarWidth | Map, 60 | Minimap-style scroll bar | L |
 | HighlightFindTextInScrollBar, HighlightSelectedWordInScrollBar, ScrollBarHighlightSize | true, false, 1.0 | Marks in the scroll bar | S. Find marks and diagnostics exist; selection marks do not |

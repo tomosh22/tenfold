@@ -88,6 +88,10 @@ color.diffDeleted = #F14C4C
 color.diffBlockBackground = #4B1818
 color.diffBlockText = #D7BABA
 color.diffBlockHeader = #2D2D30
+# Collapsed region: the {...} marker after the head line, and the gutter triangles (editor.showFoldGlyphs).
+color.foldMarkerBackground = #3A3D41
+color.foldMarkerText = #A0A0A0
+color.foldGlyph = #A0A0A0
 # Tab markers: modified, added / untracked, Perforce checked out, Perforce read-only (outlined).
 color.tabVcsModified = #E2C08D
 color.tabVcsAdded = #73C991
