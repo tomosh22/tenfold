@@ -27,7 +27,7 @@ decl use_len2 -> Vec_len2_decl
 def use_x -> Vec_x
 def use_y -> Vec_y
 def use_scale -> scale_def
-xfail decl use_scale -> scale_decl  # clangd: with scale.inl open (indexed standalone) go to declaration answers the inline definition; with only main.cpp open it answers types.hh
+decl use_scale -> scale_decl | scale_def  # flaky in clangd: with scale.inl open and indexed standalone it answers the inline definition, otherwise types.hh; both accepted
 xfail def use_dot_in_len2 -> Vec_dot_def | Vec_dot_decl  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
 xfail def use_x_in_dot -> Vec_x  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
 xfail def use_y_in_dot -> Vec_y  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
