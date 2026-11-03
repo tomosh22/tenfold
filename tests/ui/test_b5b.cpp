@@ -501,7 +501,7 @@ TEST(completion_keeps_the_keystroke_to_paint_budget_with_a_big_list) {
             << worst << " ms (budget 8 ms)\n";
   CHECK(env.app->completion().isOpen());
 #ifdef NDEBUG  // the budget is a Release number; sanitizer / Debug builds only report it
-  CHECK(worst < 8.0);
+  PERF_CHECK(worst < 8.0, "completion keystroke-to-paint with 5000 items (8 ms)");
 #endif
 }
 

@@ -28,11 +28,53 @@ tools/bench.sh --large /path/to/godot --file scene/3d/node_3d.cpp:171:45 --sym N
 
 ### Timing asserts in the test suites (A11)
 
-Wall-clock budgets are flaky on loaded or shared machines, so unit tests never assert on elapsed time unless
-that is the test's point. `renderer_perf_visible_region` (`tests/ui/test_renderer.cpp`, the 2 ms CPU per frame
-target) always prints its `PERF:` lines but only fails the build when `TENFOLD_ENFORCE_PERF=1` is set in the
-environment; use that on a quiet machine (`TENFOLD_ENFORCE_PERF=1 xvfb-run -a ./build-ui/tenfold-ui-tests
-renderer_perf`). Without it, a missed budget prints `PERF: over the 2 ms budget (not enforced ...)`.
+Wall-clock budgets depend on the machine (memory bandwidth, CPU, a loaded or shared runner), so a budget miss is
+not a functional failure. Every performance number is always printed (`PERF:` / `BENCH` / `bench:` lines), but a
+budget assertion only fails the test when `TENFOLD_ENFORCE_PERF=1` is set. In `tests/test_main.h`,
+`tftest::enforcePerf()` reads the variable and `PERF_CHECK(cond, what)` is a `CHECK` when enforcing; otherwise a
+miss prints `PERF: <what> over budget (not enforced; set TENFOLD_ENFORCE_PERF=1)`. The UI and text suites include
+the same header. Budgets that are only meaningful in an optimised, unsanitised build are additionally compiled
+out of Debug / sanitizer builds (`#if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)`).
+
+Functional timeouts and liveness bounds are not budgets and stay plain `CHECK`s whatever the variable says:
+`waitFor` / `waitUntil` deadlines, "the request fails promptly" (< 5 s), "shutdown does not hang", "debug
+commands do not block the caller", cancel latency, file-watcher stop time, p4 detect cut-offs, debounce windows.
+
+Run the budgets on a quiet machine:
+
+```sh
+TENFOLD_ENFORCE_PERF=1 ./build/release/tenfold-tests
+TENFOLD_ENFORCE_PERF=1 ./build-ui/tenfold-text-tests
+TENFOLD_ENFORCE_PERF=1 xvfb-run -a ./build-ui/tenfold-ui-tests          # or one test: ... perf / keystroke
+```
+
+Enforced budgets (Release):
+
+| Test (file) | Budget |
+|---|---|
+| `renderer_perf_visible_region` (`ui/test_renderer.cpp`) | record < 2 ms/frame; record + submit < 2 ms/frame on a hardware GL driver |
+| text view warm frame (`ui/test_text_view.cpp`) | layout + flush + record < 2 ms/frame |
+| textview keystroke-to-paint, 100k lines (`ui/test_editor_view.cpp`) | < 8 ms |
+| VCS marks keystroke-to-paint (`ui/test_vcs_ui.cpp`) | < 8 ms |
+| colouring keystroke-to-paint; cold first paint (`ui/test_view_colouring.cpp`) | < 8 ms; top and scrolled < 50 ms |
+| wrap keystroke-to-paint, incl. the 50 MB single line (`ui/test_wrap.cpp`) | < 8 ms |
+| wrap of a 3 MB single line (`ui/test_wrap.cpp`) | first rows < 1 ms, re-scan after typing < 2 ms |
+| completion with 5000 items (`ui/test_b5b.cpp`) | keystroke-to-paint worst < 8 ms |
+| B8 smart typing in a 100k-line file (`ui/test_b8.cpp`) | < 8 ms per keystroke |
+| log call cost (`test_log.cpp`) | filtered-out `Log::debug` < 1 us, buffered `Log::info` < 20 us |
+| `findSymbols` call returns (`test_symbol_search.cpp`) | < 5 ms with a 200k-symbol index |
+| VCS main-thread cost (`test_vcs_manager.cpp`) | `Document::replace` incl. notification < 50 ms on 100k lines |
+| solution evaluation benchmark (`test_vcxproj.cpp`) | median < 5 s |
+| text layout / cold atlas benchmarks (`text/test_bench.cpp`) | warm layout best < 20 ms; cold ASCII fill < 200 ms |
+
+The 50 MB single-line wrap test is memory-bandwidth bound (about 10 ms per edit on some machines even though the
+code has not regressed), so it can miss 8 ms on slower hardware.
+
+CI: only `linux-gcc-release` (engine suite, `TENFOLD_ENFORCE_PERF=1` on its Test step through the matrix field
+`enforce_perf`) enforces budgets. The UI budgets (keystroke-to-paint, frame times) are printed by `linux-ui-xvfb` but not
+enforced there: it renders with Mesa llvmpipe on shared runners, whose 2 ms frame budgets were never enforced in CI;
+run them locally on a real GPU with `TENFOLD_ENFORCE_PERF=1`. The clang, sanitizer, TSan, Windows and macOS jobs never
+set it.
 
 ### Phases
 

@@ -812,6 +812,6 @@ TEST(vs_benchmark_fifty_project_solution) {
   std::cerr << "    bench: " << projects << " projects / " << count << " files evaluated in median " << ms[2]
             << " ms (min " << ms[0] << ", max " << ms[4] << ")\n";
   CHECK_EQ(count, static_cast<size_t>(projects * filesPerProject));
-  CHECK(ms[2] < 5000);
+  PERF_CHECK(ms[2] < 5000, "solution evaluation median (5000 ms)");
   fs::remove_all(dir);
 }

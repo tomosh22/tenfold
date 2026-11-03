@@ -217,12 +217,7 @@ TEST(renderer_perf_visible_region) {
   const bool software = rn.find("llvmpipe") != std::string::npos || rn.find("softpipe") != std::string::npos ||
                         rn.find("Software") != std::string::npos;
   std::printf("PERF: renderer \"%s\"%s\n", rn.c_str(), software ? " (software: submit time not representative)" : "");
-  const char* enforce = std::getenv("TENFOLD_ENFORCE_PERF");
-  if (enforce && std::string(enforce) == "1") {
-    CHECK(rec / n < 2.0);
-    if (!software) CHECK((rec + sub) / n < 2.0);
-  } else if (rec / n >= 2.0 || (!software && (rec + sub) / n >= 2.0)) {
-    std::printf("PERF: over the 2 ms budget (not enforced; set TENFOLD_ENFORCE_PERF=1 to enforce)\n");
-  }
+  PERF_CHECK(rec / n < 2.0, "renderer record time per frame (2 ms)");
+  if (!software) PERF_CHECK((rec + sub) / n < 2.0, "renderer record + submit time per frame (2 ms)");
 #endif
 }

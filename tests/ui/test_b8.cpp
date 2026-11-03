@@ -463,7 +463,7 @@ TEST(b8_smart_typing_stays_in_the_keystroke_budget) {
     const double ms = std::chrono::duration<double, std::milli>(clk::now() - t0).count() / (5.0 * n);
     std::printf("PERF: B8 smart typing ({ Enter } ( )) in a 100k-line file: %.4f ms per keystroke (budget 8 ms)\n", ms);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-    CHECK(ms < 8.0);
+    PERF_CHECK(ms < 8.0, "B8 smart typing keystroke (8 ms)");
 #endif
   }
   std::error_code ec;

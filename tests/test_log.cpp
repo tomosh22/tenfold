@@ -463,6 +463,7 @@ TEST(log_cost_filtered_and_logged_calls) {
   std::cerr << "    log cost: filtered-out TF_LOG_DEBUG " << filteredMacro << " ns, filtered-out Log::debug "
             << filteredCall << " ns, Log::info (buffered) " << info << " ns, final flush of " << kLogged << " records "
             << ns(t3, t4) / 1e6 << " ms\n";
-  CHECK(filteredCall < 1000);  // generous: only catches formatting or locking on the filtered path
-  CHECK(info < 20000);
+  // generous: only catches formatting or locking on the filtered path
+  PERF_CHECK(filteredCall < 1000, "filtered-out Log::debug call cost (1000 ns)");
+  PERF_CHECK(info < 20000, "buffered Log::info call cost (20000 ns)");
 }

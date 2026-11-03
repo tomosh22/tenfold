@@ -34,6 +34,9 @@ jobs:
             cc: gcc
             cxx: g++
             experimental: false
+            # One optimised, unsanitised Linux job enforces the performance budgets (docs/BENCHMARKS.md); every other
+            # job (clang, sanitizers, Windows, macOS) only prints them.
+            enforce_perf: "1"
           - name: linux-clang-release
             os: ubuntu-24.04
             preset: release
@@ -102,6 +105,8 @@ jobs:
 
       - name: Test
         shell: bash
+        env:
+          TENFOLD_ENFORCE_PERF: ${{ matrix.enforce_perf }}
         run: ctest --preset "${{ matrix.preset }}" --timeout 300
 
   # ThreadSanitizer on the engine suite only (the UI tests stay out: Mesa / SDL are noisy under TSan).

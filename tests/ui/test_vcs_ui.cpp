@@ -1240,6 +1240,6 @@ TEST(vcs_perf_keystroke_to_paint_with_marks_100k_lines) {
       "(budget 8 ms, n=%d)\n",
       sum / n, total[static_cast<size_t>(n * 0.99)], n);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  CHECK(sum / n < 8.0);
+  PERF_CHECK(sum / n < 8.0, "vcs marks keystroke-to-paint (8 ms)");
 #endif
 }

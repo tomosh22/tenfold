@@ -687,7 +687,7 @@ TEST(textview_perf_keystroke_to_paint_100k_lines) {
         carets, sumE / n, sumP / n, (sumE + sumP) / n, total[static_cast<size_t>(n * 0.99)], scroll / ns,
         submit < 0 ? "n/a" : (std::to_string(submit).substr(0, 5) + " ms").c_str(), n);
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-    CHECK((sumE + sumP) / n < 8.0);
+    PERF_CHECK((sumE + sumP) / n < 8.0, "textview keystroke-to-paint (8 ms)");
 #endif
   }
 }
