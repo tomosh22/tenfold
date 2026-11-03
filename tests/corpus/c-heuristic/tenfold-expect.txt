@@ -1,0 +1,41 @@
+# c-heuristic: a C project without compile_commands.json or .sln: tenfold has to pick the C language and a C standard for
+# .c files by itself (the identifiers below are keywords in C++, so a C++ parse breaks navigation).
+
+xfail fast def use_class -> class_def | class_decl  # fast lexer treats C++ keywords (class) as keywords even in a .c file: nothing is indexed under that name
+xfail fast def use_delete -> delete_def | delete_decl  # same for the C++ keyword delete
+fast def use_is_even -> is_even_def | is_even_decl
+fast sym "arr_sum" -> arr_sum_def | arr_sum_decl
+
+def use_class -> class_def
+decl use_class -> class_decl
+def use_delete -> delete_def
+decl use_delete -> delete_decl
+def use_copy -> copy_def
+decl use_copy -> copy_decl
+def use_arr_sum -> arr_sum_def
+decl use_arr_sum -> arr_sum_decl
+def use_is_even -> is_even_def
+def use_template -> template_param
+def use_f_new -> f_new
+def desig_new -> f_new
+def desig_private -> f_private
+def use_f_private -> f_private
+def use_f_new_main -> f_new
+refs f_new = f_new desig_new use_f_new use_f_new_main
+refs f_private = f_private desig_private use_f_private
+refs class_decl >= class_decl class_def use_class
+refs template_param = template_param use_template
+hover use_arr_sum ~ "arr_sum" "int"
+hover use_f_new ~ "new" "int"
+rename f_new count
+  f_new desig_new use_f_new use_f_new_main
+sym "arr_sum" -> arr_sum_def | arr_sum_decl
+sym "is_even" ∋ is_even_def
+
+# ---- the header opened on its own: it is not in the generated database; clangd has to guess C from the neighbour .c files ----
+open include/util.h
+hover class_decl ~ "class" "int"
+hover delete_decl ~ "delete"
+hover f_new ~ "new" "int"
+hover arr_sum_decl ~ "arr_sum"
+refs copy_decl >= copy_decl copy_def use_copy

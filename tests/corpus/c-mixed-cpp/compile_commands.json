@@ -1,0 +1,7 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/codec.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/codec.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/callbacks.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/callbacks.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/wrapper.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/wrapper.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/callback_impl.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/callback_impl.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.cpp"]}
+]

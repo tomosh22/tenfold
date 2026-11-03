@@ -1,0 +1,90 @@
+# c-mixed-cpp: one header (extern "C" guarded by __cplusplus) shared by C (-std=c11) and C++ (-std=c++17) translation
+# units; C calls a function implemented in C++ and the other way round; a C++ class wraps an opaque C handle.
+
+# ---- fast tier ----
+fast def use_on_code -> on_code_def
+xfail fast def use_codec_new -> codec_new_def  # fast tier also answers the prototype in codec.h (two results instead of one jump)
+xfail fast def use_cpp_notify_in_c -> cpp_notify_def  # same: prototype and definition both answered
+xfail fast def use_c_checksum_main -> c_checksum_def  # same: prototype and definition both answered
+xfail fast def use_Codec_run -> Codec_run_def  # fast tier is name-only: every run() (ICodec, Codec in class and out of line, NullCodec) is answered
+fast def use_cpp_only_c -> cpp_only_c_def | cpp_only_c_decl
+xfail fast def use_version -> CODEC_VERSION_def  # fast tier does not index #define macros
+fast sym "codec_encode" -> codec_encode_def | codec_encode_decl
+fast sym "cpp_notify" ∋ cpp_notify_def
+fast sym "NullCodec" -> NullCodec
+fast sym "ICodec" -> ICodec
+
+# ---- definitions and declarations across the language boundary ----
+def use_codec_new -> codec_new_def
+decl use_codec_new -> codec_new_decl
+def use_codec_new_main -> codec_new_def
+decl use_codec_new_main -> codec_new_decl
+def use_codec_encode -> codec_encode_def
+def use_codec_encode_main -> codec_encode_def
+def use_codec_free -> codec_free_def
+decl use_codec_free -> codec_free_decl
+def use_codec_free_main -> codec_free_def
+def use_c_checksum_in_c -> c_checksum_def
+decl use_c_checksum_in_c -> c_checksum_decl
+def use_c_checksum_main -> c_checksum_def
+decl use_c_checksum_main -> c_checksum_decl
+def use_cpp_notify_in_c -> cpp_notify_def
+decl use_cpp_notify_in_c -> cpp_notify_decl
+def use_cpp_notify_cb -> cpp_notify_def
+def use_cpp_only_c -> cpp_only_c_def
+decl use_cpp_only_c -> cpp_only_c_decl
+
+# ---- types shared by C and C++ ----
+def use_codec_td_main -> codec_td
+def use_codec_td_member -> codec_td
+def use_count_c -> codec_count
+def use_opts_cb_c -> opts_cb
+def use_level_main -> opts_level
+refs codec_count = codec_count use_count_c
+refs opts_level = opts_level use_level_main
+refs opts_cb = opts_cb use_opts_cb_c use_opts_cb_c2
+hover use_codec_new ~ "codec_new" "codec_opts"
+hover use_codec_td_main ~ "codec"
+hover use_level_main ~ "level" "int"
+
+# ---- C++ class wrapping the handle ----
+def use_Codec -> Codec | Codec_ctor | Codec_ctor_def
+def use_Codec_run -> Codec_run_def
+decl use_Codec_run -> Codec_run
+def use_ICodec -> ICodec
+def use_NullCodec -> NullCodec
+def use_ICodec_run -> ICodec_run
+def use_calls -> Codec_calls
+def use_calls_field -> calls_field
+def use_on_code -> on_code_def
+refs calls_field = calls_field use_calls_field use_calls_getter
+refs Codec_calls = Codec_calls use_calls
+impl ICodec_run = Codec_run_def NullCodec_run
+impl ICodec = Codec NullCodec
+refs ICodec_run >= ICodec_run use_ICodec_run
+hover use_Codec_run ~ "run" "int"
+hover use_calls ~ "calls" "int"
+
+# ---- references and rename across .c / .cpp / header ----
+refs codec_free_decl = codec_free_decl codec_free_def use_codec_free use_codec_free_main
+refs codec_new_decl = codec_new_decl codec_new_def use_codec_new use_codec_new_main
+refs codec_encode_decl = codec_encode_decl codec_encode_def use_codec_encode use_codec_encode_main
+refs c_checksum_decl = c_checksum_decl c_checksum_def use_c_checksum_in_c use_c_checksum_main
+refs cpp_notify_decl = cpp_notify_decl cpp_notify_def use_cpp_notify_in_c use_cpp_notify_cb
+refs cpp_only_c_decl = cpp_only_c_decl cpp_only_c_def use_cpp_only_c
+refs CODEC_VERSION_def = CODEC_VERSION_def use_version_c use_version
+hover use_version ~ "CODEC_VERSION" "3"
+rename cpp_notify_def cpp_notify2
+  cpp_notify_decl cpp_notify_def use_cpp_notify_in_c use_cpp_notify_cb
+rename c_checksum_def c_sum
+  c_checksum_decl c_checksum_def use_c_checksum_in_c use_c_checksum_main
+rename Codec Encoder
+  Codec Codec_ctor Codec_ctor_def use_Codec
+rename calls_field calls_total
+  calls_field use_calls_field use_calls_getter
+
+sym "codec_encode" -> codec_encode_def | codec_encode_decl
+sym "cpp_notify" ∋ cpp_notify_def
+sym "Codec" ∋ Codec
+sym "NullCodec" -> NullCodec
+sym "on_code" -> on_code_def

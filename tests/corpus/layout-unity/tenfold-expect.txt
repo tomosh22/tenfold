@@ -1,0 +1,59 @@
+# layout-unity: a unity build. build_unity.cpp #includes alpha.cpp, beta.cpp and gamma.cpp; only build_unity.cpp (and
+# main.cpp) are in the compile database. beta.cpp and gamma.cpp use names declared in the files included before them,
+# so they do not compile alone. A correct IDE answers from the unity translation unit.
+
+# ---- fast tier (name-based, independent of translation units) ----
+fast def use_alpha_main -> alpha_total_def | api_alpha_decl
+fast def use_bump_beta -> bump_def
+fast def use_alpha_total_beta -> alpha_total_def | api_alpha_decl
+fast def use_beta_total_gamma -> beta_total_def | api_beta_decl
+fast def use_scaled_beta -> scaled_def
+fast sym "gamma_report" -> gamma_report_def | api_gamma_decl
+fast sym "bump" -> bump_def
+fast sym "Item" -> Item
+
+# ---- through the public header (main.cpp has an ordinary command) ----
+def use_alpha_main -> alpha_total_def
+decl use_alpha_main -> api_alpha_decl
+def use_beta_main -> beta_total_def
+def use_gamma_main -> gamma_report_def
+decl use_gamma_main -> api_gamma_decl
+def use_total_main -> Report_total
+xfail refs Report_total >= Report_total use_total_main use_total_gamma  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail refs alpha_total_def >= api_alpha_decl alpha_total_def use_alpha_main use_alpha_total_beta use_alpha_total_gamma  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail refs beta_total_def >= api_beta_decl beta_total_def use_beta_main use_beta_total_gamma  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+hover use_alpha_main ~ "alpha_total" "int"
+
+# ---- inside the part that comes first (alpha.cpp compiles alone and in the unity TU) ----
+def use_bump_alpha -> bump_def
+def use_scaled_alpha -> scaled_def
+def use_counter_alpha -> g_counter
+def use_weight_alpha -> Item_weight
+def use_id_alpha -> Item_id
+xfail refs Item_weight = Item_weight use_weight_alpha use_weight_beta  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+refs Item_id = Item_id use_id_alpha
+
+# ---- parts that depend on the earlier ones: only the unity TU can resolve these ----
+xfail def use_bump_beta -> bump_def  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_scaled_beta -> scaled_def  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_counter_beta -> g_counter  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_Item_beta -> Item  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_weight_beta -> Item_weight  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_alpha_total_beta -> alpha_total_def  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_beta_total_gamma -> beta_total_def  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_alpha_total_gamma -> alpha_total_def  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail def use_counter_gamma -> g_counter  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+def use_total_gamma -> Report_total
+xfail hover use_bump_beta ~ "bump" "int"  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail refs g_counter = g_counter use_counter_alpha use_counter_beta use_counter_gamma  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail refs bump_def >= bump_def use_bump_alpha use_bump_beta  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail refs scaled_def = scaled_def use_scaled_alpha use_scaled_beta  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+xfail rename scaled_def scale3  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+  scaled_def use_scaled_alpha use_scaled_beta
+xfail rename g_counter g_calls  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+  g_counter use_counter_alpha use_counter_beta use_counter_gamma
+xfail rename Item_weight w  # beta.cpp/gamma.cpp are not in the compile database (only the unity file is), so clangd parses them standalone where the names of alpha.cpp are undeclared, and the standalone parse replaces the unity TU's references
+  Item_weight use_weight_alpha use_weight_beta
+sym "alpha_total" ∋ alpha_total_def
+sym "beta_total" ∋ beta_total_def
+sym "scaled" -> scaled_def
