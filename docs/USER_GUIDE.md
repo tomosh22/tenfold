@@ -228,6 +228,8 @@ row accepts it, a click outside closes it.
 | **Control O** (`OpenFile`) or **Shift Alt O** (`FindFile`); tenfold `File.OpenFile` | Open a file by fuzzy name. The file name weighs four times as much as the rest of the path; recently used files come first and lead the empty list. Several words must all match. Opening is a tab switch, not a history jump. |
 | **Ctrl+,** (`Search.SymbolSearch`) | Workspace symbol search: fuzzy and qualified (`geo::Tr`). Approximate rows appear at once and are replaced by clangd's; the right pane previews the target line (`picker.preview`). Enter jumps and records history. |
 | **Ctrl+Shift+F** (`Search.FindInWorkspace`) | Find in files. Results stream in grouped by file with the match highlighted. **Alt+C** case, **Alt+W** whole word, **Alt+R** regex (PCRE2). Add file globs after ` :: `, for example `foo :: *.cpp, !third_party` (`!` excludes). A single-line selection seeds the query. Open buffers are searched with their unsaved text. |
+| **Ctrl+Shift+A** (`NewSearchPanel`; tenfold `Search.NewFindInFiles`) | A new, independent find-in-files result list: the current one is kept aside (the last three are kept) and the picker opens empty. **Alt+PageUp** / **Alt+PageDown** in the picker bring the previous / next kept list back with its query, options and results; F4 / Shift F4 and the scrollbar marks follow the list that is current. |
+| **Ctrl+Shift+H** (`ReplaceInFiles`; tenfold `Search.ReplaceInFiles`) | Replace in files: the find-in-files query (same options and globs) plus a **replace field** (Tab switches fields). The matches are a checklist grouped by file; each row shows the line with the old text struck and the replacement after it, so the list is the preview. **Insert** checks / unchecks the row (a file row: all its matches), **Alt+T** all / none, a click on the box too. **Enter** replaces the checked matches: open documents are edited in place (one undo step per document, left unsaved), files that are not open are rewritten on disk after **one confirmation** (Enter again; Escape goes back). The replacement is literal text (no `$1`), and a match whose line changed since the search is skipped and counted in the message. |
 | **F4** / **Shift F4** (`GotoNextResult` / `GotoPrevResult`) | Next / previous find-in-files result, wrapping, even after the popup is closed; files with matches get marks on the scrollbar. |
 | `View.ShowDiagnostics` (no default key; command palette) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. |
 | **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list. |
@@ -284,7 +286,11 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
 * **Find / replace in the file** (Ctrl+F, Ctrl+H): a bar at the top right of the editor; typing searches at once and
   highlights every match, Enter / F3 next, Shift+Enter / Shift+F3 previous, Alt+C / Alt+W / Alt+R toggle case, whole word,
   regex. In the replace field Enter replaces and moves on, Ctrl+Enter replaces all (one undo step), Tab switches fields,
-  Escape closes. Regex replacements do not expand group references (`$1`).
+  Escape closes. Regex replacements do not expand group references (`$1`). **Alt+R** / **Shift+Alt+R** (10x's
+  `ReplaceNextInFile` / `ReplaceAllInFile`) replace the next match from the caret (the selected one first) / every match
+  of the file using the bar's last query, options and replacement text, from the editor or from the bar when its replace
+  row is shown; the bar need not be open. They say what they did in the status bar. In the find-only bar (Ctrl+F) and
+  in pickers Alt+R stays the regex toggle; **Alt+E** also toggles regex in the bar.
 * `editor.trimTrailingWhitespace` removes trailing blanks on save (off by default; 10x documents no such setting).
 * The matching bracket of the one at the caret is highlighted. `editor.showWhitespace`, `editor.columnGuide`,
   `editor.highlightCurrentLine` and the caret blink are settings.
@@ -468,6 +474,21 @@ the window (**Ctrl+Alt+O** shows / hides it, `Build.Cancel` is **Control Cancel*
    build tree for you.
 4. A `Makefile`: `make -j<cores>`.
 
+**Rebuild** (**Control Alt F7**, `RebuildActiveWorkspace`; tenfold `Build.Rebuild`, an argument is a custom rebuild
+command) uses the same detection but builds from scratch: `rebuildCommand` in `workspace.json` (a shell command, like
+`buildCommand`), else `msbuild <sln> /t:Rebuild ...`, `cmake --build <dir> --config <cfg> --clean-first`, or
+`make clean && make -j<cores>`. A custom `buildCommand` cannot be cleaned, so without a `rebuildCommand` the command
+says so and does nothing.
+
+**Build the current file** (**Control F7**, `BuildCurrentFile`; tenfold `Build.BuildCurrentFile`) compiles only the file
+of the current tab (the saved version on disk; save first). `buildCommand` does not apply. With a `.sln` (or a lone
+`.vcxproj`) it runs `msbuild <project that lists the file> /t:ClCompile /p:SelectedFiles=<file>` with the solution's
+configuration mapped to the project's. Otherwise the file's entry in `compile_commands.json` is used: if its build
+directory holds a `build.ninja` the object target is built (`ninja -C <dir> <object>`), else the entry's compiler command
+runs in its directory (a real compile to the command's output, not a syntax check). A file with no project or compile
+command (a header, a text file) reports that in the status bar. Output, error navigation and squiggles work as for a
+normal build.
+
 Output streams into the panel (colour codes removed). Lines that are errors or warnings are coloured, and clicking one,
 or pressing Enter on it, jumps to the source; **F8** and **Shift+F8** (`GotoNextBuildWarningOrError` / `GotoPrevBuildWarningOrError`) step through the errors and warnings that have a
 location, wrapping around, and the jump goes into the navigation history. The parser understands MSVC (`file(line,col):
@@ -565,6 +586,7 @@ overwritten; the operation fails with a message and you fix the file by hand.
 | `vsConfiguration`, `vsPlatform` | `Debug`, `x64` | Active solution configuration; also used by the build. |
 | `runCMake` | `true` | Configure CMake projects into `.tenfold/cmake-build` to get compile commands. |
 | `buildCommand` | empty | Custom build command (see [Building](#building)). |
+| `rebuildCommand` | empty | Custom rebuild command for `RebuildActiveWorkspace` (see [Building](#building)). |
 | `buildDir` | empty | CMake build directory for `cmake --build`. |
 | `msvcToolchain` | empty | Path of the MSVC `cl.exe` for clangd's `--query-driver`. Found and saved automatically when empty. |
 | `debug.attachAtStartup` | `true` | Attach to a Visual Studio that already has the solution open. |
@@ -680,7 +702,8 @@ the highlighted item in the autocomplete list, `Enter` submits a symbol rename. 
 box, which handle those keys themselves) and **global**. A binding in the focused context beats a global one, and while a
 picker is open the editor bindings are out of the way, so the pickers keep their own arrow keys. Where a 10x binding for a
 command tenfold lacks would take a key from the focused input line or the open picker, the widget gets the key first
-(`Alt R` toggles regex in the find bar; in 10x it is `ReplaceNextInFile`).
+(`Alt R` toggles regex in the find-only bar and in the pickers; with the replace row shown it is 10x's
+`ReplaceNextInFile`).
 
 `Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files, and so does tenfold (`Control Shift S`
 saves all at once). The second press runs `File.SaveAll`; the first one has already saved the current file.
@@ -803,13 +826,17 @@ differs from the 10x description:
 | `Shift Alt PageDown` | `SelectPageDown` | `Editor.SelectPageDown` |  |
 | `Shift Alt Home` | `MoveToLineStart` | `Editor.CaretLineStart` |  |
 | `Shift Alt End` | `SelectToLineEnd` | `Editor.SelectLineEnd` |  |
-| `Control Shift F` | `Search` | `Search.FindInWorkspace` | tenfold's single find-in-files picker (no extra search panels) |
+| `Control Shift F` | `Search` | `Search.FindInWorkspace` | tenfold's find-in-files picker (NewSearchPanel keeps a previous result list) |
+| `Control Shift A` | `NewSearchPanel` | `Search.NewFindInFiles` | keeps the current find-in-files results aside (the last three) and starts an empty list; Alt PageUp/PageDown in the picker bring them back |
 
 **FindInFiles**
 
 | Keys | 10x command | tenfold command | Difference |
 | --- | --- | --- | --- |
-| `Control Shift G` | `FindInFiles` | `Search.FindInWorkspace` | tenfold's single find-in-files picker |
+| `Control Shift G` | `FindInFiles` | `Search.FindInWorkspace` | tenfold's find-in-files picker |
+| `Control Shift H` | `ReplaceInFiles` | `Search.ReplaceInFiles` | a modal picker with a replace field; the replacement is literal text, closed files are written after one confirmation |
+| `Alt R` | `ReplaceNextInFile` | `Editor.ReplaceNextInFile` | uses the last query and replacement of the find/replace bar; in the find-only bar Alt R still toggles regex |
+| `Shift Alt R` | `ReplaceAllInFile` | `Editor.ReplaceAllInFile` | uses the last query and replacement of the find/replace bar; one undo step |
 
 **Parser**
 
@@ -825,6 +852,8 @@ differs from the 10x description:
 | Keys | 10x command | tenfold command | Difference |
 | --- | --- | --- | --- |
 | `F7` | `BuildActiveWorkspace` | `Build.Build` | runs the detected build (solution, CMake or custom command) |
+| `Control Alt F7` | `RebuildActiveWorkspace` | `Build.Rebuild` | msbuild /t:Rebuild, cmake --build --clean-first, make clean && make, or the rebuildCommand setting |
+| `Control F7` | `BuildCurrentFile` | `Build.BuildCurrentFile` | compiles only the current saved file: msbuild /t:ClCompile, ninja object target or the compile database command |
 | `Shift F8` | `GotoPrevBuildWarningOrError` | `Build.PrevError` |  |
 | `F8` | `GotoNextBuildWarningOrError` | `Build.NextError` |  |
 | `Control Cancel` | `CancelBuild` | `Build.Cancel` |  |

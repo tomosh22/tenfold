@@ -19,6 +19,8 @@ class TextView;
 // Shift+F3 the previous one (wrapping; far moves go through Editor::moveCursor so Back returns). In the replace
 // field Enter replaces the current match and moves on, Ctrl+Enter replaces all (one undo step). Tab switches
 // fields, Escape closes the bar and clears the highlights. Regex replacements do not expand group references.
+// Alt+E also toggles regex: with the replace row shown Alt+R / Shift+Alt+R are ReplaceNextInFile / ReplaceAllInFile
+// (the 10x keys), so the key command wins there; in the find-only bar Alt+R stays the regex toggle.
 class FindReplace {
  public:
   using ViewsFn = std::function<void(const std::function<void(TextView&)>&)>;  // EditorApp::forEachView
@@ -43,8 +45,15 @@ class FindReplace {
   // selection (single line) or else the word at the caret (whole word, case-sensitive; the options are set to that),
   // the bar's field follows, and the next / previous occurrence is selected. False when there is no word.
   bool stepCurrentWord(bool forward);
-  bool replaceCurrent();     // replaces the selected match (or selects the next one first), then moves on
-  size_t replaceAll();       // one undo step; reports the count in the status bar
+  bool replaceCurrent();  // replaces the selected match (or selects the next one first), then moves on
+  size_t replaceAll();    // one undo step; reports the count in the status bar
+  // ReplaceNextInFile (Alt+R) / ReplaceAllInFile (Shift+Alt+R): work from the editor too, with the last query, options
+  // and replacement text (the bar need not be open). ReplaceNext replaces the first match at or after the caret (the
+  // selected match first) and selects the one after it; wrapping around the end of the file. Both say what they did.
+  bool replaceNext();
+  size_t replaceAllInFile();
+  bool replaceRowShown() const { return replaceRow_; }
+  bool focusInBar() const;   // a field of the bar has the keyboard focus
   void tick(int64_t nowMs);  // re-searches when the document or the query changed
 
   void setQuery(const std::string& q);  // programmatic (tests); behaves like typing

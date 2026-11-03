@@ -196,6 +196,18 @@ class Editor {
   // Jump to a result (goes through gotoLocation, so it lands in navigation history).
   bool gotoSearchMatch(const SearchMatch& m, std::string* error = nullptr);
 
+  // ReplaceInFiles: replaces the given find-in-files matches (literal text; regex group references are not expanded).
+  // A file that is an open document is edited in place, all its matches as ONE undo step, and stays unsaved; every
+  // other file is rewritten on disk. A match whose line changed since the search is skipped (`stale`).
+  struct ReplaceInFilesResult {
+    size_t replaced = 0;       // occurrences replaced
+    size_t stale = 0;          // matches skipped because the text had changed
+    size_t openDocuments = 0;  // documents edited in place
+    size_t filesWritten = 0;   // closed files written to disk
+    std::vector<std::string> errors;
+  };
+  ReplaceInFilesResult replaceInFiles(const std::vector<SearchMatch>& matches, const std::string& replacement);
+
   // --- selections & multiple carets ---
   // All carets / selections, primary first, the rest in document order. Never empty while a document is current.
   // Carets never overlap or touch: any command that makes two meet merges them.

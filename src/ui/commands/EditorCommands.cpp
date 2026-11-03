@@ -267,10 +267,16 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "File.OpenFile", "Open File...");
   addUi(r, "Search.SymbolSearch", "Go to Symbol in Workspace...");
   addUi(r, "Search.FindInWorkspace", "Find in Workspace...");
+  addUi(r, "Search.NewFindInFiles", "New Find in Files Results...");
+  addUi(r, "Search.ReplaceInFiles", "Replace in Files...");
+  addUi(r, "Editor.ReplaceNextInFile", "Replace Next in File");
+  addUi(r, "Editor.ReplaceAllInFile", "Replace All in File");
   addUi(r, "Search.NextResult", "Next Search Result");
   addUi(r, "Search.PrevResult", "Previous Search Result");
   addUi(r, "View.ShowDiagnostics", "Show Diagnostics");
   addUi(r, "Build.Build", "Build (argument: custom command)");
+  addUi(r, "Build.Rebuild", "Rebuild (argument: custom command)");
+  addUi(r, "Build.BuildCurrentFile", "Build Current File");
   addUi(r, "Build.Cancel", "Cancel Build");
   addUi(r, "Build.NextError", "Next Build Error");
   addUi(r, "Build.PrevError", "Previous Build Error");

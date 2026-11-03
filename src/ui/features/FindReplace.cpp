@@ -71,8 +71,8 @@ class FindReplace::Bar : public Widget {
     }
     if (alt && !ctrl && static_cast<uint32_t>(e.key) < 256) {
       const char k = static_cast<char>(e.key);
-      if (k == 'C' || k == 'W' || k == 'R') {
-        toggle(k);
+      if (k == 'C' || k == 'W' || k == 'R' || k == 'E') {
+        toggle(k == 'E' ? 'R' : k);
         return true;
       }
     }
@@ -323,6 +323,47 @@ bool FindReplace::replaceCurrent() {
   refresh(false);
   if (!matches_.empty()) step(true);
   return true;
+}
+
+bool FindReplace::focusInBar() const { return bar_ && (bar_->find_->hasFocus() || bar_->repl_->hasFocus()); }
+
+bool FindReplace::replaceNext() {
+  if (!env_.editor.currentDocument()) return false;
+  if (query_.empty()) {
+    env_.say("Nothing to replace: enter a search with Ctrl+H first");
+    return false;
+  }
+  refresh(false);
+  if (matches_.empty()) {
+    env_.say("No results for \"" + query_ + "\"");
+    return false;
+  }
+  const Selection s = env_.editor.selections()[0];
+  auto it = std::find(matches_.begin(), matches_.end(), s.range());  // the selected match goes first
+  if (it == matches_.end())
+    it = std::lower_bound(matches_.begin(), matches_.end(), s.max(),
+                          [](const Range& r, Position p) { return r.start < p; });
+  if (it == matches_.end()) it = matches_.begin();
+  const Range r = *it;
+  const std::string repl = bar_->repl_->text();
+  env_.editor.replaceRange(r, repl);
+  const Position end = endOf(r.start, repl);
+  env_.editor.setSelections({caretAt(end)});
+  origin_ = end;
+  refresh(false);
+  if (!matches_.empty()) step(true);
+  env_.say("Replaced 1 occurrence" +
+           (matches_.empty() ? std::string() : ", " + std::to_string(matches_.size()) + " left"));
+  return true;
+}
+
+size_t FindReplace::replaceAllInFile() {
+  if (!env_.editor.currentDocument()) return 0;
+  if (query_.empty()) {
+    env_.say("Nothing to replace: enter a search with Ctrl+H first");
+    return 0;
+  }
+  return replaceAll();
 }
 
 size_t FindReplace::replaceAll() {

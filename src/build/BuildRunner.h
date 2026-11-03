@@ -22,6 +22,12 @@ struct BuildCommand {
 };
 
 struct BuildOverrides {
+  // What to run. Build: the workspace build. Rebuild (RebuildActiveWorkspace): the same build system from scratch.
+  // CurrentFile (BuildCurrentFile): compile only `file`.
+  enum class Kind { Build, Rebuild, CurrentFile };
+  Kind kind = Kind::Build;
+  std::filesystem::path file;      // CurrentFile: the file to compile
+  std::string rebuildCommand;      // Rebuild: custom shell command; wins over Workspace::Settings::rebuildCommand
   std::string command;             // custom shell command; wins over everything
   std::string configuration;       // empty: Workspace::Settings::vsConfiguration
   std::string platform;            // empty: Workspace::Settings::vsPlatform
@@ -30,6 +36,12 @@ struct BuildOverrides {
 
 // Picks the build command for a workspace: custom command (override or settings) > .sln (msbuild) > CMake
 // (cmake --build) > Makefile (make -jN). False with `error` when nothing applies.
+//   Rebuild: rebuildCommand (override or setting) > msbuild /t:Rebuild > cmake --build --clean-first > "make clean &&
+//   make -jN". A custom build command without a rebuild command is an error (it cannot be cleaned).
+//   CurrentFile: a custom build command is ignored. A solution / lone .vcxproj: msbuild <owning project>
+//   /t:ClCompile /p:SelectedFiles=<file> (configuration mapped through the solution). Otherwise the file's entry in
+//   the compile database: `ninja -C <build dir> <object>` when the entry's directory holds a build.ninja, else the
+//   entry's own command line run in its directory (a real compile to the command's output, not a syntax check).
 bool detectBuildCommand(const Workspace& ws, const BuildOverrides& o, BuildCommand* out, std::string* error);
 
 struct BuildResult {

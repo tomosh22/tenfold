@@ -28,6 +28,7 @@
 #include "ui/features/NavResultPicker.h"
 #include "ui/features/NavigationUi.h"
 #include "ui/features/OsLauncher.h"
+#include "ui/features/ReplaceInFiles.h"
 #include "ui/features/SaveAsPrompt.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
@@ -87,6 +88,7 @@ class EditorApp {
   FileSearch* fileSearch() { return files_.get(); }  // null without a Workbench
   NavResultPicker& navResults() { return *navResults_; }
   FindInFiles& findInFiles() { return *find_; }
+  ReplaceInFiles& replaceInFiles() { return *replaceInFiles_; }  // W8e: ReplaceInFiles (Ctrl+Shift+H)
   DiagnosticsPanel& diagnosticsPanel() { return *diagPanel_; }
   // B8: find / replace in the current file (Ctrl+F / Ctrl+H), go to line (Ctrl+G), bookmark list.
   FindReplace& findReplace() { return *findReplace_; }
@@ -166,6 +168,8 @@ class EditorApp {
   void updateUntitledNames();
   std::string untitledSuggestion(const Document& d) const;
   bool commandRunnable(const std::string& id) const;
+  bool widgetOwnsKey(const std::string& commandId) const;
+  bool startBuild(BuildOverrides o);
   void bindUiCommands();
   void bindEditingCommands();
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
@@ -203,6 +207,7 @@ class EditorApp {
   std::unique_ptr<FileSearch> files_;
   std::unique_ptr<NavResultPicker> navResults_;
   std::unique_ptr<FindInFiles> find_;
+  std::unique_ptr<ReplaceInFiles> replaceInFiles_;
   std::unique_ptr<DiagnosticsPanel> diagPanel_;
   std::unique_ptr<FindReplace> findReplace_;
   std::unique_ptr<GoToLine> goToLine_;

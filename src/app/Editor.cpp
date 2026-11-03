@@ -14,6 +14,8 @@
 
 #include <nlohmann/json.hpp>
 
+#include "search/ReplaceInFiles.h"
+
 namespace tf {
 
 namespace fs = std::filesystem;
@@ -1733,6 +1735,63 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
 
 bool Editor::gotoSearchMatch(const SearchMatch& m, std::string* error) {
   return gotoLocation({m.file, {m.line, m.column}}, error, m.text.substr(0, 80));
+}
+
+Editor::ReplaceInFilesResult Editor::replaceInFiles(const std::vector<SearchMatch>& matches,
+                                                    const std::string& replacement) {
+  ReplaceInFilesResult res;
+  std::map<std::string, std::pair<fs::path, std::vector<SearchMatch>>> byFile;  // docKey -> file, its matches
+  for (const SearchMatch& m : matches) {
+    auto& slot = byFile[docKey(m.file)];
+    slot.first = m.file;
+    slot.second.push_back(m);
+  }
+  FileEdits edits;                       // the open documents: applied together, one undo group each
+  std::map<std::string, size_t> edited;  // docKey -> number of edits
+  for (auto& [key, slot] : byFile) {
+    Document* d = document(slot.first);
+    if (!d) continue;
+    TextEditList list;
+    Position lastEnd{-1, 0};
+    std::sort(slot.second.begin(), slot.second.end(), [](const SearchMatch& a, const SearchMatch& b) {
+      return a.line != b.line ? a.line < b.line : a.column < b.column;
+    });
+    for (const SearchMatch& m : slot.second) {
+      const TextBuffer& b = d->buffer();
+      const Position start{m.line, m.column};
+      if (m.line < 0 || m.line >= b.lineCount() || !matchStillAt(b.line(m.line), m) || start < lastEnd) {
+        ++res.stale;
+        continue;
+      }
+      lastEnd = {m.line, m.column + m.length};
+      list.push_back({Range{start, lastEnd}, replacement});
+    }
+    if (list.empty()) continue;
+    edited[key] = list.size();
+    edits[d->path()] = std::move(list);
+  }
+  std::string err;
+  if (!edits.empty()) {
+    if (applyEdits(edits, &err)) {
+      for (auto& [key, n] : edited) res.replaced += n;
+      res.openDocuments = edited.size();
+    } else {
+      res.errors.push_back(err);
+    }
+  }
+  for (auto& [key, slot] : byFile) {
+    if (document(slot.first)) continue;
+    ReplaceCounts c;
+    std::string e;
+    if (!replaceMatchesInFile(slot.first, slot.second, replacement, &c, &e)) {
+      res.errors.push_back(e);
+      continue;
+    }
+    res.replaced += c.replaced;
+    res.stale += c.stale;
+    if (c.replaced) ++res.filesWritten;
+  }
+  return res;
 }
 
 // ---------------------------------------------------------------------------

@@ -50,6 +50,7 @@ add_library(tenfold_core STATIC
   src/semantic/SemanticEngine.cpp
   src/workspace/Workspace.cpp
   src/search/TextSearch.cpp
+  src/search/ReplaceInFiles.cpp
   src/workspace/FileWatcher.cpp
   src/app/Editor.cpp
   src/app/EditorEditing.cpp
@@ -154,6 +155,7 @@ add_executable(tenfold-tests
   tests/test_compile_info.cpp
   tests/test_engine_fixes.cpp
   tests/test_w8a_editing.cpp
+  tests/test_w8e_build_search.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -252,6 +254,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/NavResultPicker.cpp
     src/ui/features/PopupBox.cpp
     src/ui/features/FindInFiles.cpp
+    src/ui/features/ReplaceInFiles.cpp
     src/ui/features/FindReplace.cpp
     src/ui/features/GoToLine.cpp
     src/ui/features/SaveAsPrompt.cpp
@@ -352,6 +355,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_p2_ui.cpp
     tests/ui/test_w8b.cpp
     tests/ui/test_w8a_commands.cpp
+    tests/ui/test_w8e.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
