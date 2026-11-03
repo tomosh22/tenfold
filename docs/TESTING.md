@@ -251,13 +251,14 @@ TENFOLD_GEN_CHECK=1 python3 -m unittest ...                         # also compi
   of the definition, see STRESS_RESULTS G-1). The generator knows which `impl` lines have such a second spelling and puts
   them first (`--impl-position first`, every fast check then runs after the TU is ready; used for the committed corpora so
   they are deterministic) or last (default, the nightly runs keep the fast checks cold). Renames come last (G-2).
-* **Anchors that would change meaning are not written**: no anchors inside templates' dependent parts beyond the names, no
-  anchors on the `Name::` of constructors, destructors or classes with explicit special members are expected as exact
-  `refs` (such classes are never tracked for `refs`), the doc comment of a declaration is not asserted in `hover` (the anchor
-  comment between the doc comment and the name keeps clangd from attaching it), `static inline` functions of C headers used
-  from both C and C++ translation units are `xfail refs` (two USRs, G-3).
+* **What is deliberately not asserted** (so that anchors never change meaning and every expectation is about something
+  the generator can state with certainty): classes with explicit constructors or destructors are never tracked (the
+  tokens `Name()` / `~Name()` are not class references the generator wants to bet on); the doc comment of a declaration is
+  not checked in `hover` (the anchor comment between the doc comment and the name keeps clangd from attaching it);
+  `static inline` functions of C headers used from both C and C++ translation units get `xfail refs` (two USRs, G-3);
+  workspace symbol search is asked only for names unique in the project, also ignoring case (fuzzy ranking).
 * **Committed corpora**: `tests/corpus/gen-game` (game, cmake, seed 1), `gen-service` (service, vs, seed 2) and `gen-mixed`
-  (mixed C and C++, cmake, seed 3), each ~310 files, ~0.9 MB, ~560 expectations, ~12 s. They run in the `corpus` job of
+  (mixed C and C++, cmake, seed 3), each ~310 files, ~0.35 MB, ~560 expectations, 5 to 15 s. They run in the `corpus` job of
   `ci.yml` like every `tests/corpus/*/`. Regenerate with `tools/stress/regen_committed.sh build/release/tenfold-cli`: it
   generates, runs, keeps the engine's known wrong answers as `xfail ... # reason` (`xfail_from_report.py`) and runs
   again. The ground truth stays the generator's; an `xfail` that starts passing is an `XPASS` and fails the corpus.

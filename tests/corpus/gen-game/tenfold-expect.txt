@@ -174,7 +174,7 @@ hover QueuedPool_Auto_2_use0 ~ "enumerator QueuedPool_Auto"
 def Id2_6_use4 -> Id2_6_def0
 decl Id2_6_use4 -> Id2_6_def0
 refs Id2_6_def0 = Id2_6_def0 Id2_6_use0 Id2_6_use1 Id2_6_use2 Id2_6_use3 Id2_6_use4 Id2_6_use5
-hover Id2_6_use4 ~ "Id2" "Type: unsigned" "math/types_prefab.h"
+hover Id2_6_use4 ~ "Id2" "Type: unsigned"
 sym "Id2" -> Id2_6_def0
 def resolveBounds_10_use34 -> resolveBounds_10_def0
 decl resolveBounds_10_use34 -> resolveBounds_10_decl0
@@ -191,30 +191,30 @@ hover Impl_12_use0 ~ "Impl"
 sym "Impl" -> Impl_12_def0
 def Base_15_use0 -> Base_15_def0
 refs Base_15_def0 = Base_15_def0 Base_15_use0 Base_15_use1 Base_15_use2 Base_15_use3 Base_15_use4 Base_15_use5 Base_15_use6 Base_15_use7 Base_15_use8 Base_15_use9 Base_15_use10 Base_15_use11 Base_15_use12 Base_15_use13 Base_15_use14 Base_15_use15 Base_15_use16 Base_15_use17 Base_15_use18 Base_15_use19 Base_15_use20 Base_15_use21 Base_15_use22
-hover Base_15_use0 ~ "class Base" "math/base.h"
+hover Base_15_use0 ~ "class Base"
 def kLimit5_31_use2 -> kLimit5_31_def0
 decl kLimit5_31_use2 -> kLimit5_31_def0
 refs kLimit5_31_def0 = kLimit5_31_def0 kLimit5_31_use0 kLimit5_31_use1 kLimit5_31_use2 kLimit5_31_use3 kLimit5_31_use4
-hover kLimit5_31_use2 ~ "kLimit5" "Type: const unsigned int" "math/types_font.h"
+hover kLimit5_31_use2 ~ "kLimit5" "Type: const unsigned int"
 sym "kLimit5" -> kLimit5_31_def0
 def RadialJoint_42_use8 -> RadialJoint_42_def0
 refs RadialJoint_42_def0 >= RadialJoint_42_def0 RadialJoint_42_use0 RadialJoint_42_use1 RadialJoint_42_use2 RadialJoint_42_use3 RadialJoint_42_use4 RadialJoint_42_use5 RadialJoint_42_use6 RadialJoint_42_use7 RadialJoint_42_use8 RadialJoint_42_use9 RadialJoint_42_use10 RadialJoint_42_use11 RadialJoint_42_use12 RadialJoint_42_use13 RadialJoint_42_use14 RadialJoint_42_use15 RadialJoint_42_use16 RadialJoint_42_use17 RadialJoint_42_use18 RadialJoint_42_use19 RadialJoint_42_use20 RadialJoint_42_use21 RadialJoint_42_use22 RadialJoint_42_use23 RadialJoint_42_use24 RadialJoint_42_use25 RadialJoint_42_use26 RadialJoint_42_use27 RadialJoint_42_use28 RadialJoint_42_use29 RadialJoint_42_use30 RadialJoint_42_use31
-hover RadialJoint_42_use8 ~ "class RadialJoint" "math/radial_joint.h"
+hover RadialJoint_42_use8 ~ "class RadialJoint"
 typedef RadialJoint_42_var0 -> RadialJoint_42_def0
 def chain8_l3_58_use0 -> chain8_l3_58_def0
 decl chain8_l3_58_use0 -> chain8_l3_58_def0
 refs chain8_l3_58_def0 = chain8_l3_58_def0 chain8_l3_58_use0
-hover chain8_l3_58_use0 ~ "chain8_l3" "→ int" "- int v" "math/chain8/c3.h"
+hover chain8_l3_58_use0 ~ "chain8_l3" "→ int" "- int v"
 sym "chain8_l3" -> chain8_l3_58_def0
 def Real12_89_use0 -> Real12_89_def0
 decl Real12_89_use0 -> Real12_89_def0
 refs Real12_89_def0 = Real12_89_def0 Real12_89_use0
-hover Real12_89_use0 ~ "Real12" "Type: long" "math/types_script.h"
+hover Real12_89_use0 ~ "Real12" "Type: long"
 sym "Real12" -> Real12_89_def0
 def chain14_l1_92_use0 -> chain14_l1_92_def0
 decl chain14_l1_92_use0 -> chain14_l1_92_def0
 refs chain14_l1_92_def0 = chain14_l1_92_def0 chain14_l1_92_use0
-hover chain14_l1_92_use0 ~ "chain14_l1" "→ int" "- int v" "math/chain14/c1.h"
+hover chain14_l1_92_use0 ~ "chain14_l1" "→ int" "- int v"
 sym "chain14_l1" -> chain14_l1_92_def0
 def save_101_use0 -> save_101_def0
 decl save_101_use0 -> save_101_def0
@@ -232,11 +232,11 @@ sym "kTable18" -> kTable18_130_def0
 def table18_fn_0_131_use0 -> table18_fn_0_131_def0
 decl table18_fn_0_131_use0 -> table18_fn_0_131_decl0
 refs table18_fn_0_131_decl0 = table18_fn_0_131_decl0 table18_fn_0_131_def0 table18_fn_0_131_use0
-hover table18_fn_0_131_use0 ~ "table18_fn_0" "→ int" "- int v" "math/table18.h"
+hover table18_fn_0_131_use0 ~ "table18_fn_0" "→ int" "- int v"
 def table18_fn_11_142_use1 -> table18_fn_11_142_def0
 decl table18_fn_11_142_use1 -> table18_fn_11_142_decl0
 refs table18_fn_11_142_decl0 = table18_fn_11_142_decl0 table18_fn_11_142_def0 table18_fn_11_142_use0 table18_fn_11_142_use1
-hover table18_fn_11_142_use1 ~ "table18_fn_11" "→ int" "- int v" "math/table18.h"
+hover table18_fn_11_142_use1 ~ "table18_fn_11" "→ int" "- int v"
 sym "table18_fn_11" -> table18_fn_11_142_def0
 def MATH_JOINT_19_143_use1 -> MATH_JOINT_19_143_def0
 refs MATH_JOINT_19_143_def0 = MATH_JOINT_19_143_def0 MATH_JOINT_19_143_use0 MATH_JOINT_19_143_use1 MATH_JOINT_19_143_use2 MATH_JOINT_19_143_use3 MATH_JOINT_19_143_use4 MATH_JOINT_19_143_use5 MATH_JOINT_19_143_use6 MATH_JOINT_19_143_use7
@@ -245,11 +245,11 @@ refs MATH_SCRIPT_20_144_def0 = MATH_SCRIPT_20_144_def0 MATH_SCRIPT_20_144_use0 M
 def bindLight25_149_use0 -> bindLight25_149_def0
 decl bindLight25_149_use0 -> bindLight25_149_def0
 refs bindLight25_149_def0 = bindLight25_149_def0 bindLight25_149_use0
-hover bindLight25_149_use0 ~ "bindLight25" "→ int" "- int v" "math/macros_skeleton.h"
+hover bindLight25_149_use0 ~ "bindLight25" "→ int" "- int v"
 def kStep27_156_use0 -> kStep27_156_def0
 decl kStep27_156_use0 -> kStep27_156_def0
 refs kStep27_156_def0 = kStep27_156_def0 kStep27_156_use0
-hover kStep27_156_use0 ~ "kStep27" "Type: const double" "math/types_emitter.h"
+hover kStep27_156_use0 ~ "kStep27" "Type: const double"
 sym "kStep27" -> kStep27_156_def0
 def level_174_use2 -> level_174_def0
 decl level_174_use2 -> level_174_def0
@@ -267,7 +267,7 @@ refs ActiveBuffer_Default_197_def0 = ActiveBuffer_Default_197_def0 ActiveBuffer_
 hover ActiveBuffer_Default_197_use0 ~ "enumerator ActiveBuffer_Default"
 def Buffer_208_use11 -> Buffer_208_def0
 refs Buffer_208_def0 = Buffer_208_def0 Buffer_208_use0 Buffer_208_use1 Buffer_208_use2 Buffer_208_use3 Buffer_208_use4 Buffer_208_use5 Buffer_208_use6 Buffer_208_use7 Buffer_208_use8 Buffer_208_use9 Buffer_208_use10 Buffer_208_use11 Buffer_208_use12 Buffer_208_use13 Buffer_208_use14 Buffer_208_use15 Buffer_208_use16
-hover Buffer_208_use11 ~ "class Buffer" "core/buffer.h"
+hover Buffer_208_use11 ~ "class Buffer"
 typedef Buffer_208_var0 -> Buffer_208_def0
 def phase_216_use0 -> phase_216_def0
 decl phase_216_use0 -> phase_216_def0
@@ -283,7 +283,7 @@ refs CORE_SCALE_45_240_def0 = CORE_SCALE_45_240_def0 CORE_SCALE_45_240_use0 CORE
 def Material_277_use0 -> Material_277_def0
 decl Material_277_use0 -> Material_277_def0
 refs Material_277_def0 = Material_277_def0 Material_277_use0 Material_277_use1
-hover Material_277_use0 ~ "enum Material" "core/types_ray.h"
+hover Material_277_use0 ~ "enum Material"
 sym "Material" -> Material_277_def0
 refs add_306_decl0 >= add_306_decl0
 def save_317_use0 -> save_317_def0
@@ -298,7 +298,7 @@ sym "shared_total" -> shared_total_322_def0
 def Path_335_use2 -> Path_335_def0
 decl Path_335_use2 -> Path_335_def0
 refs Path_335_def0 = Path_335_def0 Path_335_use0 Path_335_use1 Path_335_use2 Path_335_use3 Path_335_use4 Path_335_use5 Path_335_use6 Path_335_use7 Path_335_use8 Path_335_use9 Path_335_use10 Path_335_use11 Path_335_use12
-hover Path_335_use2 ~ "enum Path" "memory/types_collider.h"
+hover Path_335_use2 ~ "enum Path"
 sym "Path" -> Path_335_def0
 def measureBody_363_use0 -> measureBody_363_def0
 decl measureBody_363_use0 -> measureBody_363_def0
@@ -312,7 +312,7 @@ hover measureBounds_389_use5 ~ "measureBounds" "→ long"
 sym "measureBounds" -> measureBounds_389_def0
 def RollingRayGlyph_392_use6 -> RollingRayGlyph_392_def0
 refs RollingRayGlyph_392_def0 = RollingRayGlyph_392_def0 RollingRayGlyph_392_use0 RollingRayGlyph_392_use1 RollingRayGlyph_392_use2 RollingRayGlyph_392_use3 RollingRayGlyph_392_use4 RollingRayGlyph_392_use5 RollingRayGlyph_392_use6 RollingRayGlyph_392_use7 RollingRayGlyph_392_use8 RollingRayGlyph_392_use9 RollingRayGlyph_392_use10 RollingRayGlyph_392_use11 RollingRayGlyph_392_use12 RollingRayGlyph_392_use13
-hover RollingRayGlyph_392_use6 ~ "class RollingRayGlyph" "memory/rolling_ray_glyph.h"
+hover RollingRayGlyph_392_use6 ~ "class RollingRayGlyph"
 sym "RollingRayGlyph" -> RollingRayGlyph_392_def0
 typedef RollingRayGlyph_392_var0 -> RollingRayGlyph_392_def0
 def splitTerrain_432_use1 -> splitTerrain_432_def0
@@ -326,12 +326,12 @@ refs stamp_436_def0 = stamp_436_def0 stamp_436_use0 stamp_436_use1 stamp_436_use
 hover stamp_436_use2 ~ "stamp" "Type: unsigned int"
 def Base_452_use3 -> Base_452_def0
 refs Base_452_def0 = Base_452_def0 Base_452_use0 Base_452_use1 Base_452_use2 Base_452_use3 Base_452_use4
-hover Base_452_use3 ~ "class Base" "memory/base.h"
+hover Base_452_use3 ~ "class Base"
 typedef Base_452_var0 -> Base_452_def0
 def empty_473_use0 -> empty_473_def0
 decl empty_473_use0 -> empty_473_decl0
 refs empty_473_decl0 = empty_473_decl0 empty_473_def0 empty_473_use0
-hover empty_473_use0 ~ "empty" "→ int" "- double p0" "memory/funcs_frame.h"
+hover empty_473_use0 ~ "empty" "→ int" "- double p0"
 def MEMORY_TWEEN_84_480_use2 -> MEMORY_TWEEN_84_480_def0
 refs MEMORY_TWEEN_84_480_def0 = MEMORY_TWEEN_84_480_def0 MEMORY_TWEEN_84_480_use0 MEMORY_TWEEN_84_480_use1 MEMORY_TWEEN_84_480_use2 MEMORY_TWEEN_84_480_use3
 def MEMORY_DECLARE_FN_88_484_use0 -> MEMORY_DECLARE_FN_88_484_def0
@@ -339,21 +339,21 @@ refs MEMORY_DECLARE_FN_88_484_def0 = MEMORY_DECLARE_FN_88_484_def0 MEMORY_DECLAR
 def combineVector89_485_use0 -> combineVector89_485_def0
 decl combineVector89_485_use0 -> combineVector89_485_def0
 refs combineVector89_485_def0 = combineVector89_485_def0 combineVector89_485_use0
-hover combineVector89_485_use0 ~ "combineVector89" "→ int" "- int v" "memory/macros_camera.h"
+hover combineVector89_485_use0 ~ "combineVector89" "→ int" "- int v"
 sym "combineVector89" -> combineVector89_485_def0
 def flushBody90_486_use0 -> flushBody90_486_def0
 decl flushBody90_486_use0 -> flushBody90_486_def0
 refs flushBody90_486_def0 = flushBody90_486_def0 flushBody90_486_use0
-hover flushBody90_486_use0 ~ "flushBody90" "→ int" "- int v" "memory/macros_camera.h"
+hover flushBody90_486_use0 ~ "flushBody90" "→ int" "- int v"
 sym "flushBody90" -> flushBody90_486_def0
 def kStep91_500_use1 -> kStep91_500_def0
 decl kStep91_500_use1 -> kStep91_500_def0
 refs kStep91_500_def0 = kStep91_500_def0 kStep91_500_use0 kStep91_500_use1 kStep91_500_use2 kStep91_500_use3 kStep91_500_use4
-hover kStep91_500_use1 ~ "kStep91" "Type: const unsigned int" "container/types_channel.h"
+hover kStep91_500_use1 ~ "kStep91" "Type: const unsigned int"
 sym "kStep91" -> kStep91_500_def0
 def TiledLightFrame_511_use37 -> TiledLightFrame_511_def0
 refs TiledLightFrame_511_def0 >= TiledLightFrame_511_def0 TiledLightFrame_511_use0 TiledLightFrame_511_use1 TiledLightFrame_511_use2 TiledLightFrame_511_use3 TiledLightFrame_511_use4 TiledLightFrame_511_use5 TiledLightFrame_511_use6 TiledLightFrame_511_use7 TiledLightFrame_511_use8 TiledLightFrame_511_use9 TiledLightFrame_511_use10 TiledLightFrame_511_use11 TiledLightFrame_511_use12 TiledLightFrame_511_use13 TiledLightFrame_511_use14 TiledLightFrame_511_use15 TiledLightFrame_511_use16 TiledLightFrame_511_use17 TiledLightFrame_511_use18 TiledLightFrame_511_use19 TiledLightFrame_511_use20 TiledLightFrame_511_use21 TiledLightFrame_511_use22 TiledLightFrame_511_use23 TiledLightFrame_511_use24 TiledLightFrame_511_use25 TiledLightFrame_511_use26 TiledLightFrame_511_use27 TiledLightFrame_511_use28 TiledLightFrame_511_use29 TiledLightFrame_511_use30 TiledLightFrame_511_use31 TiledLightFrame_511_use32 TiledLightFrame_511_use33 TiledLightFrame_511_use34 TiledLightFrame_511_use35 TiledLightFrame_511_use36 TiledLightFrame_511_use37 TiledLightFrame_511_use38 TiledLightFrame_511_use39
-hover TiledLightFrame_511_use37 ~ "class TiledLightFrame" "container/tiled_light_frame.h"
+hover TiledLightFrame_511_use37 ~ "class TiledLightFrame"
 sym "TiledLightFrame" -> TiledLightFrame_511_def0
 typedef TiledLightFrame_511_var0 -> TiledLightFrame_511_def0
 def collectGlyph_517_use5 -> collectGlyph_517_def0
@@ -367,12 +367,12 @@ hover shared_scale_520_use3 ~ "shared_scale" "Type: int"
 def Light_528_use0 -> Light_528_def0
 decl Light_528_use0 -> Light_528_def0
 refs Light_528_def0 = Light_528_def0 Light_528_use0 Light_528_use1
-hover Light_528_use0 ~ "enum Light" "container/types_vector.h"
+hover Light_528_use0 ~ "enum Light"
 sym "Light" -> Light_528_def0
 def selectButton_542_use1 -> selectButton_542_def0
 decl selectButton_542_use1 -> selectButton_542_decl0
 refs selectButton_542_decl0 = selectButton_542_decl0 selectButton_542_def0 selectButton_542_use0 selectButton_542_use1 selectButton_542_use2
-hover selectButton_542_use1 ~ "selectButton" "→ bool" "- int p0" "container/funcs_terrain.h"
+hover selectButton_542_use1 ~ "selectButton" "→ bool" "- int p0"
 def fetchAgent_563_use1 -> fetchAgent_563_def0
 decl fetchAgent_563_use1 -> fetchAgent_563_def0
 refs fetchAgent_563_def0 >= fetchAgent_563_def0 fetchAgent_563_use0 fetchAgent_563_use1 fetchAgent_563_use2 fetchAgent_563_use3
@@ -381,7 +381,7 @@ sym "fetchAgent" -> fetchAgent_563_def0
 def Handle102_571_use0 -> Handle102_571_def0
 decl Handle102_571_use0 -> Handle102_571_def0
 refs Handle102_571_def0 = Handle102_571_def0 Handle102_571_use0
-hover Handle102_571_use0 ~ "Handle102" "Type: unsigned long" "container/types_emitter.h"
+hover Handle102_571_use0 ~ "Handle102" "Type: unsigned long"
 refs reset_584_decl0 >= reset_584_decl0
 def Shader_586_use0 -> Shader_586_def0
 refs Shader_586_def0 >= Shader_586_def0 Shader_586_use0
@@ -399,15 +399,15 @@ sym "kTable113" -> kTable113_627_def0
 def table113_fn_0_628_use0 -> table113_fn_0_628_def0
 decl table113_fn_0_628_use0 -> table113_fn_0_628_decl0
 refs table113_fn_0_628_decl0 = table113_fn_0_628_decl0 table113_fn_0_628_def0 table113_fn_0_628_use0
-hover table113_fn_0_628_use0 ~ "table113_fn_0" "→ int" "- int v" "container/table113.h"
+hover table113_fn_0_628_use0 ~ "table113_fn_0" "→ int" "- int v"
 def top_640_use0 -> top_640_def0
 decl top_640_use0 -> top_640_decl0
 refs top_640_decl0 = top_640_decl0 top_640_def0 top_640_use0
-hover top_640_use0 ~ "top" "→ long" "- int p0" "container/funcs_agent.h"
+hover top_640_use0 ~ "top" "→ long" "- int p0"
 def chain114_l4_649_use0 -> chain114_l4_649_def0
 decl chain114_l4_649_use0 -> chain114_l4_649_def0
 refs chain114_l4_649_def0 = chain114_l4_649_def0 chain114_l4_649_use0
-hover chain114_l4_649_use0 ~ "chain114_l4" "→ int" "- int v" "container/chain114/c4.h"
+hover chain114_l4_649_use0 ~ "chain114_l4" "→ int" "- int v"
 sym "chain114_l4" -> chain114_l4_649_def0
 def Max_654_use1 -> Max_654_def0
 refs Max_654_def0 = Max_654_def0 Max_654_use0 Max_654_use1
@@ -415,11 +415,11 @@ hover Max_654_use1 ~ "enumerator Max"
 def kStep116_662_use1 -> kStep116_662_def0
 decl kStep116_662_use1 -> kStep116_662_def0
 refs kStep116_662_def0 = kStep116_662_def0 kStep116_662_use0 kStep116_662_use1
-hover kStep116_662_use1 ~ "kStep116" "Type: const unsigned int" "io/types_vector.h"
+hover kStep116_662_use1 ~ "kStep116" "Type: const unsigned int"
 sym "kStep116" -> kStep116_662_def0
 def Item_666_use1 -> Item_666_def0
 refs Item_666_def0 = Item_666_def0 Item_666_use0 Item_666_use1
-hover Item_666_use1 ~ "class Item" "io/item.h"
+hover Item_666_use1 ~ "class Item"
 def set_686_use2 -> set_686_def0
 decl set_686_use2 -> set_686_decl0
 refs set_686_decl0 = set_686_decl0 set_686_def0 set_686_use0 set_686_use1 set_686_use2 set_686_use3 set_686_use4
@@ -427,16 +427,16 @@ hover set_686_use2 ~ "set" "→ unsigned int"
 def init_693_use0 -> init_693_def0
 decl init_693_use0 -> init_693_decl0
 refs init_693_decl0 = init_693_decl0 init_693_def0 init_693_use0 init_693_use1
-hover init_693_use0 ~ "init" "→ double" "- int p0" "io/funcs_shader.h"
+hover init_693_use0 ~ "init" "→ double" "- int p0"
 def kScale120_708_use0 -> kScale120_708_def0
 decl kScale120_708_use0 -> kScale120_708_def0
 refs kScale120_708_def0 = kScale120_708_def0 kScale120_708_use0
-hover kScale120_708_use0 ~ "kScale120" "Type: const int" "io/types_path.h"
+hover kScale120_708_use0 ~ "kScale120" "Type: const int"
 sym "kScale120" -> kScale120_708_def0
 def kMargin125_725_use0 -> kMargin125_725_def0
 decl kMargin125_725_use0 -> kMargin125_725_def0
 refs kMargin125_725_def0 = kMargin125_725_def0 kMargin125_725_use0 kMargin125_725_use1 kMargin125_725_use2
-hover kMargin125_725_use0 ~ "kMargin125" "Type: const double" "io/types_prefab.h"
+hover kMargin125_725_use0 ~ "kMargin125" "Type: const double"
 sym "kMargin125" -> kMargin125_725_def0
 def bindSpawner_759_use0 -> bindSpawner_759_def0
 decl bindSpawner_759_use0 -> bindSpawner_759_def0
@@ -466,7 +466,7 @@ hover kTable141_870_use8 ~ "kTable141"
 def ScopedScene_883_use5 -> ScopedScene_883_def0
 decl ScopedScene_883_use5 -> ScopedScene_883_def0
 refs ScopedScene_883_def0 = ScopedScene_883_def0 ScopedScene_883_use0 ScopedScene_883_use1 ScopedScene_883_use2 ScopedScene_883_use3 ScopedScene_883_use4 ScopedScene_883_use5 ScopedScene_883_use6 ScopedScene_883_use7 ScopedScene_883_use8
-hover ScopedScene_883_use5 ~ "enum ScopedScene" "asset/types_mixer.h"
+hover ScopedScene_883_use5 ~ "enum ScopedScene"
 sym "ScopedScene" -> ScopedScene_883_def0
 def Default_884_use0 -> Default_884_def0
 refs Default_884_def0 = Default_884_def0 Default_884_use0 Default_884_use1
@@ -477,17 +477,17 @@ hover WeightedPrefab_Default_890_use0 ~ "enumerator WeightedPrefab_Default"
 def Handle144_893_use1 -> Handle144_893_def0
 decl Handle144_893_use1 -> Handle144_893_def0
 refs Handle144_893_def0 = Handle144_893_def0 Handle144_893_use0 Handle144_893_use1
-hover Handle144_893_use1 ~ "Handle144" "Type: unsigned" "asset/types_mixer.h"
+hover Handle144_893_use1 ~ "Handle144" "Type: unsigned"
 sym "Handle144" -> Handle144_893_def0
 def QueuedMixer_899_use0 -> QueuedMixer_899_def0
 decl QueuedMixer_899_use0 -> QueuedMixer_899_def0
 refs QueuedMixer_899_def0 = QueuedMixer_899_def0 QueuedMixer_899_use0
-hover QueuedMixer_899_use0 ~ "enum QueuedMixer" "asset/types_arena.h"
+hover QueuedMixer_899_use0 ~ "enum QueuedMixer"
 sym "QueuedMixer" -> QueuedMixer_899_def0
 def Size149_908_use0 -> Size149_908_def0
 decl Size149_908_use0 -> Size149_908_def0
 refs Size149_908_def0 = Size149_908_def0 Size149_908_use0 Size149_908_use1 Size149_908_use2
-hover Size149_908_use0 ~ "Size149" "Type: unsigned long" "asset/types_arena.h"
+hover Size149_908_use0 ~ "Size149" "Type: unsigned long"
 sym "Size149" -> Size149_908_def0
 def measureQuest_918_use0 -> measureQuest_918_def0
 decl measureQuest_918_use0 -> measureQuest_918_def0
@@ -510,7 +510,7 @@ hover RollingChannel_Auto_1067_use0 ~ "enumerator RollingChannel_Auto"
 def Id164_1078_use1 -> Id164_1078_def0
 decl Id164_1078_use1 -> Id164_1078_def0
 refs Id164_1078_def0 = Id164_1078_def0 Id164_1078_use0 Id164_1078_use1 Id164_1078_use2 Id164_1078_use3 Id164_1078_use4
-hover Id164_1078_use1 ~ "Id164" "Type: unsigned long" "render/types_channel.h"
+hover Id164_1078_use1 ~ "Id164" "Type: unsigned long"
 sym "Id164" -> Id164_1078_def0
 def apply_1081_use0 -> apply_1081_decl0
 decl apply_1081_use0 -> apply_1081_decl0
@@ -518,7 +518,7 @@ refs apply_1081_decl0 >= apply_1081_decl0 apply_1081_use0
 hover apply_1081_use0 ~ "apply" "→ long"
 def AtomicMaterial_1094_use4 -> AtomicMaterial_1094_def0
 refs AtomicMaterial_1094_def0 = AtomicMaterial_1094_def0 AtomicMaterial_1094_use0 AtomicMaterial_1094_use1 AtomicMaterial_1094_use2 AtomicMaterial_1094_use3 AtomicMaterial_1094_use4 AtomicMaterial_1094_use5 AtomicMaterial_1094_use6 AtomicMaterial_1094_use7 AtomicMaterial_1094_use8 AtomicMaterial_1094_use9 AtomicMaterial_1094_use10 AtomicMaterial_1094_use11
-hover AtomicMaterial_1094_use4 ~ "class AtomicMaterial" "render/atomic_material.h"
+hover AtomicMaterial_1094_use4 ~ "class AtomicMaterial"
 sym "AtomicMaterial" -> AtomicMaterial_1094_def0
 typedef AtomicMaterial_1094_var0 -> AtomicMaterial_1094_def0
 def mix_1147_use0 -> mix_1147_def0
@@ -527,12 +527,12 @@ refs mix_1147_def0 = mix_1147_def0 mix_1147_use0
 hover mix_1147_use0 ~ "mix"
 def Terrain_1163_use2 -> Terrain_1163_def0
 refs Terrain_1163_def0 = Terrain_1163_def0 Terrain_1163_use0 Terrain_1163_use1 Terrain_1163_use2 Terrain_1163_use3
-hover Terrain_1163_use2 ~ "class Terrain" "render/terrain.h"
+hover Terrain_1163_use2 ~ "class Terrain"
 sym "Terrain" -> Terrain_1163_def0
 def Policy_1184_use0 -> Policy_1184_def0
 decl Policy_1184_use0 -> Policy_1184_def0
 refs Policy_1184_def0 = Policy_1184_def0 Policy_1184_use0
-hover Policy_1184_use0 ~ "enum Policy" "shader/types_trigger.h"
+hover Policy_1184_use0 ~ "enum Policy"
 def clamp_1199_use0 -> clamp_1199_def0
 decl clamp_1199_use0 -> clamp_1199_def0
 refs clamp_1199_def0 = clamp_1199_def0 clamp_1199_use0
@@ -549,7 +549,7 @@ hover encodePanel_1276_use0 ~ "encodePanel" "→ double"
 def appRun192_1288_use0 -> appRun192_1288_def0
 decl appRun192_1288_use0 -> appRun192_1288_decl0
 refs appRun192_1288_decl0 = appRun192_1288_decl0 appRun192_1288_def0 appRun192_1288_use0
-hover appRun192_1288_use0 ~ "appRun192" "→ double" "app.h"
+hover appRun192_1288_use0 ~ "appRun192" "→ double"
 
 # ---- unsaved edits ----
 open modules/memory/src/funcs_frame.cpp

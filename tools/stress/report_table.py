@@ -20,7 +20,7 @@ def load(path):
 
 
 def secs(ms):
-    return '-' if ms is None else ('%.1f' % (ms / 1000.0))
+    return '-' if ms is None or ms < 0 else ('%.1f' % (ms / 1000.0))
 
 
 def fmt_ms(x):

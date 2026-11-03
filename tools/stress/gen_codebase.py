@@ -343,9 +343,9 @@ class Gen:
             base = v + '_' + nn.lower()
         else:
             base = v + nn
-        if base in avoid or s.used_names.get(pool + str(id(mod)), set()) & {base}:
+        if base in avoid or s.used_names.get(pool + mod.name, set()) & {base}:
             base = base + str(s.fresh())
-        s.used_names.setdefault(pool + str(id(mod)), set()).add(base)
+        s.used_names.setdefault(pool + mod.name, set()).add(base)
         return base
 
     def doc(s, what, e):
@@ -935,7 +935,6 @@ def gen_class_unit(g, mod, iface=False):
         hdr.inc('mstd.h')
     for sv in c.statics:
         L.append(INDENT + 'static int %s;' % g.tok(sv, 'decl'))
-    c.is_const_ctx = False
     for m in c.methods:
         if getattr(m, 'd', None):
             L.append(INDENT + m.d)
@@ -965,7 +964,7 @@ def gen_class_unit(g, mod, iface=False):
         if r.chance(.3):
             pn = r.choice(COMMON_STATIC)
             if pn not in c.allnames and pn not in mod.fnames:
-                he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None)
+                he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None, defsrc=cpp.path)
                 extra.append(he)
                 helper = he
         if r.chance(.2):
@@ -1036,7 +1035,7 @@ def gen_funcs_unit(g, mod):
     if r.chance(.3):
         pn = r.choice(COMMON_STATIC)
         if pn not in mod.fnames:
-            he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None)
+            he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None, defsrc=cpp.path)
             extra.append(he)
             cpp.lines.append('static int %s(int p0) { return p0 + %d; }' % (g.tok(he, 'def'), r.rng(1, 9)))
             cpp.lines.append('')
@@ -1286,7 +1285,7 @@ def gen_chain_unit(g, mod, c=False):
         e = Ent(g, 'func', '%s_l%d' % (key, i), mod, mod.ns, ret='int', params=['int'],
                 hdr='%s/chain%d/c%d.h' % (mod.name, n, i), inline=True, chain=True, cstatic=c, pname='v')
         fns.append(e)
-    entry = Ent(g, 'func', '%s_entry' % key, mod, mod.ns, ret='int', params=['int'], hdr=top_inc)
+    entry = Ent(g, 'func', '%s_entry' % key, mod, mod.ns, ret='int', params=['int'], hdr=top_inc, pname='v')
     inl = 'static inline' if c else 'inline'
     for i, f in enumerate(files):
         if i + 1 <= depth:
@@ -1355,7 +1354,7 @@ def gen_cstruct_unit(g, mod):
     extra = []
     if r.chance(.4):
         pn = r.choice(COMMON_STATIC)
-        he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None)
+        he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None, defsrc=cpp.path)
         extra.append(he)
         cpp.lines.append('static int %s(int p0) { return p0 + %d; }' % (g.tok(he, 'def'), r.rng(1, 9)))
         cpp.lines.append('')
@@ -1388,7 +1387,7 @@ def gen_cfuncs_unit(g, mod):
     extra = []
     if r.chance(.4):
         pn = r.choice(COMMON_STATIC)
-        he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None)
+        he = Ent(g, 'sfunc', pn, mod, '', ret='int', params=['int'], hdr=None, defsrc=cpp.path)
         extra.append(he)
         cpp.lines.append('static int %s(int p0) { return p0 + %d; }' % (g.tok(he, 'def'), r.rng(1, 9)))
         cpp.lines.append('')
@@ -1439,8 +1438,6 @@ def setup_modules(g):
         cyc = k // len(words)
         if cyc:
             nm += '_' + MOD_SUFFIX[(cyc - 1) % len(MOD_SUFFIX)] + ('' if cyc <= len(MOD_SUFFIX) else str(cyc))
-        if lang == 'cxx' and g.profile != 'mixed':
-            nm = nm
         mod = Mod(i, nm, lang)
         g.reserved.add(nm)
         mod.snake = (g.kind != 'game') and r.chance(.5)
@@ -1776,15 +1773,24 @@ def hover_strs(g, e):
         out = ['enumerator ' + e.name]
     elif k == 'macro':
         out = ['#define ' + e.name + ('(x)' if e.fn else ' ' + e.value)]
-    # (doc comments are not asserted: the anchor comment between the doc comment and the name keeps clangd from attaching it)
-    if e.owner is None and e.hdr and k in ('func', 'const', 'enum', 'alias', 'class'):
-        out.append(e.hdr)
+    # (not asserted: doc comments - the anchor comment between the doc comment and the name keeps clangd from attaching
+    #  them - and the "provided by" header - clangd omits it when the use is in the declaring header's own source)
     return out
 
 
 def build_expect(g):
     r = g.r
     S = g.samples
+    # clang's USR of a `static` function contains only the file's base name: equal names in equally named files of
+    # different directories are one symbol for clangd (STRESS_RESULTS G-4)
+    sf = {}
+    for e in g.ents:
+        if e.kind == 'sfunc':
+            sf.setdefault((e.name, os.path.basename(e.defsrc)), set()).add(e.defsrc)
+    for e in g.ents:
+        if e.kind == 'sfunc':
+            # (C only: in C++ the USR also holds the namespace, which differs per module)
+            e.usr_clash = e.defsrc.endswith('.c') and len(sf[(e.name, os.path.basename(e.defsrc))]) > 1
     fastl = []
     mainl = []
     renames = []
@@ -1835,7 +1841,10 @@ def build_expect(g):
         if al:
             op = '>=' if (e.capped or cat in ('vmethod',) or e.kind in ('tmplclass', 'tspec', 'tmplfunc')) else '='
             q = Dc(e) or al[0]
-            if mixed_static and 'c' in e.uselangs and 'cxx' in e.uselangs and op == '=':
+            if getattr(e, 'usr_clash', False):
+                mainl.append('xfail refs %s %s %s  # clangd: the USR of a static function holds only the base name of its file, '
+                             'same-named static functions in same-named files of other directories are merged' % (q, op, ' '.join(al)))
+            elif mixed_static and 'c' in e.uselangs and 'cxx' in e.uselangs and op == '=':
                 mainl.append('xfail refs %s = %s  # clangd: a static inline function of a C header used from both C and C++ '
                              'translation units has two USRs, the uses in the other language are not found' % (q, ' '.join(al)))
             elif mixed_static:
@@ -1851,7 +1860,7 @@ def build_expect(g):
         if 'var' in e.anchors:
             mainl.append('typedef %s -> %s' % (e.anchors['var'][0], A(e, 'def')))
         # rename candidates
-        if (not e.capped and not mixed_static and 1 <= len(al) <= 8 and e.kind in ('func', 'method', 'const', 'static', 'alias', 'class', 'field',
+        if (not e.capped and not mixed_static and not getattr(e, 'usr_clash', False) and 1 <= len(al) <= 8 and e.kind in ('func', 'method', 'const', 'static', 'alias', 'class', 'field',
                                                                 'tmplfunc', 'enum')
                 and cat not in ('vmethod', 'mfunc', 'tablefn', 'chainfn') and e.cat != 'smethod' or False):
             if not (e.kind == 'method' and (e.virtual or e.override_of)):

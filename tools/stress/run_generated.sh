@@ -12,7 +12,7 @@
 #   OUT          report directory       (default: stress-reports/SIZE)
 #   VARIANTS     "cmake", "vs" or both  (default: medium "cmake vs", others "cmake")
 #   SEED         generator seed         (default 1)
-#   TIMEOUT      seconds per project    (default: small 300, medium 3600, large 10800)
+#   TIMEOUT      seconds per project    (default: small 300, medium 3600, large 5400)
 #   WORK         parent of the temporary projects (default: $TMPDIR or /tmp); each is deleted after its run unless KEEP=1
 #
 # Output per run NAME = PROFILE-VARIANT-SIZE:  OUT/NAME.json (runner report), OUT/NAME.meta.json (generator statistics,
@@ -24,7 +24,7 @@ ROOT=$(cd "$HERE/../.." && pwd)
 SIZE=${1:?usage: run_generated.sh SIZE [PROFILE...]}
 shift
 case "$SIZE" in
-  large) DEF_PROFILES="game service"; DEF_VARIANTS="cmake"; DEF_TIMEOUT=10800 ;;
+  large) DEF_PROFILES="game service"; DEF_VARIANTS="cmake"; DEF_TIMEOUT=5400 ;;
   medium) DEF_PROFILES="game service lib c mixed"; DEF_VARIANTS="cmake vs"; DEF_TIMEOUT=3600 ;;
   *) DEF_PROFILES="game service lib c mixed"; DEF_VARIANTS="cmake"; DEF_TIMEOUT=300 ;;
 esac
