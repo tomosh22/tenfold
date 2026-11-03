@@ -62,6 +62,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.defaultLineEnding", SettingType::String},
                                              {"editor.autoNameUntitledFiles", SettingType::Bool},
                                              {"editor.internetSearchCommand", SettingType::String},
+                                             {"editor.pasteHistorySize", SettingType::Int},
                                              {"font.editor", SettingType::Font},
                                              {"font.fallbacks", SettingType::String},
                                              {"font.size", SettingType::Float},
@@ -71,7 +72,8 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"picker.preview", SettingType::Bool},
                                              {"explorer.trackActiveFile", SettingType::Bool},
                                              {"vcs.diffTool", SettingType::String},
-                                             {"vcs.diffToolArgs", SettingType::String}};
+                                             {"vcs.diffToolArgs", SettingType::String},
+                                             {"vcs.p4vPath", SettingType::String}};
   return s;
 }
 

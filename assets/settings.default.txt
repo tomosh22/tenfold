@@ -64,6 +64,9 @@ editor.autoNameUntitledFiles = false
 # internetSearchCommand: InternetSearch opens this address with the word under the caret (or the selection) appended,
 # percent-encoded, in the default browser.
 editor.internetSearchCommand = https://www.google.com/search?q=
+# pasteHistorySize: how many recent clipboard texts PasteHistory (Control Shift V) remembers (10x documents no size;
+# tenfold's default is 20). 0 turns the history off.
+editor.pasteHistorySize = 20
 
 # Unset: the app discovers a monospace font, trying font.fallbacks in order (OPEN_QUESTIONS #7).
 font.editor =
@@ -94,3 +97,5 @@ explorer.trackActiveFile = false
 # default arguments the titles are passed as well (-nl "<file>#have" -nr "<file> (unsaved)").
 vcs.diffTool =
 vcs.diffToolArgs = ""{base}" "{current}""
+# vcs.p4vPath: the p4v program PerforceShowInP4v starts (empty = `p4v` from PATH).
+vcs.p4vPath =

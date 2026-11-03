@@ -271,6 +271,20 @@ each. Escape collapses to the primary caret (it does not quit).
 
 More multi-caret keys (10x's): **Ctrl+Shift+D** (`UndoSelectNextMultiCursor`) takes back the last **Ctrl+D** step, one per press, as long as the carets and the text are unchanged since it; **Alt+F3** or **Ctrl+Shift+Alt+J** (`SelectAllOccurrences`) selects every match of the find bar's text and options while the find bar is open, else of the selected text, else of the word at the caret; **Alt+A** (`AlignMultiCursor`) pads with spaces in front of each caret so that all line up at the rightmost one (tabs count as `editor.tabWidth` stops; of several carets on one line the first moves; one undo step); **Shift+Alt+Left / Right** (`MultiCursorMoveLeft` / `MultiCursorMoveRight`) increase / decrease the selection end of every caret by one character as 10x describes them (see the table below); **Ctrl + middle click** (`AddCursorAtMousePos`) adds a caret under the pointer in an editor view (a plain middle click, and a Ctrl+middle click on a tab, behave as before).
 
+**Paste history.** **Ctrl+Shift+V** (`PasteHistory`) opens a list of the texts you copied or cut in tenfold (Copy, Cut,
+CutLine; a change another program made to the clipboard is noticed when the window regains focus), newest first, each as
+its first line (`...` and `N lines` when there are more). Type to filter. **Enter** pastes the chosen entry with the normal
+Paste rules (several carets and as many lines: one line each), moves it to the top and makes it the clipboard text, so
+Ctrl+V pastes it again. `editor.pasteHistorySize` (default 20; 10x documents no size) sets how many it keeps, 0 turns it
+off. The list opens in the middle of the window like the other pickers, not at the caret.
+
+**Key sequences.** **Ctrl+Shift+R** (`RecordKeySequence`) starts recording (the status bar shows `REC`), the same key
+stops. **Ctrl+Shift+P** (`PlaybackKeySequence`) replays the last recording as one undo step of the document that was
+current when it started. A recording holds the commands that ran (key bindings, chords, the command palette's choice) and
+the text typed into the editor, not mouse clicks and not what you type into a picker or the find bar; a command that opens
+one (`GoToLine`, `Find`) replays as just opening it. Starting a recording replaces the last one; stopping one with nothing
+in it keeps the old one. The recording lasts until tenfold quits.
+
 **Navigation and bookmarks in the current file.** **Ctrl+=** / **Ctrl+Shift+=** (`PrevLocationCurrentFile` / `NextLocationCurrentFile`) walk the navigation history like Ctrl+- / Ctrl+Shift+- but only over the entries of the file you are in. **Ctrl+Shift+T** (`RestoreRecentlyClosedFile`) reopens the file whose last tab was closed most recently, at the caret it had; press it again for the one before. **Alt+F2** / **Shift+Alt+F2** step to the next / previous bookmark of the current file (wrapping), **Ctrl+Shift+F2** removes all bookmarks of the current file, **Ctrl+Shift+F9** all its breakpoints.
 
 **Undo.** Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z. Typed characters are grouped into one undo step per word: the group ends at
@@ -502,6 +516,16 @@ Alt Shift Z: Vcs.RevertHunk
 Alt Shift F5: Vcs.RefreshStatus
 ```
 
+**History and p4v.** **Control P, Control H** (`PerforceHistory`) runs `p4 filelog` for the current file and lists its
+revisions (`#rev  change N  date  user`, the first line of the description, the action); type to filter by any of that.
+**Enter** opens that revision (`p4 print`) in a new tab, read-only: the text is written to a temp file
+`<temp>/tenfold-p4/<id>/<name>#<rev><ext>` that is read-only on disk, so it cannot be saved over anything. Diffing a revision
+is not offered here (Control P, Control D diffs the working file with `#have`). Dates are UTC. **Control P, Control V**
+(`PerforceShowInP4v`) starts `p4v -p <port> -u <user> -c <client> -s <depot path>`, taking port, user and client from `p4 info`
+(so `P4CONFIG` and `p4 set` apply) and the depot path from `p4 where`; `vcs.p4vPath` names another program than `p4v`.
+Both say so in the status bar when the workspace is not under Perforce. Like the rest of the Perforce support they have
+only been run against the fake `p4`.
+
 Not done: blame, commit or stage UI, side-by-side diff inside tenfold.
 
 ## Workspace explorer
@@ -633,6 +657,7 @@ tests.)
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. Encoding of new files is UTF-8 (10x: DefaultEncoding). |
 | `editor.autoNameUntitledFiles` | `false` | bool | An untitled file is named after the first word typed in it; the name is what the Save As prompt offers. 10x: AutoNameUntitledFiles. |
 | `editor.internetSearchCommand` | `https://www.google.com/search?q=` | string | `InternetSearch` (F1) opens this address with the word under the caret or the selection appended (percent-encoded) in the default browser. 10x: InternetSearchCommand. |
+| `editor.pasteHistorySize` | `20` | int | How many recent clipboard texts `PasteHistory` (Ctrl+Shift+V) keeps; 0 turns it off. 10x documents no size. |
 | `font.editor` | (empty) | font | Editor font as `family or path[, size in pt]`. Empty means unset: `font.fallbacks` are tried in order. A family name is matched against font file names in the system font folders (case and spaces ignored), so give a full path if it is not found. |
 | `font.fallbacks` | `Cascadia Mono, Consolas` | string | Comma-separated font names tried in order when `font.editor` is unset or not found; after the last one the platform's usual monospace font is used. |
 | `font.size` | `10` | float | Font size in points when `font.editor` does not carry one. |
@@ -643,6 +668,7 @@ tests.)
 | `explorer.trackActiveFile` | `false` | bool | Keep the active file selected in the workspace explorer while it is open (10x: TrackActiveFileInWorkspaceTree). |
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
+| `vcs.p4vPath` | (empty) | string | The program `PerforceShowInP4v` starts; empty means `p4v` from `PATH`. |
 <!-- settings:end -->
 
 The default file also notes that undo grouping (`undoGrouping`, `undoGroupPauseMs`) does not live here but in
@@ -792,7 +818,7 @@ command tenfold lacks would take a key from the focused input line or the open p
 `Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files, and so does tenfold (`Control Shift S`
 saves all at once). The second press runs `File.SaveAll`; the first one has already saved the current file.
 
-The 170 default bindings that run a tenfold command today (all other defaults are in
+The 175 default bindings that run a tenfold command today (all other defaults are in
 [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
 differs from the 10x description:
 
@@ -879,6 +905,16 @@ differs from the 10x description:
 | `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | all folded: expand all, else collapse all (every depth) |
 | | `CollapseAllRegions`, `ExpandAllRegions` | `Editor.CollapseAllRegions`, `Editor.ExpandAllRegions` | outermost regions / visible collapsed regions only |
 | | `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive` | `Editor.CollapseAllRegionsRecursive`, `Editor.ExpandAllRegionsRecursive` | every depth |
+
+**Clipboard history, key sequences, Perforce**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control Shift V` | `PasteHistory` | `Editor.PasteHistory` | a picker in the middle of the window, not a dropdown at the caret; 20 entries |
+| `Control Shift R` | `RecordKeySequence` | `App.RecordKeySequence` | records commands and typed text of the editor, not mouse or picker input |
+| `Control Shift P` | `PlaybackKeySequence` | `App.PlaybackKeySequence` | one undo step of the document current at the start |
+| `Control P, Control H` | `PerforceHistory` | `Vcs.PerforceHistory` | Enter opens the revision read-only in a new tab |
+| `Control P, Control V` | `PerforceShowInP4v` | `Vcs.ShowInP4v` | `p4v -p -u -c -s <depot path>` |
 
 **Navigation**
 
@@ -1242,7 +1278,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** 10x's own format and default key map; 13 of its 183 default bindings (13 commands) are not implemented yet (FEATURE_PARITY).
+* **Key bindings:** 10x's own format and default key map; 8 of its 183 default bindings (8 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session

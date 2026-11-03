@@ -397,6 +397,60 @@ void VcsManager::checkOut(const fs::path& file, Done done) {
   });
 }
 
+void VcsManager::withPerforce(const std::function<std::function<void()>(PerforceProvider&)>& job,
+                              const std::function<void(const std::string&)>& fail) {
+  if (stopped_ || !opt_.enabled) {
+    fail("version control is disabled");
+    return;
+  }
+  ensureStarted();
+  push([this, job, fail] {
+    auto* p4 = dynamic_cast<PerforceProvider*>(provider_.get());
+    if (!p4) {
+      const std::string why = provider_ ? "the workspace is not under Perforce (it uses " + provider_->name() + ")"
+                                        : "no version control system found for this workspace";
+      post([fail, why] { fail(why); });
+      return;
+    }
+    post(job(*p4));
+  });
+}
+
+void VcsManager::perforceHistory(const fs::path& file, std::function<void(bool, Revisions, const std::string&)> done) {
+  withPerforce(
+      [file, done](PerforceProvider& p4) {
+        std::string err;
+        Revisions revs = p4.filelog(file, &err);
+        return std::function<void()>(
+            [done, revs = std::move(revs), err]() mutable { done(err.empty(), std::move(revs), err); });
+      },
+      [done](const std::string& why) { done(false, {}, why); });
+}
+
+void VcsManager::perforceRevisionText(const fs::path& file, int rev,
+                                      std::function<void(bool, std::string, const std::string&)> done) {
+  withPerforce(
+      [file, rev, done](PerforceProvider& p4) {
+        std::string err;
+        std::optional<std::string> t = p4.printRevision(file, rev, &err);
+        return std::function<void()>(
+            [done, t = std::move(t), err]() mutable { done(t.has_value(), t ? std::move(*t) : std::string(), err); });
+      },
+      [done](const std::string& why) { done(false, {}, why); });
+}
+
+void VcsManager::perforceP4vTarget(const fs::path& file,
+                                   std::function<void(bool, PerforceProvider::P4vTarget, const std::string&)> done) {
+  withPerforce(
+      [file, done](PerforceProvider& p4) {
+        PerforceProvider::P4vTarget t;
+        std::string err;
+        const bool ok = p4.p4vTarget(file, t, &err);
+        return std::function<void()>([done, ok, t = std::move(t), err]() mutable { done(ok, std::move(t), err); });
+      },
+      [done](const std::string& why) { done(false, {}, why); });
+}
+
 bool VcsManager::revertHunk(const fs::path& file, size_t index, std::string* error) {
   auto fail = [&](const std::string& m) {
     if (error) *error = m;

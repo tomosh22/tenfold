@@ -16,6 +16,10 @@
 //                   "unresolved": false, "lockedBy": "", "content": "text at the have revision",
 //                   "inDepot": true }
 //     },
+//                   "history": [           `filelog` / `print file#N`, newest first; "content" is what `print #rev`
+//                   gives
+//                      { "rev": 3, "change": 120, "action": "edit", "time": 1700000000, "user": "bob",
+//                        "client": "bobws", "desc": "text\nmore", "type": "text", "content": "text of rev 3" } ]
 //     "log": []                            every invocation appends its arguments (joined by a space)
 //   }
 //
@@ -241,6 +245,42 @@ int cmdWhere(const std::vector<std::string>& a) {
   return 0;
 }
 
+int cmdFilelog(const std::vector<std::string>& a) {
+  std::vector<std::string> paths;
+  size_t maxRevs = 1000000;
+  for (size_t i = 0; i < a.size(); ++i) {
+    if (a[i] == "-m" && i + 1 < a.size()) maxRevs = static_cast<size_t>(std::atoi(a[++i].c_str()));
+    else if (!a[i].empty() && a[i][0] == '-') continue;
+    else paths.push_back(a[i]);
+  }
+  for (auto& p : paths) {
+    Arg ar = parseArg(p);
+    if (ar.outside || !state["files"].contains(ar.rel) || !state["files"][ar.rel].value("inDepot", true)) {
+      errOut += norm(unescape(p)) + " - no such file(s).\n";
+      continue;
+    }
+    const Json& f = state["files"][ar.rel];
+    tag("depotFile", "//depot/" + ar.rel);
+    if (f.contains("history") && f["history"].is_array()) {
+      size_t n = 0;
+      for (const Json& h : f["history"]) {
+        if (n >= maxRevs) break;
+        const std::string i = std::to_string(n++);
+        tag("rev" + i, std::to_string(h.value("rev", 1)));
+        tag("change" + i, std::to_string(h.value("change", 1)));
+        tag("action" + i, h.value("action", "edit"));
+        tag("type" + i, h.value("type", "text"));
+        tag("time" + i, std::to_string(h.value("time", 0)));
+        tag("user" + i, h.value("user", "tester"));
+        tag("client" + i, h.value("client", "fake-client"));
+        tag("desc" + i, h.value("desc", ""));
+      }
+    }
+    out += "\n";
+  }
+  return 0;
+}
+
 int cmdPrint(const std::vector<std::string>& a) {
   for (auto& p : a) {
     if (!p.empty() && p[0] == '-') continue;
@@ -250,7 +290,16 @@ int cmdPrint(const std::vector<std::string>& a) {
       errOut += norm(unescape(p)) + " - no such file(s).\n";
       return 0;
     }
-    out += state["files"][ar.rel].value("content", "");
+    std::string content = state["files"][ar.rel].value("content", "");
+    if (h != std::string::npos && state["files"][ar.rel].contains("history")) {
+      const int rev = std::atoi(p.c_str() + h + 1);
+      for (const Json& e : state["files"][ar.rel]["history"])
+        if (e.value("rev", -1) == rev) {
+          content = e.value("content", content);
+          break;
+        }
+    }
+    out += content;
   }
   return 0;
 }
@@ -374,11 +423,13 @@ int main(int argc, char** argv) {
     } else {
       tag("userName", "tester");
       tag("clientName", "fake-client");
+      tag("serverAddress", state.value("serverAddress", "fake-server:1666"));
       tag("clientRoot", cr);
     }
   } else if (cmd == "where") rc = cmdWhere(rest);
   else if (cmd == "fstat") rc = cmdFstat(rest);
   else if (cmd == "print") rc = cmdPrint(rest);
+  else if (cmd == "filelog") rc = cmdFilelog(rest);
   else if (cmd == "edit") rc = cmdEdit(rest);
   else if (cmd == "revert") rc = cmdRevert(rest);
   else if (cmd == "add") rc = cmdAdd(rest);

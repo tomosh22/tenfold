@@ -166,6 +166,7 @@ add_executable(tenfold-tests
   tests/test_term_vt.cpp
   tests/test_term_keys.cpp
   tests/test_term_pty.cpp
+  tests/test_w8f_p4.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -262,6 +263,9 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/ContextMenu.cpp
     src/ui/features/ContextMenus.cpp
     src/ui/features/PickerUtil.cpp
+    src/ui/features/PasteHistory.cpp
+    src/ui/features/KeySequence.cpp
+    src/ui/features/PerforceUi.cpp
     src/ui/features/SymbolSearch.cpp
     src/ui/features/FileSearch.cpp
     src/ui/features/NavResultPicker.cpp
@@ -379,6 +383,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_tree.cpp
     tests/ui/test_w8f_fold.cpp
     tests/ui/test_w8f_ctx.cpp
+    tests/ui/test_w8f_misc.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
@@ -386,6 +391,9 @@ if(TENFOLD_BUILD_UI)
   # tests/ui/test_p2_ui.cpp drives the status bar against the fake clangd of tests/test_crash.cpp.
   add_dependencies(tenfold-ui-tests tenfold-test-helper)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_TEST_HELPER="$<TARGET_FILE:tenfold-test-helper>")
+  # tests/ui/test_w8f_misc.cpp drives PerforceHistory / PerforceShowInP4v against the fake p4.
+  add_dependencies(tenfold-ui-tests tenfold-fake-p4)
+  target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_FAKE_P4="$<TARGET_FILE:tenfold-fake-p4>")
   add_test(NAME ui-unit COMMAND tenfold-ui-tests)
 endif()
 

@@ -21,7 +21,7 @@ decided by the user). Each has a default we implement until answered.
 | 14 | Code formatting: the existing code is hand-formatted in a compact style that `.clang-format` cannot reproduce (986 residual hunks; even one-line edits reflow neighbouring statements). Adopt clang-format wholesale with one reformatting commit, or keep the hand style? | **Answered:** adopt clang-format and reformat. Whole tree reformatted once (`examples/` and `tests/fixtures/` excluded: tests depend on their line/column positions); CI format job is blocking | A7 |
 | 15 | Visual Studio connection at startup: should tenfold connect to Visual Studio on its own? | **Partly answered from the 10x documentation (VSDebugger, setting `VisualStudioSync`):** 10x connects to / launches Visual Studio when the debugger is started, keeps breakpoints in sync, and before the debugger starts makes Visual Studio's solution configuration and platform match 10x's. tenfold does the same (C2d): the workspace setting `debug.visualStudioSync` in `.tenfold/workspace.json` (default on, mirrors `VisualStudioSync`; off = no breakpoint sync, no configuration sync, no attach at startup, commands still work), and start / start without debugging / restart / run to cursor first activate the solution configuration `Workspace::activeVsConfiguration()` in Visual Studio. As an addition tenfold also attaches at startup (and retries every 10 s while breakpoints exist) to a Visual Studio that already has the workspace's solution open, so breakpoints reach it early; it never launches Visual Studio before you press a debug key. That addition is behind `debug.attachAtStartup` (default on). Still open: whether the startup attach is wanted at all | C2b2, C2d |
 | 16 | Version-control marks for new / untracked files: Visual Studio paints the whole file as added; should tenfold? | no marks for untracked files; a file staged as new (or opened for add in Perforce) shows as one added block | C3c |
-| 17 | Perforce: please sanity-check the commands tenfold relies on against your server (listed in docs/ARCHITECTURE.md, "Perforce"), in particular `p4 -ztag -F %clientRoot% info`, `p4 where <dir>/...` for an unmapped directory, and what `p4 edit` prints / returns for an exclusively locked file | implemented against a fake `p4` only; no real server was available | C3b |
+| 17 | Perforce: please sanity-check the commands tenfold relies on against your server (listed in docs/ARCHITECTURE.md, "Perforce"), in particular `p4 -ztag -F %clientRoot% info`, `p4 where <dir>/...` for an unmapped directory, what `p4 edit` prints / returns for an exclusively locked file, `p4 -ztag filelog -L -m 200 <file>` (PerforceHistory) and `p4v -p <port> -u <user> -c <client> -s <depot path>` (PerforceShowInP4v: does it select the file?) | implemented against a fake `p4` only; no real server was available | C3b, W8f |
 | 18 | Licence for tenfold itself (the repository has no LICENSE file; packages ship third-party notices only) | none chosen; packaging picks up `LICENSE` automatically once it exists | D1 |
 | 19 | Visual Studio 2022 Dark colours: the `vs-dark` theme was written from memory (values marked `[?]` in assets/themes/vs-dark.txt: panel background, tabs, scrollbars, squiggles, diff and debugger colours). Corrections or a screenshot would let us match exactly | current values | B7b, C2c, C3c |
 
@@ -249,3 +249,24 @@ menus, the editor the user is switching from. Defaults to confirm against a runn
   every unpinned tab of the active panel; 10x's own wording is only "all tabs except for the current tab" / "all
   non-pinned tabs", so whether pinned tabs survive "close all other tabs" is a guess. `CopyActiveFilePath` copies the
   path with the platform's separators.
+
+## W8f detail: paste history, key sequences, Perforce history and p4v (10x documents one line each)
+
+* `PasteHistory`: "Show the paste history dropdown". Size, content and position are not documented. tenfold keeps the last
+  20 texts (`editor.pasteHistorySize`, 0 = off) that Copy, Cut and CutLine put on the clipboard, plus a clipboard change by
+  another program when the window regains focus; a text already listed moves to the top. The list is the usual modal
+  picker (centre of the window, substring filter), not a dropdown anchored at the caret. Enter pastes with the Paste rules
+  and also makes the entry the clipboard text. Text copied inside tenfold's own input lines (find bar, pickers) is not
+  recorded. The history is not saved between sessions.
+* `RecordKeySequence` / `PlaybackKeySequence`: "Start/stop recording a key sequence" / "Playback a key sequence". Whether
+  10x records raw keys, whether mouse input and other panels count, whether the recording survives a restart, and whether
+  playback is one undo step are not documented. tenfold records commands (as resolved from bindings, chords and the
+  palette) and typed text, only while the editor view has the keys, never the record / playback keys and not mouse clicks;
+  only the last recording is kept, in memory. Playback is one undo step of the document current when it started. Playback
+  is refused while recording.
+* `PerforceHistory`: "Show the perforce history for the current file". tenfold shows `p4 filelog` (last 200 revisions) in a
+  picker; Enter opens the chosen revision read-only in a new tab (a read-only temp file). Whether 10x diffs instead, or
+  offers both, is unknown; tenfold has no diff-with-revision action (Vcs.DiffFileExternal diffs against `#have` only).
+* `PerforceShowInP4v`: "Show the current file in p4v". tenfold starts `p4v -p <port> -u <user> -c <client> -s <depot path>`
+  with the connection from `p4 info` and the path from `p4 where`; p4v's `-s` option is from p4v's own command-line help,
+  not from the 10x docs, and has not been tried against a real p4v (OPEN_QUESTIONS #17 applies).

@@ -15,6 +15,7 @@
 #include <vector>
 
 #include "vcs/LineDiff.h"
+#include "vcs/PerforceProvider.h"
 #include "vcs/Vcs.h"
 
 namespace tf {
@@ -112,6 +113,20 @@ class VcsManager {
   // undo step, carets of the current document follow). Synchronous and exact: stale hunks are recomputed first.
   bool revertHunk(const std::filesystem::path& file, size_t index, std::string* error = nullptr);
 
+  // ---- Perforce extras (W8f), all off the UI thread; the callback runs on the pump thread ----
+  // These need the Perforce provider: with another provider (or none) `done` gets ok=false and a message.
+  using Revisions = std::vector<PerforceProvider::Revision>;
+  // `p4 filelog` of `file` (PerforceHistory). An empty list with ok=true: the file is not in the depot.
+  void perforceHistory(const std::filesystem::path& file,
+                       std::function<void(bool ok, Revisions revisions, const std::string& error)> done);
+  // `p4 print` of one revision.
+  void perforceRevisionText(const std::filesystem::path& file, int rev,
+                            std::function<void(bool ok, std::string text, const std::string& error)> done);
+  // Connection and depot path for `p4v -s` (PerforceShowInP4v).
+  void perforceP4vTarget(
+      const std::filesystem::path& file,
+      std::function<void(bool ok, PerforceProvider::P4vTarget target, const std::string& error)> done);
+
   // ---- notifications from the Editor (main thread) ----
   void documentOpened(Document& doc);
   void documentChanged(Document& doc);  // every edit; the first one that makes the document dirty runs beforeFirstEdit
@@ -149,6 +164,10 @@ class VcsManager {
   void reportError(const std::filesystem::path& file, const std::string& msg);
   void applyStatuses(std::vector<VcsFileInfo> infos, bool replaceAll);
   void post(std::function<void()> fn);
+  // Runs `job` on the worker with the Perforce provider (or reports why there is none); the closure `job` returns is
+  // posted to the pump thread.
+  void withPerforce(const std::function<std::function<void()>(PerforceProvider&)>& job,
+                    const std::function<void(const std::string&)>& fail);
 
   Editor& editor_;
   Options opt_;
