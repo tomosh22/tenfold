@@ -516,9 +516,9 @@ group as real commands, sets the alias targets in `src/ui/commands/CommandNames.
 ### W9 Extreme stress test: varied codebases (user request, after W8)
 
 Goal: put tenfold's code intelligence, indexing, editing and UI through an extensive suite of widely varying codebases
-(hand-written hard cases with known answers, generated pathological workspaces, fuzzed inputs, pinned real-world
-projects) and fix what breaks. Every finding becomes a regression test. Correctness is judged against expected answers
-written in the corpus, or, for real-world code, against clangd queried directly (the oracle); the fast tier is measured
+(hand-written hard cases with known answers, generated pathological workspaces, fuzzed inputs, large generated
+projects with known answers; real-world projects were dropped by the user) and fix what breaks. Every finding becomes a regression test. Correctness is judged against expected answers
+written in the corpus (or by the generator); the fast tier is measured
 by how often its first answer agrees with the final (authoritative) one.
 
 **Corpus expectation format (shared by W9a and W9b-e).** A corpus project is a directory under `tests/corpus/<name>/`
@@ -560,15 +560,16 @@ with its sources (and its own `compile_commands.json`, `.sln` / `.vcxproj` or no
   lines, minified one-line files, deep nesting, huge identifiers, binary / invalid UTF-8 files, symlink loops, files
   changing / deleted during indexing, truncated and unbalanced code. Nothing may crash, hang, or exceed the memory
   budget; the UI must stay responsive (frame budget) while indexing them.
-* **W9g** real-world projects: a pinned list (shallow clones by commit) chosen for variety (small modern C++, a
-  template-heavy header-only library, a giant single-file C program, macro-heavy C, a game engine, a Visual Studio
-  `.sln` project, a large compiler subset), a fetch script, an oracle that samples navigation points and compares
-  tenfold's answers with clangd's, and a scheduled CI workflow that publishes the report (disagreement rates, crashes,
-  timings, memory) as an artifact. Disk budget about 8 GB locally; clones are deleted after a run.
+* **W9g** (after W9a; replaces real-world projects, which the user dropped: no third-party code is fetched) large
+  synthetic codebases from a generator that knows the ground truth: realistic, varied C++ projects of 1k-20k files
+  (module structure, headers / sources, classes, templates, namespaces, macros, cross-file calls, a `.sln` /
+  `.vcxproj` variant and a CMake / compile_commands variant), emitted with anchors and a `tenfold-expect.txt` in the
+  W9a format by the generator itself (it knows every definition and use), plus a final-vs-clangd comparison mode.
+  Small sizes run in CI, large sizes in a scheduled workflow.
 * **W9h** fuzzing: mutation fuzzing (seeded from the corpora) of the fast lexer / symbol extractor, the `.sln` /
   `.vcxproj` / `.props` evaluator, the compile-database reader, the 10x settings / key-mapping parsers, the build
   output parser, the diff engine and the terminal parser, under ASan; every crash input is kept as a regression test.
-* **W9i** (after W9g) editor-level stress on the real-world projects: scripted UI sessions (hundreds of tabs, find /
+* **W9i** (after W9g) editor-level stress on the largest generated projects: scripted UI sessions (hundreds of tabs, find /
   replace in files across the largest project, 10k carets, folding a huge file, the terminal flooding while indexing,
   switching configuration mid-index) measured against the frame budget and memory.
 * Findings are fixed in follow-up tasks (one per root cause), each with the corpus entry or input that exposed it.
@@ -627,7 +628,7 @@ Anything else requires a plan amendment.
 | 6 | B2c, B7b, C2a, C3a, C5, D2 (∥) | user answers to #4, #7, #9, #10, #12 received |
 | 7 | C2b, C2c (→ C2a), C3b, C3c (→ C3a), D1, D3 | D4 (user docs) last, after 7 |
 | 8 | B4b, B8b, C2d; then W8a, W8b, W8c (∥), W8d, W8e, then W8f | 10x documentation available (key bindings, settings, VS sync) |
-| 9 | W9a, W9f, W9g, W9h (∥); then W9b-W9e (∥, → W9a), W9i (→ W9g); then fixes | extreme stress test on varied codebases |
+| 9 | W9a, W9f, W9h (∥); then W9b-W9e, W9g (∥, → W9a), W9i (→ W9g); then fixes | extreme stress test on varied codebases |
 
 A Sonnet task should be at most ~800 lines of new code plus tests; split
 anything larger (B2 and B5 will each need two or three sub-tasks; the
