@@ -30,6 +30,11 @@ metadata all produced the right clang-cl command (`tenfold-cli compdb` checked b
 inside `#if` blocks after every `config` switch. Clangd handled macro names, nested/variadic macros, `##` names,
 declare-by-macro, `#undef` order and `__has_include` correctly in the large majority of lines (172 of 188 in `pp-macros`).
 
+Verification: each project passed `TENFOLD_CORPUS_ONLY=<name> ./build-rel/tenfold-corpus-tests` 5 times in a row
+(Release; 30 runs, PASS + XFAIL only) and once under ASan+UBSan (g++ Debug, `-fsanitize=address,undefined`; no
+sanitizer report; `pp-macros-std` 13 s, the others 4-6 s); the full `tenfold-corpus-tests` (seed + the six) passes in
+39 s.
+
 ### Findings
 
 Tier: **fast** = lexer index, **final** = clangd answer. Fault: **clangd**, **tenfold** (solution evaluation / compile
