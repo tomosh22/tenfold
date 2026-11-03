@@ -1,0 +1,206 @@
+# paths-unicode: directory and file names with spaces, accents, CJK, emoji, parentheses, URI-special characters
+# (% # + & = [ ] { } ' @ !) and a ~180-character relative path. Every directory holds a header
+# and a source with the same stem; main.cpp includes them all. Names in the identifiers stay ASCII (see `encodings`).
+
+# ---- fast tier ----
+fast def sp_use -> sp_def | sp_decl
+fast sym "fn_sp" -> sp_def | sp_decl
+fast def sp_S_use -> sp_S
+fast def fr_use -> fr_def | fr_decl
+fast sym "fn_fr" -> fr_def | fr_decl
+fast def fr_S_use -> fr_S
+fast def jp_use -> jp_def | jp_decl
+fast sym "fn_jp" -> jp_def | jp_decl
+fast def jp_S_use -> jp_S
+fast def em_use -> em_def | em_decl
+fast sym "fn_em" -> em_def | em_decl
+fast def em_S_use -> em_S
+fast def pa_use -> pa_def | pa_decl
+fast sym "fn_pa" -> pa_def | pa_decl
+fast def pa_S_use -> pa_S
+fast def pc_use -> pc_def | pc_decl
+fast sym "fn_pc" -> pc_def | pc_decl
+fast def pc_S_use -> pc_S
+fast def pl_use -> pl_def | pl_decl
+fast sym "fn_pl" -> pl_def | pl_decl
+fast def pl_S_use -> pl_S
+fast def br_use -> br_def | br_decl
+fast sym "fn_br" -> br_def | br_decl
+fast def br_S_use -> br_S
+fast def de_use -> de_def | de_decl
+fast sym "fn_de" -> de_def | de_decl
+fast def de_S_use -> de_S
+fast def lg_use -> lg_def | lg_decl
+fast sym "fn_lg" -> lg_def | lg_decl
+fast def lg_S_use -> lg_S
+
+# ---- sp: space ----
+def sp_use -> sp_def
+decl sp_use -> sp_decl
+def sp_S_use -> sp_S
+def sp_val_use -> sp_val
+def sp_val_def -> sp_val
+refs sp_val = sp_val sp_val_def sp_val_use
+refs sp_decl = sp_decl sp_def sp_use
+refs sp_S >= sp_S sp_S_use
+hover sp_use ~ "fn_sp" "Box_sp"
+hover sp_val_use ~ "val" "int"
+rename sp_val value_sp
+  sp_val sp_val_def sp_val_use
+rename sp_decl renamed_sp
+  sp_decl sp_def sp_use
+sym "fn_sp" -> sp_def | sp_decl
+
+# ---- fr: é ----
+def fr_use -> fr_def
+decl fr_use -> fr_decl
+def fr_S_use -> fr_S
+def fr_val_use -> fr_val
+def fr_val_def -> fr_val
+refs fr_val = fr_val fr_val_def fr_val_use
+refs fr_decl = fr_decl fr_def fr_use
+refs fr_S >= fr_S fr_S_use
+hover fr_use ~ "fn_fr" "Box_fr"
+hover fr_val_use ~ "val" "int"
+rename fr_val value_fr
+  fr_val fr_val_def fr_val_use
+rename fr_decl renamed_fr
+  fr_decl fr_def fr_use
+sym "fn_fr" -> fr_def | fr_decl
+
+# ---- jp: 漢字 ----
+def jp_use -> jp_def
+decl jp_use -> jp_decl
+def jp_S_use -> jp_S
+def jp_val_use -> jp_val
+def jp_val_def -> jp_val
+refs jp_val = jp_val jp_val_def jp_val_use
+refs jp_decl = jp_decl jp_def jp_use
+refs jp_S >= jp_S jp_S_use
+hover jp_use ~ "fn_jp" "Box_jp"
+hover jp_val_use ~ "val" "int"
+rename jp_val value_jp
+  jp_val jp_val_def jp_val_use
+rename jp_decl renamed_jp
+  jp_decl jp_def jp_use
+sym "fn_jp" -> jp_def | jp_decl
+
+# ---- em: emoji ----
+def em_use -> em_def
+decl em_use -> em_decl
+def em_S_use -> em_S
+def em_val_use -> em_val
+def em_val_def -> em_val
+refs em_val = em_val em_val_def em_val_use
+refs em_decl = em_decl em_def em_use
+refs em_S >= em_S em_S_use
+hover em_use ~ "fn_em" "Box_em"
+hover em_val_use ~ "val" "int"
+rename em_val value_em
+  em_val em_val_def em_val_use
+rename em_decl renamed_em
+  em_decl em_def em_use
+sym "fn_em" -> em_def | em_decl
+
+# ---- pa: parentheses ----
+def pa_use -> pa_def
+decl pa_use -> pa_decl
+def pa_S_use -> pa_S
+def pa_val_use -> pa_val
+def pa_val_def -> pa_val
+refs pa_val = pa_val pa_val_def pa_val_use
+refs pa_decl = pa_decl pa_def pa_use
+refs pa_S >= pa_S pa_S_use
+hover pa_use ~ "fn_pa" "Box_pa"
+hover pa_val_use ~ "val" "int"
+rename pa_val value_pa
+  pa_val pa_val_def pa_val_use
+rename pa_decl renamed_pa
+  pa_decl pa_def pa_use
+sym "fn_pa" -> pa_def | pa_decl
+
+# ---- pc: % and # ----
+def pc_use -> pc_def
+decl pc_use -> pc_decl
+def pc_S_use -> pc_S
+def pc_val_use -> pc_val
+def pc_val_def -> pc_val
+refs pc_val = pc_val pc_val_def pc_val_use
+refs pc_decl = pc_decl pc_def pc_use
+refs pc_S >= pc_S pc_S_use
+hover pc_use ~ "fn_pc" "Box_pc"
+hover pc_val_use ~ "val" "int"
+rename pc_val value_pc
+  pc_val pc_val_def pc_val_use
+rename pc_decl renamed_pc
+  pc_decl pc_def pc_use
+sym "fn_pc" -> pc_def | pc_decl
+
+# ---- pl: + & = ----
+def pl_use -> pl_def
+decl pl_use -> pl_decl
+def pl_S_use -> pl_S
+def pl_val_use -> pl_val
+def pl_val_def -> pl_val
+refs pl_val = pl_val pl_val_def pl_val_use
+refs pl_decl = pl_decl pl_def pl_use
+refs pl_S >= pl_S pl_S_use
+hover pl_use ~ "fn_pl" "Box_pl"
+hover pl_val_use ~ "val" "int"
+rename pl_val value_pl
+  pl_val pl_val_def pl_val_use
+rename pl_decl renamed_pl
+  pl_decl pl_def pl_use
+sym "fn_pl" -> pl_def | pl_decl
+
+# ---- br: [] {} ' @ ! ----
+def br_use -> br_def
+decl br_use -> br_decl
+def br_S_use -> br_S
+def br_val_use -> br_val
+def br_val_def -> br_val
+refs br_val = br_val br_val_def br_val_use
+refs br_decl = br_decl br_def br_use
+refs br_S >= br_S br_S_use
+hover br_use ~ "fn_br" "Box_br"
+hover br_val_use ~ "val" "int"
+rename br_val value_br
+  br_val br_val_def br_val_use
+rename br_decl renamed_br
+  br_decl br_def br_use
+sym "fn_br" -> br_def | br_decl
+
+# ---- de: ï Å Ä Ö ñ Ü ß ----
+def de_use -> de_def
+decl de_use -> de_decl
+def de_S_use -> de_S
+def de_val_use -> de_val
+def de_val_def -> de_val
+refs de_val = de_val de_val_def de_val_use
+refs de_decl = de_decl de_def de_use
+refs de_S >= de_S de_S_use
+hover de_use ~ "fn_de" "Box_de"
+hover de_val_use ~ "val" "int"
+rename de_val value_de
+  de_val de_val_def de_val_use
+rename de_decl renamed_de
+  de_decl de_def de_use
+sym "fn_de" -> de_def | de_decl
+
+# ---- lg: 181-character relative path ----
+def lg_use -> lg_def
+decl lg_use -> lg_decl
+def lg_S_use -> lg_S
+def lg_val_use -> lg_val
+def lg_val_def -> lg_val
+refs lg_val = lg_val lg_val_def lg_val_use
+refs lg_decl = lg_decl lg_def lg_use
+refs lg_S >= lg_S lg_S_use
+hover lg_use ~ "fn_lg" "Box_lg"
+hover lg_val_use ~ "val" "int"
+rename lg_val value_lg
+  lg_val lg_val_def lg_val_use
+rename lg_decl renamed_lg
+  lg_decl lg_def lg_use
+sym "fn_lg" -> lg_def | lg_decl
+

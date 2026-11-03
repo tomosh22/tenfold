@@ -1,0 +1,13 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src dir/with space.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/src dir/with space.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/café/résumé.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/café/résumé.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/漢字/ソース.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/漢字/ソース.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/emoji 😀/smile 🙂.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/emoji 😀/smile 🙂.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/parens (1)/file (copy).cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/parens (1)/file (copy).cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/100% pure #1/hash#tag.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/100% pure #1/hash#tag.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/a+b&c=d/plus+one.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/a+b&c=d/plus+one.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/[brackets] {braces}/it's @home!.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/[brackets] {braces}/it's @home!.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/naïve ÅÄÖ ñ/ÜBER straße.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/naïve ÅÄÖ ñ/ÜBER straße.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/level-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/level-bbbbbbbbbbbbbbbbbbbbbbbbbbbb/level-cccccccccccccccccccccccccccc/level-dddddddddddddddddddddddddddd/a_deeply_nested_header_with_a_long_name.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/level-aaaaaaaaaaaaaaaaaaaaaaaaaaaa/level-bbbbbbbbbbbbbbbbbbbbbbbbbbbb/level-cccccccccccccccccccccccccccc/level-dddddddddddddddddddddddddddd/a_deeply_nested_header_with_a_long_name.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@","-c","@CORPUS_ROOT@/main.cpp"]}
+]
