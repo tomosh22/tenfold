@@ -1,0 +1,4 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/unity/build_unity.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/unity/build_unity.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.cpp"]}
+]

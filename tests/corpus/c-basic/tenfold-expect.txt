@@ -1,0 +1,221 @@
+# c-basic: a plain C11 project (compiled with clang -std=c11): tag/typedef with one name, opaque handle, typedef'd anonymous
+# struct/union/enum, flexible array member, K&R definitions, tentative definitions, extern in several headers, static
+# functions with the same name in two files, function-pointer table with designated initialisers, _Generic, macros.
+
+# ---- fast tier ----
+xfail fast def use_list_push -> list_push_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_list_sum -> list_sum_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_handle_open -> handle_open_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_next_id -> next_id_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_apply -> apply_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_knr_add -> knr_add_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_SQUARE -> SQUARE_def  # fast tier does not index #define macros / enumerators (no result)
+xfail fast def use_LIMIT -> LIMIT_def  # fast tier does not index #define macros / enumerators (no result)
+xfail fast def use_F_READ -> F_READ  # fast tier does not index #define macros / enumerators (no result)
+xfail fast def use_node_td_main -> node_td  # fast tier cannot tell the typedef name from the struct tag of the same name (answers both)
+xfail fast def use_helper_a -> helper_a  # fast tier is name-only: the static helper() of static_b.c is answered too
+xfail fast def use_helper_b -> helper_b  # fast tier is name-only: the static helper() of static_a.c is answered too
+xfail fast def use_counter_a -> counter_a  # fast tier is name-only: both static counters are answered
+xfail fast def use_binop_count -> binop_count_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+xfail fast def use_binop_table -> binop_table_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+fast sym "list_push" -> list_push_def
+fast sym "helper" ∋ helper_a helper_b
+fast sym "op_add" -> op_add_def
+fast sym "handle_open" -> handle_open_def
+fast sym "knr_scale" -> knr_scale_def | knr_scale_decl
+
+# ---- definition / declaration: functions ----
+def use_list_push -> list_push_def
+decl use_list_push -> list_push_decl
+def use_list_sum -> list_sum_def
+decl use_list_sum -> list_sum_decl
+def use_handle_open -> handle_open_def
+decl use_handle_open -> handle_open_decl
+def use_handle_id -> handle_id_def
+decl use_handle_id -> handle_id_decl
+def use_next_id -> next_id_def
+def use_apply -> apply_def
+decl use_apply -> apply_decl
+def use_fp_add -> op_add_def
+decl use_fp_add -> op_add_decl
+def use_fp_sub -> op_sub_def
+decl use_fp_sub -> op_sub_decl
+def use_tbl_add -> op_add_def
+def use_tbl_mul -> op_mul
+
+# ---- tag vs typedef with one name ----
+def use_node_td_main -> node_td
+def use_node_td_sum -> node_td
+def use_node_td_c -> node_td
+def use_node_tag_main -> node_tag
+def use_node_tag_list -> node_tag
+decl use_node_tag_main -> node_tag_fwd
+typedef head_var -> node_tag | node_td
+hover use_node_td_main ~ "node"
+refs node_value = node_value use_value_push use_value_sum use_value_main
+def use_value_push -> node_value
+def use_value_sum -> node_value
+def use_value_main -> node_value
+hover use_value_main ~ "value" "int"
+
+# ---- opaque handle ----
+def use_handle_td_c -> handle_td
+decl handle_tag_def -> handle_tag
+def use_id_open -> handle_id_field
+def use_id_get -> handle_id_field
+refs handle_id_field = handle_id_field use_id_open use_id_get
+refs handle_id_def >= handle_id_decl handle_id_def use_handle_id
+refs handle_open_def >= handle_open_decl handle_open_def use_handle_open
+hover use_handle_id ~ "handle_id" "int"
+
+# ---- typedef'd anonymous struct / union / enum, flexible array ----
+def use_pt_x -> pt_x
+def use_pt_y -> pt_y
+def use_desig_x -> pt_x
+def use_desig_y -> pt_y
+def use_desig_x_main -> pt_x
+def use_desig_y_main -> pt_y
+refs pt_x = pt_x use_desig_x use_desig_x_main use_pt_x
+refs pt_y = pt_y use_desig_y use_desig_y_main use_pt_y
+typedef use_p_var -> point_td | point_struct
+hover use_pt_x ~ "x" "double"
+def use_val_f -> val_f
+def use_val_i -> val_i
+refs val_i = val_i use_val_i
+refs val_f = val_f use_val_f
+hover use_val_i ~ "int"
+def use_side -> sq_side
+def use_radius -> ci_radius
+refs sq_side = sq_side use_side use_side2
+refs ci_radius = ci_radius use_radius use_radius2
+
+# ---- enum used as flags ----
+def use_F_READ -> F_READ
+def use_F_WRITE -> F_WRITE
+def use_F_EXEC -> F_EXEC
+def use_F_NONE -> F_NONE
+def use_F_ALL -> F_ALL
+def all_r -> F_READ
+refs F_READ = F_READ all_r use_F_READ
+refs F_WRITE = F_WRITE all_w use_F_WRITE
+refs F_EXEC = F_EXEC all_x use_F_EXEC
+refs F_ALL = F_ALL use_F_ALL
+hover use_F_ALL ~ "F_ALL" "7"
+hover use_F_WRITE ~ "F_WRITE" "2"
+typedef perm_var -> flags_td
+rename F_EXEC F_RUN
+  F_EXEC all_x use_F_EXEC
+
+# ---- function pointers, tables, callbacks ----
+def use_entry_fn -> entry_fn
+def use_desig_fn -> entry_fn
+refs entry_fn = entry_fn use_desig_fn use_desig_fn2 use_desig_fn3 use_entry_fn
+def use_binop_table -> binop_table_def
+decl use_binop_table -> binop_table_decl
+def use_binop_count -> binop_count_def
+decl use_binop_count -> binop_count_decl
+refs op_add_def = op_add_decl op_add_def use_tbl_add use_fp_add
+refs op_sub_def = op_sub_decl op_sub_def use_tbl_sub use_fp_sub
+refs op_mul = op_mul use_tbl_mul
+refs binop_table_def >= binop_table_decl binop_table_def use_binop_table
+hover use_fp_add ~ "op_add" "int"
+rename op_sub_def op_minus
+  op_sub_decl op_sub_def use_tbl_sub use_fp_sub
+sym "op_" ∋ op_add_def op_sub_def
+sym "binop_table" -> binop_table_def
+
+# ---- _Generic ----
+def use_area_sq -> area_macro
+def use_area_ci -> area_macro
+def use_type_name -> type_name_macro
+hover use_area_sq ~ "area"
+refs square_area_def >= square_area_decl square_area_def
+refs circle_area_def >= circle_area_decl circle_area_def
+
+# ---- macros as functions ----
+def use_SQUARE -> SQUARE_def
+def use_SQUARE_a -> SQUARE_def
+def use_MAX -> MAX_def
+def use_MAX_b -> MAX_def
+def use_LIMIT -> LIMIT_def
+def use_COUNT_OF -> COUNT_OF_def
+hover use_SQUARE ~ "SQUARE" "x"
+hover use_LIMIT ~ "LIMIT" "16"
+refs SQUARE_def = SQUARE_def use_SQUARE use_SQUARE_a
+refs MAX_def = MAX_def use_MAX use_MAX_b
+refs LIMIT_def = LIMIT_def use_LIMIT
+sym "SQUARE" ∋ SQUARE_def
+
+# ---- static functions with the same name in two files ----
+def use_helper_a -> helper_a
+def use_helper_b -> helper_b
+def use_counter_a -> counter_a
+def use_counter_b -> counter_b
+refs helper_a = helper_a use_helper_a
+refs helper_b = helper_b use_helper_b
+refs counter_a = counter_a use_counter_a0 use_counter_a
+refs counter_b = counter_b use_counter_b0 use_counter_b
+rename helper_a helperA
+  helper_a use_helper_a
+rename counter_b counterB
+  counter_b use_counter_b0 use_counter_b
+hover use_helper_a ~ "helper" "static"
+
+# ---- extern in several headers, tentative definitions ----
+def use_verbosity_log -> verbosity_def
+def use_verbosity_main -> verbosity_def
+decl use_verbosity_main -> verbosity_decl_globals | verbosity_decl_log
+refs verbosity_def >= verbosity_decl_globals verbosity_decl_log verbosity_def use_verbosity_log use_verbosity_main
+def use_counter_main -> tent_def | tent_a | tent_b | counter_decl
+def use_counter_in_next -> tent_def | tent_a | tent_b | counter_decl
+refs counter_decl >= counter_decl tent_a tent_b tent_def use_counter_in_next use_counter_main
+hover use_counter_main ~ "g_counter" "int"
+sym "g_verbosity" ∋ verbosity_def
+sym "g_counter" -> tent_a | tent_b | tent_def | counter_decl
+rename verbosity_decl_log g_verb
+  verbosity_decl_globals verbosity_decl_log verbosity_def use_verbosity_log use_verbosity_main
+
+# ---- K&R definitions ----
+def use_knr_add -> knr_add_def
+decl use_knr_add -> knr_add_decl
+def use_knr_scale -> knr_scale_def
+decl use_knr_scale -> knr_scale_decl
+def use_knr_a -> knr_a_decl | knr_a_list
+def use_knr_b -> knr_b_decl | knr_b_list
+def use_knr_factor -> knr_factor_decl | knr_factor_list
+refs knr_add_def >= knr_add_decl knr_add_def use_knr_add
+refs knr_scale_def >= knr_scale_decl knr_scale_def use_knr_scale
+hover use_knr_add ~ "knr_add"
+sym "knr_add" -> knr_add_def | knr_add_decl
+
+# ---- callbacks and flexible array members ----
+def use_each_value -> each_value_def
+decl use_each_value -> each_value_decl
+def use_buf_new -> buf_new_def
+decl use_buf_new -> buf_new_decl
+def use_collect_cb -> collect_cb
+def use_cb_call -> cb_param
+def use_visit_cb_h -> visit_cb_td
+def use_visit_cb_c -> visit_cb_td
+def use_len_main -> buf_len
+def use_len_new -> buf_len
+def use_data_main -> buf_data
+def use_data_new -> buf_data
+refs collect_cb = collect_cb use_collect_cb
+refs cb_param = cb_param use_cb_call
+refs visit_cb_td >= visit_cb_td use_visit_cb_h use_visit_cb_c
+refs buf_len = buf_len use_len_new use_len_main
+refs buf_data = buf_data use_data_new use_data_main
+refs each_value_def >= each_value_decl each_value_def use_each_value
+hover use_data_main ~ "data" "char"
+hover use_each_value ~ "each_value" "visit_cb"
+hover use_collect_cb ~ "collect" "void"
+rename buf_data bytes
+  buf_data use_data_new use_data_main
+rename collect_cb gather
+  collect_cb use_collect_cb
+sym "each_value" -> each_value_def | each_value_decl
+sym "buf_new" -> buf_new_def | buf_new_decl
+sym "collect" -> collect_cb
+fast def use_collect_cb -> collect_cb
+xfail fast def use_buf_new -> buf_new_def  # fast tier also answers the prototype in shapes.h

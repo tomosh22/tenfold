@@ -1,0 +1,1 @@
+#include "cronly.h"int /*@cr_g_def*/cr_g = 7;int /*@cr_fn_def*/cr_fn(int v) { return v + /*@use_cr_g_in*/cr_g; }

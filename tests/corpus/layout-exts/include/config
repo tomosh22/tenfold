@@ -1,0 +1,9 @@
+#pragma once
+// a header without a file extension
+#define /*@CONFIG_LEVEL_def*/CONFIG_LEVEL 2
+
+struct /*@Config*/Config {
+    int /*@Config_level*/level = /*@use_CONFIG_LEVEL_in_cfg*/CONFIG_LEVEL;
+};
+
+inline int /*@config_level_fn*/config_level(const Config& c) { return c./*@use_level_in_cfg*/level; }

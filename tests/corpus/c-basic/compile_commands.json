@@ -1,0 +1,10 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/list.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/list.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/handle.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/handle.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/shapes.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/shapes.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/static_a.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/static_a.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/static_b.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/static_b.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/knr.c","arguments":["clang","-std=c11","-Wno-deprecated-non-prototype","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/knr.c"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/globals.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/globals.c"]}
+]

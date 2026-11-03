@@ -1,0 +1,49 @@
+# c-vcxproj: a Visual Studio project mixing C and C++ by file extension and by <CompileAs>:
+#   main.c      default: C (stdc11)
+#   as_cpp.c    <CompileAs>CompileAsCpp</CompileAs>: a .c file compiled as C++ (uses `class`)
+#   as_c.cpp    <CompileAs>CompileAsC</CompileAs>: a .cpp file compiled as C (uses `delete` as an identifier)
+# mode.h declares mode_value() differently in Debug (int) and Release (long).
+
+config Debug|x64
+def use_mode -> mode_dbg_def
+decl use_mode -> mode_dbg
+def use_new_dbg -> new_var
+def use_new_main -> new_var
+def use_class_main -> class_var
+def use_as_cpp -> as_cpp_fn_def
+decl use_as_cpp -> as_cpp_fn_decl
+def use_as_c -> as_c_fn_def
+decl use_as_c -> as_c_fn_decl
+def use_asc_m -> asc_m
+def use_asc_get -> asc_get
+def use_asC_delete -> asC_delete
+refs mode_dbg = mode_dbg mode_dbg_def use_mode
+refs new_var = new_var use_new_dbg use_new_main
+refs class_var = class_var use_class_main
+refs asc_m = asc_m use_asc_m use_asc_m_init
+refs asC_delete = asC_delete use_asC_delete
+hover use_mode ~ "mode_value" "int"
+hover use_asc_get ~ "get" "int"
+hover use_new_main ~ "new" "int"
+hover use_asC_delete ~ "delete"
+rename new_var count_new
+  new_var use_new_dbg use_new_main
+rename asC_delete five
+  asC_delete use_asC_delete
+sym "mode_value" ∋ mode_dbg_def
+sym "as_c_fn" -> as_c_fn_def | as_c_fn_decl
+sym "AsCpp" -> AsCpp
+
+config Release|x64
+def use_mode -> mode_rel_def
+decl use_mode -> mode_rel
+def use_class_rel -> class_var
+def use_class_main -> class_var
+def use_as_cpp -> as_cpp_fn_def
+def use_as_c -> as_c_fn_def
+refs mode_rel = mode_rel mode_rel_def use_mode
+refs class_var = class_var use_class_rel use_class_main
+hover use_mode ~ "mode_value" "long"
+rename class_var kind
+  class_var use_class_rel use_class_main
+sym "mode_value" ∋ mode_rel_def

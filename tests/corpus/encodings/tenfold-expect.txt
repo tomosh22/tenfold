@@ -1,0 +1,323 @@
+# encodings: line endings and byte encodings the anchors have to survive. include/ and src/ hold CRLF files (crlf.*), a CR-only
+# file (cronly.*), UTF-8 files with a BOM whose first line carries anchors (bom.h, bom2.cpp: BOM + CRLF), Latin-1 files with
+# non-ASCII in comments and strings before anchors (latin1.*), tabs before anchors (tabs.*), multi-byte characters before
+# anchors on the same line (mb.*: UTF-8 bytes != UTF-16 units: emoji are 4 bytes and 2 units), non-ASCII identifiers
+# (idents.*), mixed LF/CRLF and a last line without newline (mixed.*), U+2028 / U+0085 / form feed / vertical tab (seps.*).
+# Anchor columns are byte offsets of the file as stored (docs/TESTING.md).
+
+# ================= CRLF =================
+fast def use_crlf_fn -> crlf_fn_def | crlf_fn_decl
+fast def use_crlf_after_macro -> crlf_after_macro_def | crlf_after_macro
+fast def use_crlf_count -> crlf_count
+fast sym "crlf_fn" -> crlf_fn_def | crlf_fn_decl
+def use_crlf_fn -> crlf_fn_def
+decl use_crlf_fn -> crlf_fn_decl
+refs crlf_fn_decl = crlf_fn_decl crlf_fn_def use_crlf_fn
+hover use_crlf_fn ~ "crlf_fn" "int"
+rename crlf_fn_decl renamed_crlf_fn
+  crlf_fn_decl crlf_fn_def use_crlf_fn
+sym "crlf_fn" -> crlf_fn_def | crlf_fn_decl
+
+def use_crlf_after_macro -> crlf_after_macro_def
+decl use_crlf_after_macro -> crlf_after_macro
+refs crlf_after_macro = crlf_after_macro crlf_after_macro_def use_crlf_after_macro
+hover use_crlf_after_macro ~ "crlf_after_macro" "int"
+rename crlf_after_macro renamed_crlf_after_macro
+  crlf_after_macro crlf_after_macro_def use_crlf_after_macro
+sym "crlf_after_macro" -> crlf_after_macro_def | crlf_after_macro
+
+def use_crlf_count -> crlf_count
+def crlf_count_def -> crlf_count
+refs crlf_count = crlf_count crlf_count_def use_crlf_count
+def use_CRLF_MAX -> CRLF_MAX
+def use_CRLF_MAX_in -> CRLF_MAX
+xfail refs CRLF_MAX = CRLF_MAX use_CRLF_MAX use_CRLF_MAX_in  # tenfold sends clangd the document text with the CRLFs turned into LF (TextBuffer::text()) while the file on disk keeps CRLF; with the CRLF header open, clangd reports only the definition of a macro
+hover use_CRLF_MAX ~ "CRLF_MAX"
+rename crlf_count total
+  crlf_count crlf_count_def use_crlf_count
+
+# ================= UTF-8 BOM, anchors on line 1 =================
+fast def use_bom_fn -> bom_fn_def | bom_fn_decl
+fast def use_bom_Box -> bom_Box
+xfail fast def use_bom_v -> bom_v  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+fast def use_bom_g -> bom_g_def | bom_g_decl
+fast def use_bom2_fn -> bom2_fn | bom2_fn_decl
+fast sym "bom2_fn" -> bom2_fn | bom2_fn_decl
+def use_bom_Box -> bom_Box
+typedef use_bb2 -> bom_Box
+def use_bom_v -> bom_v
+def use_bom_v2 -> bom_v
+def bom_v_def -> bom_v
+refs bom_v = bom_v bom_v_def use_bom_v use_bom_v2
+refs bom_Box >= bom_Box use_bom_Box
+hover use_bom_v ~ "v" "int"
+hover use_bom_Box ~ "BomBox"
+rename bom_v val
+  bom_v bom_v_def use_bom_v use_bom_v2
+rename bom_Box BomThing
+  bom_Box use_bom_Box
+sym "BomBox" -> bom_Box
+def use_bom_fn -> bom_fn_def
+decl use_bom_fn -> bom_fn_decl
+refs bom_fn_decl = bom_fn_decl bom_fn_def use_bom_fn
+hover use_bom_fn ~ "bom_fn" "int"
+rename bom_fn_decl renamed_bom_fn
+  bom_fn_decl bom_fn_def use_bom_fn
+sym "bom_fn" -> bom_fn_def | bom_fn_decl
+
+def use_bom_g -> bom_g_def
+decl use_bom_g -> bom_g_decl
+def use_bom_g_in -> bom_g_def
+refs bom_g_decl = bom_g_decl bom_g_def use_bom_g_in use_bom_g
+rename bom_g_def bom_global
+  bom_g_decl bom_g_def use_bom_g_in use_bom_g
+# BOM + a namespace, a class and an enum introduced by the first token of line 1
+xfail fast def use_bomns_inner -> bomns_inner  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+xfail fast def use_bomns_A -> bomns_A  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+xfail fast sym "inner_bom" -> bomns_inner  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+xfail fast sym "Kind" -> bomns_E  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+fast sym "bomns" -> bomns
+def use_bomns_inner -> bomns_inner
+def use_bomns_A -> bomns_A
+def use_bomns_after -> bomns_after
+refs bomns_inner = bomns_inner use_bomns_inner
+refs bomns_A = bomns_A use_bomns_A
+hover use_bomns_inner ~ "inner_bom" "int"
+rename bomns_inner bom_inner
+  bomns_inner use_bomns_inner
+# BOM + CRLF, a definition on line 1
+def use_bom2_fn -> bom2_fn
+def use_bom2_param -> bom2_param
+refs bom2_fn >= bom2_fn bom2_fn_decl use_bom2_fn
+hover use_bom2_fn ~ "bom2_fn" "int"
+rename bom2_fn bom2_renamed
+  bom2_fn bom2_fn_decl use_bom2_fn
+sym "bom2_second" -> bom2_second
+
+# ================= Latin-1 =================
+# NOTE: every query below is asked at an anchor in a UTF-8 file (src/use.cpp) and only reads locations in the Latin-1 files.
+# Asking at an anchor inside latin1.h / latin1.cpp, or go to definition / declaration into them (the editor jumps there and
+# opens the file; the `fast def` lines do too, the runner asks the final answer for the fast/final agreement; so does
+# `rename`, which opens the files it edits), opens that document, and opening a document whose text is not valid
+# UTF-8 makes tenfold throw (nlohmann::json type_error 316 while serialising textDocument/didOpen) and, in the
+# runner, terminate the process; see docs/STRESS_RESULTS.md "Corpus findings: C and unusual layouts".
+fast sym "l1_after" -> l1_after_def | l1_after
+refs use_l1_fn = l1_fn_decl l1_fn_def use_l1_fn_in use_l1_fn
+refs use_l1_after = l1_after l1_after_def use_l1_after
+refs use_l1_msg = l1_msg_decl l1_msg_def use_l1_msg_in use_l1_msg
+hover use_l1_msg ~ "l1_msg" "char"
+hover use_l1_fn ~ "l1_fn" "int"
+sym "l1_msg" -> l1_msg_def | l1_msg_decl
+sym "l1_fn" -> l1_fn_def | l1_fn_decl
+sym "l1_after" -> l1_after_def | l1_after
+
+# ================= tabs before anchors =================
+fast def use_tab_fn -> tab_fn_def | tab_fn_decl
+fast def use_tab_v -> tab_v
+fast def use_tab_w -> tab_w
+def use_tab_fn -> tab_fn_def
+decl use_tab_fn -> tab_fn_decl
+refs tab_fn_decl = tab_fn_decl tab_fn_def use_tab_fn
+hover use_tab_fn ~ "tab_fn" "int"
+rename tab_fn_decl renamed_tab_fn
+  tab_fn_decl tab_fn_def use_tab_fn
+sym "tab_fn" -> tab_fn_def | tab_fn_decl
+
+def use_tab_v -> tab_v
+def use_tab_v_in -> tab_v
+def use_tab_w -> tab_w
+def use_tab_w_in -> tab_w
+def use_tab_p -> tab_p_def
+refs tab_v = tab_v use_tab_v_in use_tab_v
+refs tab_w = tab_w use_tab_w_in use_tab_w
+refs tab_Box >= tab_Box
+hover use_tab_v ~ "v" "int"
+rename tab_w width
+  tab_w use_tab_w_in use_tab_w
+rename tab_v vv
+  tab_v use_tab_v_in use_tab_v
+
+# ================= multi-byte characters before anchors on the same line =================
+fast def use_mb_fn -> mb_fn_def | mb_fn_decl
+fast def use_mb_emoji -> mb_emoji_def | mb_emoji
+fast def use_mb_after -> mb_after
+fast def use_mb_f1 -> mb_f1
+fast def use_mb_f2 -> mb_f2
+def use_mb_fn -> mb_fn_def
+decl use_mb_fn -> mb_fn_decl
+refs mb_fn_decl = mb_fn_decl mb_fn_def use_mb_fn
+hover use_mb_fn ~ "mb_fn" "int"
+rename mb_fn_decl renamed_mb_fn
+  mb_fn_decl mb_fn_def use_mb_fn
+sym "mb_fn" -> mb_fn_def | mb_fn_decl
+
+def use_mb_emoji -> mb_emoji_def
+decl use_mb_emoji -> mb_emoji
+refs mb_emoji = mb_emoji mb_emoji_def use_mb_emoji use_mb_emoji_in
+hover use_mb_emoji ~ "mb_emoji" "int"
+rename mb_emoji renamed_mb_emoji
+  mb_emoji mb_emoji_def use_mb_emoji use_mb_emoji_in
+sym "mb_emoji" -> mb_emoji_def | mb_emoji
+
+def use_mb_after -> mb_after
+def use_mb_after_in -> mb_after
+def use_mb_f1 -> mb_f1
+def use_mb_f1_in -> mb_f1
+def use_mb_f2 -> mb_f2
+def use_mb_f2_in -> mb_f2
+refs mb_after = mb_after use_mb_after_in use_mb_after
+refs mb_f1 = mb_f1 use_mb_f1_in use_mb_f1
+refs mb_f2 = mb_f2 use_mb_f2_in use_mb_f2
+hover use_mb_f1 ~ "a" "int"
+rename mb_f2 second
+  mb_f2 use_mb_f2_in use_mb_f2
+rename mb_after mb_afterwards
+  mb_after use_mb_after_in use_mb_after
+rename mb_f1 first
+  mb_f1 use_mb_f1_in use_mb_f1
+sym "mb_after" -> mb_after
+
+# ================= non-ASCII identifiers =================
+fast def use_id_fn -> id_fn_def | id_fn_decl
+fast def use_id_naive -> id_naive
+fast def use_id_kanji -> id_kanji
+fast def use_id_Groesse -> id_Groesse
+xfail fast def use_MAKRO -> MAKRO_decl  # fast tier does not index #define macros
+fast sym "fn_ünï" -> id_fn_def | id_fn_decl
+fast sym "Größe" -> id_Groesse
+fast sym "naïve" -> id_naive
+def use_id_fn -> id_fn_def
+decl use_id_fn -> id_fn_decl
+refs id_fn_decl = id_fn_decl id_fn_def use_id_fn
+hover use_id_fn ~ "fn_ünï" "int"
+rename id_fn_decl renamed_fn_uni
+  id_fn_decl id_fn_def use_id_fn
+sym "fn_ünï" -> id_fn_def | id_fn_decl
+
+def use_id_naive -> id_naive
+def use_naive_in -> id_naive
+def use_id_kanji -> id_kanji
+def use_kanji_in -> id_kanji
+def use_id_Groesse -> id_Groesse
+def use_Groesse_in -> id_Groesse
+def use_id_Gron -> id_Gron
+def use_Rod_in -> id_Rod
+def use_MAKRO -> MAKRO_decl
+def use_MAKRO_in -> MAKRO_decl
+refs id_naive = id_naive use_naive_in use_id_naive
+refs id_kanji = id_kanji use_kanji_in use_id_kanji
+refs id_Gron = id_Gron use_id_Gron
+refs id_Rod = id_Rod use_Rod_in
+refs id_Groesse >= id_Groesse use_Groesse_in use_id_Groesse
+refs MAKRO_decl = MAKRO_decl use_MAKRO use_MAKRO_in
+refs ns_donnees >= ns_donnees
+hover use_id_naive ~ "naïve" "int"
+hover use_id_kanji ~ "漢字" "int"
+hover use_id_Groesse ~ "Größe"
+hover use_MAKRO ~ "MAKRO_Ä" "42"
+rename id_naive naive
+  id_naive use_naive_in use_id_naive
+rename id_kanji kanji
+  id_kanji use_kanji_in use_id_kanji
+rename id_Gron Green
+  id_Gron use_id_Gron
+rename id_plain flat
+  id_plain
+sym "Größe" -> id_Groesse
+sym "naïve" -> id_naive
+sym "漢字" -> id_kanji
+sym "Röd" -> id_Rod
+sym "MAKRO_Ä" -> MAKRO_decl
+
+# ================= mixed LF/CRLF, no final newline =================
+fast def use_mx_fn -> mx_fn_def | mx_fn_decl
+fast def use_mx_last -> mx_last_def | mx_last_decl
+def use_mx_fn -> mx_fn_def
+decl use_mx_fn -> mx_fn_decl
+refs mx_fn_decl = mx_fn_decl mx_fn_def use_mx_fn use_mx_fn_in
+hover use_mx_fn ~ "mx_fn" "int"
+rename mx_fn_decl renamed_mx_fn
+  mx_fn_decl mx_fn_def use_mx_fn use_mx_fn_in
+sym "mx_fn" -> mx_fn_def | mx_fn_decl
+
+def use_mx_other -> mx_other_def
+decl use_mx_other -> mx_other_decl
+refs mx_other_decl = mx_other_decl mx_other_def use_mx_other use_mx_other_in
+hover use_mx_other ~ "mx_other" "int"
+rename mx_other_decl renamed_mx_other
+  mx_other_decl mx_other_def use_mx_other use_mx_other_in
+sym "mx_other" -> mx_other_def | mx_other_decl
+
+def use_mx_last -> mx_last_def
+decl use_mx_last -> mx_last_decl
+refs mx_last_decl = mx_last_decl mx_last_def use_mx_last
+hover use_mx_last ~ "mx_last" "int"
+rename mx_last_decl renamed_mx_last
+  mx_last_decl mx_last_def use_mx_last
+sym "mx_last" -> mx_last_def | mx_last_decl
+
+
+# ================= U+2028, U+0085, form feed, vertical tab =================
+fast def use_sep_after -> sep_after_def | sep_after
+fast def use_sep_same -> sep_same_def | sep_same
+fast def use_sep_ff -> sep_ff_def | sep_ff
+fast def use_sep_vt -> sep_vt_def | sep_vt
+def use_sep_after -> sep_after_def
+decl use_sep_after -> sep_after
+refs sep_after = sep_after sep_after_def use_sep_after
+hover use_sep_after ~ "sep_after" "int"
+rename sep_after renamed_sep_after
+  sep_after sep_after_def use_sep_after
+def use_sep_same -> sep_same_def
+decl use_sep_same -> sep_same
+refs sep_same = sep_same sep_same_def use_sep_same
+hover use_sep_same ~ "sep_same" "int"
+rename sep_same renamed_sep_same
+  sep_same sep_same_def use_sep_same
+def use_sep_ff -> sep_ff_def
+decl use_sep_ff -> sep_ff
+refs sep_ff = sep_ff sep_ff_def use_sep_ff
+hover use_sep_ff ~ "sep_ff" "int"
+rename sep_ff renamed_sep_ff
+  sep_ff sep_ff_def use_sep_ff
+def use_sep_vt -> sep_vt_def
+decl use_sep_vt -> sep_vt
+refs sep_vt = sep_vt sep_vt_def use_sep_vt
+hover use_sep_vt ~ "sep_vt" "int"
+rename sep_vt renamed_sep_vt
+  sep_vt sep_vt_def use_sep_vt
+
+# ================= CR-only line endings (a C file) =================
+xfail fast def use_cr_fn -> cr_fn_def | cr_fn_decl  # fast lexer: a CR-only file is one preprocessor line starting with #include/#ifndef, nothing in it is indexed
+xfail fast def use_cr_g -> cr_g_def | cr_g_decl  # fast lexer: a CR-only file is one preprocessor line starting with #include/#ifndef, nothing in it is indexed
+xfail def use_cr_fn -> cr_fn_def  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+xfail decl use_cr_fn -> cr_fn_decl  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+xfail def use_cr_g -> cr_g_def  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+xfail decl use_cr_g -> cr_g_decl  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+xfail def use_cr_g_in -> cr_g_def  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+xfail refs cr_fn_decl = cr_fn_decl cr_fn_def use_cr_fn  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+xfail refs cr_g_decl = cr_g_decl cr_g_def use_cr_g_in use_cr_g  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+hover use_cr_fn ~ "cr_fn" "int"
+xfail rename cr_fn_decl cr_renamed  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+  cr_fn_decl cr_fn_def use_cr_fn
+xfail sym "cr_fn" -> cr_fn_def | cr_fn_decl  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+
+# ================= unsaved edits in files with CRLF, a BOM and multi-byte text (insertions use the document's text) =================
+open src/crlf.cpp
+edit src/crlf.cpp:2:1 "int /*@ed_crlf_def*/ed_crlf(int v) { return v; }\nint ed_crlf_user() { return /*@ed_crlf_use*/ed_crlf(1); }\n"
+def ed_crlf_use -> ed_crlf_def
+refs ed_crlf_use = ed_crlf_def ed_crlf_use
+hover ed_crlf_use ~ "ed_crlf" "int"
+def crlf_count_def -> crlf_count
+open src/bom2.cpp
+edit src/bom2.cpp:1:4 "int /*@ed_bom_def*/ed_bom(int v) { return v; }\nint ed_bom_user() { return /*@ed_bom_use*/ed_bom(1); }\n"
+def ed_bom_use -> ed_bom_def
+refs ed_bom_use = ed_bom_def ed_bom_use
+hover ed_bom_use ~ "ed_bom" "int"
+def use_bom2_param -> bom2_param
+open src/mb.cpp
+edit src/mb.cpp:3:1 "int /*@ed_mb_target*/ed_mb_other() { return 1; }\nint /*@ed_mb_def*/ed_mb() { const char* s = \"😀😀é\"; return (int)s[0] + /*@ed_mb_use*/ed_mb_other(); }\n"
+def ed_mb_use -> ed_mb_target
+refs ed_mb_use = ed_mb_target ed_mb_use
+hover ed_mb_use ~ "ed_mb_other" "int"
+def use_mb_f2_in -> mb_f2
