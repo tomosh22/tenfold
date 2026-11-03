@@ -113,6 +113,8 @@ class DebugSession {
   enum class Kind { Normal, Connect, Disconnect, Breakpoint };
 
   bool connectImpl(bool launchIfMissing, Done done);
+  bool launchCommand(const char* what, std::function<DebugResult(Debugger&)> fn, Done done);
+  bool syncEnabled() const;
   bool ensureBackend();
   void startWorker();
   void stopWorker();

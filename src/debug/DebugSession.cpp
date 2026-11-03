@@ -110,7 +110,7 @@ void DebugSession::setPollIntervals(int fastMs, int slowMs) {
 
 void DebugSession::onBreakpointsChanged() {
   if (impl_) {
-    impl_->haveBps = !ed_.breakpoints().empty();
+    impl_->haveBps = !ed_.breakpoints().empty() && syncEnabled();
     impl_->cv.notify_all();  // the worker may now want to retry attaching
   }
   pushBreakpoints();
@@ -372,7 +372,7 @@ bool DebugSession::connectImpl(bool launchIfMissing, Done done) {
     std::lock_guard<std::mutex> lk(impl_->mu);
     impl_->attachInfo = std::move(a);
   }
-  impl_->haveBps = !ed_.breakpoints().empty();
+  impl_->haveBps = !ed_.breakpoints().empty() && syncEnabled();
   impl_->attachMs = attachWanted_ ? attachMs_ : 0;
   return submit("connect", [info](Debugger& d) { return d.connect(info); }, std::move(done), Kind::Connect);
 }
@@ -396,17 +396,46 @@ bool DebugSession::command(const char* what, std::function<DebugResult(Debugger&
   return submit(what, std::move(fn), std::move(done));
 }
 
+bool DebugSession::syncEnabled() const { return ed_.workspace().settings().visualStudioSync; }
+
+// Commands that launch the debuggee first make the debugger's configuration match tenfold's (when the workspace has
+// a solution and the sync is on). A failing sync is reported but does not stop the command.
+bool DebugSession::launchCommand(const char* what, std::function<DebugResult(Debugger&)> fn, Done done) {
+  bool sync = false;
+  std::string cfg, platform;
+  if (syncEnabled() && !ed_.workspace().solutionFiles().empty()) {
+    const auto active = ed_.workspace().activeVsConfiguration();
+    cfg = active.configuration;
+    platform = active.platform;
+    sync = true;
+  }
+  return command(
+      what,
+      [fn = std::move(fn), sync, cfg, platform](Debugger& d) {
+        DebugResult c;
+        if (sync) c = d.setActiveConfiguration(cfg, platform);
+        DebugResult r = fn(d);
+        if (!c.ok) {
+          const std::string note = "configuration " + cfg + "|" + platform + ": " + c.error;
+          if (r.ok) r.warning = note;
+          else r.error += " (" + note + ")";
+        }
+        return r;
+      },
+      std::move(done));
+}
+
 bool DebugSession::start(Done done) {
-  return command("start", [](Debugger& d) { return d.start(); }, std::move(done));
+  return launchCommand("start", [](Debugger& d) { return d.start(); }, std::move(done));
 }
 bool DebugSession::startWithoutDebugging(Done done) {
-  return command("startWithoutDebugging", [](Debugger& d) { return d.startWithoutDebugging(); }, std::move(done));
+  return launchCommand("startWithoutDebugging", [](Debugger& d) { return d.startWithoutDebugging(); }, std::move(done));
 }
 bool DebugSession::stop(Done done) {
   return command("stop", [](Debugger& d) { return d.stop(); }, std::move(done));
 }
 bool DebugSession::restart(Done done) {
-  return command("restart", [](Debugger& d) { return d.restart(); }, std::move(done));
+  return launchCommand("restart", [](Debugger& d) { return d.restart(); }, std::move(done));
 }
 bool DebugSession::breakAll(Done done) {
   return command("breakAll", [](Debugger& d) { return d.breakAll(); }, std::move(done));
@@ -426,7 +455,7 @@ bool DebugSession::openInEditor(const fs::path& file, int line, int column, Done
       std::move(done));
 }
 bool DebugSession::runToCursor(const fs::path& file, int line, Done done) {
-  return command("runToCursor", [file, line](Debugger& d) { return d.runToCursor(file, line); }, std::move(done));
+  return launchCommand("runToCursor", [file, line](Debugger& d) { return d.runToCursor(file, line); }, std::move(done));
 }
 
 void DebugSession::setError(std::string e) {
@@ -464,7 +493,8 @@ void DebugSession::commandFinished(const char* what, Kind kind, const DebugResul
   if (!r.ok) {
     if (!(r.notRunning && kind == Kind::Connect)) setError(std::string(what) + ": " + r.error);  // else: quiet
   } else if (kind != Kind::Breakpoint && current) {
-    clearError();
+    if (!r.warning.empty()) setError(std::string(what) + ": " + r.warning);
+    else clearError();
   }
   if (current && kind == Kind::Connect) {
     if (r.ok) {
@@ -495,7 +525,8 @@ void DebugSession::applySnapshot(const DebugSnapshot& s, uint64_t epoch, uint64_
     backendError_ = s.lastError;
     setError(s.lastError);
   }
-  if (bpExecuted == bpEnqueued_ && s.mode != DebugMode::Disconnected) adoptBackendBreakpoints(s.breakpoints);
+  if (bpExecuted == bpEnqueued_ && s.mode != DebugMode::Disconnected && syncEnabled())
+    adoptBackendBreakpoints(s.breakpoints);
   if (statement_ && (prev != DebugMode::Break || statement_ != prevStatement) && followCurrentStatement) {
     std::string err;
     if (!ed_.gotoLocation({statement_->file, {statement_->line, 0}}, &err, "debugger") && !err.empty())
@@ -532,7 +563,7 @@ void DebugSession::adoptBackendBreakpoints(const std::vector<Breakpoint>& backen
 }
 
 void DebugSession::pushBreakpoints() {
-  if (!connected_ || applying_ || !impl_) return;
+  if (!connected_ || applying_ || !impl_ || !syncEnabled()) return;
   std::map<Key, Breakpoint> cur;
   for (const Breakpoint& b : ed_.breakpoints().all()) cur[{ed_.breakpoints().fileKey(b.file), b.line}] = b;
   std::vector<Breakpoint> removals, sets;

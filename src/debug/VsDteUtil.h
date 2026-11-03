@@ -55,6 +55,9 @@ struct VsBusyPolicy {
 // is how long the call has been pending, `pastDeadline` is set when the poll window is over.
 long retryDelayMs(bool retryLater, unsigned long elapsedMs, unsigned long limitMs, bool pastDeadline, bool cancelled);
 
+// ASCII case-insensitive equality: solution configuration / platform names ("Debug" vs "debug").
+bool equalsNoCase(const std::string& a, const std::string& b);
+
 // First non-empty line of vswhere's output, trimmed; empty when there is none.
 std::string firstOutputLine(const std::string& output);
 

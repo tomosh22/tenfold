@@ -261,6 +261,10 @@ DebugResult FakeDebugger::runToCursor(const std::filesystem::path& file, int lin
   return r;
 }
 
+DebugResult FakeDebugger::setActiveConfiguration(const std::string& configuration, const std::string& platform) {
+  return st_->enter("setActiveConfiguration", configuration + "|" + platform);
+}
+
 DebugResult FakeDebugger::openInEditor(const std::filesystem::path& file, int line, int column) {
   return st_->enter("openInEditor", file.generic_string() + ":" + std::to_string(line) + ":" + std::to_string(column));
 }

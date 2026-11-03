@@ -77,6 +77,7 @@ bool Workspace::loadSettings(std::string* error) {
   settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
   settings_.watchFiles = j.value("watchFiles", settings_.watchFiles);
   settings_.debugAttachAtStartup = j.value("debug.attachAtStartup", settings_.debugAttachAtStartup);
+  settings_.visualStudioSync = j.value("debug.visualStudioSync", settings_.visualStudioSync);
   if (j.contains("undoGrouping") && j["undoGrouping"].is_string()) {
     std::string g = j["undoGrouping"].get<std::string>();
     if (g == "word" || g == "char") settings_.undoGrouping = g;
@@ -125,6 +126,7 @@ bool Workspace::saveSettings(std::string* error) const {
   j["followSymlinks"] = settings_.followSymlinks;
   j["watchFiles"] = settings_.watchFiles;
   j["debug.attachAtStartup"] = settings_.debugAttachAtStartup;
+  j["debug.visualStudioSync"] = settings_.visualStudioSync;
   j["undoGrouping"] = settings_.undoGrouping;
   j["undoGroupPauseMs"] = settings_.undoGroupPauseMs;
   std::error_code ec;

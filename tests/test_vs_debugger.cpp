@@ -78,6 +78,14 @@ TEST(vsdte_line_conversion) {
   CHECK_EQ(fromVsLine(-3), 0);
 }
 
+TEST(vsdte_equals_no_case) {
+  CHECK(equalsNoCase("Release", "release"));
+  CHECK(equalsNoCase("x64", "X64"));
+  CHECK(equalsNoCase("", ""));
+  CHECK(!equalsNoCase("Debug", "Debu"));
+  CHECK(!equalsNoCase("Any CPU", "AnyCPU"));
+}
+
 TEST(vsdte_mode_mapping) {
   CHECK(modeFromDte(1) == DebugMode::Design);
   CHECK(modeFromDte(2) == DebugMode::Break);
@@ -298,10 +306,13 @@ TEST(vsdte_integration) {
             "Global\n"
             "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n"
             "\t\tDebug|x64 = Debug|x64\n"
+            "\t\tRelease|x64 = Release|x64\n"
             "\tEndGlobalSection\n"
             "\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n"
             "\t\t{5B1F0A52-3C4D-4E0B-9A3C-0F1E2D3C4B5A}.Debug|x64.ActiveCfg = Debug|x64\n"
             "\t\t{5B1F0A52-3C4D-4E0B-9A3C-0F1E2D3C4B5A}.Debug|x64.Build.0 = Debug|x64\n"
+            "\t\t{5B1F0A52-3C4D-4E0B-9A3C-0F1E2D3C4B5A}.Release|x64.ActiveCfg = Release|x64\n"
+            "\t\t{5B1F0A52-3C4D-4E0B-9A3C-0F1E2D3C4B5A}.Release|x64.Build.0 = Release|x64\n"
             "\tEndGlobalSection\n"
             "EndGlobal\n");
   writeFile(
@@ -310,6 +321,8 @@ TEST(vsdte_integration) {
       "<Project DefaultTargets=\"Build\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
       "  <ItemGroup Label=\"ProjectConfigurations\">\n"
       "    <ProjectConfiguration Include=\"Debug|x64\"><Configuration>Debug</Configuration><Platform>x64</Platform>"
+      "</ProjectConfiguration>\n"
+      "    <ProjectConfiguration Include=\"Release|x64\"><Configuration>Release</Configuration><Platform>x64</Platform>"
       "</ProjectConfiguration>\n"
       "  </ItemGroup>\n"
       "  <PropertyGroup Label=\"Globals\">\n"
@@ -324,10 +337,22 @@ TEST(vsdte_integration) {
       "    <PlatformToolset>v143</PlatformToolset>\n"
       "    <CharacterSet>Unicode</CharacterSet>\n"
       "  </PropertyGroup>\n"
+      "  <PropertyGroup Condition=\"'$(Configuration)|$(Platform)'=='Release|x64'\" Label=\"Configuration\">\n"
+      "    <ConfigurationType>Application</ConfigurationType>\n"
+      "    <UseDebugLibraries>false</UseDebugLibraries>\n"
+      "    <PlatformToolset>v143</PlatformToolset>\n"
+      "    <CharacterSet>Unicode</CharacterSet>\n"
+      "  </PropertyGroup>\n"
       "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.props\" />\n"
       "  <ItemDefinitionGroup Condition=\"'$(Configuration)|$(Platform)'=='Debug|x64'\">\n"
       "    <ClCompile><WarningLevel>Level3</WarningLevel><Optimization>Disabled</Optimization></ClCompile>\n"
       "    <Link><SubSystem>Console</SubSystem></Link>\n"
+      "  </ItemDefinitionGroup>\n"
+      // Release|x64 is the configuration tenfold wants: unoptimised with debug info so the breakpoint binds to its line
+      "  <ItemDefinitionGroup Condition=\"'$(Configuration)|$(Platform)'=='Release|x64'\">\n"
+      "    <ClCompile><WarningLevel>Level3</WarningLevel><Optimization>Disabled</Optimization>"
+      "<DebugInformationFormat>ProgramDatabase</DebugInformationFormat></ClCompile>\n"
+      "    <Link><SubSystem>Console</SubSystem><GenerateDebugInformation>true</GenerateDebugInformation></Link>\n"
       "  </ItemDefinitionGroup>\n"
       "  <ItemGroup><ClCompile Include=\"main.cpp\" /></ItemGroup>\n"
       "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.targets\" />\n"
@@ -367,6 +392,13 @@ TEST(vsdte_integration) {
     if (b.line == 5 && solutionPathsEqual(b.file.string(), src.string())) ++seen;
   CHECK_EQ(seen, 1);
 
+  // tenfold's active configuration is Release|x64 (Visual Studio opens the solution with Debug|x64): the sync makes
+  // Visual Studio match before the debuggee is launched.
+  r = dbg->setActiveConfiguration("Release", "x64");
+  if (!r) std::cerr << "    setActiveConfiguration: " << r.error << "\n";
+  REQUIRE(r.ok);
+  CHECK(dbg->setActiveConfiguration("release", "X64").ok);  // already active: a success, case-insensitive
+  CHECK(!dbg->setActiveConfiguration("Nope", "x64").ok);
   r = dbg->start();  // builds (per the VS settings), then runs to the breakpoint
   if (!r) std::cerr << "    start: " << r.error << "\n";
   REQUIRE(r.ok);
@@ -379,6 +411,18 @@ TEST(vsdte_integration) {
     std::cerr << "    never reached Break at line 5; last mode " << toString(snap.mode) << " error '" << snap.lastError
               << "'\n";
   REQUIRE(hit);
+
+  {
+    com::Dispatch sol, build, active;
+    std::string cfgName, platName;
+    REQUIRE(SUCCEEDED(guard.dte.getObject(L"Solution", sol)));
+    REQUIRE(SUCCEEDED(sol.getObject(L"SolutionBuild", build)));
+    REQUIRE(SUCCEEDED(build.getObject(L"ActiveConfiguration", active)));
+    CHECK(SUCCEEDED(active.getString(L"Name", cfgName)));
+    CHECK(SUCCEEDED(active.getString(L"PlatformName", platName)));
+    CHECK_EQ(cfgName, std::string("Release"));
+    CHECK_EQ(platName, std::string("x64"));
+  }
 
   r = dbg->stepOver();
   if (!r) std::cerr << "    stepOver: " << r.error << "\n";

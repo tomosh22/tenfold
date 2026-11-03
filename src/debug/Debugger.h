@@ -37,12 +37,15 @@ inline const char* toString(DebugMode m) {
 struct DebugResult {
   bool ok = true;
   std::string error;  // set when !ok
+  // Set on a success that deserves a mention (the session shows it as lastError instead of clearing the error): the
+  // command ran, but something around it did not work, e.g. the configuration could not be synchronised.
+  std::string warning;
   // Only from connect() with launchIfMissing == false: there is simply no debugger instance to attach to. Not a
   // problem worth reporting; the session stays Disconnected quietly and tries again later.
   bool notRunning = false;
   static DebugResult success() { return {}; }
-  static DebugResult failure(std::string e) { return {false, std::move(e), false}; }
-  static DebugResult noInstance(std::string e) { return {false, std::move(e), true}; }
+  static DebugResult failure(std::string e) { return {false, std::move(e), {}, false}; }
+  static DebugResult noInstance(std::string e) { return {false, std::move(e), {}, true}; }
   explicit operator bool() const { return ok; }
 };
 
@@ -100,6 +103,13 @@ class Debugger {
 
   // Current state. On failure `out` is untouched and the session reports the error (it keeps the last mode).
   virtual DebugResult poll(DebugSnapshot& out) = 0;
+
+  // Optional: makes the debugger's active solution configuration match tenfold's ("Debug", "x64"). The session calls
+  // it right before start / startWithoutDebugging / restart / runToCursor when the workspace has a solution and
+  // debug.visualStudioSync is on; a failure is reported but never prevents the command. Default: nothing to sync.
+  virtual DebugResult setActiveConfiguration(const std::string& /*configuration*/, const std::string& /*platform*/) {
+    return DebugResult::success();
+  }
 
   // Optional extra: shows the file in the debugger's own editor with the caret at (line, column), both 0-based (the
   // Visual Studio backend: "Open in Visual Studio at the caret"). Same threading as every other call. Default: not

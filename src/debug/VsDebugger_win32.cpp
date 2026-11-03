@@ -270,6 +270,48 @@ class VsDebugger final : public Debugger {
     return executeCommand("Debug.RunToCursor");
   }
 
+  // DTE.Solution.SolutionBuild.SolutionConfigurations: find Name + PlatformName, then Activate(). Only while nothing
+  // is being debugged (Visual Studio refuses to switch configuration then); already active is a success.
+  DebugResult setActiveConfiguration(const std::string& configuration, const std::string& platform) override {
+    DebugResult c = ensureConnected();
+    if (!c) return c;
+    std::string d;
+    Dispatch dbg;
+    HRESULT hr = dte_.getObject(L"Debugger", dbg, &d);
+    long mode = 1;
+    if (SUCCEEDED(hr) && SUCCEEDED(dbg.getLong(L"CurrentMode", mode)) && modeFromDte(mode) != DebugMode::Design)
+      return DebugResult::success();
+    Dispatch solution, build, configs;
+    if (SUCCEEDED(hr)) hr = dte_.getObject(L"Solution", solution, &d);
+    if (SUCCEEDED(hr)) hr = solution.getObject(L"SolutionBuild", build, &d);
+    if (FAILED(hr)) return finish(hr, "Solution.SolutionBuild", d);
+    auto names = [](Dispatch& cfg, std::string& name, std::string& plat) {
+      return SUCCEEDED(cfg.getString(L"Name", name)) && SUCCEEDED(cfg.getString(L"PlatformName", plat));
+    };
+    Dispatch active;
+    std::string an, ap;
+    if (SUCCEEDED(build.getObject(L"ActiveConfiguration", active)) && names(active, an, ap) &&
+        equalsNoCase(an, configuration) && equalsNoCase(ap, platform))
+      return DebugResult::success();
+    hr = build.getObject(L"SolutionConfigurations", configs, &d);
+    long count = 0;
+    if (SUCCEEDED(hr)) hr = configs.getLong(L"Count", count, &d);
+    if (FAILED(hr)) return finish(hr, "SolutionBuild.SolutionConfigurations", d);
+    std::string available;
+    for (long i = 1; i <= count; ++i) {
+      Variant item;
+      if (FAILED(configs.call(L"Item", {Variant::fromLong(i)}, &item))) continue;
+      Dispatch cfg = item.toDispatch();
+      std::string n, p;
+      if (!cfg || !names(cfg, n, p)) continue;
+      if (equalsNoCase(n, configuration) && equalsNoCase(p, platform))
+        return finish(cfg.call(L"Activate", {}, nullptr, &d), "SolutionConfiguration.Activate", d);
+      available += (available.empty() ? "" : ", ") + n + "|" + p;
+    }
+    return DebugResult::failure("Visual Studio has no solution configuration " + configuration + "|" + platform +
+                                " (it has: " + available + ")");
+  }
+
   DebugResult openInEditor(const fs::path& file, int line, int column) override {
     DebugResult c = ensureConnected();
     if (!c) return c;

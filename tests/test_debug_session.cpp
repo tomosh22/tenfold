@@ -289,6 +289,93 @@ TEST(dbg_editor_start_attaches_at_startup_unless_switched_off) {
   }
 }
 
+namespace {
+void writeTwoConfigSolution(const fs::path& dir) {
+  std::ofstream out(dir / "App.sln", std::ios::binary);
+  out << "\nMicrosoft Visual Studio Solution File, Format Version 12.00\n"
+         "Global\n"
+         "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n"
+         "\t\tDebug|x64 = Debug|x64\n"
+         "\t\tRelease|x64 = Release|x64\n"
+         "\tEndGlobalSection\n"
+         "EndGlobal\n";
+}
+}  // namespace
+
+TEST(dbg_launching_commands_sync_the_configuration_first) {
+  Fx f;
+  writeTwoConfigSolution(f.dir);
+  f.ed->workspace().settings().vsConfiguration = "Release";
+  f.ed->workspace().settings().vsPlatform = "x64";
+  CHECK(f.ed->debug().start());
+  CHECK(f.ed->debug().startWithoutDebugging());
+  CHECK(f.ed->debug().restart());
+  CHECK(f.ed->debug().runToCursor(f.file(), 3));
+  CHECK(f.ed->debug().stepOver());  // not a launching command
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("stepOver") == 1; }, 3000));
+  const std::vector<std::string> expect = {"connect",
+                                           "setActiveConfiguration",
+                                           "start",
+                                           "setActiveConfiguration",
+                                           "startWithoutDebugging",
+                                           "setActiveConfiguration",
+                                           "restart",
+                                           "setActiveConfiguration",
+                                           "runToCursor",
+                                           "stepOver"};
+  CHECK(f.fake->callNames() == expect);
+  for (const auto& c : f.fake->callsOf("setActiveConfiguration")) CHECK(c.detail == "Release|x64");
+  CHECK(f.ed->debug().lastError().empty());
+}
+
+TEST(dbg_configuration_sync_failure_is_reported_but_does_not_block_the_command) {
+  Fx f;
+  writeTwoConfigSolution(f.dir);
+  f.fake->failNext("setActiveConfiguration", "Visual Studio has no such configuration");
+  bool called = false;
+  DebugResult got;
+  CHECK(f.ed->debug().start([&](const DebugResult& r) {
+    called = true;
+    got = r;
+  }));
+  CHECK(f.until([&] { return called; }));
+  CHECK(got.ok);  // the command itself ran
+  CHECK(f.untilMode(DebugMode::Running));
+  CHECK(f.ed->debug().lastError().find("configuration") != std::string::npos);
+  CHECK(f.ed->debug().lastError().find("no such configuration") != std::string::npos);
+  // the next successful command clears it again
+  CHECK(f.ed->debug().stop());
+  CHECK(f.until([&] { return f.ed->debug().lastError().empty(); }));
+}
+
+TEST(dbg_no_configuration_sync_without_a_solution) {
+  Fx f;  // no .sln in the workspace
+  CHECK(f.ed->debug().start());
+  CHECK(f.untilMode(DebugMode::Running));
+  CHECK_EQ(f.fake->count("setActiveConfiguration"), size_t(0));
+}
+
+TEST(dbg_visual_studio_sync_off_disables_breakpoint_and_configuration_sync) {
+  Fx f;
+  writeTwoConfigSolution(f.dir);
+  f.ed->workspace().settings().visualStudioSync = false;
+  CHECK(f.ed->toggleBreakpoint());
+  CHECK(f.connectAndWait());
+  CHECK(f.ed->debug().start());
+  CHECK(f.untilMode(DebugMode::Running));  // commands still work
+  f.fake->injectBreakpoint({f.file(), 7, true, ""});
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  CHECK_EQ(f.fake->count("setActiveConfiguration"), size_t(0));
+  CHECK_EQ(f.fake->count("setBreakpoint"), size_t(0));  // tenfold's breakpoint is not pushed
+  CHECK(f.ed->breakpoints().has(f.file(), 0));
+  CHECK(!f.ed->breakpoints().has(f.file(), 7));  // and the backend's is not adopted
+  // switching it on again syncs from the next change
+  f.ed->workspace().settings().visualStudioSync = true;
+  CHECK(!f.ed->toggleBreakpoint());  // removes the one at line 0
+  CHECK(f.ed->toggleBreakpoint());   // sets it again
+  CHECK(f.fake->waitUntil([](const FakeDebugger::State& s) { return s.count("setBreakpoint") >= 1; }, 3000));
+}
+
 TEST(dbg_commands_are_asynchronous_and_do_not_block_the_caller) {
   Fx f;
   CHECK(f.connectAndWait());
