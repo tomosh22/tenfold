@@ -293,20 +293,54 @@ class VsDebugger final : public Debugger {
     if (SUCCEEDED(build.getObject(L"ActiveConfiguration", active)) && names(active, an, ap) &&
         equalsNoCase(an, configuration) && equalsNoCase(ap, platform))
       return DebugResult::success();
-    hr = build.getObject(L"SolutionConfigurations", configs, &d);
-    long count = 0;
-    if (SUCCEEDED(hr)) hr = configs.getLong(L"Count", count, &d);
-    if (FAILED(hr)) return finish(hr, "SolutionBuild.SolutionConfigurations", d);
+    // The configuration list can be empty (or its members unreadable) for a while after Solution.Open returns, while
+    // Visual Studio is still loading projects in the background, so look again for a short window before giving up.
+    // The failure names what was seen (count, per-item errors) so a log shows which of those it was.
     std::string available;
-    for (long i = 1; i <= count; ++i) {
-      Variant item;
-      if (FAILED(configs.call(L"Item", {Variant::fromLong(i)}, &item))) continue;
-      Dispatch cfg = item.toDispatch();
-      std::string n, p;
-      if (!cfg || !names(cfg, n, p)) continue;
-      if (equalsNoCase(n, configuration) && equalsNoCase(p, platform))
-        return finish(cfg.call(L"Activate", {}, nullptr, &d), "SolutionConfiguration.Activate", d);
-      available += (available.empty() ? "" : ", ") + n + "|" + p;
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(30);
+    for (;;) {
+      available.clear();
+      bool incomplete = false;
+      std::string cd;
+      long count = 0;
+      hr = build.getObject(L"SolutionConfigurations", configs, &cd);
+      if (SUCCEEDED(hr)) hr = configs.getLong(L"Count", count, &cd);
+      if (FAILED(hr)) {
+        incomplete = true;
+        available = describeHr("SolutionBuild.SolutionConfigurations", hr, cd);
+      } else {
+        for (long i = 1; i <= count; ++i) {
+          Variant item;
+          std::string id;
+          HRESULT ih = configs.call(L"Item", {Variant::fromLong(i)}, &item, &id);
+          Dispatch cfg = SUCCEEDED(ih) ? item.toDispatch() : Dispatch();
+          std::string n, p;
+          if (!cfg) {
+            incomplete = true;
+            available += (available.empty() ? "" : ", ") + std::string("#") + std::to_string(i) + " " +
+                         describeHr("Item", FAILED(ih) ? ih : E_NOINTERFACE, id);
+            continue;
+          }
+          std::string nd;
+          HRESULT nh = cfg.getString(L"Name", n, &nd);
+          HRESULT ph = SUCCEEDED(nh) ? cfg.getString(L"PlatformName", p, &nd) : nh;
+          if (FAILED(ph)) {
+            incomplete = true;
+            available += (available.empty() ? "" : ", ") + n + "|? " + describeHr("PlatformName", ph, nd);
+            continue;
+          }
+          if (equalsNoCase(n, configuration) && equalsNoCase(p, platform))
+            return finish(cfg.call(L"Activate", {}, nullptr, &d), "SolutionConfiguration.Activate", d);
+          available += (available.empty() ? "" : ", ") + n + "|" + p;
+        }
+        if (count == 0) {
+          incomplete = true;
+          available = "no configurations listed";
+        }
+      }
+      // A well-formed list that simply lacks the requested pair is final; only an empty or unreadable one is retried.
+      if (!incomplete || std::chrono::steady_clock::now() >= deadline) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(500));
     }
     return DebugResult::failure("Visual Studio has no solution configuration " + configuration + "|" + platform +
                                 " (it has: " + available + ")");
