@@ -27,8 +27,11 @@ class SignatureHelp {
 
   void setSigFn(SigFn fn) { sig_ = std::move(fn); }  // default: Editor::signatureHelp
   void onTyped(const std::string& text);             // after text input was applied
-  void update();                                     // after any other event
-  bool handleKey(const InputEvent& e);               // Escape closes
+  // ShowFunctionArgsInfo command: signature help for the call around the caret, whatever was typed last. False (with a
+  // status message) when the caret is not inside a call or no document is open.
+  bool trigger();
+  void update();                        // after any other event
+  bool handleKey(const InputEvent& e);  // Escape closes
   void close();
   bool isOpen() const { return open_; }
   PopupBox* box() const { return box_; }
@@ -40,7 +43,7 @@ class SignatureHelp {
   static int commasBefore(const TextBuffer& b, Position paren, Position caret);
 
  private:
-  void request(Position paren);
+  void request(Position paren, bool asked = false);
   void onResult(uint64_t seq, const LspSignatureHelp& h, const std::string& err);
   void render();
 
@@ -53,7 +56,7 @@ class SignatureHelp {
   RectF placed_{0, 0, 0, 0};
   uint64_t seq_ = 0;
   int active_ = 0;
-  bool open_ = false;
+  bool open_ = false, explicit_ = false;
   std::shared_ptr<int> alive_ = std::make_shared<int>(0);
 };
 

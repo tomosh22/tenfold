@@ -35,8 +35,11 @@ class CompletionPopup {
   void setApproximateFn(std::function<bool()> fn) { approx_ = std::move(fn); }  // default: clangd not initialised
 
   void onTyped(const std::string& text);  // after text input was applied to the Editor
-  void update();                          // after any other event: close when the caret left the word, else refilter
-  bool handleKey(const InputEvent& e);    // true when consumed
+  // Autocomplete command (Control Space): opens the list at the caret whatever the word length, and says in the status
+  // bar when there is nothing to show. False when there is no document.
+  bool trigger();
+  void update();                        // after any other event: close when the caret left the word, else refilter
+  bool handleKey(const InputEvent& e);  // true when consumed
   void close();
   bool isOpen() const { return open_; }
   PopupBox* box() const { return box_; }
@@ -50,7 +53,7 @@ class CompletionPopup {
     bool prefix;
     int score;
   };
-  void request(Position anchor);
+  void request(Position anchor, bool asked = false);
   void onItems(uint64_t seq, const std::vector<LspCompletionItem>& items, const std::string& err);
   bool valid() const;
   std::string prefix() const;
@@ -68,7 +71,7 @@ class CompletionPopup {
   const Document* doc_ = nullptr;
   uint64_t seq_ = 0;
   int sel_ = 0;
-  bool open_ = false, approximate_ = false, inFlight_ = false;
+  bool open_ = false, approximate_ = false, inFlight_ = false, explicit_ = false;
   RectF placed_{0, 0, 0, 0};
   int lastVersion_ = -1;
   Position lastCaret_{-1, -1};

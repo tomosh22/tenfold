@@ -266,6 +266,15 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.Copy", "Copy");
   addUi(r, "Editor.Cut", "Cut");
   addUi(r, "Editor.Paste", "Paste");
+  // W8c parser commands
+  addUi(r, "Editor.RenameSymbol", "Rename Symbol...");
+  addUi(r, "Editor.SubmitRenameSymbol", "Submit Rename Symbol");
+  addUi(r, "Editor.Autocomplete", "Show Autocomplete");
+  addUi(r, "Editor.ShowFunctionArgs", "Show Function Arguments");
+  addUi(r, "Editor.ShowSymbolInfo", "Show Symbol Info");
+  addUi(r, "Editor.FindFunction", "Find Function in File...");
+  addUi(r, "Editor.GotoDefinitionUnderMouse", "Go to Definition Under Mouse");
+  addUi(r, "Editor.FormatSelection", "Format Selection or Scope");
 }
 
 }  // namespace tf::ui

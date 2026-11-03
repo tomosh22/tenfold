@@ -49,6 +49,7 @@ void HoverTooltip::dismiss() {
   ++seq_;
   pending_ = false;
   haveTarget_ = false;
+  explicit_ = false;
   box_->hide();
 }
 
@@ -88,6 +89,36 @@ void HoverTooltip::onMouse(const InputEvent& e) {
   y_ = e.y;
   since_ = env_.clock ? env_.clock() : 0;
   pending_ = true;
+}
+
+bool HoverTooltip::showAtCaret() {
+  Document* d = env_.editor.currentDocument();
+  TextView* v = nullptr;
+  if (d) {
+    Widget* w = env_.root.focused();
+    while (w && !dynamic_cast<TextView*>(w)) w = w->parent();
+    v = static_cast<TextView*>(w);
+    if (v && v->document() != d) v = nullptr;
+  }
+  if (!d || !v || env_.editor.selections().empty()) return false;
+  const Position caret = env_.editor.selections()[0].head;
+  const TextBuffer::Word w = d->buffer().wordAt(caret);
+  if (w.text.empty()) {
+    env_.say("No symbol at the caret");
+    return false;
+  }
+  dismiss();
+  haveTarget_ = true;
+  explicit_ = true;
+  file_ = d->path();
+  target_ = w.range;
+  pos_ = w.range.start;
+  const RectF r = v->caretRect(w.range.start);
+  const RectF area = v->textArea();
+  x_ = std::clamp(r.x, area.x, area.x + std::max(0.0f, area.w - 1));
+  y_ = std::clamp(r.y + r.h / 2, area.y, area.y + std::max(0.0f, area.h - 1));
+  fire();
+  return true;
 }
 
 int HoverTooltip::tick(int64_t now) {
@@ -133,7 +164,11 @@ void HoverTooltip::fire() {
 }
 
 void HoverTooltip::onHover(uint64_t seq, const std::string& text, const std::string& err) {
-  if (seq != seq_ || !err.empty() || text.empty()) return;  // dismissed, moved on, or nothing to say
+  if (seq != seq_) return;  // dismissed or moved on
+  if (!err.empty() || text.empty()) {
+    if (explicit_ && !box_->visible()) env_.say(err.empty() ? "No symbol information here" : "Symbol info: " + err);
+    return;
+  }
   hoverText_ = plain(text);
   show();
 }
@@ -150,6 +185,11 @@ void HoverTooltip::show() {
   }
   if (lines.empty()) return;
   TextView* v = viewAt(env_.root, x_, y_);
+  if (!v && explicit_) {  // a popup may cover the spot: use the focused view
+    Widget* w = env_.root.focused();
+    while (w && !dynamic_cast<TextView*>(w)) w = w->parent();
+    v = static_cast<TextView*>(w);
+  }
   if (!v) return;
   box_->setContent(std::move(lines));
   box_->showAt(v->caretRect(target_.start));

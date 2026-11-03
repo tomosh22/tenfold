@@ -119,7 +119,19 @@ void CompletionPopup::onTyped(const std::string& text) {
   }
 }
 
-void CompletionPopup::request(Position anchor) {
+bool CompletionPopup::trigger() {
+  Document* d = env_.editor.currentDocument();
+  if (!d || env_.editor.selections().empty()) return false;
+  const Position c = env_.editor.selections()[0].head;
+  close();
+  suppressed_ = {-1, -1};
+  doc_ = d;
+  request({c.line, wordStart(d->buffer().line(c.line), c.column)}, true);
+  return true;
+}
+
+void CompletionPopup::request(Position anchor, bool asked) {
+  explicit_ = asked;
   anchor_ = anchor;
   inFlight_ = true;
   const uint64_t seq = ++seq_;
@@ -134,8 +146,11 @@ void CompletionPopup::request(Position anchor) {
 void CompletionPopup::onItems(uint64_t seq, const std::vector<LspCompletionItem>& items, const std::string& err) {
   if (seq != seq_) return;  // a newer request, or the popup was closed meanwhile
   inFlight_ = false;
+  const bool asked = explicit_;
+  explicit_ = false;
   if (!err.empty() || items.empty() || !valid()) {
     if (open_) close();
+    if (asked && valid()) env_.say(err.empty() ? "No completions here" : "Autocomplete: " + err);
     return;
   }
   items_ = items;
@@ -144,6 +159,7 @@ void CompletionPopup::onItems(uint64_t seq, const std::vector<LspCompletionItem>
   refilter();
   if (shown_.empty()) {
     if (open_) close();
+    if (asked) env_.say("No completions match");
     return;
   }
   open_ = true;

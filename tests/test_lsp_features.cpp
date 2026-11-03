@@ -573,3 +573,137 @@ TEST(lsp_bench_semantic_tokens) {
   auto st = f.ed.semantic().tokenStats();
   std::cerr << "    bench: requests full=" << st.fullRequests << " delta=" << st.deltaRequests << "\n";
 }
+
+// ---------------------------------------------------------------------------
+// W8c: goto definition at a position, rename, document symbol extents
+// ---------------------------------------------------------------------------
+
+TEST(lsp_features_goto_definition_at_a_position_is_not_the_caret_symbol) {
+  TempDir dir;
+  spit(dir.path / "a.cpp", "int main() { return helper(1) + other(2); }\n");
+  spit(dir.path / "b.cpp", "int helper(int a) { return a; }\nint other(int a) { return a; }\n");
+  Fx f(dir.path, false);
+  REQUIRE(f.ok);
+  REQUIRE(f.ed.semantic().waitForFastIndex(10000));
+  Document* a = f.ed.open(dir.path / "a.cpp");
+  REQUIRE(a != nullptr);
+  f.ed.gotoLocation({a->path(), {0, 0}});
+  const size_t base = f.ed.navigation().entries().size();
+  bool done = false;
+  std::vector<SymbolLocation> locs;
+  f.ed.gotoDefinitionAt(*a, {0, 33}, [&](Confidence, const std::vector<SymbolLocation>& l, const std::string&) {
+    locs = l;
+    done = true;
+  });
+  REQUIRE(f.ed.waitFor([&] { return done; }, 10000));
+  REQUIRE(locs.size() == 1u);
+  CHECK_EQ(locs[0].name, std::string("other"));
+  CHECK_EQ(f.ed.cursor().file.filename().string(), std::string("b.cpp"));
+  CHECK_EQ(f.ed.cursor().pos.line, 1);  // `other`, although the caret was on `main`
+  CHECK(f.ed.navigation().entries().size() > base);
+  // Asking about the definition's own name does not jump (the answer is the spot itself).
+  Document* b = f.ed.document(dir.path / "b.cpp");
+  REQUIRE(b != nullptr);
+  f.ed.gotoLocation({a->path(), {0, 0}});
+  done = false;
+  f.ed.gotoDefinitionAt(*b, {0, 4},
+                        [&](Confidence, const std::vector<SymbolLocation>&, const std::string&) { done = true; });
+  REQUIRE(f.ed.waitFor([&] { return done; }, 10000));
+  CHECK_EQ(f.ed.cursor().file.filename().string(), std::string("a.cpp"));
+}
+
+TEST(lsp_features_rename_symbol_without_clangd_changes_nothing) {
+  TempDir dir;
+  spit(dir.path / "a.cpp", "int alpha = 1;\n");
+  Fx f(dir.path, false);
+  REQUIRE(f.ok);
+  Document* a = f.ed.open(dir.path / "a.cpp");
+  REQUIRE(a != nullptr);
+  f.ed.gotoLocation({a->path(), {0, 4}});
+  Editor::RenameResult r;
+  std::string err;
+  CHECK(!f.call<Editor::RenameResult>([&](auto done) { f.ed.renameSymbol({0, 4}, "beta", done); }, &r, &err));
+  CHECK_EQ(err, std::string("clangd not running"));
+  CHECK_EQ(r.edits, 0u);
+  CHECK(!a->dirty());
+}
+
+TEST(lsp_features_document_symbols_report_extents_that_tell_definitions_from_declarations) {
+  SKIP_WITHOUT_CLANGD();
+  TempDir dir;
+  spit(dir.path / "a.cpp", "int f(int a);\nint f(int a) { return a; }\nstruct S { void m(); void n() {} };\n");
+  Fx f(dir.path, true);
+  REQUIRE(f.ok);
+  Document* a = f.openReady(dir.path / "a.cpp");
+  REQUIRE(a != nullptr);
+  bool authoritative = false;
+  std::vector<SymbolLocation> locs;
+  f.ed.documentSymbols([&](Confidence c, const std::vector<SymbolLocation>& l, const std::string&) {
+    if (c == Confidence::Authoritative) {
+      locs = l;
+      authoritative = true;
+    }
+  });
+  REQUIRE(f.ed.waitFor([&] { return authoritative; }, 60000));
+  int withBody = 0, without = 0;
+  for (const SymbolLocation& s : locs) {
+    if (s.kind != "function" && s.kind != "method") continue;
+    REQUIRE(s.extent.start < s.extent.end);
+    const std::string text = a->buffer().textInRange(s.extent);
+    if (text.find('{') != std::string::npos) ++withBody;
+    else ++without;
+  }
+  CHECK(withBody >= 2);  // f's definition and S::n
+  CHECK(without >= 1);   // S::m
+}
+
+TEST(lsp_features_rename_edits_update_open_documents_and_write_closed_files) {
+  TempDir dir;
+  const std::string header = "#pragma once\nint computeTotal(int a, int b);\n";
+  const std::string impl = "#include \"util.h\"\nint computeTotal(int a, int b) { return a + b; }   \n";
+  const std::string mainSrc = "#include \"util.h\"\nint main() { return computeTotal(1, 2); }\n";
+  spit(dir.path / "src/util.h", header);
+  spit(dir.path / "src/util.cpp", impl);
+  spit(dir.path / "src/main.cpp", mainSrc);
+  Fx f(dir.path, false);
+  REQUIRE(f.ok);
+  f.ed.editing().trimTrailingWhitespace = true;  // saving must not trim lines the rename did not edit
+  Document* h = f.ed.open(dir.path / "src/util.h");
+  REQUIRE(h != nullptr);
+  f.ed.gotoLocation({h->path(), {1, 4}});
+  FileEdits edits;  // what clangd's WorkspaceEdit looks like after conversion to byte columns
+  edits[dir.path / "src/util.h"] = {{{{1, 4}, {1, 16}}, "computeSum"}};
+  edits[dir.path / "src/util.cpp"] = {{{{1, 4}, {1, 16}}, "computeSum"}};
+  edits[dir.path / "src/main.cpp"] = {{{{1, 20}, {1, 32}}, "computeSum"}};
+  std::string err;
+  const Editor::RenameResult r = f.ed.applyRenameEdits(edits, &err);
+  CHECK(err.empty());
+  CHECK_EQ(r.edits, 3u);
+  REQUIRE(r.updated.size() == 1u);
+  CHECK_EQ(r.written.size(), 2u);
+  CHECK(r.unsaved.empty());
+  // The open document is edited in memory (one undo step), not written.
+  CHECK_EQ(h->buffer().line(1), std::string("int computeSum(int a, int b);"));
+  CHECK(h->dirty());
+  CHECK_EQ(slurp(dir.path / "src/util.h"), header);
+  CHECK(h->undo());
+  CHECK_EQ(h->buffer().text(), header);
+  CHECK(!h->canUndo());
+  // The closed files were written (only the renamed text changed) and are not left open.
+  CHECK(f.ed.document(dir.path / "src/util.cpp") == nullptr);
+  CHECK(f.ed.document(dir.path / "src/main.cpp") == nullptr);
+  CHECK_EQ(slurp(dir.path / "src/util.cpp"),
+           std::string("#include \"util.h\"\nint computeSum(int a, int b) { return a + b; }   \n"));
+  CHECK_EQ(slurp(dir.path / "src/main.cpp"),
+           std::string("#include \"util.h\"\nint main() { return computeSum(1, 2); }\n"));
+  CHECK(f.ed.editing().trimTrailingWhitespace);  // restored
+
+  // A file that cannot be opened aborts the whole rename before anything changes.
+  FileEdits bad;
+  bad[dir.path / "src/util.h"] = {{{{1, 4}, {1, 14}}, "x"}};
+  bad[dir.path / "src/missing/none.cpp"] = {{{{0, 0}, {0, 0}}, "x"}};
+  const Editor::RenameResult rb = f.ed.applyRenameEdits(bad, &err);
+  CHECK_EQ(rb.edits, 0u);
+  CHECK(!err.empty());
+  CHECK_EQ(h->buffer().text(), header);
+}

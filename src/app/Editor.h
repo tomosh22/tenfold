@@ -133,6 +133,11 @@ class Editor {
   // then calls `done`. With several candidates it does not jump; the UI picks.
   using NavResult = std::function<void(Confidence, const std::vector<SymbolLocation>&, const std::string& error)>;
   void gotoDefinition(NavResult done);
+  // Definition of the symbol at `pos` of `doc` (the symbol under the mouse), not at the caret. Jumps like
+  // gotoDefinition for a single result that is not the very spot asked about.
+  void gotoDefinitionAt(Document& doc, Position pos, NavResult done);
+  // Symbols of the current document (fast index first, clangd's authoritative list replaces it).
+  void documentSymbols(NavResult done);
   void gotoDeclaration(NavResult done);
   void findReferences(NavResult done);
   void findSymbols(const std::string& query, NavResult done);
@@ -177,6 +182,20 @@ class Editor {
   // `done` receives the number of edits applied.
   void formatDocument(Done<size_t> done);
   void formatRange(Range range, Done<size_t> done);
+  // clangd rename of the symbol at `at` (current document) to `newName`. No approximate tier: without clangd `error`
+  // is set and nothing changes. Edits across files: a document that was open is edited (one undo group, left
+  // dirty); a file that was not open is edited in memory, written to disk and closed again (the file watcher and
+  // clangd see the new text). A file that cannot be written stays open and dirty and is listed in `unsaved`.
+  struct RenameResult {
+    size_t edits = 0;
+    std::vector<std::filesystem::path> updated;  // open documents that were edited
+    std::vector<std::filesystem::path> written;  // closed files that were edited and saved
+    std::vector<std::filesystem::path> unsaved;  // closed files that could not be saved (left open and dirty)
+  };
+  void renameSymbol(Position at, const std::string& newName, Done<RenameResult> done);
+  // The edit half of a rename: applies `edits` as described above. Fails (empty result, `error` set) when a file cannot
+  // be opened, with nothing changed; `error` also carries the reason when some closed files could not be saved.
+  RenameResult applyRenameEdits(const FileEdits& edits, std::string* error = nullptr);
 
   // --- find in workspace (results arrive via post(), i.e. on the pump thread) ---
   // Searches Workspace::codeFiles() (+ other files if opts.includeOtherFiles) in the background. Open documents
@@ -410,7 +429,8 @@ class Editor {
   void refreshBuildSystem(bool forceRestart = false, std::function<void()> done = {});
   std::optional<BuildMessage> stepBuildMessage(int dir, std::string* error);
   void addBuildMessage(BuildMessage m);
-  void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done);
+  void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done,
+                const Location* origin = nullptr);
   // Wraps `done` so it runs on the pump thread.
   template <class T>
   SemanticEngine::Callback<T> posted(Done<T> done) {

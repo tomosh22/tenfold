@@ -30,6 +30,9 @@ class HoverTooltip {
   void setHoverFn(HoverFn fn) { hover_ = std::move(fn); }  // default: Editor::hoverAt
   void setApproximateFn(std::function<bool()> fn) { approx_ = std::move(fn); }
   void onMouse(const InputEvent& e);  // MouseMove events
+  // ShowSymbolInfo command: the tooltip for the symbol at the primary caret of the current document (the word at
+  // the caret, plus any diagnostic there), without a mouse dwell. False (with a message) when there is no symbol.
+  bool showAtCaret();
   void dismiss();
   int tick(int64_t nowMs);  // fires the request once the dwell elapsed; ms until it is due, -1 = nothing pending
   bool shown() const { return box_->visible(); }
@@ -50,7 +53,7 @@ class HoverTooltip {
   Position pos_;
   float x_ = 0, y_ = 0;
   int64_t since_ = 0;
-  bool pending_ = false, haveTarget_ = false;
+  bool pending_ = false, haveTarget_ = false, explicit_ = false;
   uint64_t seq_ = 0;
   std::vector<PopupLine> diag_;
   std::string hoverText_;

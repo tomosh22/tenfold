@@ -242,6 +242,21 @@ message for that spot follows, marked `build`), then clangd's hover text. Comple
 `->`, `::` and once a word reaches two characters; Tab or Enter accepts it as one undo step. Signature help opens on
 `(` and `,` with the active parameter highlighted; Escape or `)` closes it.
 
+**Parser commands (10x's, W8c).** All of them are 10x commands on 10x's default keys:
+
+| Keys | What it does |
+| --- | --- |
+| **Control Space** (`Autocomplete`) | Opens the completion list at the caret whatever the length of the word (an empty word lists everything the scope offers). Without clangd the list is the fast index's, greyed and marked approximate. The status bar says when there is nothing to offer. |
+| **Control Shift Space** (`ShowFunctionArgsInfo`) | Signature help for the call around the caret, with the argument under the caret highlighted. clangd only; outside a call, or without clangd, the status bar says so. |
+| **Control K, Control I** (`ShowSymbolInfo`) | The hover popup for the symbol at the caret (diagnostics first, then clangd's text; without clangd the fast index's guess, greyed). Any key dismisses it. |
+| **Control R** (`RenameSymbol`), then **Enter** (`SubmitRenameSymbol`) | A small box under the symbol, pre-filled with its name and selected. Enter asks clangd to rename it everywhere: open files are edited in place (one undo step per file, left unsaved), files that are not open are edited and written to disk. Escape or a click elsewhere cancels. **Rename needs clangd**: without it tenfold says so and does nothing, because an approximate rename would change the wrong things. A name that is not an identifier keeps the box open. |
+| **Alt M** (`FindFunction`) | Picker of the functions *defined* in the current file (declarations without a body are left out), in source order; type to filter. The fast index's list shows first, greyed with `verifying...`, and clangd's replaces it with the selection kept. Enter jumps there (Back returns). |
+| **Middle mouse button** (`GotoSymbolDefinitionUnderMouse`) | Jumps to the definition of the identifier under the mouse pointer, not the one at the caret; the caret does not move. Over anything else (a tab, the gutter, blank space) the click does what it did before: on a tab it closes the tab. |
+| **Control K, Control F** (`FormatSelection`) | clangd formats the selection; with no selection, the innermost `{ }` block around the caret (the caret line when it is outside every block). One undo step. Uses your `.clang-format`. clangd only. |
+
+`InsertPrevAutocomplete` / `InsertNextAutocomplete` (`Shift F14` / `F14`) are not implemented: 10x's description is one line
+("insert prev / next autocomplete") and does not say what is inserted or from which list.
+
 ## Editing
 
 The text model is UTF-8 with LF or CRLF preserved per file (`Editor.LineEndingLF` / `Editor.LineEndingCRLF` convert;
@@ -289,8 +304,9 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
 * The matching bracket of the one at the caret is highlighted. `editor.showWhitespace`, `editor.columnGuide`,
   `editor.highlightCurrentLine` and the caret blink are settings.
 
-Not available yet: code actions and fix-its, rename, formatting, call and type hierarchy, inlay hints, folding,
-the document outline. The engine has them; the GUI does not (see [What does not exist yet](#what-does-not-exist-yet)).
+Not available yet: code actions and fix-its, call and type hierarchy, inlay hints, folding, the document outline.
+The engine has them; the GUI does not (see [What does not exist yet](#what-does-not-exist-yet)). Rename and formatting
+are the Control R and Control K, Control F commands above.
 
 ## Word wrap
 
@@ -681,7 +697,7 @@ command tenfold lacks would take a key from the focused input line or the open p
 `Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files. tenfold saves at the first press and says
 `not implemented yet: SaveAll` at the second.
 
-The 92 default bindings that run a tenfold command today (all other defaults are in
+The 100 default bindings that run a tenfold command today (all other defaults are in
 [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
 differs from the 10x description:
 
@@ -789,6 +805,13 @@ differs from the 10x description:
 | `Shift Alt S` | `FindSymbol` | `Search.SymbolSearch` |  |
 | `Shift Alt F` | `FindSymbolReferences` | `Editor.FindReferences` |  |
 | `Alt O` | `CppParser.ToggleSourceHeader` | `Editor.SwitchHeaderSource` |  |
+| `MouseMiddleButton` | `GotoSymbolDefinitionUnderMouse` | `Editor.GotoDefinitionUnderMouse` | only over an identifier of a text view; elsewhere the click is untouched (tab close) |
+| `Control R` | `RenameSymbol` | `Editor.RenameSymbol` | clangd only, no approximate fallback |
+| `Enter` (rename box) | `SubmitRenameSymbol` | `Editor.SubmitRenameSymbol` |  |
+| `Alt M` | `FindFunction` | `Editor.FindFunction` | a picker over the document symbols (fast index first, clangd's list replaces it) |
+| `Control Space` | `Autocomplete` | `Editor.Autocomplete` |  |
+| `Control Shift Space` | `ShowFunctionArgsInfo` | `Editor.ShowFunctionArgs` | clangd only |
+| `Control K, Control I` | `ShowSymbolInfo` | `Editor.ShowSymbolInfo` |  |
 
 **Build**
 
@@ -826,6 +849,7 @@ differs from the 10x description:
 | --- | --- | --- | --- |
 | `Control ]` | `IndentLine` | `Editor.Indent` |  |
 | `Control [` | `UnindentLine` | `Editor.Outdent` |  |
+| `Control K, Control F` | `FormatSelection` | `Editor.FormatSelection` | clangd only; the primary selection, else the innermost `{ }` block, else the caret line |
 
 **Panels**
 
@@ -1016,7 +1040,7 @@ unverified items in the next sections; the log and the output of those two comma
 
 * Opening a folder from the window, menus, a recent-workspaces list, drag and drop.
 * Autosave and recovery of unsaved buffers after a crash.
-* GUI for code actions / fix-its, rename, formatting, call and type hierarchy, inlay hints, folding, the document outline.
+* GUI for code actions / fix-its, call and type hierarchy, inlay hints, folding, the document outline.
 * An "open log" command.
 * Scripting (the Python API of 10x is deliberately not implemented, OPEN_QUESTIONS #11), `.10x` workspace import (not
   wanted, #12), Unreal Engine awareness.
@@ -1027,7 +1051,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** 10x's own format and default key map; 91 of its 183 default bindings (88 commands) are not implemented yet (FEATURE_PARITY).
+* **Key bindings:** 10x's own format and default key map; 83 of its 183 default bindings (80 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session

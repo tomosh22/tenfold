@@ -1316,6 +1316,7 @@ void SemanticEngine::documentSymbols(const Document& doc, LocationsCallback cb) 
                                                                                    const std::string& container) {
         SymbolLocation x;
         x.loc = fromServer(LspLocation{uri, s.selectionRange});
+        x.extent = Range{posFromServer(uri, s.range.start), posFromServer(uri, s.range.end)};
         x.name = s.name;
         x.container = container;
         x.kind = lspSymbolKindName(s.kind);

@@ -90,7 +90,24 @@ void SignatureHelp::onTyped(const std::string& text) {
   request(*p);
 }
 
-void SignatureHelp::request(Position paren) {
+bool SignatureHelp::trigger() {
+  Document* d = env_.editor.currentDocument();
+  if (!d || env_.editor.selections().empty()) return false;
+  const auto p = openParen(d->buffer(), env_.editor.selections()[0].head);
+  if (!p) {
+    close();
+    env_.say("The caret is not inside a function call");
+    return true;
+  }
+  doc_ = d;
+  open_ = false;
+  box_->hide();
+  request(*p, true);
+  return true;
+}
+
+void SignatureHelp::request(Position paren, bool asked) {
+  explicit_ = asked;
   paren_ = paren;
   const uint64_t seq = ++seq_;
   auto cb = [this, seq, alive = std::weak_ptr<int>(alive_)](const LspSignatureHelp& h, const std::string& err) {
@@ -102,9 +119,12 @@ void SignatureHelp::request(Position paren) {
 
 void SignatureHelp::onResult(uint64_t seq, const LspSignatureHelp& h, const std::string& err) {
   if (seq != seq_) return;
+  const bool asked = explicit_;
+  explicit_ = false;
   Document* d = env_.editor.currentDocument();
   if (!err.empty() || h.signatures.empty() || d != doc_ || env_.editor.selections().empty()) {
     close();
+    if (asked) env_.say(err.empty() ? "No function signature at the caret" : "Function arguments: " + err);
     return;
   }
   const auto p = openParen(d->buffer(), env_.editor.selections()[0].head);
