@@ -65,6 +65,43 @@ std::optional<Location> NavigationHistory::forward(const Location& current) {
   return target;
 }
 
+std::optional<Location> NavigationHistory::backInFile(const Location& current) {
+  if (entries_.empty()) return std::nullopt;
+  const bool live = cursor_ >= entries_.size();
+  // The entries back() would walk over: for the live position its own record (or the entry it coalesces into) is not
+  // a destination.
+  size_t end = live ? entries_.size() : cursor_;
+  const bool merges = live && near(entries_.back().loc, current);
+  if (merges) --end;
+  std::optional<size_t> found;
+  for (size_t i = end; i-- > 0;)
+    if (pathsEqual(entries_[i].loc.file, current.file)) {
+      found = i;
+      break;
+    }
+  if (!found) return std::nullopt;
+  if (live) {
+    if (merges) {
+      entries_.back().loc = current;
+    } else {
+      const size_t before = entries_.size();
+      push(Entry{current, Kind::Caret, {}});
+      if (entries_.size() <= before) --*found;  // the oldest entry fell off
+    }
+  }
+  cursor_ = *found;
+  return entries_[cursor_].loc;
+}
+
+std::optional<Location> NavigationHistory::forwardInFile(const Location& current) {
+  for (size_t i = cursor_ + 1; i < entries_.size(); ++i)
+    if (pathsEqual(entries_[i].loc.file, current.file)) {
+      cursor_ = i + 1 == entries_.size() ? entries_.size() : i;  // the newest entry is the live position
+      return entries_[i].loc;
+    }
+  return std::nullopt;
+}
+
 bool NavigationHistory::canGoBack() const {
   if (entries_.empty()) return false;
   if (cursor_ >= entries_.size()) return true;

@@ -98,6 +98,10 @@ class Workbench : public RootWidget {
   // "deleted on disk" segment while the document is current. The buffer stays.
   void setFileMissing(const std::filesystem::path& file, bool missing);
   bool fileMissing(const std::filesystem::path& file) const { return missing_.count(file.generic_string()) != 0; }
+  // RestoreRecentlyClosedFile: reopens the file whose last tab was closed most recently, at the caret it had (through
+  // Editor::gotoLocation, in the active panel); repeated calls go further back. Entries for files that are open again
+  // or gone from disk are skipped. Untitled documents are not remembered. False with nothing to reopen.
+  bool reopenClosedTab();
   void closeOthers(int id);          // other unpinned tabs of the same panel
   void closeAllButPinned(Panel* p);  // pinned tabs stay
   void setPinned(int id, bool pinned);
@@ -164,6 +168,11 @@ class Workbench : public RootWidget {
   struct TabInfo {
     std::filesystem::path path;
   };
+  struct ClosedTab {
+    std::filesystem::path file;
+    Position caret;
+  };
+  void noteClosed(const std::filesystem::path& file, Position caret);
   struct Cycle {
     Panel* panel = nullptr;
     std::vector<int> order;
@@ -213,6 +222,7 @@ class Workbench : public RootWidget {
   bool focusMode_ = false;
   std::set<std::string> missing_;  // generic paths of open documents whose file vanished
   std::vector<std::filesystem::path> recent_;
+  std::vector<ClosedTab> closed_;  // most recently closed last
   Document* lastCur_ = nullptr;
   int nextId_ = 1;
   int dragTab_ = -1;

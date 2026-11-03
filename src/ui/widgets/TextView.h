@@ -145,6 +145,9 @@ class TextView : public Widget {
   // Makes this view's document the Editor's current one (no history entry; the caret this view last had) and takes
   // focus.
   void activate();
+  // AddCursorAtMousePos: adds a caret at the text position under a window point (makes this view's document current
+  // first); the position is clamped like a click's.
+  void addCaretAtPoint(float x, float y);
 
   // Geometry (absolute window pixels). positionAt clamps to the document; caretRect is the bar of a caret even when
   // it is scrolled out of view; both use scroll offsets of the last paint-independent state (the viewport now).

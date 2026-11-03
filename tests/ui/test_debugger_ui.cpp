@@ -280,9 +280,10 @@ TEST(c2c_debug_keys_reach_the_backend) {
   CHECK(env.fakeSaw("startWithoutDebugging"));
   env.key(Key::F5, ModCtrl | ModShift);
   CHECK(env.fakeSaw("restart"));
-  env.key(Key::F9, ModCtrl | ModShift);  // 10x: RemoveAllBreakpointsFromFile, not implemented yet: nothing is removed
   CHECK(!env.ed->breakpoints().empty());
-  CHECK_EQ(env.app->message(), std::string("not implemented yet: RemoveAllBreakpointsFromFile"));
+  env.key(Key::F9, ModCtrl | ModShift);  // 10x: RemoveAllBreakpointsFromFile (W8d): the current file's breakpoints go
+  CHECK(env.ed->breakpoints().lines(env.ed->currentDocument()->path()).empty());
+  CHECK(env.app->message().find("not implemented") == std::string::npos);
   env.app->runCommand("RemoveAllBreakpoints");  // 10x name of Debug.DeleteAllBreakpoints
   CHECK(env.ed->breakpoints().empty());
   // Every command is in the registry with its Visual Studio key.
@@ -589,7 +590,7 @@ TEST(c2c_default_bindings_for_the_debugger_block) {
       {"Control Shift F5", "Debug.Restart"},
       {"F9", "Debug.ToggleBreakpoint"},
       {"Control F9", "Debug.ToggleBreakpointEnabled"},
-      {"Control Shift F9", "RemoveAllBreakpointsFromFile"},  // 10x: from the current file; not implemented yet
+      {"Control Shift F9", "Debug.DeleteBreakpointsInFile"},  // 10x: RemoveAllBreakpointsFromFile (current file)
       {"F10", "Debug.StepOver"},
       {"F11", "Debug.StepInto"},
       {"Shift F11", "Debug.StepOut"},

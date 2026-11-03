@@ -1359,6 +1359,16 @@ bool TextView::onEvent(const InputEvent& e) {
   return handled;
 }
 
+void TextView::addCaretAtPoint(float x, float y) {
+  if (!document() || !root()) return;
+  if (!isCurrent()) activate();
+  editor_.addCaretAt(positionAt(x, y));
+  caretOn_ = true;
+  activityMs_ = now();
+  markDirty();
+  syncState();
+}
+
 void TextView::mouseDown(const InputEvent& e) {
   if (const float lane = glyphLaneWidth(); lane > 0 && e.x >= bounds().x && e.x < bounds().x + lane) {
     const float lh = root()->text().lineHeight();

@@ -125,6 +125,10 @@ class Editor {
   void activateDocument(Document& d, Position p = {}) { setCurrent(&d, p); }
   bool back();
   bool forward();
+  // PrevLocationCurrentFile / NextLocationCurrentFile: back() / forward() over the history entries of the current file
+  // only (entries of other files are skipped, the history cursor moves straight to the entry). False without one.
+  bool backInFile();
+  bool forwardInFile();
   // Jump to entry `index` of navigation().entries() by walking the history cursor with back()/forward(), so the jump
   // itself adds no entries (leaving the live position records it once, exactly like back()). The current document
   // and caret change like after back()/forward(). False for an index out of range or when a step fails.
@@ -213,6 +217,26 @@ class Editor {
   // If a caret is empty select the word under the primary caret; otherwise add the next occurrence (case-sensitive
   // text of the primary selection, after it, wrapping) that does not overlap a selection. The new one is primary.
   void addCaretAtNextOccurrence();
+  // UndoSelectNextMultiCursor: undoes the last addCaretAtNextOccurrence step (one per call, back to the single caret
+  // or word selection it started from). False when there is no step to undo or the carets / text changed since the
+  // last one (then the remembered steps are dropped).
+  bool undoAddCaretAtNextOccurrence();
+  // SelectAllOccurrences: one selection per match in the current document, the one at or after the primary caret
+  // primary. With `find` its matches are used (the find bar's text and options; `error` reports a bad regex);
+  // without, the primary selection's text if it is a non-empty single-line selection (case-sensitive), else the
+  // whole word at the caret. Returns the match count (0: nothing changed). Matches that touch merge into one.
+  size_t selectAllOccurrences(const SearchOptions* find = nullptr, std::string* error = nullptr);
+  // AlignMultiCursor: pads with spaces in front of each caret (its head; selections collapse to it) so that every
+  // caret ends up in the column of the rightmost one (tabs count as editing().tabWidth stops). Of several carets on
+  // one line only the first moves. One undo step; false when nothing needed padding.
+  bool alignCarets();
+  // MultiCursorMoveLeft / MultiCursorMoveRight ("Increase" / "Decrease selection end for all multi-cursors"): the
+  // end (the later edge) of every selection moves one character later (grow, an empty caret becomes a one-character
+  // selection) or earlier (shrink, never past the start). Not an edit.
+  void adjustSelectionEnds(bool grow);
+  // AddCursorAtMousePos: adds a caret at `p` (clamped) as the primary one; it merges with a caret / selection it
+  // touches.
+  void addCaretAt(Position p);
   void collapseToPrimary();
   // Rectangular selection: one selection per line between a.line and b.line, from a's visual column to b's visual
   // column (code points), clamped to each line's length. The primary is on b's line.
@@ -250,6 +274,7 @@ class Editor {
     std::string indentUnit = "\t";             // "\t" or N spaces; the fallback when detection finds nothing
     bool trimTrailingWhitespace = false;       // on save()
     bool commentBlockUsesLineComments = true;  // 10x CommentBlockUsesLineComments: ToggleComment with a selection
+    int tabWidth = 4;                          // columns per tab stop (alignCarets); the view's editor.tabWidth
   };
   EditingOptions& editing() { return editing_; }
   const EditingOptions& editing() const { return editing_; }
@@ -296,8 +321,10 @@ class Editor {
   size_t replaceAll(const SearchOptions& opts, const std::string& replacement, std::string* error = nullptr);
   // Bookmarks (line based, follow edits, persisted in .tenfold/bookmarks.json when they change and on save()).
   Bookmarks& bookmarks() { return bookmarks_; }
-  bool toggleBookmark();                            // at the primary caret's line; true when now set
-  bool gotoBookmark(bool forward);                  // next / previous across files (wraps), via gotoLocation
+  bool toggleBookmark();                  // at the primary caret's line; true when now set
+  bool gotoBookmarkInFile(bool forward);  // next / previous bookmark of the current file (wraps), via gotoLocation
+  size_t removeBookmarksInFile();         // RemoveAllBookmarksFromFile; returns the count removed
+  bool gotoBookmark(bool forward);        // next / previous across files (wraps), via gotoLocation
   bool gotoBookmarkItem(const Bookmarks::Item& b);  // via gotoLocation, column 0
   void saveBookmarks();                             // no-op unless something changed
 
@@ -310,6 +337,9 @@ class Editor {
   // backend on this platform".
   void setDebuggerFactory(std::function<std::unique_ptr<Debugger>()> f) { debug_->setFactory(std::move(f)); }
   bool toggleBreakpoint();  // at the primary caret's line; true when now set
+  // RemoveAllBreakpointsFromFile: removes the current file's breakpoints (synced to the debugger backend like any
+  // breakpoint change) and saves; returns the count removed.
+  size_t removeBreakpointsInFile();
   // Opens the current file in the debugger backend's editor (Visual Studio) at the primary caret. Queued like the
   // debugging commands; false (and DebugSession::lastError()) when there is no document or no backend.
   bool openInVisualStudio();
@@ -386,6 +416,12 @@ class Editor {
              std::string* error = nullptr);
   void cancelBuild();  // non-blocking; the done callback fires with cancelled = true
   bool buildRunning() const { return buildRunning_; }
+  // Which operation produced the results GotoNextResult / GotoPrevResult (F4 / Shift+F4) walk: whichever of a
+  // find-in-files search and a build started last. Editor::build and findInWorkspace set it; a front end that runs a
+  // search another way calls noteResultSource(Search).
+  enum class ResultSource { None, Search, Build };
+  ResultSource lastResultSource() const { return lastResultSource_; }
+  void noteResultSource(ResultSource s) { lastResultSource_ = s; }
   const BuildResult& lastBuildResult() const { return lastBuild_; }
   const std::vector<BuildMessage>& buildMessages() const { return buildMessages_; }
   // Jump (through gotoLocation, so Back returns) to the next / previous error or warning that has a source
@@ -411,6 +447,7 @@ class Editor {
   void setCurrent(Document* d, Position p);
   void watchDocument(Document& doc);  // the change listener every open document has
   void setPrimaryOnly(Position p);
+  void addCaretAtNextOccurrenceStep();
   void normalizeCarets(size_t primaryIndex = 0);  // sort, merge overlapping / touching, primary first, sync cursor_
   void clampCarets();
   void restoreCaretsAfterHistory();
@@ -477,6 +514,13 @@ class Editor {
   int64_t typingTime_ = 0;
   std::vector<Selection> typingCarets_;
   EditingOptions editing_;
+  struct SelectNextStep {
+    Document* doc = nullptr;
+    int version = 0;
+    std::vector<Selection> before, after;
+  };
+  std::vector<SelectNextStep> selectNextSteps_;  // UndoSelectNextMultiCursor
+  ResultSource lastResultSource_ = ResultSource::None;
   Bookmarks bookmarks_;
   bool bookmarksLoaded_ = false;
   Breakpoints breakpoints_;

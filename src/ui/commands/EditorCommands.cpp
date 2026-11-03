@@ -28,6 +28,10 @@ void registerEditorCommands(CommandRegistry& r) {
   r.add({"Nav.Forward", "Navigate Forward",
          [](const CommandContext& c, std::string_view) { return c.editor->forward(); },
          [](const CommandContext& c) { return hasEditor(c) && c.editor->navigation().canGoForward(); }});
+  r.add({"Nav.BackInFile", "Navigate Back in Current File",
+         [](const CommandContext& c, std::string_view) { return c.editor->backInFile(); }, hasDocument});
+  r.add({"Nav.ForwardInFile", "Navigate Forward in Current File",
+         [](const CommandContext& c, std::string_view) { return c.editor->forwardInFile(); }, hasDocument});
   r.add({"Nav.LastEditLocation", "Go to Last Edit Location",
          [](const CommandContext& c, std::string_view) {
            const auto loc = c.editor->lastEditLocation();
@@ -138,6 +142,29 @@ void registerEditorCommands(CommandRegistry& r) {
     c.editor->addCaretAtNextOccurrence();
     return true;
   });
+  // --- 10x multi-cursor commands (W8d) ---
+  // Nothing to undo / align is a quiet no-op, not a failure message.
+  addEd(r, "Editor.UndoAddCaretAtNextOccurrence", "Undo Add Next Occurrence",
+        [](const CommandContext& c, std::string_view) {
+          c.editor->undoAddCaretAtNextOccurrence();
+          return true;
+        });
+  addEd(r, "Editor.AlignCarets", "Align Carets", [](const CommandContext& c, std::string_view) {
+    c.editor->alignCarets();
+    return true;
+  });
+  addEd(r, "Editor.ExtendSelectionEnds", "Extend Selection Ends (All Carets)",
+        [](const CommandContext& c, std::string_view) {
+          c.editor->adjustSelectionEnds(true);
+          return true;
+        });
+  addEd(r, "Editor.ShrinkSelectionEnds", "Shrink Selection Ends (All Carets)",
+        [](const CommandContext& c, std::string_view) {
+          c.editor->adjustSelectionEnds(false);
+          return true;
+        });
+  addUi(r, "Editor.SelectAllOccurrences", "Select All Occurrences");  // reads the find bar: bound by the front end
+  addUi(r, "Editor.AddCaretAtMouse", "Add Caret at Mouse Position");  // needs the pointer: bound by the front end
 
   // --- editing conveniences (B8): each is one undo step at every caret ---
   struct Simple {
@@ -202,6 +229,15 @@ void registerEditorCommands(CommandRegistry& r) {
     r.add({fwd ? "Editor.NextBookmark" : "Editor.PrevBookmark", fwd ? "Next Bookmark" : "Previous Bookmark",
            [fwd](const CommandContext& c, std::string_view) { return c.editor->gotoBookmark(fwd); },
            [](const CommandContext& c) { return hasEditor(c) && !c.editor->bookmarks().empty(); }});
+  for (bool fwd : {true, false})
+    addEd(r, fwd ? "Editor.NextBookmarkInFile" : "Editor.PrevBookmarkInFile",
+          fwd ? "Next Bookmark in File" : "Previous Bookmark in File",
+          [fwd](const CommandContext& c, std::string_view) { return c.editor->gotoBookmarkInFile(fwd); });
+  addEd(r, "Editor.RemoveBookmarksInFile", "Remove All Bookmarks from File",
+        [](const CommandContext& c, std::string_view) {
+          c.editor->removeBookmarksInFile();
+          return true;
+        });
   for (bool crlf : {false, true})
     addEd(r, crlf ? "Editor.LineEndingCRLF" : "Editor.LineEndingLF", crlf ? "Line Endings: CRLF" : "Line Endings: LF",
           [crlf](const CommandContext& c, std::string_view) {
@@ -253,6 +289,12 @@ void registerEditorCommands(CommandRegistry& r) {
          },
          [](const CommandContext& c) { return hasEditor(c) && !c.editor->breakpoints().empty(); }});
 
+  addEd(r, "Debug.DeleteBreakpointsInFile", "Delete All Breakpoints in File",
+        [](const CommandContext& c, std::string_view) {
+          c.editor->removeBreakpointsInFile();
+          return true;
+        });
+
   // --- UI-only: the front end binds these (B3b / B5 / B8) ---
   addUi(r, "Debug.ShowBreakpoints", "Show Breakpoints...");
   addUi(r, "Debug.OpenInVisualStudio", "Open in Visual Studio");
@@ -267,8 +309,8 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "File.OpenFile", "Open File...");
   addUi(r, "Search.SymbolSearch", "Go to Symbol in Workspace...");
   addUi(r, "Search.FindInWorkspace", "Find in Workspace...");
-  addUi(r, "Search.NextResult", "Next Search Result");
-  addUi(r, "Search.PrevResult", "Previous Search Result");
+  addUi(r, "Search.NextResult", "Next Search or Build Result");
+  addUi(r, "Search.PrevResult", "Previous Search or Build Result");
   addUi(r, "View.ShowDiagnostics", "Show Diagnostics");
   addUi(r, "Build.Build", "Build (argument: custom command)");
   addUi(r, "Build.Cancel", "Cancel Build");
@@ -289,6 +331,7 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");
   addUi(r, "Workbench.CloseTab", "Close Tab");
+  addUi(r, "Workbench.ReopenClosedTab", "Reopen Closed Tab");
   // W8b: tabs, panels and view
   addUi(r, "Workbench.PrevTab", "Previous Tab in Panel");
   addUi(r, "Workbench.NextTab", "Next Tab in Panel");

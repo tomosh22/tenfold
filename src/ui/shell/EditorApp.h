@@ -169,6 +169,8 @@ class EditorApp {
   void bindUiCommands();
   void bindEditingCommands();
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
+  bool stepBuildResult(bool forward);      // next / previous build error or warning (F8; F4 after a build)
+  TextView* textViewAt(float x, float y);  // the editor view under a window point, or null
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
   std::string shortcutFor(const std::string& command) const;
   std::string bindingFor(const std::string& command) const;  // any context, for the command palette
@@ -225,6 +227,7 @@ class EditorApp {
   OsLauncher launcher_ = systemLauncher();
   std::unique_ptr<SaveAsPrompt> saveAs_;
   float zoomPt_ = 0;
+  float mouseX_ = 0, mouseY_ = 0;  // last pointer position seen (AddCursorAtMousePos)
   bool fullscreen_ = false;
   LineEnding defaultEol_ = LineEnding::CRLF;                        // editor.defaultLineEnding
   std::string searchCommand_ = "https://www.google.com/search?q=";  // editor.internetSearchCommand

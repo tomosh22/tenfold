@@ -839,6 +839,43 @@ size_t Editor::replaceAll(const SearchOptions& opts, const std::string& replacem
   return hits.size();
 }
 
+bool Editor::alignCarets() {
+  if (!current_ || carets_.size() < 2) return false;
+  breakTyping();
+  const TextBuffer& b = current_->buffer();
+  const int tw = std::max(1, editing_.tabWidth);
+  const auto visualColumn = [&](Position p) {
+    const std::string& l = b.line(p.line);
+    int col = 0;
+    for (int i = 0; i < p.column && i < static_cast<int>(l.size()); ++i) {
+      const unsigned char c = static_cast<unsigned char>(l[static_cast<size_t>(i)]);
+      if (c == '\t') col += tw - col % tw;
+      else if ((c & 0xC0) != 0x80) ++col;  // one column per code point
+    }
+    return col;
+  };
+  int target = 0;
+  for (const Selection& s : carets_) target = std::max(target, visualColumn(s.head));
+  std::vector<CaretEdit> edits(carets_.size());
+  std::vector<size_t> order(carets_.size());  // carets_ has the primary first; the leftmost caret of a line moves
+  for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+  std::sort(order.begin(), order.end(), [&](size_t a, size_t c) { return carets_[a].head < carets_[c].head; });
+  std::set<int> usedLines;
+  bool any = false;
+  for (const size_t i : order) {
+    const Position h = carets_[i].head;
+    edits[i].range = {h, h};
+    const int pad = target - visualColumn(h);
+    if (usedLines.insert(h.line).second && pad > 0) {
+      edits[i].text.assign(static_cast<size_t>(pad), ' ');
+      any = true;
+    }
+  }
+  if (!any) return false;
+  applyCaretEdits(std::move(edits), false);
+  return true;
+}
+
 // ---------------------------------------------------------------------------
 // Bookmarks
 // ---------------------------------------------------------------------------
@@ -859,6 +896,20 @@ bool Editor::gotoBookmark(bool forward) {
   const auto item =
       forward ? bookmarks_.next(cursor_.file, cursor_.pos.line) : bookmarks_.prev(cursor_.file, cursor_.pos.line);
   return item && gotoBookmarkItem(*item);
+}
+
+bool Editor::gotoBookmarkInFile(bool forward) {
+  if (!current_) return false;
+  const auto line = forward ? bookmarks_.nextInFile(cursor_.file, cursor_.pos.line)
+                            : bookmarks_.prevInFile(cursor_.file, cursor_.pos.line);
+  return line && gotoBookmarkItem({cursor_.file, *line});
+}
+
+size_t Editor::removeBookmarksInFile() {
+  if (!current_) return 0;
+  const size_t n = bookmarks_.removeFile(current_->path());
+  saveBookmarks();
+  return n;
 }
 
 void Editor::saveBookmarks() {

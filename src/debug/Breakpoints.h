@@ -44,6 +44,9 @@ class Breakpoints {
   bool empty() const { return files_.empty(); }
   size_t count() const;
   void clear();
+  // Removes every breakpoint of one file (RemoveAllBreakpointsFromFile); the change handler runs once, so a debugger
+  // backend hears about it like about any other change. Returns how many there were.
+  size_t removeFile(const std::filesystem::path& file);
 
   // Same contract as NavigationHistory::onLinesReplaced: lines startLine..endLine (inclusive) became newLineCount.
   void onLinesReplaced(const std::filesystem::path& file, int startLine, int endLine, int newLineCount);

@@ -297,6 +297,7 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
   o.commentBlockUsesLineComments = s.getBool("editor.commentBlockUsesLineComments");
+  o.tabWidth = std::max(1, s.getInt("editor.tabWidth"));
 }
 
 void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::function<bool()> rebuildFont) {
@@ -441,6 +442,33 @@ void EditorApp::bindEditingCommands() {
           return true;
         },
         hasDoc);
+  registry_.bind(
+      "Editor.SelectAllOccurrences",
+      [this](const CommandContext& c, std::string_view) {
+        std::string err;
+        size_t n = 0;
+        if (findReplace_->isOpen() && !findReplace_->query().empty()) {  // "the find results": the bar's text
+          const SearchOptions o = findReplace_->options();
+          n = c.editor->selectAllOccurrences(&o, &err);
+        } else {
+          n = c.editor->selectAllOccurrences();
+        }
+        setMessage(!err.empty() ? err
+                   : n == 0     ? "No occurrences to select"
+                                : std::to_string(n) + " occurrences selected",
+                   kMessageMs);
+        return true;
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.AddCaretAtMouse",
+      [this](const CommandContext&, std::string_view) {
+        TextView* tv = textViewAt(mouseX_, mouseY_);
+        if (!tv) return false;
+        tv->addCaretAtPoint(mouseX_, mouseY_);
+        return true;
+      },
+      hasDoc);
   for (bool fwd : {true, false})
     registry_.bind(
         fwd ? "Editor.FindNextCurrentWord" : "Editor.FindPrevCurrentWord",
@@ -467,14 +495,14 @@ void EditorApp::bindUiCommands() {
     find_->open(initial);
     return true;
   });
-  registry_.bind("Search.NextResult", [this](const CommandContext&, std::string_view) {
-    find_->step(true);  // says "No search results" / "Result i of n" itself
-    return true;
-  });
-  registry_.bind("Search.PrevResult", [this](const CommandContext&, std::string_view) {
-    find_->step(false);
-    return true;
-  });
+  // GotoNextResult / GotoPrevResult walk the results of the last search or build operation, whichever started last.
+  for (bool fwd : {true, false})
+    registry_.bind(fwd ? "Search.NextResult" : "Search.PrevResult",
+                   [this, fwd](const CommandContext&, std::string_view) {
+                     if (editor_.lastResultSource() == Editor::ResultSource::Build) return stepBuildResult(fwd);
+                     find_->step(fwd);  // says "No search results" / "Result i of n" itself
+                     return true;
+                   });
   registry_.bind("View.ShowDiagnostics", [this](const CommandContext&, std::string_view) {
     closePickers();
     diagPanel_->open();
@@ -615,6 +643,11 @@ void EditorApp::bindUiCommands() {
                      cycling_ = true;  // ends when Ctrl is released
                      return true;
                    });
+  registry_.bind("Workbench.ReopenClosedTab", [this](const CommandContext&, std::string_view) {
+    if (bench_->reopenClosedTab()) return true;
+    setMessage("No recently closed file to reopen", kMessageMs);
+    return true;
+  });
   registry_.bind("Build.Build", [this](const CommandContext&, std::string_view arg) {
     BuildOverrides o;
     o.command = std::string(arg);  // optional: a custom shell command instead of the detected build
@@ -631,17 +664,8 @@ void EditorApp::bindUiCommands() {
       },
       [](const CommandContext& c) { return c.editor && c.editor->buildRunning(); });
   for (bool fwd : {true, false})
-    registry_.bind(fwd ? "Build.NextError" : "Build.PrevError", [this, fwd](const CommandContext&, std::string_view) {
-      std::string err;
-      const auto m = fwd ? editor_.nextBuildMessage(&err) : editor_.prevBuildMessage(&err);
-      if (!m) {
-        setMessage(err.empty() ? "No build errors or warnings" : err, kMessageMs);
-        return true;
-      }
-      build_->selectMessage(*m);
-      setMessage(std::string(m->severity == BuildSeverity::Error ? "error: " : "warning: ") + m->text, kMessageMs);
-      return true;
-    });
+    registry_.bind(fwd ? "Build.NextError" : "Build.PrevError",
+                   [this, fwd](const CommandContext&, std::string_view) { return stepBuildResult(fwd); });
   registry_.bind(
       "Workbench.CloseTab",
       [this](const CommandContext&, std::string_view) {
@@ -944,8 +968,18 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
   return r;
 }
 
+TextView* EditorApp::textViewAt(float x, float y) {
+  for (Widget* w = root_.hitTest(x, y); w; w = w->parent())
+    if (auto* tv = dynamic_cast<TextView*>(w)) return tv;
+  return nullptr;
+}
+
 bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (nav_) nav_->setNow(nowMs);
+  if (e.type == InputType::MouseMove || e.type == InputType::MouseDown || e.type == InputType::MouseUp) {
+    mouseX_ = e.x;  // where "the current mouse position" is (AddCursorAtMousePos)
+    mouseY_ = e.y;
+  }
   if (ttlMs_ > 0) {
     expiry_ = nowMs + ttlMs_;
     ttlMs_ = 0;
@@ -974,9 +1008,14 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
       return r.abortedChord || root_.dispatch(e);  // an aborted chord's stroke is swallowed
     case KeyMap::Status::Matched: break;
   }
+  // Control + middle button adds a caret under the pointer in an editor view; anywhere else (a tab strip, a picker) the
+  // click goes to the widgets as before, so middle-click tab closing is unaffected.
+  if (chord.mouse && chord.button == MouseButton::Middle &&
+      resolveCommandName(r.binding->command).id == "Editor.AddCaretAtMouse" && !textViewAt(e.x, e.y))
+    return root_.dispatch(e);
   if (!commandRunnable(r.binding->command)) {
-    // The middle button also closes tabs and so on: while its 10x commands (GotoSymbolDefinitionUnderMouse,
-    // AddCursorAtMousePos) are missing, the click goes to the widgets as before.
+    // The middle button also closes tabs and so on: while its 10x commands (GotoSymbolDefinitionUnderMouse) are
+    // missing, the click goes to the widgets as before.
     if (chord.mouse && chord.button == MouseButton::Middle) return root_.dispatch(e);
     // A 10x binding for a command tenfold lacks must not take keys away from the focused input or the open picker
     // (Alt+R toggles regex in the find bar, ReplaceNextInFile is Alt+R in 10x): they get the key first.
@@ -984,6 +1023,19 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   }
   setMessage("");
   runCommandId(r.binding->command, r.binding->arg, ctx);
+  return true;
+}
+
+// F8 / Shift+F8 (and F4 / Shift+F4 after a build): the next / previous build error or warning with a location.
+bool EditorApp::stepBuildResult(bool forward) {
+  std::string err;
+  const auto m = forward ? editor_.nextBuildMessage(&err) : editor_.prevBuildMessage(&err);
+  if (!m) {
+    setMessage(err.empty() ? "No build errors or warnings" : err, kMessageMs);
+    return true;
+  }
+  if (build_) build_->selectMessage(*m);
+  setMessage(std::string(m->severity == BuildSeverity::Error ? "error: " : "warning: ") + m->text, kMessageMs);
   return true;
 }
 

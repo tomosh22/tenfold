@@ -107,8 +107,7 @@ those without a tenfold command have an empty target).
 
 Where a mapped command is only close to the 10x one, the alias table carries a note (shown in the user guide): the
 move-line keys also move every line of a selection, `DuplicateLine` duplicates a selection instead of the line,
-`ToggleComment` never switches to block comments, `GotoNextResult` steps through find-in-files results only (build messages
-are `GotoNextBuildWarningOrError`), `SelectNextMultiCursor` has no undo-last-selection, `OpenFile` and `FindFile` both open
+`ToggleComment` never switches to block comments, `OpenFile` and `FindFile` both open
 tenfold's fuzzy file picker, `ShowSwitchPanelPanel` is the recent-documents switcher, `Search` / `FindInFiles` are one
 find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
 
@@ -132,16 +131,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | --- | --- | --- |
 | `PasteHistory` | `Control Shift V` | Show the paste history dropdown |
 
-**MultiCursor**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `UndoSelectNextMultiCursor` | `Control Shift D` | Undo the previous selection from SelectNextMultiCursor |
-| `SelectAllOccurrences` | `Control Shift Alt J`; `Alt F3` | Select all of the find results with multiple cursors |
-| `AddCursorAtMousePos` | `Control MouseMiddleButton` | Add a new cursor at the current mouse pos |
-| `AlignMultiCursor` | `Alt A` | Align all cursors |
-| `MultiCursorMoveLeft` | `Shift Alt Left` | Increase selection end for all multi-cursors |
-| `MultiCursorMoveRight` | `Shift Alt Right` | Decrease selection end for all multi-cursors |
 
 **CollapseRegions**
 
@@ -152,18 +141,11 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `ToggleCollapseExpandRegion` | `Control M, Control M` | Toggle the collapse/expand of the current region |
 | `ToggleCollapseExpandAllRegions` | `Control M, Control L` | Toggle the collapse/expand of the all regions in the file |
 
-**Tabs**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
 
 **Navigation**
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `PrevLocationCurrentFile` | `Control =` | Go to the previous cursor location in the current file |
-| `NextLocationCurrentFile` | `Control Shift =` | Go to the next cursor location in the current file |
-| `RestoreRecentlyClosedFile` | `Control Shift T` | Re-open the most recently closed file |
 | `NewSearchPanel` | `Control Shift A` | Open new search panel |
 
 **FindInFiles**
@@ -199,11 +181,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `RebuildActiveWorkspace` | `Control Alt F7` | Rebuild the currently active workspace |
 | `BuildCurrentFile` | `Control F7` | Build the current file |
 
-**Debugging**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `RemoveAllBreakpointsFromFile` | `Control Shift F9` | Remove all breakpoints from the current file |
 
 **MacroRecording**
 
@@ -212,13 +189,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `RecordKeySequence` | `Control Shift R` | Start/stop recording a key sequence |
 | `PlaybackKeySequence` | `Control Shift P` | Playback a key sequence |
 
-**Bookmarks**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `PrevBookmarkInFile` | `Shift Alt F2` | Go to the previous bookmark in the current file |
-| `NextBookmarkInFile` | `Alt F2` | Go to the next bookmark in the current file |
-| `RemoveAllBookmarksFromFile` | `Control Shift F2` | Remove all bookmarks from the current file |
 
 **Formatting**
 

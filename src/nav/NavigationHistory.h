@@ -55,6 +55,12 @@ class NavigationHistory {
   std::optional<Location> back(const Location& current);
   std::optional<Location> forward(const Location& current);
 
+  // Like back() / forward() but only entries of `current.file` count (PrevLocationCurrentFile /
+  // NextLocationCurrentFile): the history cursor skips the entries of other files. Nothing changes (and the live
+  // position is not recorded) when there is no such entry in that direction.
+  std::optional<Location> backInFile(const Location& current);
+  std::optional<Location> forwardInFile(const Location& current);
+
   bool canGoBack() const;
   bool canGoForward() const;
 

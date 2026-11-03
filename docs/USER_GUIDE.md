@@ -228,7 +228,7 @@ row accepts it, a click outside closes it.
 | **Control O** (`OpenFile`) or **Shift Alt O** (`FindFile`); tenfold `File.OpenFile` | Open a file by fuzzy name. The file name weighs four times as much as the rest of the path; recently used files come first and lead the empty list. Several words must all match. Opening is a tab switch, not a history jump. |
 | **Ctrl+,** (`Search.SymbolSearch`) | Workspace symbol search: fuzzy and qualified (`geo::Tr`). Approximate rows appear at once and are replaced by clangd's; the right pane previews the target line (`picker.preview`). Enter jumps and records history. |
 | **Ctrl+Shift+F** (`Search.FindInWorkspace`) | Find in files. Results stream in grouped by file with the match highlighted. **Alt+C** case, **Alt+W** whole word, **Alt+R** regex (PCRE2). Add file globs after ` :: `, for example `foo :: *.cpp, !third_party` (`!` excludes). A single-line selection seeds the query. Open buffers are searched with their unsaved text. |
-| **F4** / **Shift F4** (`GotoNextResult` / `GotoPrevResult`) | Next / previous find-in-files result, wrapping, even after the popup is closed; files with matches get marks on the scrollbar. |
+| **F4** / **Shift F4** (`GotoNextResult` / `GotoPrevResult`) | Next / previous result of the last search or build, whichever started last: a find-in-files result (wrapping, even after the popup is closed; files with matches get marks on the scrollbar) or, after a build, an error or warning with a source location (as **F8** / **Shift F8**, which always walk the build). |
 | `View.ShowDiagnostics` (no default key; command palette) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. |
 | **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list. |
 | **Alt O** (`CppParser.ToggleSourceHeader`) | Switch between header and source (clangd's answer, else by file name). |
@@ -252,6 +252,10 @@ next occurrence, **Ctrl-click** adds a caret, **Alt-click** adds a caret and **A
 double-click selects a word, triple-click a line. Carets that touch merge. Every edit acts on every caret and is one undo
 step; Ctrl+C / Ctrl+X with several carets copy one line per caret, and pasting as many lines as carets puts one line in
 each. Escape collapses to the primary caret (it does not quit).
+
+More multi-caret keys (10x's): **Ctrl+Shift+D** (`UndoSelectNextMultiCursor`) takes back the last **Ctrl+D** step, one per press, as long as the carets and the text are unchanged since it; **Alt+F3** or **Ctrl+Shift+Alt+J** (`SelectAllOccurrences`) selects every match of the find bar's text and options while the find bar is open, else of the selected text, else of the word at the caret; **Alt+A** (`AlignMultiCursor`) pads with spaces in front of each caret so that all line up at the rightmost one (tabs count as `editor.tabWidth` stops; of several carets on one line the first moves; one undo step); **Shift+Alt+Left / Right** (`MultiCursorMoveLeft` / `MultiCursorMoveRight`) increase / decrease the selection end of every caret by one character as 10x describes them (see the table below); **Ctrl + middle click** (`AddCursorAtMousePos`) adds a caret under the pointer in an editor view (a plain middle click, and a Ctrl+middle click on a tab, behave as before).
+
+**Navigation and bookmarks in the current file.** **Ctrl+=** / **Ctrl+Shift+=** (`PrevLocationCurrentFile` / `NextLocationCurrentFile`) walk the navigation history like Ctrl+- / Ctrl+Shift+- but only over the entries of the file you are in. **Ctrl+Shift+T** (`RestoreRecentlyClosedFile`) reopens the file whose last tab was closed most recently, at the caret it had; press it again for the one before. **Alt+F2** / **Shift+Alt+F2** step to the next / previous bookmark of the current file (wrapping), **Ctrl+Shift+F2** removes all bookmarks of the current file, **Ctrl+Shift+F9** all its breakpoints.
 
 **Undo.** Ctrl+Z, Ctrl+Y or Ctrl+Shift+Z. Typed characters are grouped into one undo step per word: the group ends at
 whitespace, after a 1 s pause, or when the caret moves. Set `"undoGrouping": "char"` in `.tenfold/workspace.json` for one
@@ -389,8 +393,8 @@ Studio wins for the state it reports.
 **Keys** (10x's, which are Visual Studio's, see the table in [Key bindings](#key-bindings)): F5 start / continue, Ctrl+F5
 start without debugging, Shift+F5 stop, Ctrl+Shift+F5 restart, F9 toggle breakpoint, F10 step over, F11 step into,
 Shift+F11 step out; tenfold additions: Ctrl+F9 enable / disable, Ctrl+F10 run to cursor, Ctrl+Alt+Cancel (Break) break all,
-Ctrl+Alt+B list breakpoints (`RemoveAllBreakpoints`, delete all, has no key: Ctrl+Shift+F9 is 10x's
-`RemoveAllBreakpointsFromFile`, not implemented yet). In the breakpoint list Enter jumps, Space enables / disables and
+Ctrl+Alt+B list breakpoints (`RemoveAllBreakpoints`, delete all, has no key; Ctrl+Shift+F9 is 10x's
+`RemoveAllBreakpointsFromFile`: the current file's breakpoints only, pushed to Visual Studio like any other change). In the breakpoint list Enter jumps, Space enables / disables and
 Delete removes. `Debug.EditCondition` (no key) sets the condition
 of the breakpoint on the caret's line; an empty condition removes it. `Debug.OpenInVisualStudio` opens the current file at
 the caret in Visual Studio's editor (the window command is being added at the same time as this guide; the engine side,
@@ -749,9 +753,15 @@ differs from the 10x description:
 
 | Keys | 10x command | tenfold command | Difference |
 | --- | --- | --- | --- |
-| `Control D` | `SelectNextMultiCursor` | `Editor.AddCaretAtNextOccurrence` | no undo of the last selection (UndoSelectNextMultiCursor is missing) |
+| `Control D` | `SelectNextMultiCursor` | `Editor.AddCaretAtNextOccurrence` | UndoSelectNextMultiCursor takes the last step back |
 | `Shift Alt Up` | `MultiCursorMoveUp` | `Editor.AddCaretAbove` | adds the caret at the same column |
 | `Shift Alt Down` | `MultiCursorMoveDown` | `Editor.AddCaretBelow` | adds the caret at the same column |
+| `Shift Alt Left` | `MultiCursorMoveLeft` | `Editor.ExtendSelectionEnds` | as 10x describes it: moves the later end of every selection one character later (grows it); a caret becomes a one-character selection |
+| `Shift Alt Right` | `MultiCursorMoveRight` | `Editor.ShrinkSelectionEnds` | as 10x describes it: moves the later end of every selection one character earlier (shrinks it, never past the start) |
+| `Control Shift D` | `UndoSelectNextMultiCursor` | `Editor.UndoAddCaretAtNextOccurrence` | undoes one SelectNextMultiCursor step while the carets and text are unchanged since it |
+| `Control Shift Alt J`; `Alt F3` | `SelectAllOccurrences` | `Editor.SelectAllOccurrences` | the find bar's text and options when the bar is open, else the selected text or whole word at the caret |
+| `Control MouseMiddleButton` | `AddCursorAtMousePos` | `Editor.AddCaretAtMouse` | Control + middle click in an editor view |
+| `Alt A` | `AlignMultiCursor` | `Editor.AlignCarets` | pads with spaces; of several carets on a line the first moves |
 
 **Navigation**
 
@@ -771,8 +781,10 @@ differs from the 10x description:
 | `Control -` | `PrevLocation` | `Nav.Back` |  |
 | `Control Shift -` | `NextLocation` | `Nav.Forward` |  |
 | `Control Shift Backspace` | `PrevEditLocation` | `Nav.LastEditLocation` |  |
-| `Shift F4` | `GotoPrevResult` | `Search.PrevResult` | steps through find-in-files results only; build messages: GotoPrevBuildWarningOrError |
-| `F4` | `GotoNextResult` | `Search.NextResult` | steps through find-in-files results only; build messages: GotoNextBuildWarningOrError |
+| `Shift F4` | `GotoPrevResult` | `Search.PrevResult` | walks the results of whichever came last, a find-in-files search or a build |
+| `F4` | `GotoNextResult` | `Search.NextResult` | walks the results of whichever came last, a find-in-files search or a build |
+| `Control =` | `PrevLocationCurrentFile` | `Nav.BackInFile` | skips the navigation history entries of other files |
+| `Control Shift =` | `NextLocationCurrentFile` | `Nav.ForwardInFile` | skips the navigation history entries of other files |
 | `Up` | `MoveCursorUp` | `Editor.CaretUp` |  |
 | `Down` | `MoveCursorDown` | `Editor.CaretDown` |  |
 | `Left` | `MoveCursorLeft` | `Editor.CaretLeft` |  |
@@ -841,6 +853,7 @@ differs from the 10x description:
 | `Shift F11` | `DebugStepOut` | `Debug.StepOut` |  |
 | `Control F5` | `Run` | `Debug.StartWithoutDebugging` |  |
 | `F9` | `ToggleBreakpoint` | `Debug.ToggleBreakpoint` |  |
+| `Control Shift F9` | `RemoveAllBreakpointsFromFile` | `Debug.DeleteBreakpointsInFile` |  |
 
 **Bookmarks**
 
@@ -849,6 +862,9 @@ differs from the 10x description:
 | `Control F2` | `ToggleBookmark` | `Editor.ToggleBookmark` |  |
 | `Shift F2` | `PrevBookmark` | `Editor.PrevBookmark` |  |
 | `F2` | `NextBookmark` | `Editor.NextBookmark` |  |
+| `Shift Alt F2` | `PrevBookmarkInFile` | `Editor.PrevBookmarkInFile` | wraps within the current file |
+| `Alt F2` | `NextBookmarkInFile` | `Editor.NextBookmarkInFile` | wraps within the current file |
+| `Control Shift F2` | `RemoveAllBookmarksFromFile` | `Editor.RemoveBookmarksInFile` |  |
 
 **Formatting**
 
@@ -865,6 +881,7 @@ differs from the 10x description:
 | `Control PageDown` | `NextPanelTab` | `Workbench.NextTab` | wraps round |
 | `Control Shift PageUp` | `MovePrevPanelTab` | `Workbench.MoveTabPrev` | stops at the first tab, never leaves the pinned / unpinned group |
 | `Control Shift PageDown` | `MoveNextPanelTab` | `Workbench.MoveTabNext` | stops at the last tab, never leaves the pinned / unpinned group |
+| `Control Shift T` | `RestoreRecentlyClosedFile` | `Workbench.ReopenClosedTab` | reopens the last file whose last tab was closed, at its caret; repeats go further back |
 
 **Panels**
 

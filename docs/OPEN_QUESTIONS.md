@@ -65,10 +65,10 @@ Settings are `editor.*` in `settings.txt`; key bindings are 10x's (#1) in `asset
   (Alt+Up / Alt+Down), join (Ctrl+J: leading blanks of the next line become one space), delete (Ctrl+Shift+K), go to
   line (Ctrl+G, `line[:column]`, column 0 of the line by default, through the navigation history). Docs silent.
 * Bookmarks: Ctrl+F2 toggles, F2 / Shift+F2 step through all bookmarks of the workspace (by path, then line; wrapping),
-  Ctrl+Shift+F2 lists them; they move with edits like history entries and persist in `.tenfold/bookmarks.json`. The 10x
+  `Editor.ListBookmarks` (no default key) lists them; they move with edits like history entries and persist in `.tenfold/bookmarks.json`. The 10x
   commands are ToggleBookmark, PrevBookmark / NextBookmark (all files), PrevBookmarkInFile / NextBookmarkInFile,
-  RemoveAllBookmarks, RemoveAllBookmarksFromFile; whether the next/prev commands wrap is docs silent. In-file stepping and
-  clearing are not implemented (gap).
+  RemoveAllBookmarks, RemoveAllBookmarksFromFile; whether the next/prev commands wrap is docs silent (they wrap, W8d
+  added the in-file variants and the per-file clearing).
 * Find / replace in the file: Ctrl+F / Ctrl+H, incremental, case-insensitive by default, Alt+C / Alt+W / Alt+R,
   Enter / F3 next, Shift+Enter / Shift+F3 previous, Replace and Replace All (one undo step), Escape closes. 10x settings
   FindTextInitialValue / ReplaceTextInitialValue (Current), CloseFindPanelOnEnter (false), ShowFindTextMatchCount (false):
@@ -108,3 +108,41 @@ against a running 10x.
 * `InternetSearch`: the selection of the first caret, else the word under it; a blank run becomes one blank, the text is
   percent-encoded and appended to `editor.internetSearchCommand`. `OpenFolderForActivefile`: Windows `explorer /select,`,
   macOS `open -R`, elsewhere `xdg-open` on the folder (no portable "select").
+
+## W8d detail: multi-cursor and navigation commands (10x documents only one line each)
+
+* `MultiCursorMoveLeft` / `MultiCursorMoveRight`: the docs say "Increase" / "Decrease selection end for all multi-cursors",
+  with Left the increasing one. tenfold follows the words, not the key names: Left moves the later end of every selection
+  (the end of its range, whichever way the selection points) one character later, so a caret becomes a one-character
+  selection; Right moves that end one character earlier and stops at the selection's start. If a running 10x turns out to
+  extend leftwards with Left, only the two `adjustSelectionEnds` calls in `EditorCommands.cpp` need to be swapped. Plain
+  Shift+Left / Right (`SelectLeft` / `SelectRight`) already move the caret end of every selection.
+* `SelectAllOccurrences`: "Select all of the find results". With the find bar open and a non-empty query, its text and
+  case / whole word / regex toggles are used; otherwise the primary selection's text (single line, case-sensitive, not
+  whole word) or, with a bare caret, the word at the caret (whole word, case-sensitive, like FindInFileNextCurrentWord).
+  The match at or after the primary caret becomes the primary one. Matches that touch merge into one selection (carets
+  never touch).
+* `UndoSelectNextMultiCursor`: undoes one `SelectNextMultiCursor` step per press, back to the single caret the first step
+  started from; the steps are dropped as soon as the carets or the text changed since the last one (ordinary edits, moves,
+  other caret commands), so it never restores a stale caret set.
+* `AlignMultiCursor`: "Align all cursors". Spaces are inserted in front of each caret so that its visual column (tabs are
+  `editor.tabWidth` stops, one column per code point) equals the rightmost caret's; never tabs, never removal of text. Of
+  several carets on one line only the first moves. A selection collapses to its caret end. One undo step.
+* `AddCursorAtMousePos`: Control + middle button over an editor view adds a caret at the pointer (the new caret is the
+  primary); over anything else (a tab, a picker) the click is left to the widget, so tab closing by middle click still
+  works with Control held. A plain middle click is unchanged.
+* `PrevLocationCurrentFile` / `NextLocationCurrentFile`: the same history and cursor as `PrevLocation` / `NextLocation`,
+  skipping the entries of other files; the live position is only recorded when the move happens. Nothing happens (and the
+  history is untouched) when the current file has no entry in that direction.
+* `PrevBookmarkInFile` / `NextBookmarkInFile` wrap within the current file (also when it holds a single bookmark, which
+  then is revisited); nothing happens in a file without bookmarks. `RemoveAllBookmarksFromFile` /
+  `RemoveAllBreakpointsFromFile` act on the current document's file only and need no confirmation (like the all-files
+  variants).
+* `RestoreRecentlyClosedFile`: a stack of the files whose last tab was closed (30 deep, session only, untitled files
+  excluded); closing one of several tabs of the same file does not add an entry. It reopens the newest entry through
+  `gotoLocation` (so Back returns) at the caret the file had when it was closed, in the active panel; an entry whose file is
+  open again or gone from disk is skipped. Layout restore at start-up does not fill the stack.
+* `GotoNextResult` / `GotoPrevResult`: "the last search or build operation" is whichever of a find-in-files search and a
+  build started last (`Editor::lastResultSource`); stepping continues from where that list left off. After a build the keys
+  walk the build's errors and warnings that have a source location, exactly like `GotoNextBuildWarningOrError` (F8), which
+  keeps walking the build whatever came last.

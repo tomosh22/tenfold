@@ -154,6 +154,7 @@ add_executable(tenfold-tests
   tests/test_compile_info.cpp
   tests/test_engine_fixes.cpp
   tests/test_w8a_editing.cpp
+  tests/test_w8d_multicursor_nav.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -352,6 +353,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_p2_ui.cpp
     tests/ui/test_w8b.cpp
     tests/ui/test_w8a_commands.cpp
+    tests/ui/test_w8d_commands.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

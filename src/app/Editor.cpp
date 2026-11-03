@@ -1056,6 +1056,101 @@ void Editor::addCaretBelow() {
 
 void Editor::addCaretAtNextOccurrence() {
   if (!current_ || carets_.empty()) return;
+  const std::vector<Selection> before = carets_;
+  addCaretAtNextOccurrenceStep();
+  if (carets_ == before) return;
+  constexpr size_t kMaxSteps = 1000;
+  if (selectNextSteps_.size() >= kMaxSteps) selectNextSteps_.erase(selectNextSteps_.begin());
+  selectNextSteps_.push_back({current_, current_->version(), before, carets_});
+}
+
+bool Editor::undoAddCaretAtNextOccurrence() {
+  if (!current_ || carets_.empty() || selectNextSteps_.empty()) return false;
+  const SelectNextStep s = selectNextSteps_.back();
+  if (s.doc != current_ || s.version != current_->version() || s.after != carets_) {
+    selectNextSteps_.clear();
+    return false;
+  }
+  selectNextSteps_.pop_back();
+  breakTyping();
+  const Location from = cursor_;
+  carets_ = s.before;
+  wants_.assign(carets_.size(), -1);
+  clampCarets();
+  nav_.onCaretMoved(from, cursor_);
+  return true;
+}
+
+size_t Editor::selectAllOccurrences(const SearchOptions* find, std::string* error) {
+  if (!current_ || carets_.empty()) return 0;
+  const TextBuffer& b = current_->buffer();
+  SearchOptions o;
+  if (find) {
+    o = *find;
+  } else {
+    const Selection& p = carets_[0];
+    o.caseSensitive = true;
+    if (!p.empty()) {
+      if (p.min().line != p.max().line) return 0;
+      o.query = b.textInRange(p.range());
+    } else {
+      o.query = b.wordAt(p.head).text;
+      o.wholeWord = true;
+    }
+  }
+  if (o.query.empty()) return 0;
+  const std::vector<Range> hits = findInDocument(o, error);
+  std::vector<Selection> sels;
+  for (const Range& r : hits)
+    if (r.start != r.end) sels.push_back({r.start, r.end});
+  if (sels.empty()) return 0;
+  const Position head = carets_[0].head;
+  size_t primary = 0;
+  for (size_t i = 0; i < sels.size(); ++i)
+    if (head <= sels[i].max()) {  // containing the caret, or the first one after it
+      primary = i;
+      break;
+    }
+  std::rotate(sels.begin(), sels.begin() + static_cast<long>(primary), sels.begin() + static_cast<long>(primary) + 1);
+  const size_t n = sels.size();
+  setSelections(std::move(sels));
+  return n;
+}
+
+void Editor::adjustSelectionEnds(bool grow) {
+  if (!current_ || carets_.empty()) return;
+  breakTyping();
+  const Location from = cursor_;
+  const TextBuffer& b = current_->buffer();
+  for (Selection& s : carets_) {
+    const Range r = s.range();
+    Position e = r.end;
+    if (grow) {
+      const std::string& l = b.line(e.line);
+      if (e.column < static_cast<int>(l.size())) e.column = nextCharEnd(l, e.column);
+      else if (e.line + 1 < b.lineCount()) e = {e.line + 1, 0};
+    } else if (r.start < r.end) {
+      if (e.column > 0) e.column = prevCharStart(b.line(e.line), e.column);
+      else e = {e.line - 1, static_cast<int>(b.line(e.line - 1).size())};
+      if (e < r.start) e = r.start;
+    }
+    if (s.empty() || !s.reversed()) s.head = e;
+    else s.anchor = e;
+  }
+  wants_.assign(carets_.size(), -1);
+  commitMove(from);
+}
+
+void Editor::addCaretAt(Position p) {
+  if (!current_ || carets_.empty()) return;
+  breakTyping();
+  const Location from = cursor_;
+  carets_.insert(carets_.begin(), caretAt(current_->buffer().clamp(p)));
+  wants_.insert(wants_.begin(), -1);
+  commitMove(from);
+}
+
+void Editor::addCaretAtNextOccurrenceStep() {
   breakTyping();
   const Location from = cursor_;
   const TextBuffer& b = current_->buffer();
@@ -1167,6 +1262,24 @@ bool Editor::back() {
 
 bool Editor::forward() {
   auto target = nav_.forward(cursor_);
+  if (!target) return false;
+  Document* d = open(target->file);
+  if (!d) return false;
+  setCurrent(d, target->pos);
+  return true;
+}
+
+bool Editor::backInFile() {
+  auto target = nav_.backInFile(cursor_);
+  if (!target) return false;
+  Document* d = open(target->file);
+  if (!d) return false;
+  setCurrent(d, target->pos);
+  return true;
+}
+
+bool Editor::forwardInFile() {
+  auto target = nav_.forwardInFile(cursor_);
   if (!target) return false;
   Document* d = open(target->file);
   if (!d) return false;
@@ -1530,6 +1643,13 @@ bool Editor::toggleBreakpoint() {
   return now;
 }
 
+size_t Editor::removeBreakpointsInFile() {
+  if (!current_) return 0;
+  const size_t n = breakpoints_.removeFile(current_->path());
+  saveBreakpoints();
+  return n;
+}
+
 bool Editor::openInVisualStudio() {
   if (!current_) return false;
   return debug_->openInEditor(current_->path(), cursor_.pos.line, cursor_.pos.column);
@@ -1624,6 +1744,7 @@ bool Editor::build(const BuildOverrides& overrides, BuildLines onLines, BuildDon
   };
   // The previous build's queued output is dropped by the session check; its done callback still runs.
   buildSession_ = session;
+  lastResultSource_ = ResultSource::Build;
   buildMessages_.clear();
   buildDiags_.clear();
   buildCursor_ = -1;
@@ -1696,6 +1817,7 @@ std::optional<BuildMessage> Editor::stepBuildMessage(int dir, std::string* error
 
 SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opts, SearchBatch onBatch,
                                      SearchDone onDone) {
+  lastResultSource_ = ResultSource::Search;
   opts.query = query;
   SearchInput in;
   in.root = ws_.root();
