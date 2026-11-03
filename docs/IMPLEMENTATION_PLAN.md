@@ -480,6 +480,31 @@ interface (EnvDTE over COM), so debugging happens in VS while the code stays ope
   sheets. Active solution configuration/platform selectable (workspace setting, command), default Debug|x64 or the
   first solution configuration. Unreal Engine `.uproject` support stays out of scope.
 
+### W8 10x commands not yet implemented (after B4b)
+B4b bound all 183 of 10x's default key bindings; 88 commands behind them are not implemented (table:
+docs/FEATURE_PARITY.md, "10x commands not yet implemented"; source: the 10x documentation only). Each task implements its
+group as real commands, sets the alias targets in `src/ui/commands/CommandNames.cpp` and adds tests; behaviour follows the
+10x one-line descriptions, anything they leave open goes to OPEN_QUESTIONS with a default.
+* **W8a ∥ editing commands:** SaveAll, CutLine, MakeSelectionUppercase / Lowercase, Commentline / Uncommentline,
+  ToggleComment with CommentBlockUsesLineComments, DeleteToEndOfLine, InsertLine / InsertLineAfter, SelectCurrentWord,
+  SelectCurrentScope, SelectCurrentBracketScope, MoveToMatchingBracket, ToggleWhitespace, ScrollOneLineUp / Down,
+  FindInFilePrev/NextCurrentWord.
+* **W8b ∥ tabs, panels, view:** Prev/NextPanelTab, MovePrev/NextPanelTab, MovePanel{Left,Right,Up,Down},
+  MovePanelFocus{Left,Right,Up,Down}, DuplicatePanel(Left/Right), ZoomIn / ZoomOut, ToggleFullscreen, ToggleFocusMode,
+  ToggleFullScreenFocusMode, NewTextFile (untitled documents, DefaultLineEnding), OpenFolderForActivefile,
+  InternetSearch (InternetSearchCommand).
+* **W8c ∥ parser commands (clangd):** RenameSymbol / SubmitRenameSymbol, Autocomplete, ShowFunctionArgsInfo,
+  ShowSymbolInfo, FindFunction, GotoSymbolDefinitionUnderMouse, FormatSelection, InsertPrev/NextAutocomplete.
+* **W8d → W8a multi-cursor and navigation:** UndoSelectNextMultiCursor, SelectAllOccurrences, AlignMultiCursor,
+  MultiCursorMoveLeft / Right, AddCursorAtMousePos, Prev/NextLocationCurrentFile, RestoreRecentlyClosedFile,
+  bookmark-in-file variants, RemoveAllBookmarksFromFile, RemoveAllBreakpointsFromFile, GotoNext/PrevResult over the last
+  search or build.
+* **W8e → W8a build and search:** RebuildActiveWorkspace, BuildCurrentFile, ReplaceInFiles, ReplaceNextInFile,
+  ReplaceAllInFile, NewSearchPanel.
+* **W8f → W8b larger features (one task each):** code folding (CollapseRegions group), workspace explorer tree
+  (ToggleWorkspaceExplorer, ShowInWorkspaceTree), paste history, key-sequence recording / playback, Perforce history and
+  ShowInP4v, terminal panel (NewTerminal, ShowTerminal), context menus (ShowContextMenu).
+
 ---
 
 ## 6. Phase D: release engineering
@@ -535,7 +560,7 @@ Anything else requires a plan amendment.
 | 5 | B8, B9, C1 | polish + build integration |
 | 6 | B2c, B7b, C2a, C3a, C5, D2 (∥) | user answers to #4, #7, #9, #10, #12 received |
 | 7 | C2b, C2c (→ C2a), C3b, C3c (→ C3a), D1, D3 | D4 (user docs) last, after 7 |
-| — | B4b | blocked: 10x default key bindings file needed (OPEN_QUESTIONS #1) |
+| 8 | B4b, B8b, C2d; then W8a, W8b, W8c (∥), W8d, W8e, then W8f | 10x documentation available (key bindings, settings, VS sync) |
 
 A Sonnet task should be at most ~800 lines of new code plus tests; split
 anything larger (B2 and B5 will each need two or three sub-tasks; the
