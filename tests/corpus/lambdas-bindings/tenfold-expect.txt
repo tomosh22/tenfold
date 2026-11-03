@@ -1,0 +1,254 @@
+# lambdas-bindings: lambda captures (by value, by reference, init-capture, [=], [this], [*this]), generic lambdas,
+# immediately-invoked lambdas, lambdas stored in std::function / auto, structured bindings whose names equal member names,
+# range-for over custom containers (member begin/end and ADL free begin/end), std::optional / std::variant access.
+# Names reused on purpose: x, y, n, size, id, name, begin, end.
+# Range-for's implicit begin()/end() calls are not asserted anywhere except the one marked xfail in oop-ctors (open question).
+
+# ---- fast tier: locals, parameters, captures and bindings are not in a name index ----
+xfail fast def use_cap_base -> cap_base  # fast tier has no local scope: variables, parameters, captures are not indexed
+xfail fast def use_param_n -> param_n  # fast tier has no local scope: parameter vs outer variable of the same name
+xfail fast def use_outer_n -> outer_n  # fast tier has no local scope
+xfail fast def use_sb_x -> sb_x  # fast tier does not index structured bindings
+xfail fast def use_sb_inner_y -> sb_inner_y  # fast tier does not index structured bindings (shadowing)
+xfail fast def use_lam_x -> lam_x  # fast tier has no local scope: lambda parameter
+xfail fast def use_init_y -> init_y  # fast tier does not index init-captures
+xfail fast def use_e_loop -> e_loop  # fast tier has no local scope: range-for variable
+fast def use_find_event -> find_event | find_event_def
+fast def use_on_click_set -> Button_on_click
+fast def use_Bus_on -> Bus_on | Bus_on_def
+fast def use_Bus_emit -> Bus_emit | Bus_emit_def
+fast def use_overloaded -> overloaded
+xfail fast def use_legacy_begin -> legacy_begin  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
+fast def use_Point_x -> Point_x
+fast def use_Counter_total -> Counter_total
+xfail fast def use_Button_size -> Button_size  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
+fast def use_opt_name -> Event_name
+xfail fast def use_Ring_cbegin -> Ring_cbegin  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
+fast sym "Button" ∋ Button
+fast sym "overloaded" ∋ overloaded
+fast sym "find_event" ∋ find_event find_event_def
+fast sym "Ring" ∋ Ring
+fast sym "Handler" ∋ Handler
+
+# ---- captures, parameters, init-captures ----
+def cap_use_base -> cap_base
+def cap_use_counter -> cap_counter
+def use_cap_base -> cap_base
+def use_cap_default_base -> cap_base
+def use_base_init -> cap_base
+def use_lam_x -> lam_x
+def use_lam_x2 -> lam_x
+def use_add_counter -> cap_counter
+def use_lam_add -> lam_add
+def use_init_y -> init_y
+def use_lam_init -> lam_init
+def use_gen_a -> gen_a
+def use_lam_gen -> lam_gen
+def use_lam_gen2 -> lam_gen
+def use_param_n -> param_n
+def use_outer_n -> outer_n
+def use_cap_counter_iife -> cap_counter
+def cap_h_counter -> cap_counter
+def use_h_counter -> cap_h_counter | cap_counter
+def use_bus_counter -> cap_counter
+def use_btn_counter -> cap_counter
+def use_var_h -> var_h
+def use_fn_twice -> fn_twice
+def use_h_loop -> h_loop
+def use_e_loop -> e_loop
+def use_e_loop2 -> e_loop
+typedef var_bus -> Bus
+typedef var_btn -> Button
+
+# ---- members used from lambdas, bus, button ----
+def use_total_this -> Counter_total
+def use_size_this -> Counter_size
+def use_total_copy -> Counter_total
+def use_Counter_size -> Counter_size
+def use_Counter_total -> Counter_total
+def use_Bus_on -> Bus_on_def
+def use_Bus_on2 -> Bus_on_def
+def use_h_arg -> var_h
+def use_total_in_size -> Counter_total
+decl use_Bus_on -> Bus_on
+def use_Bus_emit -> Bus_emit_def
+decl use_Bus_emit -> Bus_emit
+def use_Bus_size -> Bus_size
+def use_on_click_set -> Button_on_click
+def use_on_click_call -> Button_on_click
+def use_Button_size -> Button_size
+def use_e_id -> Event_id
+
+# ---- structured bindings ----
+def use_sb_x -> sb_x
+def use_sb_y -> sb_y
+def use_Point_x -> Point_x
+def use_Point_y -> Point_y
+def use_sb_key -> sb_key
+def use_sb_val -> sb_val
+def use_sb_ok -> sb_ok
+def use_sb_it -> sb_it
+def use_sb_ti -> sb_ti
+def use_sb_td -> sb_td
+def use_sb_cx -> sb_cx
+def use_sb_inner_y -> sb_inner_y
+def use_Point_size -> Point_size
+
+# ---- optional / variant / containers ----
+def use_find_event -> find_event_def
+decl use_find_event -> find_event
+def use_found -> var_found
+def use_opt_name -> Event_name
+def use_opt_id -> Event_id
+def use_opt_value_id -> Event_id
+def use_opt_deref_id -> Event_id
+def use_visit_event_id -> Event_id
+def use_get_event_id -> Event_id
+def use_get_if_name -> Event_name
+def use_overloaded -> overloaded
+def use_Ring_begin -> Ring_begin
+def use_Ring_begin2 -> Ring_begin
+def use_Ring_end -> Ring_end
+def use_Ring_size -> Ring_size
+def use_Ring_cbegin -> Ring_cbegin
+def use_legacy_begin -> legacy_begin
+
+# ---- references ----
+refs cap_base = cap_base cap_use_base use_cap_base use_cap_default_base use_base_init
+refs cap_counter = cap_counter cap_use_counter use_add_counter use_cap_counter_iife use_bus_counter use_btn_counter cap_h_counter use_h_counter
+refs outer_n = outer_n use_outer_n
+refs param_n = param_n use_param_n
+refs lam_x = lam_x use_lam_x use_lam_x2
+refs lam_add = lam_add use_lam_add
+refs lam_init = lam_init use_lam_init
+refs init_y = init_y use_init_y
+refs gen_a = gen_a use_gen_a
+refs lam_gen = lam_gen use_lam_gen use_lam_gen2
+refs fn_twice = fn_twice use_fn_twice
+refs var_h = var_h use_h_arg use_var_h
+refs h_loop = h_loop use_h_loop
+refs e_loop = e_loop use_e_loop use_e_loop2
+refs Counter_total = Counter_total use_total_in_size use_total_this use_total_copy use_Counter_total
+refs Counter_size = Counter_size use_size_this use_Counter_size
+refs Bus_on = Bus_on Bus_on_def use_Bus_on use_Bus_on2
+refs Bus_emit = Bus_emit Bus_emit_def use_Bus_emit
+refs Bus_size = Bus_size use_Bus_size
+refs Button_on_click = Button_on_click use_on_click_set use_on_click_call
+refs Button_size = Button_size use_Button_size
+refs Event_id = Event_id use_e_id use_opt_id use_opt_value_id use_opt_deref_id use_visit_event_id use_get_event_id
+refs Event_name = Event_name use_opt_name use_get_if_name
+refs find_event = find_event find_event_def use_find_event
+refs overloaded >= overloaded use_overloaded
+refs Handler >= Handler
+refs Point_x = Point_x use_Point_x
+refs Point_y = Point_y use_Point_y
+refs Point_size = Point_size use_Point_size
+refs sb_x = sb_x use_sb_x
+refs sb_y = sb_y use_sb_y
+refs sb_key = sb_key use_sb_key
+refs sb_val = sb_val use_sb_val
+refs sb_ok = sb_ok use_sb_ok
+refs sb_it = sb_it use_sb_it
+refs sb_inner_y = sb_inner_y use_sb_inner_y
+refs Ring_size = Ring_size use_Ring_size
+refs Ring_begin >= Ring_begin use_Ring_begin use_Ring_begin2
+refs Ring_cbegin >= Ring_cbegin use_Ring_cbegin
+refs legacy_begin >= legacy_begin use_legacy_begin
+refs var_found >= var_found use_found
+
+# ---- hover ----
+hover use_lam_add ~ "add"
+hover use_param_n ~ "int" "n"
+hover use_sb_x ~ "int" "x"
+hover use_found ~ "found" "optional"
+hover use_opt_name ~ "name" "string"
+hover use_Ring_cbegin ~ "const int"
+hover use_init_y ~ "y" "int"
+hover use_cap_base ~ "base" "int"
+hover use_Bus_on ~ "on" "Handler"
+hover use_on_click_set ~ "on_click" "function"
+hover use_find_event ~ "find_event" "optional"
+hover use_Counter_total ~ "total" "int"
+hover use_overloaded ~ "overloaded"
+hover use_sb_ok ~ "ok" "bool"
+
+# ---- workspace symbols ----
+sym "Bus" -> Bus
+sym "Event" ∋ Event
+sym "find_event" -> find_event_def
+sym "overloaded" ∋ overloaded
+sym "Ring" ∋ Ring
+sym "Old" ∋ Old
+sym "Handler" ∋ Handler
+sym "on_click" ∋ Button_on_click
+sym "Button" ∋ Button
+sym "Point" ∋ Point
+sym "legacy::begin" ∋ legacy_begin
+
+# ---- rename ----
+rename cap_base b0
+  cap_base cap_use_base use_cap_base use_cap_default_base use_base_init
+rename cap_counter tally
+  cap_counter cap_use_counter use_add_counter use_cap_counter_iife use_bus_counter use_btn_counter cap_h_counter use_h_counter
+rename outer_n outer_count
+  outer_n use_outer_n
+rename param_n pn
+  param_n use_param_n
+rename lam_x lx
+  lam_x use_lam_x use_lam_x2
+rename init_y iy
+  init_y use_init_y
+rename gen_a ga
+  gen_a use_gen_a
+rename lam_add plus
+  lam_add use_lam_add
+rename lam_gen generic
+  lam_gen use_lam_gen use_lam_gen2
+rename Counter_total sum
+  Counter_total use_total_in_size use_total_this use_total_copy use_Counter_total
+rename Counter_size cnt
+  Counter_size use_size_this use_Counter_size
+rename Bus_on subscribe
+  Bus_on Bus_on_def use_Bus_on use_Bus_on2
+rename Bus_emit publish
+  Bus_emit Bus_emit_def use_Bus_emit
+rename Bus_size nsubs
+  Bus_size use_Bus_size
+rename Button_on_click clicked
+  Button_on_click use_on_click_set use_on_click_call
+rename Button_size btn_size
+  Button_size use_Button_size
+rename Event_id ident
+  Event_id use_e_id use_opt_id use_opt_value_id use_opt_deref_id use_visit_event_id use_get_event_id
+rename Event_name label
+  Event_name use_opt_name use_get_if_name
+rename find_event locate
+  find_event find_event_def use_find_event
+rename Point_x px
+  Point_x use_Point_x
+rename sb_x bx
+  sb_x use_sb_x
+rename sb_inner_y by_inner
+  sb_inner_y use_sb_inner_y
+rename sb_key k
+  sb_key use_sb_key
+rename Ring_size length
+  Ring_size use_Ring_size
+rename fn_twice dbl
+  fn_twice use_fn_twice
+rename e_loop ev
+  e_loop use_e_loop use_e_loop2
+
+# ---- unsaved edit: new lambda, capture and structured binding ----
+open src/lambdas.cpp
+edit src/lambdas.cpp:54:1 "int edit_lambda() {\n  int /*@edit_k*/k = 3;\n  auto /*@edit_f*/f = [&/*@edit_cap*/k](int /*@edit_p*/p) { return /*@edit_use_k*/k + /*@edit_use_p*/p; };\n  auto [/*@edit_a*/a, /*@edit_b*/b] = std::pair<int, int>{1, 2};\n  return /*@edit_call_f*/f(a) + /*@edit_use_b*/b;\n}\n"
+def edit_cap -> edit_k
+def edit_use_k -> edit_k
+def edit_use_p -> edit_p
+def edit_call_f -> edit_f
+def edit_use_b -> edit_b
+refs edit_k = edit_k edit_cap edit_use_k
+refs edit_b = edit_b edit_use_b
+rename edit_k kk
+  edit_k edit_cap edit_use_k
+xfail fast def edit_use_b -> edit_b  # fast tier does not index structured bindings (also in unsaved text)

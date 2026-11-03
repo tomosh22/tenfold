@@ -1,0 +1,9 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/cache.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/cache.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/crtp.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/crtp.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/engine.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/engine.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/rect.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/rect.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/shape.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/shape.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/square.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/square.cpp"]}
+]

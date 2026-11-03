@@ -1,0 +1,147 @@
+# lookup-namespaces: nested / compact namespaces, aliases, inline namespaces, anonymous namespaces, static functions with
+# the same name in several TUs, using-declarations (header) and using-directives (function scope).
+# Every expectation is what C++ name lookup says; `value`, `Node`, `get`, `call`, `helper`, `tick` exist several times.
+
+# ---- fast tier (before clangd has the TU) ----
+fast def use_Thing -> est_Thing
+fast def use_make -> est_make | est_make_def
+xfail fast def use_Opts -> v1_Opts  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_v2_Opts -> v2_Opts  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_inner_value -> inner_value | inner_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_outer_value -> outer_value | outer_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_oi_value -> inner_value | inner_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_global_value -> global_value | global_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def anon_a_helper_use -> anon_a_helper  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def anon_b_helper_use -> anon_b_helper  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def static_a_tick_use -> static_a_tick  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def static_b_tick_use -> static_b_tick  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def anon_a_get_use -> anon_a_Impl_get  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def anon_b_get_use -> anon_b_Impl_get  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_call -> v1_call | v1_call_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_call_v2 -> v2_call | v2_call_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_Node_get -> outer_Node_get | outer_Node_get_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+xfail fast def use_dir_get -> inner_Node_get | inner_Node_get_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+fast def use_dee -> dee_alias
+fast def use_oi -> oi_alias
+fast sym "make" ∋ est_make est_make_def
+fast sym "Thing" ∋ est_Thing
+fast sym "Opts" ∋ v1_Opts v2_Opts
+
+# ---- definition / declaration ----
+def use_outer_value -> outer_value_def
+decl use_outer_value -> outer_value
+def use_inner_value -> inner_value_def
+decl use_inner_value -> inner_value
+def use_oi_value -> inner_value_def
+def use_oi -> oi_alias
+def use_dee -> dee_alias
+def use_dee2 -> dee_alias
+def use_Thing -> est_Thing
+def use_Thing_size -> est_Thing_size_def
+decl use_Thing_size -> est_Thing_size
+def use_make -> est_make_def
+decl use_make -> est_make
+def use_global_value -> global_value_def
+decl use_global_value -> global_value
+def use_call -> v1_call_def
+decl use_call -> v1_call
+def use_call_v2 -> v2_call_def
+decl use_call_v2 -> v2_call
+def use_Opts -> v1_Opts
+def use_v2_Opts -> v2_Opts
+def use_app_value -> using_value | inner_value_def  # clangd answers the using-declaration plus the entity
+def use_app_Node -> using_Node | outer_Node  # clangd answers the using-declaration plus the entity
+def use_Node_get -> outer_Node_get_def
+decl use_Node_get -> outer_Node_get
+def use_dir_Node -> inner_Node
+def use_dir_get -> inner_Node_get_def
+def use_dir_value -> inner_value_def
+def anon_a_helper_use -> anon_a_helper
+def anon_b_helper_use -> anon_b_helper
+def static_a_tick_use -> static_a_tick
+def static_b_tick_use -> static_b_tick
+def anon_a_get_use -> anon_a_Impl_get
+def anon_b_get_use -> anon_b_Impl_get
+typedef var_t -> est_Thing
+xfail typedef var_n -> outer_Node  # clangd also returns the using-declaration (a second, non-type-definition location)
+typedef var_m -> inner_Node
+
+# ---- references ----
+refs outer_value = outer_value outer_value_def use_outer_value
+refs inner_value = inner_value inner_value_def use_inner_value use_oi_value using_value use_app_value use_dir_value
+refs global_value = global_value global_value_def use_global_value
+refs est_Thing_size = est_Thing_size est_Thing_size_def use_Thing_size
+refs est_make = est_make est_make_def use_make
+refs v1_call = v1_call v1_call_def use_call
+refs v2_call = v2_call v2_call_def use_call_v2
+refs anon_a_helper = anon_a_helper anon_a_helper_use
+refs anon_b_helper = anon_b_helper anon_b_helper_use
+refs static_a_tick = static_a_tick static_a_tick_use
+refs static_b_tick = static_b_tick static_b_tick_use
+refs anon_a_Impl_get = anon_a_Impl_get anon_a_get_use
+refs anon_b_Impl_get = anon_b_Impl_get anon_b_get_use
+refs inner_Node_get = inner_Node_get inner_Node_get_def use_dir_get
+refs outer_Node_get = outer_Node_get outer_Node_get_def use_Node_get
+refs inner_Node = inner_Node inner_Node_q use_dir_Node
+refs outer_Node >= outer_Node outer_Node_q using_Node
+xfail refs outer_Node = outer_Node outer_Node_q using_Node use_app_Node  # clangd drops the use of a class through a using-declaration (app::Node)
+refs v1_Opts = v1_Opts use_Opts
+refs v2_Opts = v2_Opts use_v2_Opts
+refs dee_alias = dee_alias use_dee use_dee2
+refs est_Thing >= est_Thing use_Thing
+
+# ---- hover ----
+hover use_Thing ~ "Thing" "deep::er::est"
+hover use_make ~ "make" "deep::er::est"
+hover use_oi_value ~ "value" "outer::inner"
+hover use_outer_value ~ "value" "outer"
+hover use_global_value ~ "value" "int scale"
+hover use_call_v2 ~ "call" "v2"
+hover use_v2_Opts ~ "Opts" "v2"
+hover anon_a_helper_use ~ "helper"
+
+# ---- workspace symbols ----
+sym "deep::er::est::make" -> est_make_def
+sym "Thing" ∋ est_Thing
+sym "Opts" ∋ v1_Opts v2_Opts
+sym "call" ∋ v1_call_def v2_call_def
+sym "helper" ∋ anon_a_helper anon_b_helper
+sym "tick" ∋ static_a_tick static_b_tick
+
+# ---- rename: only the entity with that scope, never the namesakes ----
+rename outer_value outer_val
+  outer_value outer_value_def use_outer_value
+rename inner_value inner_val
+  inner_value inner_value_def use_inner_value use_oi_value using_value use_app_value use_dir_value
+rename global_value glob_val
+  global_value global_value_def use_global_value
+rename est_Thing_size est_count
+  est_Thing_size est_Thing_size_def use_Thing_size
+rename anon_a_helper aa_helper
+  anon_a_helper anon_a_helper_use
+rename anon_b_Impl_get b_get
+  anon_b_Impl_get anon_b_get_use
+rename static_b_tick tock
+  static_b_tick static_b_tick_use
+rename v1_call call_one
+  v1_call v1_call_def use_call
+rename v2_call call_two
+  v2_call v2_call_def use_call_v2
+rename inner_Node_get fetch
+  inner_Node_get inner_Node_get_def use_dir_get
+xfail rename outer_Node OuterN  # clangd rename misses app::Node (use through using-declaration): result would not compile
+  outer_Node outer_Node_q using_Node use_app_Node
+rename dee_alias deeper
+  dee_alias use_dee use_dee2
+
+# ---- unsaved edit: a new alias and a new use appended to the open document ----
+open src/use.cpp
+edit src/use.cpp:31:1 "namespace /*@edit_ns*/ei = outer::inner;\nint edit_fn() { return /*@edit_ei*/ei::/*@edit_value*/value() + outer::/*@edit_outer*/value(); }\n"
+def edit_ei -> edit_ns
+def edit_value -> inner_value_def
+def edit_outer -> outer_value_def
+decl edit_value -> inner_value
+hover edit_value ~ "value" "outer::inner"
+refs inner_value >= inner_value use_inner_value edit_value
+refs outer_value >= outer_value use_outer_value edit_outer
+xfail fast def edit_value -> inner_value | inner_value_def  # fast tier is name-only: also answers outer::value and ::value(int)

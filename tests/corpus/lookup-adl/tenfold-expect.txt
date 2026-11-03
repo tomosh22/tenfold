@@ -1,0 +1,157 @@
+# lookup-adl: argument-dependent lookup (free functions, operators, hidden friends), the swap idiom, name hiding
+# (derived hides base, member hides global, local hides member), using-declarations that un-hide, using-directive
+# reached through a qualified name, friends declared in a class and defined later.
+
+# ---- fast tier ----
+xfail fast def use_draw_circle -> shape_draw_circle | shape_draw_circle_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+xfail fast def use_draw_square -> shape_draw_square | shape_draw_square_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+xfail fast def use_draw_int -> global_draw | global_draw_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+xfail fast def use_other_draw -> other_draw | other_draw_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+xfail fast def use_dot -> hf_dot  # fast tier does not index friend functions defined inside a class (hidden friends): no symbol, no definition
+fast def use_scale_adl -> vec_scale | vec_scale_def
+fast def use_via_fb -> via_fb | via_fb_def
+xfail fast def use_Derived_f -> Derived_f_char  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+xfail fast def use_g_f_qual -> g_f | g_f_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+xfail fast def use_Base_f_qual -> Base_f_int | Base_f_double  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+fast def use_audit -> audit_def | audit_def2 | fr_audit
+fast sym "hf_none_zzz" -> none
+fast sym "Circle" ∋ Circle
+xfail fast sym "dot" ∋ hf_dot  # fast tier does not index friend functions defined inside a class (hidden friends): no symbol, no definition
+fast sym "scale" ∋ vec_scale vec_scale_def
+
+# ---- ADL: free functions ----
+def use_draw_circle -> shape_draw_circle_def
+decl use_draw_circle -> shape_draw_circle
+def use_draw_square -> shape_draw_square_def
+decl use_draw_square -> shape_draw_square
+def use_draw_int -> global_draw_def
+decl use_draw_int -> global_draw
+def use_other_draw -> other_draw_def
+def use_scale_adl -> vec_scale_def
+decl use_scale_adl -> vec_scale
+def use_scale_qual -> vec_scale_def
+def use_swap -> w_swap_def
+decl use_swap -> w_swap
+def use_swap_int -> lib_swap | using_lib_swap
+def use_via_fa -> a_fa_def
+def use_via_fb -> via_fb_def
+
+# ---- ADL: operators and hidden friends ----
+def use_plus -> hf_plus
+def use_dot -> hf_dot
+def use_eq -> vec_eq_def
+decl use_eq -> vec_eq
+def use_shl_v -> vec_shl_def
+decl use_shl_v -> vec_shl
+def use_shl_int -> Out_shl_int
+typedef use_shl_v -> Out
+
+# ---- name hiding ----
+def use_Derived_f -> Derived_f_char
+def use_Base_f_qual -> Base_f_int_def
+decl use_Base_f_qual -> Base_f_int
+def use_g_f_qual -> g_f_def
+decl use_g_f_qual -> g_f
+def use_D2_f_int -> Base_f_int_def | D2_using_f
+def use_D2_f_double -> Base_f_double_def | D2_using_f
+def use_D2_f_char -> D2_f_char
+def use_p_count -> p_count_def
+def use_S_count -> S_count
+def use_g_count -> g_count_def
+decl use_g_count -> g_count
+def use_member_count -> S_count
+def use_local_count -> local_count
+
+# ---- friends ----
+def use_secret_acct -> Bank_secret
+def use_secret_audit -> Bank_secret
+def use_audit -> audit_def2
+decl use_audit -> fr_audit | audit_def
+def use_Account -> Account
+decl use_Account -> Account_fwd
+def use_Bank_get -> Bank_get
+
+# ---- references ----
+refs shape_draw_circle = shape_draw_circle shape_draw_circle_def use_draw_circle
+refs shape_draw_square = shape_draw_square shape_draw_square_def use_draw_square
+refs other_draw = other_draw other_draw_def use_other_draw
+refs global_draw = global_draw global_draw_def use_draw_int
+refs vec_scale = vec_scale vec_scale_def use_scale_adl use_scale_qual
+xfail refs hf_dot = hf_dot use_dot  # clangd (checked directly over LSP, all files open): its index has no references for hidden-friend functions, ADL calls to them are not found
+xfail refs hf_plus = hf_plus use_plus  # clangd (checked directly over LSP, all files open): its index has no references for hidden-friend functions, ADL calls to them are not found
+refs vec_eq = vec_eq vec_eq_def use_eq
+refs vec_shl = vec_shl vec_shl_def use_shl_v
+refs Out_shl_int = Out_shl_int use_shl_int use_shl_int2
+refs w_swap = w_swap w_swap_def use_swap
+refs lib_swap = lib_swap using_lib_swap use_swap_int
+refs a_fa = a_fa a_fa_def use_via_fa
+refs via_fb = via_fb via_fb_def use_via_fb
+refs Derived_f_char = Derived_f_char use_Derived_f
+refs Base_f_int >= Base_f_int use_Base_f_qual
+refs g_f = g_f g_f_def use_g_f_qual
+refs g_count = g_count g_count_def use_g_count
+refs S_count = S_count use_S_count use_member_count
+refs p_count_def = p_count_def use_p_count
+refs local_count = local_count use_local_count
+refs Bank_secret >= Bank_secret use_secret_acct use_secret_audit
+refs Account >= Account_fwd fr_Account Account use_Account
+refs audit_def2 >= audit_def2 use_audit
+
+# ---- hover ----
+hover use_draw_circle ~ "draw" "Circle"
+hover use_other_draw ~ "draw" "other"
+hover use_scale_adl ~ "scale" "vec"
+hover use_dot ~ "dot"
+hover use_swap ~ "swap" "adl_swap"
+hover use_swap_int ~ "swap" "lib"
+hover use_Derived_f ~ "f" "char"
+hover use_S_count ~ "count"
+hover use_g_count ~ "count" "int"
+
+# ---- workspace symbols ----
+sym "hf_none_zzz" -> none
+sym "Circle" ∋ Circle
+sym "scale" ∋ vec_scale_def
+sym "draw" ∋ shape_draw_circle_def shape_draw_square_def other_draw_def global_draw_def
+sym "swap" ∋ lib_swap w_swap_def
+sym "Account" ∋ Account
+
+# ---- rename ----
+rename shape_draw_circle paint
+  shape_draw_circle shape_draw_circle_def use_draw_circle
+rename shape_draw_square paint_sq
+  shape_draw_square shape_draw_square_def use_draw_square
+rename other_draw odraw
+  other_draw other_draw_def use_other_draw
+rename global_draw gdraw
+  global_draw global_draw_def use_draw_int
+rename vec_scale scaled
+  vec_scale vec_scale_def use_scale_adl use_scale_qual
+xfail rename hf_dot dot2  # clangd (checked directly over LSP, all files open): its index has no references for hidden-friend functions, ADL calls to them are not found
+  hf_dot use_dot
+rename w_swap swap_w
+  w_swap w_swap_def use_swap
+rename lib_swap swap_t
+  lib_swap using_lib_swap use_swap_int
+rename Derived_f_char fc
+  Derived_f_char use_Derived_f
+rename g_count gcount
+  g_count g_count_def use_g_count
+rename S_count n_items
+  S_count use_S_count use_member_count
+rename p_count_def arg_count
+  p_count_def use_p_count
+rename local_count lc
+  local_count use_local_count
+rename Bank_secret hidden
+  Bank_secret use_secret_acct use_secret_audit
+
+# ---- unsaved edit: ADL calls in new text ----
+open src/main.cpp
+edit src/main.cpp:54:1 "int edit_adl() {\n  vec::V u{1}, w{2};\n  return /*@edit_dot*/dot(u, w) + /*@edit_scale*/scale(u, 2).x + (u /*@edit_plus*/+ w).x;\n}\n"
+def edit_dot -> hf_dot
+def edit_scale -> vec_scale_def
+decl edit_scale -> vec_scale
+def edit_plus -> hf_plus
+refs vec_scale >= vec_scale use_scale_adl edit_scale
+fast def edit_scale -> vec_scale | vec_scale_def
