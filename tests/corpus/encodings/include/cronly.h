@@ -1,0 +1,1 @@
+#ifndef CRONLY_H#define CRONLY_Hint /*@cr_fn_decl*/cr_fn(int v);extern int /*@cr_g_decl*/cr_g;#endif

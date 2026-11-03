@@ -1,0 +1,13 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/use.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/use.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/crlf.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/crlf.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/bom.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/bom.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/bom2.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/bom2.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/latin1.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/latin1.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/tabs.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/tabs.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/mb.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/mb.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/idents.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/idents.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/mixed.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/mixed.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/seps.cpp","arguments":["clang++","-std=c++17","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/seps.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/cronly.c","arguments":["clang","-std=c11","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/cronly.c"]}
+]
