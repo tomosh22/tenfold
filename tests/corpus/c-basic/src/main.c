@@ -8,6 +8,8 @@
 
 enum { LOCAL_FLAG_A = 1 };
 
+static void /*@collect_cb*/collect(int v, void *ctx) { *(int *)ctx += v; }
+
 int main(void) {
     node */*@head_var*/head = /*@use_list_push*/list_push(0, 1);
     /*@use_node_td_main*/node *second = list_push(head, 2);
@@ -45,6 +47,12 @@ int main(void) {
 
     r += /*@use_next_id*/next_id() + /*@use_counter_main*/g_counter;
     /*@use_verbosity_main*/g_verbosity = 2;
+
+    int vals[3] = { 1, 2, 3 }, sum = 0;
+    /*@use_each_value*/each_value(vals, 3, /*@use_collect_cb*/collect, &sum);
+    buf_t *fb = /*@use_buf_new*/buf_new(4);
+    fb->/*@use_data_main*/data[1] = 'x';
+    r += fb->/*@use_len_main*/len + sum;
 
     return (int)(a2 + id + r) + (int)tn[0];
 }

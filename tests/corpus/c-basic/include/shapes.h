@@ -52,5 +52,7 @@ extern const binop_entry /*@binop_table_decl*/binop_table[];
 extern const int /*@binop_count_decl*/binop_count;
 
 int /*@apply_decl*/apply(binop_fn f, int a, int b);
+void /*@each_value_decl*/each_value(const int *vals, int n, /*@use_visit_cb_h*/visit_cb cb, void *ctx);
+buf_t */*@buf_new_decl*/buf_new(int n);
 
 #endif
