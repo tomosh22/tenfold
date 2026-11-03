@@ -32,6 +32,19 @@ namespace fs = std::filesystem;
 
 namespace {
 
+#if defined(__SANITIZE_ADDRESS__)
+constexpr size_t kSan = 5;  // sizes shrink under AddressSanitizer (about 10x slower)
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+constexpr size_t kSan = 5;
+#else
+constexpr size_t kSan = 1;
+#endif
+#else
+constexpr size_t kSan = 1;
+#endif
+size_t scaled(size_t n) { return n / kSan; }
+
 using clk = std::chrono::steady_clock;
 double msSince(clk::time_point t) { return std::chrono::duration<double, std::milli>(clk::now() - t).count(); }
 
@@ -374,6 +387,26 @@ TEST(pathological_invalid_utf8_documents_open_and_edit_with_a_language_server) {
   CHECK(logText.find("latin1.cpp") != std::string::npos);  // the server did receive the document
 }
 
+// The extractor keeps every token of a file in memory (a 200 MB generated .cpp took 3.4 GB and 20 s), so a source above
+// 64 MiB is not indexed at all; one just below is.
+TEST(pathological_huge_source_files_are_not_indexed) {
+  constexpr size_t kMaxIndexedFileBytes = size_t{64} << 20;  // the limit in FastIndex.cpp
+  const std::string tail = "\nint huge_tail_fn() { return 1; }\n";
+  std::string below(kMaxIndexedFileBytes - tail.size(), ' ');
+  below += tail;
+  auto t = clk::now();
+  auto some = extractSymbols(below);
+  stress("extract from a source of exactly the limit", msSince(t));
+  CHECK_EQ(some.size(), 1u);
+  std::string above(kMaxIndexedFileBytes + 1 - tail.size(), ' ');
+  above += tail;
+  std::vector<std::string> includes;
+  t = clk::now();
+  CHECK(extractSymbols(above, &includes).empty());
+  CHECK(includes.empty());
+  CHECK(msSince(t) < 1000);
+}
+
 // ---------------------------------------------------------------------------------------------------------------
 // Scenarios
 // ---------------------------------------------------------------------------------------------------------------
@@ -420,16 +453,19 @@ TEST(pathological_many_files_wide_deep_and_flat) {
 
 TEST(pathological_giant_files_and_long_lines) {
   TempDir d("giant");
-  put(d.path / "src/giant.cpp", giantCpp(150000));
-  put(d.path / "data/big.txt", rep("2026-01-01 INFO worker processed request id=0000000 needle_x status=ok\n", 60000));
+  put(d.path / "src/giant.cpp", giantCpp(static_cast<int>(scaled(150000))));
+  put(d.path / "data/big.txt",
+      rep("2026-01-01 INFO worker processed request id=0000000 needle_x status=ok\n", scaled(60000)));
   // One line of 1 MB: an expression, a comment and a string; the symbol after each must still be found.
-  put(d.path / "src/oneline_expr.cpp", "int long_expr = " + rep("1+", 500000) + "1;\nint after_expr() { return 1; }\n");
-  put(d.path / "src/oneline_comment.cpp", "// " + rep("word ", 200000) + "\nint after_comment() { return 1; }\n");
+  put(d.path / "src/oneline_expr.cpp",
+      "int long_expr = " + rep("1+", scaled(500000)) + "1;\nint after_expr() { return 1; }\n");
+  put(d.path / "src/oneline_comment.cpp",
+      "// " + rep("word ", scaled(200000)) + "\nint after_comment() { return 1; }\n");
   put(d.path / "src/oneline_string.cpp",
-      "const char* s = \"" + rep("ab\\n", 300000) + "\";\nint after_string() { return 1; }\n");
+      "const char* s = \"" + rep("ab\\n", scaled(300000)) + "\";\nint after_string() { return 1; }\n");
   put(d.path / "src/oneline_nonl.cpp", "int a = " + rep("x_", 50000) + "0;");
   std::string mini;
-  for (int i = 0; i < 400; ++i) {
+  for (int i = 0; i < static_cast<int>(scaled(400)); ++i) {
     std::string u = unit(i);
     for (char& c : u)
       if (c == '\n') c = ' ';
@@ -444,7 +480,7 @@ TEST(pathological_giant_files_and_long_lines) {
   CHECK_EQ(w.exact("after_comment"), 1u);
   CHECK_EQ(w.exact("after_string"), 1u);
   CHECK_EQ(w.exact("minified_main"), 1u);
-  CHECK(w.symbols("Widget399") >= 1);
+  CHECK(w.symbols("Widget" + std::to_string(scaled(400) - 1)) >= 1);
 
   giantDocumentOps(*w.ed, d.path / "src/giant.cpp", "giant_tail_marker", "150k-line file");
   giantDocumentOps(*w.ed, d.path / "data/big.txt", "needle_x", "text file");
@@ -497,11 +533,11 @@ TEST(pathological_deep_nesting_huge_identifiers_and_macros) {
   put(d.path / "ident.h",
       "#define " + big + "_MACRO 1\nvoid " + big + "_fn();\nnamespace " + big + "_ns { void g(); }\n");
   std::string decls = "namespace big {\n";
-  for (int i = 0; i < 30000; ++i)
+  for (int i = 0; i < static_cast<int>(scaled(30000)); ++i)
     decls += "int var_" + std::to_string(i) + ";\nvoid fn_" + std::to_string(i) + "(int);\n";
   put(d.path / "decls.cpp", decls + "}\nint decls_tail = big::var_0;\n");
   std::string alts = "#define ALT_SUM ", params = "#define BIG_PARAMS(", args;
-  for (int i = 0; i < 20000; ++i) {
+  for (int i = 0; i < static_cast<int>(scaled(20000)); ++i) {
     alts += (i ? " + alt_" : "alt_") + std::to_string(i);
     params += (i ? ",p" : "p") + std::to_string(i);
     args += (i ? "," : "") + std::to_string(i);
@@ -521,7 +557,7 @@ TEST(pathological_deep_nesting_huge_identifiers_and_macros) {
   CHECK(w.exact("after_close") == 1);
   CHECK(w.exact("use_long") == 1);
   CHECK(w.exact("alt_macro_use") == 1);
-  CHECK(w.exact("var_29999") == 1);
+  CHECK(w.exact("var_" + std::to_string(scaled(30000) - 1)) == 1);
   CHECK(w.exact("deepest_ns_fn") == 1);
   CHECK(w.exact("cyc_a") == 1);
 
@@ -591,8 +627,8 @@ TEST(pathological_binary_and_oddly_encoded_files) {
   put(d.path / "utf8_bom.cpp", "\xef\xbb\xbf" + good);
   put(d.path / "latin1.cpp", std::string("// caf\xe9 \xfc"
                                          "ber\nint latin1_marker() { return 1; }\n"));
-  put(d.path / "nul.cpp",
-      std::string("int before_nul;\n\0\0\0\0 int in_nul;\n", 36) + std::string(100000, '\0') + "\nint after_nul;\n");
+  static const char kNul[] = "int before_nul;\n\0\0\0\0 int in_nul;\n";
+  put(d.path / "nul.cpp", std::string(kNul, sizeof(kNul) - 1) + std::string(100000, '\0') + "\nint after_nul;\n");
   put(d.path / "nul_ident.cpp", std::string("int na\0me = 1;\nint nul_after;\n", 30));
   put(d.path / "all_nul.cpp", std::string(500000, '\0'));
   put(d.path / "cr_only.cpp", rep("int cr_a;\rint cr_b;\r// comment\rint cr_c;\r", 2000));

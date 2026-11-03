@@ -20,7 +20,7 @@ Scenarios
   truncated   random cuts of real-looking code; files that end mid-token / comment / string / raw string / #if
   mixed       a small healthy project (compile_commands.json, a few real symbols) to check queries stay correct
 
-The `full` scale is the plan's size (about 1.2 GB for everything, 3 GB with the 200 MB file duplicated nowhere);
+The `full` scale is the plan's size (about 350 MB for everything; the 200 MB text file is the bulk);
 `asan` is about 1/20th of it, `small` is what the unit tests use (seconds).
 """
 import argparse

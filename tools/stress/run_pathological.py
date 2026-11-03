@@ -13,7 +13,8 @@ For every scenario it generates the workspace (gen_pathological.py), then runs u
   churn      a REPL session whose workspace is being mutated by gen_pathological.py --churn (file watcher stress)
 A step fails on: timeout (hang; the whole process tree is killed), a non-zero exit status or a signal (crash), a
 sanitizer report on stderr, or missing expected output. Peak RSS of the process tree is sampled from /proc every 50 ms
-and flagged when above 4 GiB or above 10x the on-disk size of the workspace plus a 300 MiB baseline.
+and flagged when above 4 GiB (process tree) or above 10x the on-disk size of the workspace plus a 300 MiB baseline
+(largest process; not for sanitizer builds, whose shadow memory makes the ratio meaningless).
 The fsodd scenario runs as the unprivileged user `nobody` when started as root (chmod 000 does not stop root).
 """
 import argparse
@@ -200,10 +201,13 @@ def run(cmd, res, timeout, stdin_text=None, env=None, cwd=None, stdin_feeder=Non
     return rc, out, err
 
 
+SANITIZED = False  # set from --build / --sanitized: ASan's shadow memory and quarantine make the 10x rule meaningless
+
+
 def check_rss(res, disk_bytes):
     if res.tree_rss_mib > RSS_FLAG_ABS_MIB:
         res.fail("RSS %.0f MiB (process tree) > 4 GiB" % res.tree_rss_mib)
-    elif res.rss_mib > RSS_BASELINE_MIB + 10 * disk_bytes / 1048576.0:
+    elif not SANITIZED and res.rss_mib > RSS_BASELINE_MIB + 10 * disk_bytes / 1048576.0:
         res.fail("RSS %.0f MiB > 10x on-disk size (%.0f MiB)" % (res.rss_mib, disk_bytes / 1048576.0))
 
 
@@ -398,8 +402,11 @@ def main():
     ap.add_argument("--json-out")
     ap.add_argument("--md-out")
     ap.add_argument("--keep", action="store_true", help="keep generated data")
+    ap.add_argument("--sanitized", action="store_true", help="the build uses ASan/UBSan (implied by 'asan' in --build): only the 4 GiB rule applies")
     a = ap.parse_args()
 
+    global SANITIZED
+    SANITIZED = a.sanitized or "asan" in a.build.lower() or "san" in Path(a.build).name.lower()
     build = Path(a.build).resolve()
     cli = str(build / "tenfold-cli")
     tests = str(build / "tenfold-tests")

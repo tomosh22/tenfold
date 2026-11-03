@@ -1,4 +1,4 @@
-// W9f: the TextView on pathological files: a 300k-line C++ file, a text file with 100k lines, one-line files of 1-3 MB
+// W9f: the TextView on pathological files: a giant C++ file, a text file with 100k lines, one-line files of 1-3 MB
 // (a plain expression, a comment, a minified program), a file full of NULs / invalid UTF-8, and a very deep nesting.
 // For each: open, first frame, scroll to the end and back, type, undo, soft wrap on and off, with the
 // keystroke-to-paint budget (8 ms; PERF_CHECK, enforced only with TENFOLD_ENFORCE_PERF=1, and only in optimised
@@ -44,6 +44,20 @@ struct CountingRenderer : gfx::Renderer {
   void endFrame() override {}
   bool readPixels(int, int, uint8_t*) override { return false; }
 };
+
+// Sizes shrink under AddressSanitizer (about 10x slower).
+#if defined(__SANITIZE_ADDRESS__)
+constexpr size_t kSan = 12;
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+constexpr size_t kSan = 12;
+#else
+constexpr size_t kSan = 1;
+#endif
+#else
+constexpr size_t kSan = 1;
+#endif
+size_t scaled(size_t n) { return n / kSan; }
 
 using clk = std::chrono::steady_clock;
 double msSince(clk::time_point t) { return std::chrono::duration<double, std::milli>(clk::now() - t).count(); }
@@ -178,14 +192,15 @@ void session(PFx& f, const std::string& what, int expectLastLine, bool keystroke
   CHECK(msSince(t) < 30000);
 
   const size_t before = f.doc->buffer().byteSize();
-  const double avg = typing(f, 60, what + ", caret at the end");
+  const int nKeys = kSan > 1 ? 15 : 60;  // + 5 warm-up keys
+  const double avg = typing(f, nKeys, what + ", caret at the end");
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
   if (keystrokeBudget) PERF_CHECK(avg < 8.0, "pathological " + what + " keystroke-to-paint (8 ms)");
 #else
   (void)avg;
   (void)keystrokeBudget;
 #endif
-  CHECK_EQ(f.doc->buffer().byteSize(), before + 65);
+  CHECK_EQ(f.doc->buffer().byteSize(), before + static_cast<size_t>(nKeys) + 5);
   t = clk::now();
   f.key(Key('Z'), ModCtrl);  // the typing was one undo group or a few: undo until the text is the original
   for (int i = 0; i < 100 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
@@ -200,18 +215,19 @@ void session(PFx& f, const std::string& what, int expectLastLine, bool keystroke
 }  // namespace
 
 TEST(pathological_ui_giant_cpp_file_open_scroll_type) {
-  const int lines = 300000;
+  const int lines = static_cast<int>(scaled(300000));
   const std::string text = giantCpp(lines);
   for (bool wrap : {false, true}) {
     PFx f(text, "giant.cpp", wrap);
     CHECK_EQ(f.tv->wordWrapActive(), wrap);
-    session(f, std::string("300k-line C++ file, wrap ") + (wrap ? "on" : "off"), f.doc->buffer().lineCount() - 1);
+    session(f, std::string("giant C++ file, wrap ") + (wrap ? "on" : "off"), f.doc->buffer().lineCount() - 1);
   }
 }
 
 TEST(pathological_ui_giant_text_file) {
   const std::string text =
-      rep("2026-01-01 INFO worker-001 processed request id=00000042 needle status=ok bytes=123 latency_ms=7\n", 100000);
+      rep("2026-01-01 INFO worker-001 processed request id=00000042 needle status=ok bytes=123 latency_ms=7\n",
+          scaled(100000));
   for (bool wrap : {false, true}) {
     PFx f(text, "huge.txt", wrap);
     session(f, std::string("100k-line text file, wrap ") + (wrap ? "on" : "off"), f.doc->buffer().lineCount() - 1);
@@ -230,17 +246,18 @@ TEST(pathological_ui_one_line_files) {
   };
   std::vector<Case> cases;
   cases.push_back(
-      {"expr.cpp", "int long_expr = " + rep("1+", 500000) + "1;", "1 MB single-line expression", false, false});
-  cases.push_back({"comment.cpp", "// " + rep("word ", 400000), "2 MB single-line comment", true, true});
-  cases.push_back(
-      {"string.cpp", "const char* s = \"" + rep("ab\\n", 300000) + "\";", "1 MB single-line string", true, true});
+      {"expr.cpp", "int long_expr = " + rep("1+", scaled(500000)) + "1;", "1 MB single-line expression", false, false});
+  cases.push_back({"comment.cpp", "// " + rep("word ", scaled(400000)), "2 MB single-line comment", true, true});
+  cases.push_back({"string.cpp", "const char* s = \"" + rep("ab\\n", scaled(300000)) + "\";", "1 MB single-line string",
+                   true, true});
   std::string mini;
   for (int i = 0; i < 6000; ++i)
     mini += "namespace n" + std::to_string(i % 9) + "{class W" + std::to_string(i) +
             "{public:int u(int x)const;};int W" + std::to_string(i) + "::u(int x)const{return x*" + std::to_string(i) +
             ";}}";
   cases.push_back({"minified.cpp", mini, "minified C++ on one line", false, false});
-  cases.push_back({"cjk.txt", rep("\xe4\xb8\xad\xe6\x96\x87 ", 300000), "single line of wide characters", false, true});
+  cases.push_back(
+      {"cjk.txt", rep("\xe4\xb8\xad\xe6\x96\x87 ", scaled(300000)), "single line of wide characters", false, true});
   for (auto& c : cases) {
     for (bool wrap : {false, true}) {
       PFx f(c.content, c.name, wrap);
@@ -254,13 +271,14 @@ TEST(pathological_ui_one_line_files) {
       CHECK_EQ(static_cast<size_t>(f.head().column), f.doc->buffer().line(0).size());
       CHECK(f.rec.quads > 0);
       const size_t before = f.doc->buffer().byteSize();
-      const double avg = typing(f, 40, what + ", caret at the end");
+      const int nKeys = kSan > 1 ? 10 : 40;
+      const double avg = typing(f, nKeys, what + ", caret at the end");
 #if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
       if (wrap ? c.budgetOn : c.budgetOff) PERF_CHECK(avg < 8.0, "pathological " + what + " keystroke-to-paint (8 ms)");
 #else
       (void)avg;
 #endif
-      CHECK_EQ(f.doc->buffer().byteSize(), before + 45);
+      CHECK_EQ(f.doc->buffer().byteSize(), before + static_cast<size_t>(nKeys) + 5);
       for (int i = 0; i < 100 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
       CHECK_EQ(f.doc->buffer().byteSize(), before);
       for (int i = 0; i < 3 && f.head().column > 0; ++i) f.key(Key::Home);  // the first Home may stop at the row's edge

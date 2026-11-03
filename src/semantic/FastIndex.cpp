@@ -858,7 +858,14 @@ class Extractor {
 
 }  // namespace
 
+namespace {
+constexpr size_t kMaxIndexedFileBytes = size_t{64} << 20;  // larger files are not indexed (no symbols, no includes)
+}
+
 std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes) {
+  // The extractor holds every token of the file (about 16 bytes of RSS per source byte, times the number of indexing
+  // threads): a 200 MB generated .cpp took 3.4 GB. Such a file is data, not code someone navigates; it is not indexed.
+  if (source.size() > kMaxIndexedFileBytes) return {};
   return Extractor(source, includes).run();
 }
 

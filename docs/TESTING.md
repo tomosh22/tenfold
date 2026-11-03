@@ -24,7 +24,7 @@ byte-identical files; standard library only, nothing is written outside `--out`)
 | `mixed` | a small valid project with a `compile_commands.json` next to broken files, to check answers stay correct |
 | churn | `gen_pathological.py --churn DIR --seconds N`: keeps creating, modifying, appending, renaming, deleting files and directories, replacing a file by a directory and back, truncating, half-writing; run while an editor indexes and watches the workspace |
 
-`--scale full` is the plan's size (the whole set is about 600 MB; the largest single scenario is `bigfiles`, 270 MB),
+`--scale full` is the plan's size (the whole set is about 350 MB; the largest single scenario is `bigfiles`, 270 MB),
 `--scale asan` is about 1/20th for sanitizer builds, `--scale small` is for smoke runs. `--knob name=value` overrides one
 size (`gen_pathological.py --list` shows the knobs).
 
@@ -59,18 +59,20 @@ process tree, clangd included):
 A step fails on: a timeout (hang), a non-zero exit or a signal (crash), any ASan / UBSan / LSan report on stderr, a missing
 `quit` echo, a query that timed out, or memory: the peak RSS (sampled every 50 ms from `/proc`) of the process tree above 4 GiB, or of the largest single
 process (the editor, or clangd) above 10x the on-disk size of the workspace plus a 300 MiB baseline. (The tree sum is not
-used for the second rule: a forked child shows its parent's pages until it execs, which double counts.) (The driver kills a process tree above 7 GiB
+used for the second rule: a forked child shows its parent's pages until it execs, which double counts. The second rule is
+not applied to sanitizer builds (`asan` in `--build`, or `--sanitized`): shadow memory and the quarantine inflate RSS.) (The driver kills a process tree above 7 GiB
 so a runaway cannot take the machine down.) `fsodd` runs as the unprivileged user `nobody` when started as root, since
 `chmod 000` does not stop root. Exit status 1 when any step fails; `--json-out` keeps the raw numbers.
 
-Disk: about 600 MB for `--scale full` if every scenario is kept; the driver deletes each scenario after its steps.
+Disk: about 350 MB for `--scale full` if every scenario is kept; the driver deletes each scenario after its steps.
 
 ### Regression tests (seconds)
 
 * `tests/test_pathological.cpp` (`tenfold-tests pathological_`): small versions of every scenario, generated into a temp
   dir at test time, plus the regressions the stress runs found (`pathological_nested_scopes_cost_linear_memory`,
   `pathological_non_regular_files_are_refused`, `pathological_large_non_code_documents_skip_the_fast_index`,
-  `pathological_edits_in_large_code_documents_reindex_lazily`). `pathological_full_*` are the full-size bodies the driver
+  `pathological_edits_in_large_code_documents_reindex_lazily`, `pathological_invalid_utf8_documents_open_and_edit_with_a_language_server`,
+  `pathological_huge_source_files_are_not_indexed`, and the churn test for the watcher fix). `pathological_full_*` are the full-size bodies the driver
   runs; they do nothing unless `TENFOLD_PATHOLOGICAL_DIR` is set.
 * `tests/ui/test_pathological_ui.cpp` (`xvfb-run -a tenfold-ui-tests pathological_ui`): the TextView on a 300k-line C++ file,
   a 100k-line text file, one-line files of 1 to 2 MB (expression, comment, string, minified C++, wide characters), binary /
