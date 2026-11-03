@@ -39,6 +39,10 @@ class FindReplace {
   bool isOpen() const { return open_; }
   // F3 / Shift+F3 (also while the bar is closed, with the last query): select the next / previous match.
   bool step(bool forward);
+  // FindInFileNextCurrentWord / FindInFilePrevCurrentWord (Ctrl+F3 / Ctrl+Shift+F3): the query becomes the primary
+  // selection (single line) or else the word at the caret (whole word, case-sensitive; the options are set to that),
+  // the bar's field follows, and the next / previous occurrence is selected. False when there is no word.
+  bool stepCurrentWord(bool forward);
   bool replaceCurrent();     // replaces the selected match (or selects the next one first), then moves on
   size_t replaceAll();       // one undo step; reports the count in the status bar
   void tick(int64_t nowMs);  // re-searches when the document or the query changed

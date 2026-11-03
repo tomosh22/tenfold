@@ -159,6 +159,35 @@ void registerEditorCommands(CommandRegistry& r) {
       (c.editor->*fn)();
       return true;
     });
+  // --- 10x editing commands (W8a) ---
+  static const Simple w8a[] = {
+      {"Editor.MakeSelectionUppercase", "Make Selection Uppercase", &Editor::makeSelectionUppercase},
+      {"Editor.MakeSelectionLowercase", "Make Selection Lowercase", &Editor::makeSelectionLowercase},
+      {"Editor.CommentLines", "Comment Lines", &Editor::commentLines},
+      {"Editor.UncommentLines", "Uncomment Lines", &Editor::uncommentLines},
+      {"Editor.ToggleComment", "Toggle Comment", &Editor::toggleComment},
+      {"Editor.DeleteToEndOfLine", "Delete to End of Line", &Editor::deleteToEndOfLine},
+      {"Editor.InsertLineAbove", "Insert Line", &Editor::insertLineAbove},
+      {"Editor.InsertLineBelow", "Insert Line After", &Editor::insertLineBelow},
+      {"Editor.SelectCurrentWord", "Select Current Word", &Editor::selectCurrentWord},
+      {"Editor.SelectCurrentScope", "Select Current Scope", &Editor::selectCurrentScope},
+      {"Editor.SelectCurrentBracketScope", "Select Current Bracket Scope", &Editor::selectCurrentBracketScope},
+  };
+  for (const Simple& sc : w8a)
+    addEd(r, sc.id, sc.name, [fn = sc.fn](const CommandContext& c, std::string_view) {
+      (c.editor->*fn)();
+      return true;
+    });
+  addEd(r, "Editor.MoveToMatchingBracket", "Move to Matching Bracket",
+        [](const CommandContext& c, std::string_view) { return c.editor->moveToMatchingBracket(); });
+  r.add({"File.SaveAll", "Save All", [](const CommandContext& c, std::string_view) { return c.editor->saveAll(); },
+         hasEditor});
+  addUi(r, "Editor.CutLine", "Cut Line");
+  addUi(r, "View.ToggleWhitespace", "Toggle Whitespace");
+  addUi(r, "Editor.ScrollLineUp", "Scroll One Line Up");
+  addUi(r, "Editor.ScrollLineDown", "Scroll One Line Down");
+  addUi(r, "Editor.FindNextCurrentWord", "Find Next Occurrence of Current Word");
+  addUi(r, "Editor.FindPrevCurrentWord", "Find Previous Occurrence of Current Word");
   for (bool down : {false, true})
     addEd(r, down ? "Editor.MoveLinesDown" : "Editor.MoveLinesUp", down ? "Move Lines Down" : "Move Lines Up",
           [down](const CommandContext& c, std::string_view) {

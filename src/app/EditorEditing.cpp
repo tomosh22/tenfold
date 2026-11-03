@@ -351,7 +351,13 @@ void Editor::outdentLines() {
 // Comments
 // ---------------------------------------------------------------------------
 
-void Editor::toggleLineComment() {
+void Editor::toggleLineComment() { lineComments(LineCommentMode::Toggle); }
+void Editor::commentLines() { lineComments(LineCommentMode::Comment); }
+void Editor::uncommentLines() { lineComments(LineCommentMode::Uncomment); }
+
+// Toggle: uncomments when every non-blank line has "//", else comments them all. Comment: always adds "// " (at the
+// minimum indentation). Uncomment: removes "//" (and one following space) from the lines that have it.
+void Editor::lineComments(LineCommentMode mode) {
   if (!current_) return;
   const TextBuffer& b = current_->buffer();
   std::vector<int> lines;
@@ -367,11 +373,13 @@ void Editor::toggleLineComment() {
     all = all && s.compare(ind, 2, "//") == 0;
     minIndent = std::min(minIndent, ind);
   }
+  const bool remove = mode == LineCommentMode::Uncomment || (mode == LineCommentMode::Toggle && all);
   std::vector<Document::BatchEdit> edits;
   for (int l : lines) {
     const std::string& s = b.line(l);
     const size_t ind = leadingBlanks(s);
-    if (all) {
+    if (remove) {
+      if (s.compare(ind, 2, "//") != 0) continue;
       const size_t len = s.compare(ind + 2, 1, " ") == 0 ? 3 : 2;  // "// " or "//"
       edits.push_back({{{l, static_cast<int>(ind)}, {l, static_cast<int>(ind + len)}}, {}});
     } else {
@@ -379,6 +387,16 @@ void Editor::toggleLineComment() {
     }
   }
   runLineEdits(std::move(edits));
+}
+
+// ToggleComment (10x): a selection follows CommentBlockUsesLineComments (true: line comments, false: /* */ around it);
+// carets without a selection always toggle line comments. With several carets the block form needs every caret to
+// have a selection.
+void Editor::toggleComment() {
+  if (!current_ || carets_.empty()) return;
+  const bool allSelected = std::all_of(carets_.begin(), carets_.end(), [](const Selection& s) { return !s.empty(); });
+  if (allSelected && !editing_.commentBlockUsesLineComments) toggleBlockComment();
+  else toggleLineComment();
 }
 
 void Editor::toggleBlockComment() {
@@ -550,6 +568,243 @@ bool Editor::gotoLine(int line, int column, std::string* error) {
 }
 
 void Editor::setLineEnding(Document& doc, LineEnding e) { doc.setLineEnding(e); }
+
+// ---------------------------------------------------------------------------
+// 10x editing commands (W8a)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+struct BracketPair {
+  Position open, close;
+};
+
+// Every matched ( ) [ ] { } pair of the buffer, ignoring brackets in comments, string and character literals (a quote
+// that is not closed ends at the end of its line). Mismatched closers are skipped.
+std::vector<BracketPair> bracketPairs(const TextBuffer& b, bool bracesOnly) {
+  std::vector<BracketPair> pairs;
+  std::vector<std::pair<char, Position>> stack;
+  bool block = false;
+  for (int l = 0; l < b.lineCount(); ++l) {
+    const std::string& s = b.line(l);
+    char quote = 0;
+    for (size_t i = 0; i < s.size(); ++i) {
+      const char c = s[i];
+      const char n = i + 1 < s.size() ? s[i + 1] : '\0';
+      if (block) {
+        if (c == '*' && n == '/') block = false, ++i;
+      } else if (quote) {
+        if (c == '\\') ++i;
+        else if (c == quote) quote = 0;
+      } else if (c == '/' && n == '/') {
+        break;
+      } else if (c == '/' && n == '*') {
+        block = true;
+        ++i;
+      } else if (c == '"' || c == '\'') {
+        quote = c;
+      } else if (c == '{' || (!bracesOnly && (c == '(' || c == '['))) {
+        stack.push_back({c, {l, static_cast<int>(i)}});
+      } else if (c == '}' || (!bracesOnly && (c == ')' || c == ']'))) {
+        if (!stack.empty() && closerOf(stack.back().first) == c) {
+          pairs.push_back({stack.back().second, {l, static_cast<int>(i)}});
+          stack.pop_back();
+        }
+      }
+    }
+  }
+  return pairs;
+}
+
+}  // namespace
+
+std::string Editor::cutLines() {
+  if (!current_) return {};
+  const TextBuffer& b = current_->buffer();
+  std::string out;
+  for (const auto& [first, last] : selectedLineBlocks())
+    for (int l = first; l <= last; ++l) out += b.line(l) + "\n";
+  deleteLines();
+  return out;
+}
+
+void Editor::makeSelectionUppercase() { changeSelectionCase(true); }
+void Editor::makeSelectionLowercase() { changeSelectionCase(false); }
+
+// Only ASCII letters change (multi-byte characters are left alone); the length stays, so every selection survives.
+void Editor::changeSelectionCase(bool upper) {
+  if (!current_ || carets_.empty()) return;
+  const TextBuffer& b = current_->buffer();
+  std::vector<CaretEdit> edits;
+  bool changes = false;
+  for (const Selection& s : carets_) {
+    CaretEdit e;
+    e.range = s.range();
+    if (!s.empty()) {
+      e.text = b.textInRange(e.range);
+      const std::string before = e.text;
+      for (char& c : e.text) {
+        const unsigned char u = static_cast<unsigned char>(c);
+        if (u < 0x80) c = static_cast<char>(upper ? std::toupper(u) : std::tolower(u));
+      }
+      changes = changes || e.text != before;
+      e.anchorOffset = s.reversed() ? e.text.size() : 0;
+      e.headOffset = s.reversed() ? 0 : e.text.size();
+    }
+    edits.push_back(std::move(e));
+  }
+  if (!changes) return;
+  breakTyping();
+  applyCaretEdits(std::move(edits), false);
+}
+
+void Editor::deleteToEndOfLine() {
+  if (!current_ || carets_.empty()) return;
+  const TextBuffer& b = current_->buffer();
+  std::vector<CaretEdit> edits;
+  bool changes = false;
+  for (const Selection& s : carets_) {
+    const Range r = s.range();
+    CaretEdit e;
+    e.range = {r.start, {r.end.line, static_cast<int>(b.line(r.end.line).size())}};
+    changes = changes || e.range.start != e.range.end;
+    edits.push_back(std::move(e));
+  }
+  if (!changes) return;
+  breakTyping();
+  applyCaretEdits(std::move(edits), false);
+}
+
+void Editor::insertLineAbove() {
+  if (!current_ || carets_.empty()) return;
+  breakTyping();
+  const TextBuffer& b = current_->buffer();
+  std::vector<CaretEdit> edits;
+  std::set<int> usedLines;
+  for (const Selection& s : carets_) {
+    const int l = s.head.line;
+    CaretEdit e;
+    if (usedLines.insert(l).second) {
+      const std::string ind = editing_.autoIndent ? b.line(l).substr(0, leadingBlanks(b.line(l))) : std::string();
+      e.range = {{l, 0}, {l, 0}};
+      e.text = ind + "\n";
+      e.headOffset = ind.size();
+    } else {  // a second caret on the same line stays where it is
+      e.range = {s.head, s.head};
+      e.headOffset = 0;
+    }
+    edits.push_back(std::move(e));
+  }
+  applyCaretEdits(std::move(edits), false);
+}
+
+void Editor::insertLineBelow() {
+  if (!current_ || carets_.empty()) return;
+  breakTyping();
+  const TextBuffer& b = current_->buffer();
+  std::vector<CaretEdit> edits;
+  std::set<int> usedLines;
+  for (const Selection& s : carets_) {
+    const int l = s.max().line;
+    const std::string& line = b.line(l);
+    const Position eol{l, static_cast<int>(line.size())};
+    CaretEdit e;
+    if (usedLines.insert(l).second) {
+      std::string ind = editing_.autoIndent ? line.substr(0, leadingBlanks(line)) : std::string();
+      if (editing_.autoIndent && opensBlock(codeOnly(line))) ind += indentUnitFor(*current_);
+      e.range = {eol, eol};
+      e.text = "\n" + ind;
+    } else {
+      e.range = {s.head, s.head};
+      e.headOffset = 0;
+    }
+    edits.push_back(std::move(e));
+  }
+  applyCaretEdits(std::move(edits), false);
+}
+
+void Editor::selectCurrentWord() {
+  if (!current_ || carets_.empty()) return;
+  breakTyping();
+  const TextBuffer& b = current_->buffer();
+  std::vector<Selection> next = carets_;
+  bool changed = false;
+  for (Selection& s : next) {
+    const auto w = b.wordAt(s.head);
+    if (w.text.empty()) continue;
+    s = {w.range.start, w.range.end};
+    changed = true;
+  }
+  if (changed) setSelections(std::move(next));
+}
+
+// For each selection the smallest candidate that strictly contains it: per enclosing pair, first the text between the
+// brackets, then the pair including them; repeated calls therefore grow outward.
+void Editor::growSelectionToBrackets(bool bracesOnly) {
+  if (!current_ || carets_.empty()) return;
+  breakTyping();
+  std::vector<BracketPair> pairs = bracketPairs(current_->buffer(), bracesOnly);
+  std::sort(pairs.begin(), pairs.end(), [](const BracketPair& a, const BracketPair& b) { return b.open < a.open; });
+  std::vector<Selection> next = carets_;
+  bool changed = false;
+  for (Selection& s : next) {
+    const Range sel = s.range();
+    for (const BracketPair& p : pairs) {
+      const Range inner{{p.open.line, p.open.column + 1}, p.close};
+      const Range outer{p.open, {p.close.line, p.close.column + 1}};
+      bool done = false;
+      for (const Range& c : {inner, outer})
+        if (c.start <= sel.start && sel.end <= c.end && (c.start != sel.start || c.end != sel.end)) {
+          s = {c.start, c.end};
+          changed = done = true;
+          break;
+        }
+      if (done) break;
+    }
+  }
+  if (changed) setSelections(std::move(next));
+}
+
+void Editor::selectCurrentScope() { growSelectionToBrackets(true); }
+void Editor::selectCurrentBracketScope() { growSelectionToBrackets(false); }
+
+bool Editor::moveToMatchingBracket() {
+  if (!current_ || carets_.empty()) return false;
+  breakTyping();
+  const std::vector<BracketPair> pairs = bracketPairs(current_->buffer(), false);
+  std::map<Position, Position> partner;
+  for (const BracketPair& p : pairs) {
+    partner[p.open] = p.close;
+    partner[p.close] = p.open;
+  }
+  std::vector<Selection> next = carets_;
+  bool moved = false;
+  for (Selection& s : next) {
+    for (int back = 0; back < 2; ++back) {  // the bracket after the caret first, then the one before it
+      const Position at{s.head.line, s.head.column - back};
+      if (at.column < 0) continue;
+      const auto it = partner.find(at);
+      if (it == partner.end()) continue;
+      s = caretAt({it->second.line, it->second.column + back});
+      moved = true;
+      break;
+    }
+  }
+  if (moved) setSelections(std::move(next));
+  return moved;
+}
+
+bool Editor::saveAll(std::string* error) {
+  bool ok = true;
+  for (Document* d : documents()) {
+    if (!d->dirty()) continue;
+    std::string err;
+    if (save(*d, &err)) continue;
+    if (ok && error) *error = err.empty() ? "cannot save " + d->path().filename().string() : err;
+    ok = false;
+  }
+  return ok;
+}
 
 // ---------------------------------------------------------------------------
 // Find / replace in the current document

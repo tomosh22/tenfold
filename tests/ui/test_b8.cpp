@@ -162,8 +162,8 @@ TEST(b8_defaults_parse_clean_and_bind_the_new_commands) {
   std::vector<KeyBindingDiag> diags;
   parseKeyBindings(defaultKeyBindingsText(), "defaults", map, diags);
   CHECK_EQ(diags.size(), size_t(0));
-  const std::pair<const char*, const char*> want[] = {{"Control /", "Editor.ToggleLineComment"},  // tenfold addition
-                                                      {"Control Shift /", "Editor.ToggleLineComment"},  // ToggleComment
+  const std::pair<const char*, const char*> want[] = {{"Control /", "Editor.ToggleLineComment"},    // tenfold addition
+                                                      {"Control Shift /", "Editor.ToggleComment"},  // ToggleComment
                                                       {"Control Shift Up", "Editor.MoveLinesUp"},
                                                       {"Control Shift Down", "Editor.MoveLinesDown"},
                                                       {"Control E, Control V", "Editor.Duplicate"},

@@ -40,6 +40,8 @@ editor.autoCloseQuotes = false
 editor.bracketSelectedText = true
 # Not documented by 10x; stays off.
 editor.trimTrailingWhitespace = false
+# 10x CommentBlockUsesLineComments: ToggleComment with a selection uses // line comments (false: /* */ around the selection).
+editor.commentBlockUsesLineComments = true
 
 # Unsaved changes and files changed on disk (OPEN_QUESTIONS #5). confirmUnsaved matches 10x (RestoreUnsavedFiles =
 # false: it prompts); 10x documents nothing about files changed on disk, that default is a guess.

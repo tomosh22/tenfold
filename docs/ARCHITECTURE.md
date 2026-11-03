@@ -747,7 +747,7 @@ pending OPEN_QUESTIONS #3.
 **Editing conveniences (B8, `src/app/EditorEditing.cpp`, `src/app/Bookmarks.*`).** Everything is an `Editor` method that
 edits at every caret and forms ONE undo step; the behaviours that could differ from 10x live in `Editor::EditingOptions`
 (`autoIndent`, `autoIndentBraces`, `formatBracesOnEnterSplit`, `autoCloseBrace`, `autoCloseBracket`, `autoCloseQuotes`,
-`bracketSelectedText`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`; the UI fills them from the `editor.*`
+`bracketSelectedText`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`, `commentBlockUsesLineComments`; the UI fills them from the `editor.*`
 settings, OPEN_QUESTIONS #8). The struct's defaults are 10x's documented defaults (B8b: nothing auto-closes, tab
 indent, no detection, selections are bracketed); the engine tests pin the behaviours they test explicitly. Two entry
 points exist for text: `insertText` stays raw (paste, completion, tests) and `typeText` is what the view calls for typed
@@ -766,6 +766,18 @@ accepts per-edit caret/anchor offsets inside the inserted text (`CaretEdit::head
 ends at column 0 does not touch that last line. `findInDocument` / `replaceAll` run TextSearch's matcher on the buffer
 text (a synthetic one-file `SearchInput` with an override), so literal / whole-word / PCRE2 semantics are identical to
 find in files; regex group references in the replacement are not expanded.
+
+**10x editing commands (W8a, `src/app/EditorEditing.cpp`).** Same rules as above (per caret, one undo step):
+`makeSelectionUppercase/Lowercase` (ASCII letters; the length does not change, so the selections stay),
+`commentLines/uncommentLines` and `toggleLineComment` share `lineComments(mode)` (a batch through `runLineEdits`),
+`toggleComment` is 10x's `ToggleComment` (block comment only when `EditingOptions::commentBlockUsesLineComments` is
+false and every caret has a selection, else line comments), `deleteToEndOfLine` (never joins lines), `insertLineAbove/
+Below` (indentation copied with `autoIndent`, one unit more after `{ ( [`; carets sharing a line insert one line),
+`cutLines` (returns the text, then `deleteLines`), `saveAll`. `selectCurrentWord` uses `TextBuffer::wordAt`. The scope
+commands scan the buffer once for matched brackets (`bracketPairs`: comments, string and character literals skipped) and
+pick, per selection, the smallest of {inside, with the brackets} of every enclosing pair that strictly contains it, so
+repeated presses grow outward; `moveToMatchingBracket` jumps to the same side of the partner and fails when the caret is
+not next to a (code) bracket. All of them select through `setSelections`, so the move lands in the navigation history.
 
 `Bookmarks` keeps sorted line sets per file (key `pathKey`), moves them with the same rule as
 `NavigationHistory::onLinesReplaced` (the Editor's document listener feeds both), is persisted as
@@ -1317,6 +1329,15 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   `Editor::moveCursor`, so Back returns); in the replace field Enter replaces the selected match and moves on, Ctrl+Enter
   replaces all (one undo step); Tab switches fields; Escape closes and returns the focus to the view. The bar re-searches
   when the document changes (`tick`). Keys reach it because the focused InputLine bubbles unhandled keys to the bar.
+* **W8a view commands** (bound in `EditorApp::bindEditingCommands`): `Editor.FindNextCurrentWord/FindPrevCurrentWord`
+  (Ctrl+F3 / Ctrl+Shift+F3) call `FindReplace::stepCurrentWord`: the query becomes the selection or the word at the caret
+  (whole word, case-sensitive), the bar's field follows, and `step` selects the next / previous match; the word is
+  selected first so that "next" leaves it. `View.ToggleWhitespace` flips `TextView::setShowWhitespace` in every view and
+  is kept as a session override (like `View.ToggleWordWrap`) until `editor.showWhitespace` changes.
+  `Editor.ScrollLineUp/Down` (Ctrl+Up / Ctrl+Down) call `TextView::scrollLines(+-1)`: one display row, carets stay,
+  except those that would leave the view, which move to the nearest fully visible row (same x; a selection keeps its
+  anchor). `Editor.CutLine` (Shift+Delete) puts `Editor::cutLines()` on the clipboard; `File.SaveAll` reports a failing
+  file in the status bar.
 * **GoToLine** (`Editor.GotoLine`, Ctrl+G): a one-row modal ListPopup; `42` or `42:7`, Enter -> `Editor::gotoLine`
   (`gotoLocation`, so it is in the navigation history); numbers past the end clamp to the last line.
 * **BookmarkList** (`Editor.ListBookmarks`, Ctrl+Shift+F2): modal list of every bookmark (line text, `path:line`),
@@ -1327,7 +1348,7 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   spaces, default `tab`), `editor.detectIndent` (false), `editor.autoIndent` (true), `editor.autoIndentBraces` (true),
   `editor.formatBracesOnEnterSplit` (false), `editor.autoAddCloseBrace` (false), `editor.autoAddCloseBracket` (false),
   `editor.autoCloseQuotes` (false, tenfold only), `editor.bracketSelectedText` (true), `editor.trimTrailingWhitespace`
-  (false). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
+  (false), `editor.commentBlockUsesLineComments` (true). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
   lines indents them. Encoding is UTF-8 only (the status bar shows `UTF-8` and the line ending; `Editor.LineEndingLF` /
   `Editor.LineEndingCRLF` switch the line ending written on save). TODO: other encodings need detection and conversion

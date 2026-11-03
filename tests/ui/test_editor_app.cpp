@@ -329,8 +329,8 @@ TEST(app_unimplemented_10x_commands_say_so_and_python_bindings_are_unsupported) 
   env.type("Q");
   env.app->runCommand("Editor.Undo");
   CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("int a0;"));
-  env.app->runCommand("SaveAll");
-  CHECK_EQ(env.app->message(), std::string("not implemented yet: SaveAll"));
+  env.app->runCommand("FormatFile");
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: FormatFile"));
 }
 
 TEST(app_control_s_saves_and_a_second_control_s_is_save_all) {
@@ -341,8 +341,8 @@ TEST(app_control_s_saves_and_a_second_control_s_is_save_all) {
   CHECK(env.key(Key('S'), ModCtrl));  // SaveFile
   CHECK(!env.ed->currentDocument()->dirty());
   CHECK(env.app->message().empty());
-  CHECK(env.key(Key('S'), ModCtrl));  // the second stroke of "Control S, Control S": SaveAll, not implemented yet
-  CHECK_EQ(env.app->message(), std::string("not implemented yet: SaveAll"));
+  CHECK(env.key(Key('S'), ModCtrl));  // the second stroke of "Control S, Control S": SaveAll
+  CHECK(env.app->message().empty());  // SaveAll: nothing is left to save, nothing to report
   // A different key after the first Control S is an ordinary key press.
   CHECK(env.key(Key('S'), ModCtrl));
   env.type("!");

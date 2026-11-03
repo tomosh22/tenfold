@@ -152,6 +152,7 @@ add_executable(tenfold-tests
   tests/test_vcs_p4.cpp
   tests/test_compile_info.cpp
   tests/test_engine_fixes.cpp
+  tests/test_w8a_editing.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -346,6 +347,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_vcs_ui.cpp
     tests/ui/test_config_ui.cpp
     tests/ui/test_p2_ui.cpp
+    tests/ui/test_w8a_commands.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

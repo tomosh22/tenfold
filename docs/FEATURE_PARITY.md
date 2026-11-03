@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 92 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 91 bindings (88 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 111 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 72 bindings (70 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -130,7 +130,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `SaveAll` | `Control S, Control S`; `Control Shift S` | Save all files |
 | `NewTextFile` | `Control N` | Create a new text file |
 | `ShowInWorkspaceTree` | `Control T` | Show the current file in the workspace tree |
 | `OpenFolderForActivefile` | `Control Shift Alt /` | Open file explorer for the folder of the current file |
@@ -140,18 +139,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | Command | Default keys | 10x description |
 | --- | --- | --- |
 | `PasteHistory` | `Control Shift V` | Show the paste history dropdown |
-| `MakeSelectionUppercase` | `Control Shift U` | Make selection uppercase |
-| `MakeSelectionLowercase` | `Control U` | Make selection lowercase |
-| `CutLine` | `Shift Delete` | Cut the current line |
-| `Commentline` | `Control K, Control C` | Comment the current line or selected lines |
-| `Uncommentline` | `Control K, Control U` | Uncomment the current line or selected lines |
-| `DeleteToEndOfLine` | `Control L` | Delete to the end of the line. |
-| `InsertLine` | `Control Enter` | Insert a new line at the current line |
-| `InsertLineAfter` | `Control Shift Enter` | Insert a new line after the current line |
-| `SelectCurrentWord` | `Control W` | Select the current word |
-| `SelectCurrentScope` | `Shift Alt =` | Select the current scope |
-| `SelectCurrentBracketScope` | `Control Shift M` | Select the current scope for ()[]{} |
-| `ToggleWhitespace` | `Control Shift W` | Toggle whitespace visibility |
 
 **MultiCursor**
 
@@ -186,14 +173,9 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `FindInFilePrevCurrentWord` | `Control Shift F3` | Find the previous occurance of the current word in the current file |
-| `FindInFileNextCurrentWord` | `Control F3` | Find the next occurance of the current word in the current file |
 | `PrevLocationCurrentFile` | `Control =` | Go to the previous cursor location in the current file |
 | `NextLocationCurrentFile` | `Control Shift =` | Go to the next cursor location in the current file |
 | `RestoreRecentlyClosedFile` | `Control Shift T` | Re-open the most recently closed file |
-| `MoveToMatchingBracket` | `Control Shift \` | Move to the matching bracket or brace |
-| `ScrollOneLineUp` | `Control Up` | Scroll one line up |
-| `ScrollOneLineDown` | `Control Down` | Scroll one line down |
 | `NewSearchPanel` | `Control Shift A` | Open new search panel |
 
 **FindInFiles**
@@ -354,7 +336,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 
 | Setting | 10x default | Description | Effort / note |
 |---|---|---|---|
-| CommentBlockUsesLineComments | true | ToggleComment always uses `//` instead of `/* */` | S. tenfold has separate line and block commands; 10x has one ToggleComment (line without a selection, block with one) plus Commentline / Uncommentline. Needs the command layer (key bindings task) |
 | CommentBlockIncrementLine | false | Comment command moves to the next line after commenting a single line | S. tenfold never moves (= 10x's default) |
 | AutoAddCloseBraceAndFormat | false | Add the close brace and format the braces | M. Needs a formatter for the brace block |
 | AutoFormat | true | Format the statement or block when typing `;` or `}` | L. Needs 10x's formatting rules (the Space* and Format* settings below) |

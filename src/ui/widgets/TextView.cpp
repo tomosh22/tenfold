@@ -280,6 +280,48 @@ void TextView::setWordWrap(bool on) {
   markDirty();
 }
 
+void TextView::setShowWhitespace(bool on) {
+  if (settings_.showWhitespace == on) return;
+  settings_.showWhitespace = on;
+  markDirty();
+}
+
+void TextView::scrollLines(int lines) {
+  const Document* d = document();
+  if (!d || !root() || bounds().h <= 0) return;
+  const float lh = geometry().lineHeight(), h = bounds().h;
+  const float ty = std::clamp(vp_.targetY() + static_cast<float>(lines) * lh, 0.0f, maxScrollY());
+  vp_.scrollTo(vp_.targetX(), ty, settings_.smoothScroll);
+  markDirty();
+  if (!isCurrent()) return;
+  // Carets that scrolled out of view move to the nearest fully visible row; the others stay.
+  const int firstRow = static_cast<int>(std::ceil(ty / lh - 0.001f));
+  const int lastRow = std::max(firstRow, static_cast<int>(std::floor((ty + h) / lh + 0.001f)) - 1);
+  WrapLayout& W = wrapLayout();
+  const TextBuffer& b = d->buffer();
+  std::vector<Selection> next = editor_.selections();
+  bool moved = false;
+  for (Selection& s : next) {
+    const Position p = b.clamp(s.head);
+    const int drow = rowMap().display(W.visualRowOf(p));
+    if (drow >= firstRow && drow <= lastRow) continue;
+    const int target = drow < firstRow ? firstRow : lastRow;
+    const float lx = W.xOf(p.line, W.rowOfByte(p.line, p.column), p.column);
+    int inBlock = -1;
+    int vrow = rowMap().wrapRow(target, &inBlock);
+    if (inBlock >= 0) vrow = std::max(0, vrow - 1);
+    const Position np = W.positionAt(vrow, lx);
+    if (s.empty()) s = caretAt(np);
+    else s.head = np;  // a selection keeps its anchor
+    moved = true;
+  }
+  if (!moved) return;
+  editor_.setSelections(std::move(next));
+  skipEnsure_ = true;  // the carets were put where the view is: do not scroll back to them
+  syncState();
+  skipEnsure_ = false;
+}
+
 // The visible rows [floor(sy / lh), floor((sy + h) / lh)] as row references. Lines on screen are examined here, so
 // rows of lines nobody had looked at yet appear (and the scroll range grows) as they come into view.
 void TextView::collectVisibleRows(std::vector<RowRef>& out) const {
@@ -542,7 +584,7 @@ bool TextView::syncState() {
     vp_.jumpTo(0, 0);
     anchorLine_ = -1;
   }
-  if (cur) ensureCaretVisible(!docChanged);
+  if (cur && !skipEnsure_) ensureCaretVisible(!docChanged);
   caretOn_ = true;
   activityMs_ = now();
   markDirty();

@@ -103,6 +103,11 @@ class TextView : public Widget {
   // Soft wrap on / off at run time (View.ToggleWordWrap); keeps the first visible line in place.
   void setWordWrap(bool on);
   bool wordWrapActive() const;  // wrap is on and the view has a document and a size
+  // Visible whitespace on / off at run time (ToggleWhitespace); editor.showWhitespace sets the start-up state.
+  void setShowWhitespace(bool on);
+  // Scrolls by `lines` display rows (negative: up) without touching the carets, except those that would leave the
+  // view: they move to the nearest fully visible row (same x). ScrollOneLineUp / ScrollOneLineDown.
+  void scrollLines(int lines);
   // The line <-> visual row map (bound to the current width), for tests and geometry users.
   WrapLayout& wrapLayout() const;
   // Moves every caret by visual row when wrap is on (Up / Down / PageUp / PageDown keep the x of the first move;
@@ -267,7 +272,7 @@ class TextView : public Widget {
 
   // Blink / animation.
   int64_t activityMs_ = 0, lastTick_ = -1;
-  bool caretOn_ = true, pendingEnsure_ = false;
+  bool caretOn_ = true, pendingEnsure_ = false, skipEnsure_ = false;
 
   // Mouse gesture.
   enum class Drag { None, Char, AddCaret, Column } drag_ = Drag::None;
