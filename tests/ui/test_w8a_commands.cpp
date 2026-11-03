@@ -214,6 +214,7 @@ TEST(w8a_comment_block_setting_reaches_toggle_comment) {
   env.set({C(1, 0)});  // no selection: still a line comment
   env.key(Key('/'), kCS);
   CHECK_EQ(env.txt(), std::string("a b\n// c\n"));
+  env.app.reset();  // the app unregisters from the service: it must go first
 }
 
 TEST(w8a_delete_to_end_of_line_and_insert_line_keys) {
@@ -299,6 +300,7 @@ TEST(w8a_toggle_whitespace_key_lasts_for_the_session) {
   CHECK(!env.view()->settings().showWhitespace);                   // toggled off for the session
   svc.settings().loadTexts("", "editor.showWhitespace = true\n");  // the settings file speaks again
   CHECK(env.view()->settings().showWhitespace);
+  env.app.reset();  // the app unregisters from the service: it must go first
 }
 
 TEST(w8a_scroll_one_line_keeps_the_caret_until_it_would_leave) {
