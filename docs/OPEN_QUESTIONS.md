@@ -169,3 +169,24 @@ against a running 10x.
   build started last (`Editor::lastResultSource`); stepping continues from where that list left off. After a build the keys
   walk the build's errors and warnings that have a source location, exactly like `GotoNextBuildWarningOrError` (F8), which
   keeps walking the build whatever came last.
+
+## W8f detail: paste history, key sequences, Perforce history and p4v (10x documents one line each)
+
+* `PasteHistory`: "Show the paste history dropdown". Size, content and position are not documented. tenfold keeps the last
+  20 texts (`editor.pasteHistorySize`, 0 = off) that Copy, Cut and CutLine put on the clipboard, plus a clipboard change by
+  another program when the window regains focus; a text already listed moves to the top. The list is the usual modal
+  picker (centre of the window, substring filter), not a dropdown anchored at the caret. Enter pastes with the Paste rules
+  and also makes the entry the clipboard text. Text copied inside tenfold's own input lines (find bar, pickers) is not
+  recorded. The history is not saved between sessions.
+* `RecordKeySequence` / `PlaybackKeySequence`: "Start/stop recording a key sequence" / "Playback a key sequence". Whether
+  10x records raw keys, whether mouse input and other panels count, whether the recording survives a restart, and whether
+  playback is one undo step are not documented. tenfold records commands (as resolved from bindings, chords and the
+  palette) and typed text, only while the editor view has the keys, never the record / playback keys and not mouse clicks;
+  only the last recording is kept, in memory. Playback is one undo step of the document current when it started. Playback
+  is refused while recording.
+* `PerforceHistory`: "Show the perforce history for the current file". tenfold shows `p4 filelog` (last 200 revisions) in a
+  picker; Enter opens the chosen revision read-only in a new tab (a read-only temp file). Whether 10x diffs instead, or
+  offers both, is unknown; tenfold has no diff-with-revision action (Vcs.DiffFileExternal diffs against `#have` only).
+* `PerforceShowInP4v`: "Show the current file in p4v". tenfold starts `p4v -p <port> -u <user> -c <client> -s <depot path>`
+  with the connection from `p4 info` and the path from `p4 where`; p4v's `-s` option is from p4v's own command-line help,
+  not from the 10x docs, and has not been tried against a real p4v (OPEN_QUESTIONS #17 applies).

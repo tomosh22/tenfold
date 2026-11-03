@@ -368,6 +368,12 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.Copy", "Copy");
   addUi(r, "Editor.Cut", "Cut");
   addUi(r, "Editor.Paste", "Paste");
+  // W8f: paste history, key sequences, Perforce history / p4v
+  addUi(r, "Editor.PasteHistory", "Paste from History...");
+  addUi(r, "App.RecordKeySequence", "Start / Stop Recording Key Sequence");
+  addUi(r, "App.PlaybackKeySequence", "Play Back Key Sequence");
+  addUi(r, "Vcs.PerforceHistory", "Perforce History...");
+  addUi(r, "Vcs.ShowInP4v", "Show in p4v");
   // W8c parser commands
   addUi(r, "Editor.RenameSymbol", "Rename Symbol...");
   addUi(r, "Editor.SubmitRenameSymbol", "Submit Rename Symbol");

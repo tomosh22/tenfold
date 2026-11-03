@@ -565,6 +565,14 @@ work too) when the caller left it at `auto`. `auto` tries Perforce first and fal
 the workspace or the server is down; `none` switches version control off. Tests use a fake `p4`
 (`tests/fake_p4_main.cpp`, state in a JSON file); no real server is involved.
 
+**History, print and p4v helpers (W8f).** `PerforceProvider::filelog` (`p4 -ztag filelog -L -m 200`, parsed by
+`parseFilelog` from the numbered `rev0` / `change0` / `time0` / `user0` / `desc0` fields; a description with a blank line
+splits the tagged record, so all records are merged), `printRevision` (`p4 print -q file#rev`) and `p4vTarget` (`p4 info` for
+`serverAddress` / `userName` / `clientName`, `p4 where` for the depot path). `Vcs.h` is unchanged: `VcsManager::perforceHistory`
+/ `perforceRevisionText` / `perforceP4vTarget` run on the worker through `withPerforce`, which `dynamic_cast`s the provider and
+answers `ok=false` with "the workspace is not under Perforce" for any other; results come back through `post`. The fake `p4`
+learned `filelog`, `print file#N` (per-file `"history"` entries) and `serverAddress` in `info`.
+
 ### Threading (VCS)
 
 | Thread | Does |
@@ -1142,6 +1150,25 @@ no default key): modal list of the open documents' clangd diagnostics (clangd on
 so) plus the last build's `Editor::buildDiagnostics`, labelled "build"; errors first, filter by text, live refresh,
 Enter -> `gotoLocation`. Engine additions (additive): `Editor::hoverAt(doc, pos, done)` and
 `Editor::signatureHelp(done)`.
+
+### Paste history, key sequences, Perforce history (W8f, `src/ui/features/{PasteHistory,KeySequence,PerforceUi}.*`)
+
+* **PasteHistory** (`Editor.PasteHistory`): a deque of strings, newest first, capped by `editor.pasteHistorySize`. EditorApp
+  routes Copy, Cut and CutLine through `clipboardSetter()`, which records what it put on the clipboard (the history hook;
+  `Editor` itself is untouched), and `FocusGained` calls `syncFromClipboard()`, which records a clipboard text that differs
+  from the last one recorded or set. The popup is a `ListPopup`; accept calls the paste hook (`pasteText`, the same code as
+  Paste: one line per caret when the counts match), moves the entry to the top and sets the system clipboard.
+* **KeySequence** (`App.RecordKeySequence` / `App.PlaybackKeySequence`): steps are Command (tenfold id + argument), Text
+  (adjacent typed text merged) and Key (a key press with no binding that the editor view took). `runCommandId` records
+  after resolving the 10x name, only in the `editor` key context and never the two sequence commands or the palette
+  command; `dispatchUnbound` (the path of `Text` events and unmatched keys to the widgets) records the other two. Playback
+  runs commands through `runCommandId` and Text / Key steps through `RootWidget::dispatch`, inside
+  `Document::beginGroup` / `endGroup` of the document current at the start (one undo step), then
+  `Editor::setSelections` to end the typing coalescer. Recording shows a `recording` status segment (`REC`).
+* **PerforceUi**: `history()` asks `VcsManager::perforceHistory`, then shows a `ListPopup` (rows from `Revision`, UTC dates);
+  accept calls `perforceRevisionText`, writes `<temp>/tenfold-p4/<hash of path>/<stem>#<rev><ext>`, removes its write
+  permission and opens it with `gotoLocation`. `showInP4v()` asks `perforceP4vTarget`, builds `-p -u -c -s` and starts the
+  program through the new `OsLauncher::startProgram` (tests replace it); the program is `vcs.p4vPath` or `p4v`.
 
 ### 10x parser commands (W8c, `src/ui/features/{RenameInput,FunctionPicker,ParserCommands}.*`, `EditorApp::bindParserCommands`)
 

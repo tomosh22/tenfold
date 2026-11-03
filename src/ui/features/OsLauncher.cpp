@@ -55,6 +55,17 @@ OsLauncher systemLauncher() {
     return launch("xdg-open", {file.parent_path().string()}, {}, err);
 #endif
   };
+  l.startProgram = [](const std::string& exe, const std::vector<std::string>& args, std::string* err) {
+    std::string raw;
+#ifdef _WIN32
+    auto quote = [](const std::string& a) {
+      return a.find_first_of(" \t\"") == std::string::npos ? a : "\"" + a + "\"";
+    };
+    raw = quote(exe);
+    for (const std::string& a : args) raw += " " + quote(a);
+#endif
+    return launch(exe, args, raw, err);
+  };
   return l;
 }
 

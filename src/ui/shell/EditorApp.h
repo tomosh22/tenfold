@@ -26,9 +26,12 @@
 #include "ui/features/FunctionPicker.h"
 #include "ui/features/GoToLine.h"
 #include "ui/features/HoverTooltip.h"
+#include "ui/features/KeySequence.h"
 #include "ui/features/NavResultPicker.h"
 #include "ui/features/NavigationUi.h"
 #include "ui/features/OsLauncher.h"
+#include "ui/features/PasteHistory.h"
+#include "ui/features/PerforceUi.h"
 #include "ui/features/RenameInput.h"
 #include "ui/features/ReplaceInFiles.h"
 #include "ui/features/SaveAsPrompt.h"
@@ -116,6 +119,10 @@ class EditorApp {
   FunctionPicker& functionPicker() { return *functions_; }
   BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
   VcsUi& vcsUi() { return *vcsUi_; }           // C3c: Vcs.* commands, revert confirmation, external diff tool
+  // W8f: PasteHistory (Control Shift V), key-sequence recording / playback, PerforceHistory / PerforceShowInP4v.
+  PasteHistory& pasteHistory() { return *pasteHistory_; }
+  KeySequence& keySequence() { return keySeq_; }
+  PerforceUi& perforceUi() { return *perforceUi_; }
   void closePickers();
 
   // W8b. The window belongs to the program: it gives EditorApp what View.ToggleFullscreen needs (null: the command
@@ -176,6 +183,10 @@ class EditorApp {
   bool widgetOwnsKey(const std::string& commandId) const;
   bool startBuild(BuildOverrides o);
   void bindUiCommands();
+  void bindMiscCommands();  // W8f
+  void playKeySequence();
+  bool dispatchUnbound(const InputEvent& e);
+  std::function<bool(const std::string&)> clipboardSetter();
   void bindEditingCommands();
   std::pair<TextView*, Position> identifierUnderMouse(float x, float y);  // {null, _} when not over an identifier
   void bindParserCommands();  // W8c: rename, autocomplete, signature help, symbol info, FindFunction, format
@@ -234,6 +245,9 @@ class EditorApp {
   float mouseX_ = 0,
         mouseY_ = 0;  // last pointer position (GotoSymbolDefinitionUnderMouse from the palette, AddCursorAtMousePos)
   std::unique_ptr<VcsUi> vcsUi_;
+  std::unique_ptr<PasteHistory> pasteHistory_;
+  std::unique_ptr<PerforceUi> perforceUi_;
+  KeySequence keySeq_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
   std::unique_ptr<ExternalChanges> external_;
   std::unique_ptr<CommandPalette> palette_;

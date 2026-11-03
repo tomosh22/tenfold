@@ -45,10 +45,12 @@ std::string copyText(Editor& ed) {
   return out;
 }
 
-bool doCopy(Editor& ed) { return clipboardSet(copyText(ed)); }
+using SetClipboard = std::function<bool(const std::string&)>;
 
-bool doCut(Editor& ed) {
-  if (!doCopy(ed)) return false;
+bool doCopy(Editor& ed, const SetClipboard& set) { return set(copyText(ed)); }
+
+bool doCut(Editor& ed, const SetClipboard& set) {
+  if (!doCopy(ed, set)) return false;
   if (anySelection(ed)) {
     ed.insertText("");  // replaces every selection with nothing; empty carets are untouched
     return true;
@@ -65,8 +67,7 @@ bool doCut(Editor& ed) {
 
 // N carets and exactly N lines on the clipboard (a final line break does not count): one line per caret, in document
 // order. Anything else pastes the whole text at every caret.
-bool doPaste(Editor& ed) {
-  std::string t = clipboardGet();
+bool pasteText(Editor& ed, std::string t) {
   t.erase(std::remove(t.begin(), t.end(), '\r'), t.end());
   if (t.empty()) return false;
   const size_t carets = ed.selections().size();
@@ -84,6 +85,8 @@ bool doPaste(Editor& ed) {
   ed.insertText(t);
   return true;
 }
+
+bool doPaste(Editor& ed) { return pasteText(ed, clipboardGet()); }
 
 }  // namespace
 
@@ -160,6 +163,17 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     vh.message = [this](const std::string& text, int ttlMs) { setMessage(text, ttlMs); };
     vcsUi_ = std::make_unique<VcsUi>(pickerEnv_, std::move(vh));
   }
+  {
+    PasteHistory::Hooks hh;
+    hh.paste = [this](const std::string& t) { return editor_.currentDocument() && pasteText(editor_, t); };
+    hh.clipboardGet = [] { return clipboardGet(); };
+    hh.clipboardSet = [](const std::string& t) { return clipboardSet(t); };
+    pasteHistory_ = std::make_unique<PasteHistory>(pickerEnv_, std::move(hh));
+    PerforceUi::Hooks ph;
+    ph.message = [this](const std::string& text, int ttlMs) { setMessage(text, ttlMs); };
+    ph.launcher = [this]() -> const OsLauncher& { return launcher_; };
+    perforceUi_ = std::make_unique<PerforceUi>(pickerEnv_, std::move(ph));
+  }
   registerEditorCommands(registry_);
   bindUiCommands();
   bindParserCommands();
@@ -175,6 +189,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     bench_->status().setOnClick(
         "flags", [this](const std::string&) { runCommandId("Help.ShowCompileCommand", "", activeContext()); });
     bench_->status().addSegment("navcounts", StatusBar::Align::Right);
+    bench_->status().addSegment("recording", StatusBar::Align::Right);
     bench_->confirmClose = [this](int id) {  // the tab's x / middle click on the last view of a dirty document
       if (!confirmUnsaved_) return false;
       closePickers();
@@ -212,6 +227,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
 EditorApp::~EditorApp() {
   if (bench_) bench_->confirmClose = nullptr;
   vcsUi_.reset();  // unhooks VcsManager::onError, closes its confirmation
+  perforceUi_.reset();
   closePickers();  // their callbacks point into this object
   palette_.reset();
   external_.reset();  // unhooks Editor::onExternalChange
@@ -374,6 +390,8 @@ void EditorApp::applySettings(const Settings& s) {
   }
   external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
   vcsUi_->applySettings(s);
+  pasteHistory_->applySettings(s);
+  perforceUi_->applySettings(s);
 }
 
 void EditorApp::closePickers() {
@@ -394,6 +412,8 @@ void EditorApp::closePickers() {
   external_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
+  if (pasteHistory_) pasteHistory_->close();
+  if (perforceUi_) perforceUi_->close();
 }
 
 void EditorApp::setNavStatusCounts(bool on) {
@@ -435,9 +455,9 @@ void EditorApp::bindEditingCommands() {
   const CommandEnabled hasDoc = [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); };
   registry_.bind(
       "Editor.CutLine",
-      [](const CommandContext& c, std::string_view) {
+      [this](const CommandContext& c, std::string_view) {
         const std::string text = c.editor->cutLines();
-        return text.empty() || clipboardSet(text);
+        return text.empty() || clipboardSetter()(text);
       },
       hasDoc);
   registry_.bind(
@@ -506,8 +526,88 @@ void EditorApp::bindEditingCommands() {
         [this, fwd](const CommandContext&, std::string_view) { return findReplace_->stepCurrentWord(fwd); }, hasDoc);
 }
 
+// Everything tenfold puts on the clipboard also goes to the paste history.
+std::function<bool(const std::string&)> EditorApp::clipboardSetter() {
+  return [this](const std::string& t) {
+    if (!clipboardSet(t)) return false;
+    pasteHistory_->record(t);
+    return true;
+  };
+}
+
+// W8f: PasteHistory, RecordKeySequence / PlaybackKeySequence, PerforceHistory, PerforceShowInP4v.
+void EditorApp::bindMiscCommands() {
+  const CommandEnabled hasDoc = [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); };
+  registry_.bind(
+      "Editor.PasteHistory",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        pasteHistory_->open();
+        return true;
+      },
+      hasDoc);
+  registry_.bind("App.RecordKeySequence", [this](const CommandContext&, std::string_view) {
+    if (keySeq_.recording()) {
+      const bool kept = keySeq_.stop();
+      setMessage(kept ? "Key sequence recorded (" + std::to_string(keySeq_.steps().size()) + " steps)"
+                      : "Nothing recorded: the previous key sequence is kept",
+                 kMessageMs);
+    } else {
+      closePickers();
+      keySeq_.start();
+      setMessage("Recording key sequence... (Control Shift R stops)");
+    }
+    if (bench_) bench_->status().setText("recording", keySeq_.recording() ? "REC" : "");
+    return true;
+  });
+  registry_.bind("App.PlaybackKeySequence", [this](const CommandContext&, std::string_view) {
+    if (keySeq_.recording()) {
+      setMessage("Stop recording first (Control Shift R)", kMessageMs);
+      return true;
+    }
+    if (keySeq_.steps().empty()) {
+      setMessage("No key sequence recorded (Control Shift R records one)", kMessageMs);
+      return true;
+    }
+    playKeySequence();
+    return true;
+  });
+  registry_.bind(
+      "Vcs.PerforceHistory",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        perforceUi_->history();
+        return true;
+      },
+      hasDoc);
+  registry_.bind(
+      "Vcs.ShowInP4v",
+      [this](const CommandContext&, std::string_view) {
+        perforceUi_->showInP4v();
+        return true;
+      },
+      hasDoc);
+}
+
+// Replays the last recording as ONE undo step of the document that is current when it starts (edits to other
+// documents the sequence switches to are their own steps).
+void EditorApp::playKeySequence() {
+  Document* doc = editor_.currentDocument();
+  if (doc) doc->beginGroup(editor_.selections());
+  KeySequence::PlayHooks h;
+  h.command = [this](const std::string& id, const std::string& arg) { runCommandId(id, arg, activeContext()); };
+  h.input = [this](const InputEvent& e) { root_.dispatch(e); };
+  const size_t n = keySeq_.play(h);
+  if (doc && editor_.document(doc->path()) == doc) {
+    doc->endGroup(editor_.currentDocument() == doc ? editor_.selections() : std::vector<Selection>{});
+  }
+  if (editor_.currentDocument()) editor_.setSelections(editor_.selections());  // ends typing coalescing
+  setMessage("Played " + std::to_string(n) + " recorded steps", kMessageMs);
+}
+
 void EditorApp::bindUiCommands() {
   vcsUi_->bind(registry_);
+  bindMiscCommands();
   compileInfo_->bind(registry_, [this] { closePickers(); });
   registry_.bind(
       "Search.SymbolSearch",
@@ -672,10 +772,10 @@ void EditorApp::bindUiCommands() {
       },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
-      "Editor.Copy", [](const CommandContext& c, std::string_view) { return doCopy(*c.editor); },
+      "Editor.Copy", [this](const CommandContext& c, std::string_view) { return doCopy(*c.editor, clipboardSetter()); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
-      "Editor.Cut", [](const CommandContext& c, std::string_view) { return doCut(*c.editor); },
+      "Editor.Cut", [this](const CommandContext& c, std::string_view) { return doCut(*c.editor, clipboardSetter()); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
       "Editor.Paste", [](const CommandContext& c, std::string_view) { return doPaste(*c.editor); },
@@ -1070,7 +1170,10 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     expiry_ = nowMs + ttlMs_;
     ttlMs_ = 0;
   }
-  if (e.type == InputType::FocusGained) vcsUi_->refreshOnFocus();  // the engine does not watch .git / the p4 client
+  if (e.type == InputType::FocusGained) {
+    vcsUi_->refreshOnFocus();  // the engine does not watch .git / the p4 client
+    pasteHistory_->syncFromClipboard();
+  }
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
     if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the Ctrl+Tab cycle is over
       cycling_ = false;
@@ -1083,7 +1186,7 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   else if (e.type == InputType::MouseDown &&
            (e.button == MouseButton::X1 || e.button == MouseButton::X2 || e.button == MouseButton::Middle))
     chord = chordFromMouse(e.button, e.mods);
-  else return root_.dispatch(e);
+  else return dispatchUnbound(e);
 
   const char* ctx = activeContext();
   const KeyMap::Result r = keys_.feed(chord, ctx, nowMs);
@@ -1091,7 +1194,7 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     case KeyMap::Status::Pending: setMessage(r.pendingText, 0, true); return true;
     case KeyMap::Status::NoMatch:
       if (pendingShown_) setMessage("");
-      return r.abortedChord || root_.dispatch(e);  // an aborted chord's stroke is swallowed
+      return r.abortedChord || dispatchUnbound(e);  // an aborted chord's stroke is swallowed
     case KeyMap::Status::Matched: break;
   }
   // GotoSymbolDefinitionUnderMouse only takes the middle click over an identifier of a text view; anywhere else (a tab,
@@ -1119,6 +1222,19 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   return true;
 }
 
+// Text and keys without a binding go to the widgets; typed text and plain keys that reach the editor view while a key
+// sequence is recorded become steps of it.
+bool EditorApp::dispatchUnbound(const InputEvent& e) {
+  const bool record = keySeq_.recording() && (e.type == InputType::Text || e.type == InputType::KeyDown) &&
+                      std::string_view(activeContext()) == "editor";
+  const bool handled = root_.dispatch(e);
+  if (record && handled) {
+    if (e.type == InputType::Text) keySeq_.recordText(e.text);
+    else keySeq_.recordKey(e);
+  }
+  return handled;
+}
+
 // F8 / Shift+F8 (and F4 / Shift+F4 after a build): the next / previous build error or warning with a location.
 bool EditorApp::stepBuildResult(bool forward) {
   std::string err;
@@ -1144,6 +1260,9 @@ void EditorApp::runCommandId(const std::string& written, const std::string& arg,
     return;
   }
   const std::string id = rc.id;
+  if (keySeq_.recording() && std::string_view(ctx) == "editor" && id != "App.RecordKeySequence" &&
+      id != "App.PlaybackKeySequence" && id != "App.CommandPalette")
+    keySeq_.recordCommand(id, arg);
   CommandContext cc;
   cc.editor = &editor_;
   cc.context = ctx;

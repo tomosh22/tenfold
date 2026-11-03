@@ -126,12 +126,6 @@ the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the
 | --- | --- | --- |
 | `ShowInWorkspaceTree` | `Control T` | Show the current file in the workspace tree |
 
-**Edit**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `PasteHistory` | `Control Shift V` | Show the paste history dropdown |
-
 **CollapseRegions**
 
 | Command | Default keys | 10x description |
@@ -157,25 +151,11 @@ walked (the completion list, previously typed words?), whether the typed word is
 needs an open dropdown. The four `Autocomplete*` list keys already work: the completion popup handles Up, Down, PageUp and
 PageDown itself while it is open.
 
-**MacroRecording**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `RecordKeySequence` | `Control Shift R` | Start/stop recording a key sequence |
-| `PlaybackKeySequence` | `Control Shift P` | Playback a key sequence |
-
 **Misc**
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
 | `ShowContextMenu` | `Shift F10`; `AppsKey` | Show the context menu for the currently selected UI element |
-
-**Perforce**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `PerforceHistory` | `Control P, Control H` | Show the perforce history for the current file |
-| `PerforceShowInP4v` | `Control P, Control V` | Show the current file in p4v |
 
 ### Commands without a default key that tenfold does not implement either
 

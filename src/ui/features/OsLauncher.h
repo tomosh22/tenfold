@@ -2,6 +2,7 @@
 #include <filesystem>
 #include <functional>
 #include <string>
+#include <vector>
 
 namespace tf::ui {
 
@@ -13,6 +14,9 @@ struct OsLauncher {
   // The file manager showing `file`: Windows `explorer /select,<file>`, macOS `open -R <file>`, elsewhere `xdg-open`
   // on the file's folder (there is no portable "select").
   std::function<bool(const std::filesystem::path& file, std::string* err)> showInFolder;
+  // Any program with arguments (PerforceShowInP4v starts p4v this way); left running on its own. `exe` without a
+  // directory is searched in PATH.
+  std::function<bool(const std::string& exe, const std::vector<std::string>& args, std::string* err)> startProgram;
 };
 
 // The real thing, through tf::Process. The started programs are left running on their own (a launcher such as

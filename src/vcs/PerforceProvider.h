@@ -37,6 +37,31 @@ class PerforceProvider : public VcsProvider {
   // `p4 add` for a file that is not in the depot (not called automatically).
   bool add(const std::filesystem::path& file, std::string* error = nullptr);
 
+  // One line of `p4 filelog` (W8f PerforceHistory), newest first.
+  struct Revision {
+    int rev = 0;
+    int change = 0;
+    std::string action;  // add, edit, delete, integrate, ...
+    long long time = 0;  // seconds since the epoch (UTC)
+    std::string user, client;
+    std::string description;  // first line only (p4 truncates it to 250 characters)
+    std::string type;
+  };
+  // `p4 filelog -L -m <maxRevisions>` of a local file, newest first. Empty with an empty *error: the file is not in
+  // the depot. Empty with an error: the call failed.
+  std::vector<Revision> filelog(const std::filesystem::path& file, std::string* error = nullptr,
+                                int maxRevisions = 200);
+  // `p4 print -q <file>#<rev>`: the text of one revision (bytes as stored). Nullopt + error when the call failed.
+  std::optional<std::string> printRevision(const std::filesystem::path& file, int rev, std::string* error = nullptr);
+  // What p4v needs to select a file (PerforceShowInP4v): the connection from `p4 info` (serverAddress, userName,
+  // clientName, so P4CONFIG / `p4 set` values are honoured) and the file's depot path from `p4 where`.
+  struct P4vTarget {
+    std::string port, user, client, depotPath;
+  };
+  bool p4vTarget(const std::filesystem::path& file, P4vTarget& out, std::string* error = nullptr);
+  // The revisions in `p4 -ztag filelog` output (rev0 / change0 / ... fields). Exposed for tests.
+  static std::vector<Revision> parseFilelog(const std::string& output);
+
   // Forgets the cached negative detection results (they live a few seconds so that a missing server does not
   // cost its timeout again for every probe).
   static void clearDetectCache();

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <mutex>
 #include <set>
 
@@ -395,6 +396,87 @@ std::optional<std::string> PerforceProvider::baseText(const fs::path& file, std:
   if (p.exitCode != 0) return std::nullopt;
   lastError_.clear();
   return std::move(p.out);
+}
+
+std::vector<PerforceProvider::Revision> PerforceProvider::parseFilelog(const std::string& output) {
+  // A description with a blank line splits the tagged record; the fields are numbered, so merge all records.
+  std::map<std::string, std::string> f;
+  for (const Record& r : parseTagged(output))
+    for (const auto& kv : r) f[kv.first] = kv.second;
+  std::vector<Revision> res;
+  for (int i = 0;; ++i) {
+    const std::string n = std::to_string(i);
+    auto rv = f.find("rev" + n);
+    if (rv == f.end()) break;
+    auto get = [&](const char* k) {
+      auto it = f.find(k + n);
+      return it == f.end() ? std::string() : it->second;
+    };
+    Revision r;
+    r.rev = std::atoi(rv->second.c_str());
+    r.change = std::atoi(get("change").c_str());
+    r.action = get("action");
+    r.time = std::atoll(get("time").c_str());
+    r.user = get("user");
+    r.client = get("client");
+    r.type = get("type");
+    std::string d = get("desc");
+    const size_t nl = d.find_first_of("\r\n");
+    if (nl != std::string::npos) d.resize(nl);
+    r.description = trimEol(d);
+    res.push_back(std::move(r));
+  }
+  return res;
+}
+
+std::vector<PerforceProvider::Revision> PerforceProvider::filelog(const fs::path& file, std::string* error,
+                                                                  int maxRevisions) {
+  if (error) error->clear();
+  ExecResult r = p4({"filelog", "-L", "-m", std::to_string(std::max(1, maxRevisions)), arg(file)});
+  if (!succeeded(r)) {
+    fail(error, messageOf(r));
+    return {};
+  }
+  lastError_.clear();
+  return parseFilelog(r.out);
+}
+
+std::optional<std::string> PerforceProvider::printRevision(const fs::path& file, int rev, std::string* error) {
+  if (error) error->clear();
+  ExecResult p = p4({"print", "-q", arg(file) + "#" + std::to_string(rev)});
+  if (!p.started || p.timedOut || p.exitCode != 0) {
+    fail(error, messageOf(p));
+    return std::nullopt;
+  }
+  lastError_.clear();
+  return std::move(p.out);
+}
+
+bool PerforceProvider::p4vTarget(const fs::path& file, P4vTarget& out, std::string* error) {
+  if (error) error->clear();
+  ExecResult info = p4({"info"});
+  if (!succeeded(info)) return fail(error, messageOf(info));
+  for (const Record& r : parseTagged(info.out)) {
+    auto get = [&](const char* k) {
+      auto it = r.find(k);
+      return it == r.end() ? std::string() : trimEol(it->second);
+    };
+    if (out.port.empty()) out.port = get("serverAddress");
+    if (out.user.empty()) out.user = get("userName");
+    if (out.client.empty()) out.client = get("clientName");
+  }
+  ExecResult w = p4({"where", arg(file)});
+  if (!succeeded(w)) return fail(error, messageOf(w));
+  for (const Record& r : parseTagged(w.out)) {
+    auto d = r.find("depotFile");
+    if (d != r.end() && !d->second.empty() && d->second[0] != '-') {
+      out.depotPath = trimEol(d->second);
+      break;
+    }
+  }
+  if (out.depotPath.empty()) return fail(error, file.filename().string() + " is not in the Perforce client view");
+  lastError_.clear();
+  return true;
 }
 
 bool PerforceProvider::revert(const fs::path& file, std::string* error) {
