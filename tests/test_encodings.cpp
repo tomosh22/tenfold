@@ -366,7 +366,8 @@ TEST(lexer_skips_the_utf8_bom_so_line_one_is_parsed) {
   auto ns = extractSymbols(bom + "namespace bomns { int in_ns; }\n");
   REQUIRE(findSym(ns, "in_ns") != nullptr);
   CHECK_EQ(findSym(ns, "in_ns")->scope, "bomns");
-  CppLexer lx(bom + "struct S");
+  const std::string lexSrc = bom + "struct S";  // the lexer only views its text
+  CppLexer lx(lexSrc);
   auto first = lx.next();
   CHECK(first.kind == Tok::Keyword);
   CHECK_EQ(std::string(first.text), "struct");
