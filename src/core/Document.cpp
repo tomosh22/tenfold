@@ -22,14 +22,9 @@ Document Document::untitled(std::filesystem::path path, LineEnding lineEnding) {
 }
 
 bool Document::loadFromDisk(std::string* error) {
-  std::ifstream in(path_, std::ios::binary);
-  if (!in) {
-    if (error) *error = "cannot open " + path_.string();
-    return false;
-  }
-  std::stringstream ss;
-  ss << in.rdbuf();
-  buf_.setText(ss.str());
+  std::string text;
+  if (!readRegularFile(path_, text, error)) return false;
+  buf_.setText(text);
   dirty_ = false;
   onDisk_ = true;
   undo_.clear();

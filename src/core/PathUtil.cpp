@@ -1,6 +1,14 @@
 #include "core/PathUtil.h"
 
 #include <cctype>
+#include <fstream>
+#ifndef _WIN32
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+#include <cerrno>
+#endif
 
 namespace tf {
 
@@ -86,6 +94,48 @@ std::string uriToPathString(const std::string& uri, PathStyle style) {
       if (c == '/') c = '\\';
   }
   return out;
+}
+
+bool readRegularFile(const std::filesystem::path& path, std::string& out, std::string* error) {
+  auto fail = [&](const std::string& why) {
+    if (error) *error = why + " " + path.string();
+    return false;
+  };
+#ifndef _WIN32
+  // O_NONBLOCK: opening a FIFO with no writer must not block; the fstat below then refuses it.
+  int fd = ::open(path.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+  if (fd < 0) return fail("cannot open");
+  struct stat st;
+  if (::fstat(fd, &st) != 0 || !S_ISREG(st.st_mode)) {
+    ::close(fd);
+    return fail("not a regular file:");
+  }
+  std::string data;
+  data.resize(static_cast<size_t>(st.st_size));
+  size_t got = 0;
+  for (;;) {  // the file may be growing: read to EOF, not just st_size bytes
+    if (got == data.size()) data.resize(data.size() + (data.size() >> 3) + 65536);
+    ssize_t n = ::read(fd, &data[got], data.size() - got);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) break;
+    got += static_cast<size_t>(n);
+  }
+  ::close(fd);
+  data.resize(got);
+  out = std::move(data);
+  return true;
+#else
+  std::error_code ec;
+  if (!std::filesystem::is_regular_file(path, ec)) return fail(ec ? "cannot open" : "not a regular file:");
+  std::ifstream in(path, std::ios::binary | std::ios::ate);
+  if (!in) return fail("cannot open");
+  std::string data(static_cast<size_t>(in.tellg()), '\0');
+  in.seekg(0);
+  in.read(data.data(), static_cast<std::streamsize>(data.size()));
+  data.resize(static_cast<size_t>(in.gcount()));
+  out = std::move(data);
+  return true;
+#endif
 }
 
 }  // namespace tf

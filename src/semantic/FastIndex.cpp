@@ -13,6 +13,7 @@
 #include <sys/stat.h>
 #endif
 
+#include "core/PathUtil.h"
 #include "semantic/CppLexer.h"
 
 namespace tf {
@@ -68,11 +69,16 @@ class Extractor {
   bool atKw(std::string_view k) const { return tok().kind == Tok::Keyword && tok().text == k; }
   void advance(size_t n = 1) { i_ = std::min(i_ + n, toks_.size() - 1); }
 
+  // The qualified enclosing scope. Only the innermost kMaxScopeComponents scopes are named: every symbol stores this
+  // string, so 10k nested namespaces / classes (generated code, fuzzed input) would otherwise cost O(depth^2) memory
+  // and time. Real code nests a handful of scopes; the cut keeps the innermost (most specific) ones.
+  static constexpr size_t kMaxScopeComponents = 64;
   std::string scopeName() const {
     std::string s;
-    for (auto& sc : scopes_) {
+    for (size_t i = scopes_.size() > kMaxScopeComponents ? scopes_.size() - kMaxScopeComponents : 0; i < scopes_.size();
+         ++i) {
       if (!s.empty()) s += "::";
-      s += sc.name;
+      s += scopes_[i].name;
     }
     return s;
   }
@@ -863,14 +869,7 @@ std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::str
 namespace {
 std::string keyFor(const std::filesystem::path& p) { return p.generic_string(); }
 
-bool readFile(const std::filesystem::path& p, std::string& out) {
-  std::ifstream in(p, std::ios::binary);
-  if (!in) return false;
-  std::stringstream ss;
-  ss << in.rdbuf();
-  out = ss.str();
-  return true;
-}
+bool readFile(const std::filesystem::path& p, std::string& out) { return readRegularFile(p, out); }
 }  // namespace
 
 namespace {

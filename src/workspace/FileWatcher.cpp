@@ -58,6 +58,33 @@ struct FileWatcher::Impl {
     if (opt.log) opt.log(m);
   }
 
+  // A directory was renamed `from` -> `to` while events for paths below it are still waiting out the debounce: they
+  // must be delivered under the new names. Otherwise a late "created from/x" arrives after the rename was handled, the
+  // consumer finds nothing at that path, and the file is never listed under `to` (stale entry + missing entry).
+  void remapPendingUnder(const std::string& from, const std::string& to) {
+    const std::string prefix = from + "/";
+    std::vector<Pending> moved;
+    for (auto it = pending.begin(); it != pending.end();) {
+      const std::string& key = it->first;
+      if (key.compare(0, prefix.size(), prefix) == 0) {
+        moved.push_back(std::move(it->second));
+        it = pending.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    auto remap = [&](const fs::path& p) {
+      const std::string s = p.string();
+      return s.compare(0, prefix.size(), prefix) == 0 ? fs::path(to + s.substr(from.size())) : p;
+    };
+    for (Pending& p : moved) {
+      p.ev.path = remap(p.ev.path);
+      p.ev.oldPath = remap(p.ev.oldPath);
+      auto& slot = pending[p.ev.path.string()];
+      if (slot.ev.path.empty() || slot.seq < p.seq) slot = std::move(p);
+    }
+  }
+
   // Folds `e` into the pending set. Kinds merge so that a burst on one path
   // becomes one event: Created+Modified = Created, Created+Deleted = nothing,
   // Deleted+Created = Modified, a rename of a pending path moves its entry.
@@ -82,6 +109,7 @@ struct FileWatcher::Impl {
       if (kind == Event::Renamed && oldPath == e.path) kind = Event::Modified;
       e.kind = kind;
       e.oldPath = kind == Event::Renamed ? oldPath : fs::path();
+      if (e.isDirectory) remapPendingUnder(oldKey, e.path.string());
       pending[e.path.string()] = Pending{e, now, seq++};
       return;
     }

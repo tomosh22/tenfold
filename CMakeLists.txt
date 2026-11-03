@@ -167,6 +167,7 @@ add_executable(tenfold-tests
   tests/test_term_keys.cpp
   tests/test_term_pty.cpp
   tests/test_w8f_p4.cpp
+  tests/test_pathological.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -388,6 +389,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_ctx.cpp
     tests/ui/test_w8f_misc.cpp
     tests/ui/test_w8f_term.cpp
+    tests/ui/test_pathological_ui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
