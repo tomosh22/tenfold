@@ -57,6 +57,8 @@ add_library(tenfold_core STATIC
   src/app/Editor.cpp
   src/app/EditorEditing.cpp
   src/app/Bookmarks.cpp
+  src/corpus/Corpus.cpp
+  src/corpus/Runner.cpp
   src/debug/Breakpoints.cpp
   src/debug/DebugSession.cpp
   src/debug/VsDteUtil.cpp
@@ -167,6 +169,7 @@ add_executable(tenfold-tests
   tests/test_term_keys.cpp
   tests/test_term_pty.cpp
   tests/test_w8f_p4.cpp
+  tests/test_corpus_parse.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
@@ -183,6 +186,12 @@ target_compile_definitions(tenfold-tests PRIVATE TENFOLD_FAKE_P4="$<TARGET_FILE:
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_TEST_HELPER="$<TARGET_FILE:tenfold-test-helper>")
 target_compile_definitions(tenfold-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 add_test(NAME unit COMMAND tenfold-tests)
+
+# W9a: runs every tests/corpus/*/ project against the real engine and clangd (docs/TESTING.md). Not part of `ctest`
+# (it needs clangd and takes a while); CI has its own job, and a local run is `./tenfold-corpus-tests`.
+add_executable(tenfold-corpus-tests tests/test_main.cpp tests/test_corpus_run.cpp)
+target_link_libraries(tenfold-corpus-tests PRIVATE tenfold_core)
+target_compile_definitions(tenfold-corpus-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
 # ---- UI (experimental): SDL3 window + OpenGL 3.3 renderer. Off by default; the engine never depends on it. ----
 option(TENFOLD_BUILD_UI "Build the SDL3/OpenGL UI (tenfold-ui, tenfold-ui-tests)" OFF)

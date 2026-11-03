@@ -1,0 +1,66 @@
+# Seed corpus expectations (W9a). Format: docs/TESTING.md. Lines are checked in order; `fast` lines are judged on the
+# fast tier alone (clangd held back), all others on clangd's final answer.
+
+# ---- fast tier, answered before clangd has parsed anything ----
+fast def use_Vec2f -> Vec2f
+fast def use_make_default_shape -> make_default_shape_decl | make_default_shape_def
+fast def use_length_sq -> Vec2_length_sq_decl | Vec2_length_sq_def
+fast def use_get_w -> none
+fast sym "Vec2" ∋ Vec2
+fast sym "make_default_shape" ∋ make_default_shape_decl make_default_shape_def
+fast hover use_make_default_shape ~ "make_default_shape"
+xfail fast def use_length_sq -> Vec2_length_sq_def  # the lexer index cannot tell the declaration from the definition
+
+# ---- definition, declaration, type definition ----
+def use_Vec2f -> Vec2f
+def use_length_sq -> Vec2_length_sq_def
+decl use_length_sq -> Vec2_length_sq_decl
+def use_wx -> Vec2_x
+def use_area -> Shape_area
+def use_traits_double -> Traits_double_value_type
+def use_traits_int -> Traits_value_type
+def use_get_w -> Box_get_w
+def use_first_area -> first_area
+def use_box_name -> Box_name
+def use_kind_box -> Kind_Box
+def use_plus -> Vec2_plus
+def use_make_default_shape -> make_default_shape_def
+decl use_make_default_shape -> make_default_shape_decl
+typedef var_v -> Vec2f
+typedef var_w -> Vec2i
+typedef var_b -> Box
+
+# ---- implementations, references, hover ----
+# Circle::area is declared in the header and defined in geometry.cpp; which of the two clangd returns depends on its
+# background index, so only the header-only override is pinned down.
+impl Shape_area >= Box_area
+refs Circle_r = Circle_r circle_r_use1 circle_r_use2
+refs Vec2_length_sq_decl >= Vec2_length_sq_def use_length_sq
+hover use_area ~ "area"
+hover use_box_name ~ "name"
+
+# ---- workspace symbols ----
+sym "Vec2" -> Vec2
+sym "make_default_shape" ∋ make_default_shape_def
+sym "Circle" has Circle
+sym "zzzNoSuchSymbol" -> none
+
+# ---- rename on a scratch copy; the corpus is restored after each block ----
+rename Circle_r radius
+  Circle_r circle_r_use1 circle_r_use2
+rename make_default_shape_decl create_shape
+  make_default_shape_decl make_default_shape_def use_make_default_shape
+
+# ---- Visual Studio configuration: the active definition differs ----
+config Debug|x64
+def use_mode -> mode_debug
+config Release|x64
+def use_mode -> mode_release
+fast def use_mode -> mode_debug | mode_release
+
+# ---- edit an open document: answers follow unsaved text (later line first, so line numbers hold) ----
+open src/main.cpp
+edit src/main.cpp:22:1 "  int edited = /*@edited_use*/edited_fn();\n"
+edit src/main.cpp:3:1 "inline int /*@edited_fn*/edited_fn() { return 7; }\n"
+def edited_use -> edited_fn
+fast def edited_use -> edited_fn

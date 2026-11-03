@@ -21,6 +21,7 @@
 #include "app/Editor.h"
 #include "core/CrashHandler.h"
 #include "core/Log.h"
+#include "corpus/Runner.h"
 #include "semantic/CompileCommands.h"
 #include "tenfold_version.h"
 
@@ -40,6 +41,8 @@ void usage() {
          "       tenfold-cli log [<workspace-root>] [--tail N]   (prints the local log; no root: the user-level log)\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
+         "       tenfold-cli corpus <corpus-dir> [--json <file>] [--no-clangd] [--clangd <path>] [--timeout <s>]\n"
+         "                         [--verbose] [--keep]   (checks <dir>/tenfold-expect.txt; docs/TESTING.md)\n"
          "       tenfold-cli --version\n"
          "options:\n"
          "  --clangd <path>     clangd executable (default: clangd bundled next to the editor, else PATH)\n"
@@ -561,6 +564,45 @@ int runBench(int argc, char** argv) {
   return 0;
 }
 
+// Checks a corpus project's tenfold-expect.txt (W9a, docs/TESTING.md). Exit code: 0 all expectations hold (xfail
+// documented), 1 a FAIL or an XPASS, 2 usage / format / setup error.
+int runCorpusCmd(int argc, char** argv) {
+  if (argc < 3) {
+    usage();
+    return 2;
+  }
+  corpus::RunOptions ro;
+  ro.dir = argv[2];
+  std::string jsonPath;
+  for (int i = 3; i < argc; ++i) {
+    std::string a = argv[i];
+    if (a == "--json" && i + 1 < argc) jsonPath = argv[++i];
+    else if (a == "--clangd" && i + 1 < argc) ro.clangdPath = argv[++i];
+    else if (a == "--timeout" && i + 1 < argc) {
+      try {
+        ro.timeoutSec = std::max(1, std::stoi(argv[++i]));
+      } catch (...) {
+        usage();
+        return 2;
+      }
+    } else if (a == "--no-clangd") ro.useClangd = false;
+    else if (a == "--verbose") ro.verbose = true;
+    else if (a == "--keep") ro.keepScratch = true;
+    else {
+      usage();
+      return 2;
+    }
+  }
+  corpus::Report rep = corpus::runCorpus(ro);
+  if (!jsonPath.empty()) {
+    std::ofstream out(jsonPath, std::ios::binary | std::ios::trunc);
+    out << rep.toJson() << "\n";
+    if (!out) std::cerr << "corpus: cannot write " << jsonPath << "\n";
+  }
+  if (!rep.scratch.empty() && ro.keepScratch) std::cerr << "scratch copy kept: " << rep.scratch << "\n";
+  return rep.exitCode();
+}
+
 // Prints <root>/.tenfold/log.txt (or the user-level log without a root), or its last N lines. The path goes to
 // stderr so stdout can be piped. TENFOLD_LOG=debug|info|warn|error|off sets what the tools record.
 int runLog(int argc, char** argv) {
@@ -616,6 +658,7 @@ int main(int argc, char** argv) {
   if (std::strcmp(argv[1], "vsconfig") == 0) return runVsConfig(argc, argv);
   if (std::strcmp(argv[1], "why") == 0) return runWhy(argc, argv);
   if (std::strcmp(argv[1], "bench") == 0) return runBench(argc, argv);
+  if (std::strcmp(argv[1], "corpus") == 0) return runCorpusCmd(argc, argv);
 
   Editor::Options opt;
   bool quiet = false;

@@ -1,0 +1,2 @@
+# Corpus sources are deliberately awkward (anchors /*@name*/token, K&R, odd layouts, ...): never reformat them.
+DisableFormat: true
