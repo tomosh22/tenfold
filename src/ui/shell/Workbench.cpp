@@ -81,7 +81,9 @@ class Workbench::Dock : public Widget {
 // Body above, dock below. Closed, the body takes everything and the divider neither paints nor reacts.
 class Workbench::DockSplit : public Splitter {
  public:
-  DockSplit() : Splitter(Orientation::Vertical) {}
+  // dockFirst: the dock is the first child (a left side dock) instead of the second (the bottom dock).
+  explicit DockSplit(Orientation o = Orientation::Vertical, bool dockFirst = false)
+      : Splitter(o), dockFirst_(dockFirst) {}
   bool open = false;
   bool onEvent(const InputEvent& e) override { return open && Splitter::onEvent(e); }
 
@@ -92,9 +94,17 @@ class Workbench::DockSplit : public Splitter {
   void onLayout() override {
     if (open) return Splitter::onLayout();
     const RectF& b = bounds();
+    if (dockFirst_) {
+      if (first()) first()->layout({b.x, b.y, 0, b.h});
+      if (second()) second()->layout(b);
+      return;
+    }
     if (first()) first()->layout(b);
     if (second()) second()->layout({b.x, b.y + b.h, b.w, 0});
   }
+
+ private:
+  bool dockFirst_;
 };
 
 Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme)
@@ -126,7 +136,14 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   dock->setVisible(false);
   split_->setMinSizes(80, 60);
   split_->setChildren(std::move(body), std::move(dock));
-  addChild(std::move(ds));
+  auto sideDock = std::make_unique<Dock>();
+  sideWidget_ = sideDock.get();
+  sideDock->setVisible(false);
+  auto ss = std::make_unique<DockSplit>(Splitter::Orientation::Horizontal, true);
+  side_ = ss.get();
+  side_->setMinSizes(120, 200);
+  side_->setChildren(std::move(sideDock), std::move(ds));
+  addChild(std::move(ss));
   installTree(makePanel());
 }
 
@@ -195,7 +212,7 @@ void Workbench::onLayout() {
   const float sh = focusMode_ ? 0 : status_->preferredHeight();
   const float tb = topBar_ && !focusMode_ ? topBarH_ : 0;
   if (topBar_) topBar_->layout({b.x, b.y, b.w, tb});
-  split_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
+  side_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
   RectF acc{0, 0, 0, 0};
   if (active_ && panels().size() > 1 && !focusMode_)
@@ -263,7 +280,74 @@ void Workbench::applyDock() {
   dockWidget_->setVisible(open);
   dockWidget_->select(open ? dock_.name : std::string());
   split_->setRatio(1.0f - dock_.height);
+  applySide();
   requestLayout();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Left side dock (W8f): the workspace explorer. Same shape as the bottom dock: hidden until shown, named panels of
+// which one is visible, saved in layout.json under "left".
+// ---------------------------------------------------------------------------------------------------------------
+
+Widget* Workbench::addSidePanel(const std::string& name, std::unique_ptr<Widget> w) {
+  if (Widget* old = sidePanel(name)) sideWidget_->removeChild(old);
+  Widget* raw = sideWidget_->addChild(std::move(w));
+  sideWidget_->panels[name] = raw;
+  applyDock();
+  return raw;
+}
+
+Widget* Workbench::sidePanel(const std::string& name) const {
+  const auto it = sideWidget_->panels.find(name);
+  return it == sideWidget_->panels.end() ? nullptr : it->second;
+}
+
+bool Workbench::sideVisible() const { return side_->open; }
+
+float Workbench::sideWidth() const { return side_->open ? side_->ratio() : sideState_.width; }
+
+void Workbench::setSideWidth(float fraction) {
+  sideState_.width = std::clamp(fraction, 0.05f, 0.7f);
+  applyDock();
+}
+
+RectF Workbench::sideRect() const { return side_->open ? sideWidget_->bounds() : RectF{0, 0, 0, 0}; }
+
+bool Workbench::showSidePanel(const std::string& name) {
+  if (!sidePanel(name)) return false;
+  sideState_.width = sideWidth();
+  sideState_.visible = true;
+  sideState_.name = name;
+  applyDock();
+  return true;
+}
+
+void Workbench::hideSidePanel() {
+  sideState_.width = sideWidth();
+  sideState_.visible = false;
+  applyDock();
+}
+
+bool Workbench::toggleSidePanel(const std::string& name) {
+  if (sideVisible() && sideState_.name == name) {
+    hideSidePanel();
+    return false;
+  }
+  return showSidePanel(name);
+}
+
+void Workbench::applySide() {
+  Widget* w = sidePanel(sideState_.name);
+  const bool open = sideState_.visible && w && !focusMode_;
+  side_->open = open;
+  sideWidget_->setVisible(open);
+  sideWidget_->select(open ? sideState_.name : std::string());
+  side_->setRatio(sideState_.width);
+}
+
+Position Workbench::lastCaretOf(const std::filesystem::path& file) const {
+  const auto it = lastCaret_.find(file.generic_string());
+  return it == lastCaret_.end() ? Position{} : it->second;
 }
 
 Panel* Workbench::splitPanel(Panel* target, Splitter::Orientation o, bool after, int moveId, bool duplicateAll) {
@@ -899,6 +983,8 @@ std::string Workbench::layoutJson() const {
   Json out{{"version", 1}, {"activePanel", static_cast<int>(it - ps.begin())}, {"root", node(node, top_)}};
   if (dock_.visible || !dock_.name.empty())
     out["bottom"] = {{"visible", dock_.visible}, {"panel", dock_.name}, {"height", bottomHeight()}};
+  if (sideState_.visible || !sideState_.name.empty())
+    out["left"] = {{"visible", sideState_.visible}, {"panel", sideState_.name}, {"width", sideWidth()}};
   if (!recent_.empty()) {
     out["recent"] = Json::array();
     for (const fs::path& p : recent_) out["recent"].push_back(rel(p));
@@ -987,6 +1073,14 @@ bool Workbench::restoreLayoutFromJson(const std::string& text) {
     if (b.contains("panel") && b["panel"].is_string()) dock_.name = b["panel"].get<std::string>();
     if (b.contains("height") && b["height"].is_number())
       dock_.height = std::clamp(b["height"].get<float>(), 0.1f, 0.9f);
+  }
+  sideState_ = {};  // a layout without "left" (written before W8f) keeps the side dock hidden
+  if (j.contains("left") && j["left"].is_object()) {
+    const Json& b = j["left"];
+    sideState_.visible = getBool(b, "visible", false);
+    if (b.contains("panel") && b["panel"].is_string()) sideState_.name = b["panel"].get<std::string>();
+    if (b.contains("width") && b["width"].is_number())
+      sideState_.width = std::clamp(b["width"].get<float>(), 0.05f, 0.7f);
   }
   applyDock();
   const int ap = getInt(j, "activePanel", 0);

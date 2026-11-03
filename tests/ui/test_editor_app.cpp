@@ -306,8 +306,6 @@ TEST(app_unimplemented_10x_commands_say_so_and_python_bindings_are_unsupported) 
   Env env("Alt H: HelloWorld()\nAlt J: SomethingUnknown\n");
   env.bench->openFile("a.cpp");
   // A 10x default binding whose command tenfold lacks.
-  CHECK(env.key(Key('E'), ModCtrl | ModShift));  // ToggleWorkspaceExplorer
-  CHECK_EQ(env.app->message(), std::string("not implemented yet: ToggleWorkspaceExplorer"));
   CHECK(env.key(Key('I'), ModCtrl | ModShift));  // ShowTerminal
   CHECK_EQ(env.app->message(), std::string("not implemented yet: ShowTerminal"));
   // The binding with a Python statement: a load warning, and the key says it is unsupported.

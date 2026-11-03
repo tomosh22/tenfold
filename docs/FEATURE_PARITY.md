@@ -116,15 +116,8 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `ToggleWorkspaceExplorer` | `Control Shift E` | Toggle the workspace explorer panel |
 | `NewTerminal` | `Control '` | Create a terminal panel |
 | `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. |
-
-**File**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `ShowInWorkspaceTree` | `Control T` | Show the current file in the workspace tree |
 
 **Edit**
 
@@ -242,7 +235,7 @@ PageDown itself while it is open.
 (10x commands that are in Commands but have no entry in the default key map; they also resolve to `not implemented yet:`
 when bound in a key file.)
 
-- **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ShowInWorkspaceTreeWithToggle`, `ToggleReadOnly`
+- **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ToggleReadOnly`
 - **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
 - **General**: `CreateSecondaryWindow`, `Show10XOutput`, `ClaudeCodeTerminal`, `CursorTerminal`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
@@ -350,7 +343,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | GotoDefColumn | default | Which column a goto definition / build error opens in | M, with the column presets below |
 | GotoDefResolvesTypedefs, GotoFunctionImplementation | false, true | Typedef resolution; a call goes to the implementation, not the declaration | S/M. Result order comes from clangd; check |
 | FindSymbolFuzzyMatching | true | Fuzzy matching in Find Symbol | S. Behaviour exists (always on) |
-| TrackActiveFileInWorkspaceTree | false | Reveal the active file in the workspace tree | Needs a tree; tenfold has none |
 | ShowLineNumbers, MinLineNumberWidth, RelativeLineNumbers | true, 3, false | Line number gutter | S each |
 | ShowCollapseRegionMargin | true | Fold margin | L. Folding does not exist |
 | ShowUpdatedLinesInMargin, ShowUpdatedLinesInScrollBar | true, true | Mark modified lines | S. Version-control marks exist (C3c) but track the VCS base, not unsaved edits |
@@ -386,7 +378,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | BackslashPaths | true | Show paths with backslashes | S |
 | WindowTitle, WorkspaceTextInTitleBar, RememberWindowPosition | Name, Name, true | Window title and position | S each |
 | HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt (and the secondary-menu variants) | false, true, true | Menu bar visibility | Needs a menu bar |
-| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert, EnableWorkspaceTreeDragDrop | true, false, true, true | Floating tool windows and tree drag and drop | Skipped unless tool windows float |
+| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert, EnableWorkspaceTreeDragDrop | true, false, true, true | Floating tool windows and tree drag and drop (the tree exists, W8f, without drag and drop) | Skipped unless tool windows float |
 
 ### Workspace search
 

@@ -68,6 +68,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"nav.statusCounts", SettingType::Bool},
                                              {"keys.import10x", SettingType::Bool},
                                              {"picker.preview", SettingType::Bool},
+                                             {"explorer.trackActiveFile", SettingType::Bool},
                                              {"vcs.diffTool", SettingType::String},
                                              {"vcs.diffToolArgs", SettingType::String}};
   return s;

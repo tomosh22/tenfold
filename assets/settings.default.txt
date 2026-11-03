@@ -78,6 +78,10 @@ keys.import10x = true
 # Symbol search shows a preview of the target line on the right (OPEN_QUESTIONS #6: not documented by 10x).
 picker.preview = true
 
+# Workspace explorer (W8f): keep the active file selected in the tree while the panel is open (10x:
+# TrackActiveFileInWorkspaceTree).
+explorer.trackActiveFile = false
+
 # Version control (C3c). vcs.diffTool: the external diff program of Vcs.DiffFileExternal; empty = auto: on Windows
 # p4merge.exe from PATH, then %ProgramFiles%\Perforce\p4merge.exe; elsewhere p4merge from PATH.
 # vcs.diffToolArgs: its arguments, split like a command line (double quotes group). Placeholders: {base} (temp file

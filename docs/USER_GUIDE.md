@@ -469,6 +469,43 @@ Alt Shift F5: Vcs.RefreshStatus
 
 Not done: blame, commit or stage UI, side-by-side diff inside tenfold.
 
+## Workspace explorer
+
+**Control Shift E** (`ToggleWorkspaceExplorer`) opens the explorer on the left of the window and focuses it; the same key
+closes it. It is a dock like the Build panel: drag its divider to resize it; whether it is open and how wide is saved in
+`.tenfold/layout.json`. It starts closed.
+
+**What it shows.** For a workspace with a `.sln` (the first one in the folder): the solution, its solution folders, the
+projects and each project's files, as the `.vcxproj` lists them (`gen\*.cpp` style wildcards are expanded; items that need
+MSBuild properties other than `$(ProjectDir)` / `$(SolutionDir)` are left out). If the project has a `.vcxproj.filters`
+file, the files sit under its filters (empty filters too); a file the project lists but the filters file does not is at the
+project's top level. Without a filters file the files are grouped by their folders on disk. Folders and filters come first,
+then files, each alphabetical (case-insensitive). Any other workspace shows its folder tree, built from the files the
+workspace scan found, so ignored folders (`.git`, `build`, `node_modules`, ...) are not there.
+
+**Keys** (with the tree focused): Up / Down / PageUp / PageDown / Home / End move the selection; Right expands a folder (or
+moves to its first child), Left collapses it (or moves to the parent); **Enter** opens the selected file through
+`gotoLocation` (so Back returns) and gives the editor the keys, or expands / collapses a folder. Typing filters the tree:
+fuzzy, like the pickers, every space-separated word has to match a name; matching nodes and their folders stay, expanded.
+Backspace edits the filter, Escape clears it, and with no filter Escape gives the keys back to the editor. **Mouse:** a click
+selects, the arrow (or Enter) expands, a double click opens a file, the wheel and the thin scroll bar scroll.
+
+**Colours.** A file that version control reports as modified, added / untracked, checked out or read-only (Perforce) gets
+the same colour and marker as its tab (the `tabVcs*` theme keys); the marker is a square at the right edge. Folders show
+no state.
+
+**Following the workspace.** While the panel is open it rebuilds, at most four times a second, when the workspace scan's
+file list changes (the file watcher) and when the solution, a project or its filters file changes on disk. Expanded
+folders and the selection stay. With `explorer.trackActiveFile = true` the selection follows the active file.
+
+**Show in tree.** **Control T** (`ShowInWorkspaceTree`) opens the panel if needed, expands to the current file, selects it
+and focuses the tree. `ShowInWorkspaceTreeWithToggle` (no default key) does the same but closes the panel when the tree
+already shows that file selected on screen. Both say so in the status bar when the file is in no project of the solution.
+
+Not done: renaming, deleting and creating files in the tree, drag and drop (`EnableWorkspaceTreeDragDrop`), a context menu,
+`.10x` workspaces with their own file lists, a tree of non-C++ projects (a `.csproj` with explicit items works, an
+SDK-style one shows an empty project), version-control state on folders.
+
 ## Building
 
 `Build.Build` (**F7**, 10x's `BuildActiveWorkspace`; also **Ctrl+Shift+B**) runs the workspace build in the background and opens the Build panel at the bottom of
@@ -552,6 +589,7 @@ tests.)
 | `nav.statusCounts` | `false` | bool | Show the back and forward counts in the status bar (an arrow with the number of entries in each direction). |
 | `keys.import10x` | `true` | bool | On Windows, read the 10x key mappings file `%APPDATA%\10x\Settings\KeyMappings.10x_settings` as a key-binding layer. |
 | `picker.preview` | `true` | bool | Symbol search shows a preview of the target line on the right (10x documents nothing about it, OPEN_QUESTIONS #6). |
+| `explorer.trackActiveFile` | `false` | bool | Keep the active file selected in the workspace explorer while it is open (10x: TrackActiveFileInWorkspaceTree). |
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
 <!-- settings:end -->
@@ -711,6 +749,7 @@ differs from the 10x description:
 | --- | --- | --- | --- |
 | `Control Shift X` | `ShowCommandPanel` | `App.CommandPalette` | a list to pick from; it does not take a typed command line |
 | `Alt X` | `OpenCurrentFileInDebugger` | `Debug.OpenInVisualStudio` |  |
+| `Control Shift E` | `ToggleWorkspaceExplorer` | `View.ToggleWorkspaceExplorer` | opens the explorer panel on the left (focused) or closes it; see [Workspace explorer](#workspace-explorer) |
 | `F1` | `InternetSearch` | `Editor.InternetSearch` | the word under the caret or the selection, percent-encoded after `editor.internetSearchCommand` |
 | `Control Shift .` | `ZoomIn` | `View.ZoomIn` | one point per step on the whole UI font, for this session only (not saved) |
 | `Control Shift Comma` | `ZoomOut` | `View.ZoomOut` | one point per step on the whole UI font, for this session only (not saved) |
@@ -728,6 +767,8 @@ differs from the 10x description:
 | `Control S, Control S`; `Control Shift S` | `SaveAll` | `File.SaveAll` | saves every modified open file; a failure is named in the status bar |
 | `Control N` | `NewTextFile` | `File.New` | "Untitled N", line ending from `editor.defaultLineEnding`, UTF-8; saving asks for a path in an input line |
 | `Control Shift Alt /` | `OpenFolderForActivefile` | `File.ShowInFolder` | `explorer /select` (Windows), `open -R` (macOS), `xdg-open` on the folder (Linux) |
+| `Control T` | `ShowInWorkspaceTree` | `View.ShowInWorkspaceTree` | opens the explorer when it is closed, selects the current file and gives the tree the keys |
+| (none) | `ShowInWorkspaceTreeWithToggle` | `View.ShowInWorkspaceTreeWithToggle` | like `ShowInWorkspaceTree`, but closes the explorer when it already shows the file; bind it yourself |
 
 **Edit**
 

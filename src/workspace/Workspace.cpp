@@ -181,6 +181,7 @@ void Workspace::scan(std::function<void(size_t)> progress) {
   sources_.clear();
   headers_.clear();
   others_.clear();
+  ++revision_;
   std::error_code ec;
   auto opts = fs::directory_options::skip_permission_denied;
   if (settings_.followSymlinks) opts |= fs::directory_options::follow_directory_symlink;
@@ -214,6 +215,7 @@ bool Workspace::noteFileAdded(const fs::path& p) {
   auto it = std::lower_bound(list->begin(), list->end(), p);
   if (it != list->end() && *it == p) return false;
   list->insert(it, p);
+  ++revision_;
   return true;
 }
 
@@ -226,6 +228,7 @@ bool Workspace::noteFileRemoved(const fs::path& p) {
       changed = true;
     }
   }
+  if (changed) ++revision_;
   return changed;
 }
 

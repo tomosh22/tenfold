@@ -74,6 +74,8 @@ class Workspace {
   const std::vector<std::filesystem::path>& headerFiles() const { return headers_; }
   const std::vector<std::filesystem::path>& otherFiles() const { return others_; }
   std::vector<std::filesystem::path> codeFiles() const;  // sources + headers
+  // Bumped by every scan() and by every incremental change that altered a list; the workspace explorer polls it.
+  uint64_t revision() const { return revision_; }
   size_t fileCount() const { return sources_.size() + headers_.size() + others_.size(); }
 
   // Incremental maintenance of the file lists (used by the file watcher; call
@@ -107,6 +109,7 @@ class Workspace {
   std::filesystem::path root_;
   Settings settings_;
   std::vector<std::filesystem::path> sources_, headers_, others_;
+  uint64_t revision_ = 0;
 };
 
 std::string findExecutable(const std::string& name);
