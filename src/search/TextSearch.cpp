@@ -50,22 +50,52 @@ void SearchHandle::wait() const {
 
 namespace {
 
-bool globRec(const char* p, const char* pe, const char* s, const char* se) {
+// (pattern position, text position) pairs known not to match. Without it a pattern with several `*` / `**` groups
+// ("**/**/**/**/x") backtracks exponentially: every group retries every later group at every text position.
+struct GlobMemo {
+  const char *p0, *s0;
+  size_t cols;
+  std::vector<bool> failed;
+  // For a `*` / `**` group (by the pattern position after it): a text range [from, until] such that trying every
+  // position from `from` to the end of the group's reach failed; a start anywhere inside it fails as well. This keeps
+  // the retry loops of the groups linear instead of quadratic.
+  struct Failed {
+    size_t from = SIZE_MAX, until = 0;
+  };
+  std::vector<Failed> starFailed;
+  size_t index(const char* p, const char* s) const {
+    return static_cast<size_t>(p - p0) * cols + static_cast<size_t>(s - s0);
+  }
+};
+
+bool globRec(const char* p, const char* pe, const char* s, const char* se, GlobMemo* memo);
+
+bool globBody(const char* p, const char* pe, const char* s, const char* se, GlobMemo* memo) {
   while (p < pe) {
     if (*p == '*') {
-      if (p + 1 < pe && p[1] == '*') {
+      const bool deep = p + 1 < pe && p[1] == '*';
+      if (deep) {
         while (p < pe && *p == '*') ++p;
-        if (p < pe && *p == '/' && globRec(p + 1, pe, s, se)) return true;  // "**/" may match zero directories
-        for (const char* t = s;; ++t) {
-          if (globRec(p, pe, t, se)) return true;
-          if (t == se) break;
-        }
-        return false;
+        if (p < pe && *p == '/' && globRec(p + 1, pe, s, se, memo)) return true;  // "**/" may match zero directories
+      } else {
+        ++p;
       }
-      ++p;
+      GlobMemo::Failed* failed = memo ? &memo->starFailed[static_cast<size_t>(p - memo->p0)] : nullptr;
+      const size_t at = memo ? static_cast<size_t>(s - memo->s0) : 0;
+      if (failed && at >= failed->from && at <= failed->until) return false;
+      // The positions this group may skip to: everything for `**`, up to the next '/' for `*`.
+      const char* reach = se;
+      if (!deep) {
+        const void* slash = std::memchr(s, '/', static_cast<size_t>(se - s));
+        if (slash) reach = static_cast<const char*>(slash);
+      }
       for (const char* t = s;; ++t) {
-        if (globRec(p, pe, t, se)) return true;
-        if (t == se || *t == '/') break;
+        if (globRec(p, pe, t, se, memo)) return true;
+        if (t == reach) break;
+      }
+      if (failed) {
+        failed->from = at;
+        failed->until = static_cast<size_t>(reach - memo->s0);
       }
       return false;
     }
@@ -81,10 +111,35 @@ bool globRec(const char* p, const char* pe, const char* s, const char* se) {
   return s == se;
 }
 
+bool globRec(const char* p, const char* pe, const char* s, const char* se, GlobMemo* memo) {
+  if (!memo) return globBody(p, pe, s, se, memo);
+  const size_t at = memo->index(p, s);
+  if (memo->failed[at]) return false;
+  if (globBody(p, pe, s, se, memo)) return true;
+  memo->failed[at] = true;
+  return false;
+}
+
 }  // namespace
 
 bool TextSearch::globMatch(std::string_view pattern, std::string_view path) {
-  return globRec(pattern.data(), pattern.data() + pattern.size(), path.data(), path.data() + path.size());
+  const char* p = pattern.data();
+  const char* pe = p + pattern.size();
+  const char* s = path.data();
+  const char* se = s + path.size();
+  // One `*` group backtracks only linearly; the memo is for patterns with two or more (checked cheaply: the common
+  // "*.cpp" / "build" filters run for every file of a search and must not allocate).
+  size_t groups = 0;
+  for (const char* q = p; q < pe && groups < 2; ++q)
+    if (*q == '*') {
+      ++groups;
+      while (q + 1 < pe && q[1] == '*') ++q;
+    }
+  if (groups < 2 || (pattern.size() + 1) * (path.size() + 1) > (size_t{1} << 28)) return globRec(p, pe, s, se, nullptr);
+  GlobMemo memo{p, s, path.size() + 1, {}, {}};
+  memo.failed.assign((pattern.size() + 1) * memo.cols, false);
+  memo.starFailed.assign(pattern.size() + 1, GlobMemo::Failed{});
+  return globRec(p, pe, s, se, &memo);
 }
 
 bool TextSearch::pathMatchesGlob(std::string_view pat, std::string_view rel) {

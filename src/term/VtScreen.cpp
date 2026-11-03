@@ -522,7 +522,7 @@ void VtScreen::moveTo(int row, int col) {
 }
 
 void VtScreen::tab(int n) {
-  while (n-- > 0) {
+  while (n-- > 0 && curCol_ < cols_ - 1) {  // stop at the last column: "CSI 999999999 I" otherwise spins for seconds
     int c = curCol_ + 1;
     while (c < cols_ - 1 && !tabs_[static_cast<size_t>(c)]) ++c;
     curCol_ = std::min(c, cols_ - 1);
@@ -532,7 +532,7 @@ void VtScreen::tab(int n) {
 }
 
 void VtScreen::backTab(int n) {
-  while (n-- > 0) {
+  while (n-- > 0 && curCol_ > 0) {
     int c = curCol_ - 1;
     while (c > 0 && !tabs_[static_cast<size_t>(c)]) --c;
     curCol_ = std::max(c, 0);

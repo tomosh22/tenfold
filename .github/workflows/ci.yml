@@ -493,3 +493,55 @@ jobs:
             build-pkg/tenfold-*.dmg
             build-pkg/appimage/*.AppImage
           if-no-files-found: error
+
+  # W9h: the regression inputs of tests/fuzz/regressions replayed through every harness, then every fuzz target for 30 s
+  # with a fixed seed (gcc, ASan + UBSan, coverage feedback). Longer runs: docs/TESTING.md ("Fuzzing").
+  linux-fuzz:
+    name: linux-gcc-asan-fuzz
+    runs-on: ubuntu-24.04
+    timeout-minutes: 75
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Ninja (pip)
+        run: |
+          python -m pip install "ninja==${NINJA_VERSION}"
+          python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
+
+      - name: Install X11, GL and FreeType development packages (the UI library is part of tenfold-fuzz)
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends libgl-dev libx11-dev libxext-dev libxcursor-dev libxi-dev \
+            libxrandr-dev libxfixes-dev libxss-dev libxkbcommon-dev libxrender-dev libfreetype-dev
+
+      - name: Configure
+        env:
+          CC: gcc
+          CXX: g++
+        run: >
+          cmake -S . -B build-fuzz -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=undefined -fno-omit-frame-pointer -O1 -g"
+          -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
+          -DTENFOLD_FUZZ_COVERAGE=ON -DTENFOLD_BUILD_UI=ON
+
+      - name: Build
+        run: cmake --build build-fuzz --parallel --target tenfold-fuzz
+
+      - name: Replay the regression inputs
+        run: ./build-fuzz/tests/fuzz/tenfold-fuzz --replay tests/fuzz/regressions
+
+      - name: Fuzz every target for 30 s (seed 1)
+        run: tests/fuzz/run_all.sh ./build-fuzz/tests/fuzz/tenfold-fuzz 30 1
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: fuzz-findings
+          path: |
+            fuzz-out/
+            fuzz-out.*.log
+          if-no-files-found: ignore

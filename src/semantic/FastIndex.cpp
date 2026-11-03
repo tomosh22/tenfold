@@ -88,6 +88,7 @@ class Extractor {
   }
 
   void emit(const Token& nameTok, std::string name, SymbolKind kind, bool definition, std::string scope = "\x01") {
+    if (name.empty()) return;  // a declarator cut off after "::" (`int a::,`) has no name to index
     Symbol s;
     s.name = std::move(name);
     s.scope = scope == "\x01" ? scopeName() : std::move(scope);

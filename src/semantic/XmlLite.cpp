@@ -1,5 +1,6 @@
 #include "semantic/XmlLite.h"
 
+#include <charconv>
 #include <fstream>
 #include <sstream>
 
@@ -44,9 +45,18 @@ std::string decodeEntities(std::string_view s) {
     else if (ent == "gt") out += '>';
     else if (ent == "quot") out += '"';
     else if (ent == "apos") out += '\'';
-    else if (!ent.empty() && ent[0] == '#') {
-      unsigned long cp = ent[1] == 'x' || ent[1] == 'X' ? std::stoul(std::string(ent.substr(2)), nullptr, 16)
-                                                        : std::stoul(std::string(ent.substr(1)));
+    else if (ent.size() > 1 && ent[0] == '#') {
+      // A character reference with no digits, junk after them or a value beyond Unicode stays as written (stoul threw
+      // on "&#zz;" and "&#99999999999;", and `ent[1]` read past a lone "&#;").
+      const bool hex = ent[1] == 'x' || ent[1] == 'X';
+      const std::string_view digits = ent.substr(hex ? 2 : 1);
+      unsigned long cp = 0;
+      const auto [end, ec] = std::from_chars(digits.data(), digits.data() + digits.size(), cp, hex ? 16 : 10);
+      if (digits.empty() || ec != std::errc() || end != digits.data() + digits.size() || cp > 0x10FFFF) {
+        out += s.substr(i, semi - i + 1);
+        i = semi;
+        continue;
+      }
       if (cp < 0x80) out += static_cast<char>(cp);
       else if (cp < 0x800) {
         out += static_cast<char>(0xC0 | (cp >> 6));

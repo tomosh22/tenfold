@@ -50,6 +50,11 @@ class JsonRpcConnection {
   // Protocol-level trace (every message in/out) for debugging.
   void setTrace(std::function<void(const std::string& dir, const Json&)> t) { trace_ = std::move(t); }
 
+  // The reader thread's framing step: consumes every complete Content-Length frame at the front of `buf` and
+  // dispatches it; a partial frame stays in `buf`. Public so that the fuzz harness (tests/fuzz) can feed garbled
+  // streams without a child process.
+  void processBuffer(std::string& buf);
+
  private:
   void readerLoop();
   void dispatch(Json msg);

@@ -1,0 +1,7 @@
+**/**.c\R
+src/.cpp
+#--#
+[
+#--#
+**/*.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/ic/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/..c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.c/.cpp
+sr[/ab.cpp

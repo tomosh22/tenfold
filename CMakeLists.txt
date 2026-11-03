@@ -194,6 +194,9 @@ add_executable(tenfold-corpus-tests tests/test_main.cpp tests/test_corpus_run.cp
 target_link_libraries(tenfold-corpus-tests PRIVATE tenfold_core)
 target_compile_definitions(tenfold-corpus-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 
+# Fuzzing (W9h): harnesses, the tenfold-fuzz driver, regression replay inside tenfold-tests (tests/fuzz/CMakeLists.txt).
+add_subdirectory(tests/fuzz)
+
 # ---- UI (experimental): SDL3 window + OpenGL 3.3 renderer. Off by default; the engine never depends on it. ----
 option(TENFOLD_BUILD_UI "Build the SDL3/OpenGL UI (tenfold-ui, tenfold-ui-tests)" OFF)
 # Direct3D 11 backend (Windows only): the default renderer of tenfold-ui there; --renderer=gl still selects OpenGL.
@@ -410,6 +413,10 @@ if(TENFOLD_BUILD_UI)
   add_dependencies(tenfold-ui-tests tenfold-fake-p4)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_FAKE_P4="$<TARGET_FILE:tenfold-fake-p4>")
   add_test(NAME ui-unit COMMAND tenfold-ui-tests)
+  # Fuzz harnesses of layout.json and the explorer readers (tests/fuzz): part of tenfold-fuzz and tenfold-ui-tests.
+  if(COMMAND tenfold_fuzz_add_ui_targets)
+    tenfold_fuzz_add_ui_targets()
+  endif()
 endif()
 
 # ---- Packaging: install() rules, bundled clangd, CPack (cmake/TenfoldPackage.cmake) ----
