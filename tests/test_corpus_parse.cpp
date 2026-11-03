@@ -1,6 +1,12 @@
 // W9a corpus format: the anchor scanner, the expectation parser, the comparison rules and the statistics. No engine,
 // no clangd.
 #include <algorithm>
+#include <filesystem>
+#include <fstream>
+#include <string>
+#if !defined(_WIN32)
+#include <unistd.h>
+#endif
 
 #include "corpus/Corpus.h"
 #include "test_main.h"
@@ -317,4 +323,40 @@ TEST(corpus_status_and_statistics) {
   CHECK_EQ(s.max, 100.0);
   s = computeStats({2, 4});
   CHECK_EQ(s.median, 3.0);
+}
+
+// W9-FIX-ENC: the scanner splits lines like clang (CRLF, LF, lone CR) and does not follow symlinks (W9e H1/H3).
+TEST(corpus_anchor_scanner_ends_lines_at_lone_cr_and_crlf) {
+  auto m = scan("cr.c", "int /*@a*/aa;\rint /*@b*/bb;\r\nint /*@c*/cc;\nint /*@d*/dd;\r");
+  REQUIRE(m.size() == 4);
+  CHECK_EQ(m["a"].line, 0);
+  CHECK_EQ(m["b"].line, 1);
+  CHECK_EQ(m["c"].line, 2);
+  CHECK_EQ(m["d"].line, 3);
+  CHECK_EQ(m["b"].col, 10);
+  std::vector<std::string> errs;
+  scan("e.c", "int /*@x*/\rint y;\r", &errs);  // an anchor at the end of its (CR) line is still an error
+  CHECK(hasError(errs, "no token"));
+}
+
+TEST(corpus_anchor_scanner_skips_symlinks) {
+#if !defined(_WIN32)
+  namespace fs = std::filesystem;
+  fs::path d = fs::temp_directory_path() / ("tf_scan_links_" + std::to_string(::getpid()));
+  std::error_code ec;
+  fs::remove_all(d, ec);
+  fs::create_directories(d / "real");
+  std::ofstream(d / "real/a.h") << "int /*@only_once*/x;\n";
+  fs::create_directory_symlink("real", d / "linked_dir", ec);
+  fs::create_symlink("real/a.h", d / "linked_file.h", ec);
+  if (!ec) {
+    AnchorMap m;
+    std::vector<std::string> errs;
+    CHECK(scanAnchors(d, m, errs));
+    CHECK(errs.empty());
+    CHECK_EQ(m.size(), size_t(1));
+    CHECK_EQ(m["only_once"].file, std::string("real/a.h"));
+  }
+  fs::remove_all(d, ec);
+#endif
 }

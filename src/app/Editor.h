@@ -530,6 +530,7 @@ class Editor {
   std::string clangdStatus_;
   NavigationHistory nav_;
   std::unique_ptr<VcsManager> vcs_;
+  void noteSaveEncoding(const Document& doc);
   bool reloading_ = false;  // reloadFromDisk is replacing the buffer: not a user edit (VcsManager must not see it)
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;

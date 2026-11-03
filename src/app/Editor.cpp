@@ -349,6 +349,7 @@ bool Editor::save(Document& doc, std::string* error) {
     }
   }
   if (!doc.saveToDisk(error)) return false;
+  noteSaveEncoding(doc);
   saveBookmarks();
   saveBreakpoints();
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
@@ -391,6 +392,7 @@ bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error) {
     doc.setPath(oldPath);  // cannot happen with a path that was just checked, but never leave a half-renamed document
     return false;
   }
+  noteSaveEncoding(doc);
   auto owned = std::move(it->second);
   docs_.erase(it);
   const std::string key = docKey(path);
@@ -406,6 +408,11 @@ bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error) {
   return true;
 }
 
+// A save that had to switch the file's encoding to UTF-8 (a character the old code page cannot hold) is logged.
+void Editor::noteSaveEncoding(const Document& doc) {
+  if (!doc.saveNote().empty() && opt_.log) opt_.log("warning: " + doc.saveNote());
+}
+
 bool Editor::reloadFromDisk(Document& doc, std::string* error) {
   struct ReloadScope {
     bool& flag;
@@ -414,7 +421,7 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
   } reloadScope(reloading_);
   std::string bytes;
   if (!readRegularFile(doc.path(), bytes, error)) return false;
-  TextBuffer fresh(bytes);
+  TextBuffer fresh(decodeFileBytes(bytes).text);  // the same UTF-8 view of the file that loadFromDisk builds
   const TextBuffer& old = doc.buffer();
   const int oldN = old.lineCount(), newN = fresh.lineCount();
   // Replace only the lines that differ so history entries and clangd keep their place.

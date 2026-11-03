@@ -1,4 +1,4 @@
-# Testing tenfold
+#Testing tenfold
 
 Tenfold's code intelligence is judged against **corpus projects**: small C/C++ projects under `tests/corpus/<name>/`
 whose sources carry *anchors* and whose `tenfold-expect.txt` states what go to definition, references, hover and the
@@ -21,10 +21,14 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build tenfol
 
 ./build/tenfold-cli corpus tests/corpus/seed                       # one project, report on stdout
 ./build/tenfold-cli corpus tests/corpus/seed --json seed.json      # plus the JSON report
-./build/tenfold-cli corpus tests/corpus/seed --no-clangd           # fast-tier expectations only; the rest are SKIP
-./build/tenfold-cli corpus <dir> --timeout 600 --verbose --keep    # time limit (s), engine log, keep the scratch copy
+./build/tenfold-cli corpus tests/corpus/seed --no-clangd           # fast-tier expectations only;
+the rest are SKIP./ build / tenfold - cli corpus<dir> --timeout 600 --verbose-- keep #time limit(s), engine log,
+    keep the scratch copy
 
-./build/tenfold-corpus-tests                                       # every tests/corpus/*/ (skipped without clangd)
+                ./
+            build / tenfold
+        - corpus -
+        tests #every tests / corpus /*/ (skipped without clangd)
 TENFOLD_CORPUS_ONLY=seed TENFOLD_CORPUS_REPORT_DIR=reports ./build/tenfold-corpus-tests
 ```
 
@@ -42,15 +46,16 @@ generated compile database, clangd logs) never touch the repository. `--keep` pr
 ## Writing a corpus
 
 1. Make `tests/corpus/<name>/` with the sources and whatever tells tenfold how to compile them:
-   * a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this),
-   * or a `compile_commands.json` (git ignores that file name by default; `.gitignore` has an exception for
-     `tests/corpus/`). Use relative paths or `@CORPUS_ROOT@` in it: the runner replaces that text with the scratch copy's
-     path in every `compile_commands.json` it copies. `"directory": "@CORPUS_ROOT@"`, `"file": "@CORPUS_ROOT@/src/a.cpp"`.
-   * or nothing: tenfold then guesses include directories like it does for any folder.
-2. Put **anchors** in the sources, as a comment directly before the token: `/*@name*/token`.
-   `int /*@area_def*/area() const` anchors the `a` of `area`. Anchors must not change what the code means.
-3. Write `tenfold-expect.txt` at the project root.
-4. Run `tenfold-cli corpus tests/corpus/<name>`; fix the anchors until the output is what you mean, then decide for every
+* a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this),
+* or a `compile_commands.json` (git ignores that file name by default; `.gitignore` has an exception for
+`tests/corpus/`). Use relative paths or `@CORPUS_ROOT@` in it: the runner replaces that text with the scratch copy's
+path in every `compile_commands.json` it copies. `"directory": "@CORPUS_ROOT@"`, `"file": "@CORPUS_ROOT@/src/a.cpp"`.
+* or nothing: tenfold then guesses include directories like it does for any folder.
+2. Put **anchors** in the sources, as a comment directly before the token: `/*@name*/
+                             token`.
+   `int /*@area_def*/ area() const` anchors the `a` of `area`.Anchors must
+                             not change what the code means.3. Write `tenfold
+        - expect.txt` at the project root.4. Run `tenfold - cli corpus tests / corpus / <name>`; fix the anchors until the output is what you mean, then decide for every
    `FAIL` whether tenfold is wrong (keep it failing and file it, or mark it `xfail` with the reason) or the expectation is.
 
 Anchor rules:
@@ -70,7 +75,8 @@ Anchor rules:
 
 ## The expectation file
 
-One expectation per line; blank lines and lines starting with `#` are ignored, and `#` after the expectation starts a
+One expectation per line;
+blank lines and lines starting with `#` are ignored, and `#` after the expectation starts a
 trailing comment. `A`, `B`, `C` are anchors.
 
 | line | meaning |
@@ -190,8 +196,14 @@ Where `docs/IMPLEMENTATION_PLAN.md` (W9) left room, the harness does this:
 10. **Agreement** compares `file:line` sets at every `def`/`decl` line; `rate` is `agree / queries`.
 11. **Hover** is the raw text clangd returns (markdown); `~` is a plain substring test.
 12. **`@CORPUS_ROOT@`** in a copied `compile_commands.json` names the scratch copy.
-13. Not handled yet: a UTF-8 BOM on the first line shifts the anchors of line 1 by three bytes in the scan but not
-    necessarily in the document (found by the format corpora when they add such a file).
+13. Encodings and line endings: a line ends at `\r\n`, `\n` or a lone `\r` (the scanner, `TextBuffer` and clang agree).
+    Files are scanned as the UTF-8 text tenfold shows: a Latin-1 / UTF-16 file is decoded first (`core/TextEncoding.h`), so
+    anchor columns are byte offsets of that text (for UTF-8 files: of the file as stored). A UTF-8 BOM stays in line 1 and
+    its three bytes count in the columns of line 1 (clangd's do too). Symbolic links are copied as links and are neither
+    followed nor scanned, so their targets' anchors appear once; `tests/corpus/symlinks` needs a checkout that creates
+    symlinks and is skipped on Windows (marker file `tenfold-corpus-linux-only`).
+14. An exception thrown by the engine while an expectation runs makes that line a `FAIL` (note `exception: ...`); the run
+    and the report continue.
 
 ## Pathological workspaces
 
@@ -227,7 +239,7 @@ python3 tools/stress/gen_pathological.py --out /tmp/patho --scale full --scenari
 ```sh
 cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build-rel tenfold-cli tenfold-tests
 python3 tools/stress/run_pathological.py --build build-rel --scale full --clangd --md-out /tmp/stress.md
-# sanitizer build, smaller sizes
+#sanitizer build, smaller sizes
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined"
 ninja -C build-asan tenfold-cli tenfold-tests
 python3 tools/stress/run_pathological.py --build build-asan --scale asan --timeout 900

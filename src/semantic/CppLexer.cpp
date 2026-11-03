@@ -120,6 +120,100 @@ bool CppLexer::isKeyword(std::string_view s) {
   return kw.count(s) > 0;
 }
 
+bool CppLexer::isCKeyword(std::string_view s) {
+  static const std::unordered_set<std::string_view> kw = {"alignas",
+                                                          "alignof",
+                                                          "asm",
+                                                          "auto",
+                                                          "bool",
+                                                          "break",
+                                                          "case",
+                                                          "char",
+                                                          "const",
+                                                          "constexpr",
+                                                          "continue",
+                                                          "default",
+                                                          "do",
+                                                          "double",
+                                                          "else",
+                                                          "enum",
+                                                          "extern",
+                                                          "false",
+                                                          "float",
+                                                          "for",
+                                                          "goto",
+                                                          "if",
+                                                          "inline",
+                                                          "int",
+                                                          "long",
+                                                          "nullptr",
+                                                          "register",
+                                                          "restrict",
+                                                          "return",
+                                                          "short",
+                                                          "signed",
+                                                          "sizeof",
+                                                          "static",
+                                                          "static_assert",
+                                                          "struct",
+                                                          "switch",
+                                                          "thread_local",
+                                                          "true",
+                                                          "typedef",
+                                                          "typeof",
+                                                          "union",
+                                                          "unsigned",
+                                                          "void",
+                                                          "volatile",
+                                                          "while",
+                                                          "_Alignas",
+                                                          "_Alignof",
+                                                          "_Atomic",
+                                                          "_Bool",
+                                                          "_Complex",
+                                                          "_Generic",
+                                                          "_Imaginary",
+                                                          "_Noreturn",
+                                                          "_Static_assert",
+                                                          "_Thread_local",
+                                                          "_Pragma",
+                                                          "__declspec",
+                                                          "__attribute__",
+                                                          "__forceinline",
+                                                          "__inline",
+                                                          "__cdecl",
+                                                          "__stdcall",
+                                                          "__fastcall",
+                                                          "__vectorcall",
+                                                          "__restrict",
+                                                          "__pragma",
+                                                          "__int64",
+                                                          "__int32",
+                                                          "__int16",
+                                                          "__int8",
+                                                          "__asm",
+                                                          "__try",
+                                                          "__except",
+                                                          "__finally",
+                                                          "__leave",
+                                                          "__uuidof",
+                                                          "__alignof",
+                                                          "__builtin_offsetof"};
+  return kw.count(s) > 0;
+}
+
+bool CppLexer::nlAt(size_t k) const {
+  const char c = s_[k];
+  return c == '\n' || (c == '\r' && (k + 1 >= s_.size() || s_[k + 1] != '\n'));
+}
+
+size_t CppLexer::contLen(size_t k) const {
+  if (s_[k] != '\\' || k + 1 >= s_.size()) return 0;
+  if (s_[k + 1] == '\n') return 2;
+  if (s_[k + 1] == '\r') return (k + 2 < s_.size() && s_[k + 2] == '\n') ? 3 : 2;
+  return 0;
+}
+
 Token CppLexer::make(Tok k, size_t start, int line, int col) const {
   return Token{k, s_.substr(start, i_ - start), line, col};
 }
@@ -127,24 +221,23 @@ Token CppLexer::make(Tok k, size_t start, int line, int col) const {
 void CppLexer::skipSpaceAndComments() {
   while (i_ < s_.size()) {
     char c = s_[i_];
-    if (c == '\n') {
+    if (nlAt(i_)) {
       ++i_;
       ++line_;
       lineStart_ = i_;
       atLineStart_ = true;
     } else if (c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v') {
       ++i_;
-    } else if (c == '\\' && i_ + 1 < s_.size() &&
-               (s_[i_ + 1] == '\n' || (s_[i_ + 1] == '\r' && i_ + 2 < s_.size() && s_[i_ + 2] == '\n'))) {
+    } else if (size_t n = contLen(i_)) {
       // line continuation outside a directive
-      i_ += s_[i_ + 1] == '\n' ? 2 : 3;
+      i_ += n;
       ++line_;
       lineStart_ = i_;
     } else if (c == '/' && i_ + 1 < s_.size() && s_[i_ + 1] == '/') {
-      while (i_ < s_.size() && s_[i_] != '\n') {
-        if (s_[i_] == '\\' && i_ + 1 < s_.size() && s_[i_ + 1] == '\n') {
+      while (i_ < s_.size() && !nlAt(i_)) {
+        if (size_t n = contLen(i_)) {
           ++line_;
-          i_ += 2;
+          i_ += n;
           lineStart_ = i_;
           continue;
         }
@@ -153,7 +246,7 @@ void CppLexer::skipSpaceAndComments() {
     } else if (c == '/' && i_ + 1 < s_.size() && s_[i_ + 1] == '*') {
       i_ += 2;
       while (i_ < s_.size() && !(s_[i_] == '*' && i_ + 1 < s_.size() && s_[i_ + 1] == '/')) {
-        if (s_[i_] == '\n') {
+        if (nlAt(i_)) {
           ++line_;
           lineStart_ = i_ + 1;
         }
@@ -177,15 +270,9 @@ Token CppLexer::next() {
 
   // Preprocessor directive: '#' as first non-space char on the line.
   if (c == '#' && atLineStart_) {
-    while (i_ < s_.size() && s_[i_] != '\n') {
-      if (s_[i_] == '\\' && peek(1) == '\n') {
-        i_ += 2;
-        ++line_;
-        lineStart_ = i_;
-        continue;
-      }
-      if (s_[i_] == '\\' && peek(1) == '\r' && peek(2) == '\n') {
-        i_ += 3;
+    while (i_ < s_.size() && !nlAt(i_)) {
+      if (size_t n = contLen(i_)) {
+        i_ += n;
         ++line_;
         lineStart_ = i_;
         continue;
@@ -193,7 +280,7 @@ Token CppLexer::next() {
       if (s_[i_] == '/' && peek(1) == '*') {  // block comment inside directive
         i_ += 2;
         while (i_ < s_.size() && !(s_[i_] == '*' && peek(1) == '/')) {
-          if (s_[i_] == '\n') {
+          if (nlAt(i_)) {
             ++line_;
             lineStart_ = i_ + 1;
           }
@@ -203,7 +290,7 @@ Token CppLexer::next() {
         continue;
       }
       if (s_[i_] == '/' && peek(1) == '/') {
-        while (i_ < s_.size() && s_[i_] != '\n') ++i_;
+        while (i_ < s_.size() && !nlAt(i_)) ++i_;
         break;
       }
       ++i_;
@@ -236,7 +323,7 @@ Token CppLexer::next() {
           i_ = s_.size();
         } else {
           for (size_t k = i_; k < end; ++k)
-            if (s_[k] == '\n') {
+            if (nlAt(k)) {
               ++line_;
               lineStart_ = k + 1;
             }
@@ -246,7 +333,7 @@ Token CppLexer::next() {
       }
       char quote = q;
       ++i_;
-      while (i_ < s_.size() && s_[i_] != quote && s_[i_] != '\n') {
+      while (i_ < s_.size() && s_[i_] != quote && !nlAt(i_)) {
         if (s_[i_] == '\\') ++i_;
         ++i_;
       }
@@ -254,7 +341,7 @@ Token CppLexer::next() {
       return make(quote == '"' ? Tok::String : Tok::Char, start, line, col);
     }
     i_ = j;
-    return make(isKeyword(word) ? Tok::Keyword : Tok::Identifier, start, line, col);
+    return make((isC_ ? isCKeyword(word) : isKeyword(word)) ? Tok::Keyword : Tok::Identifier, start, line, col);
   }
 
   // Number.
@@ -279,7 +366,7 @@ Token CppLexer::next() {
   // String / char.
   if (c == '"' || c == '\'') {
     ++i_;
-    while (i_ < s_.size() && s_[i_] != c && s_[i_] != '\n') {
+    while (i_ < s_.size() && s_[i_] != c && !nlAt(i_)) {
       if (s_[i_] == '\\') ++i_;
       ++i_;
     }

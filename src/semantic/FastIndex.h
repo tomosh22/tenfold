@@ -57,7 +57,10 @@ struct FileSymbols {
 // resolution. Fast (hundreds of MB/s/core) and deliberately over-inclusive:
 // it indexes every #if branch and never needs compile flags. Its results are
 // APPROXIMATE; clangd is the source of truth (see SemanticEngine).
-std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes = nullptr);
+// `isC`: the file is C (.c), where class, delete, new, template, this, namespace ... are plain identifiers.
+std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes = nullptr,
+                                   bool isC = false);
+bool isCSourceFile(const std::filesystem::path& file);
 
 class FastIndex {
  public:

@@ -6,6 +6,7 @@
 #include <mutex>
 #include <sstream>
 
+#include "core/JsonUtil.h"
 #include "semantic/FastIndexStore.h"
 
 namespace tf {
@@ -55,12 +56,20 @@ const char* lspSymbolKindName(int k) {
   }
 }
 
+// The raw bytes of line `line` of a file; lines end at "\r\n", "\n" or a lone '\r' (like clang's).
 std::string readLineOfFile(const fs::path& p, int line) {
   std::ifstream in(p, std::ios::binary);
-  std::string s;
-  for (int i = 0; i <= line && std::getline(in, s); ++i) {}
-  if (!s.empty() && s.back() == '\r') s.pop_back();
-  return s;
+  std::stringstream ss;
+  ss << in.rdbuf();
+  const std::string all = ss.str();
+  size_t i = 0;
+  for (int l = 0; l < line && i < all.size(); ++l) {
+    while (i < all.size() && all[i] != '\n' && all[i] != '\r') ++i;
+    if (i < all.size()) i += (all[i] == '\r' && i + 1 < all.size() && all[i + 1] == '\n') ? 2 : 1;
+  }
+  size_t e = i;
+  while (e < all.size() && all[e] != '\n' && all[e] != '\r') ++e;
+  return all.substr(i, e - i);
 }
 
 std::string languageIdFor(const fs::path& p) {
@@ -234,7 +243,7 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     if (!sharedFlags.empty()) {
       cfg << "CompileFlags:\n";
       cfg << "  Add:\n";
-      for (auto& f : sharedFlags) cfg << "    - " << Json(f).dump() << "\n";
+      for (auto& f : sharedFlags) cfg << "    - " << dumpSafe(Json(f)) << "\n";
     }
     cfg << "Index:\n  Background: Build\n";
     std::string current;
@@ -364,9 +373,7 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   lo.env.emplace_back("LOCALAPPDATA", (ws_.cacheDir() / "clangd-config").string());
 #endif
   if (opt_.traceLsp) {
-    lo.trace = [this](const std::string& dir, const Json& j) {
-      log(dir + " " + j.dump(-1, ' ', false, Json::error_handler_t::replace).substr(0, 400));
-    };
+    lo.trace = [this](const std::string& dir, const Json& j) { log(dir + " " + dumpSafe(j).substr(0, 400)); };
   }
 
   auto c = std::make_shared<LspClient>();
@@ -660,7 +667,7 @@ void SemanticEngine::fileChanged(const fs::path& file, bool includeOpen) {
     fast_.removeFile(file);  // vanished (or turned into a directory / device) between the event and now
     return;
   }
-  fast_.updateFile(file, text);
+  fast_.updateFile(file, isValidUtf8(text) ? text : decodeFileBytes(text).text);
 }
 
 void SemanticEngine::fileRemoved(const fs::path& file, bool includeOpen) {
@@ -706,7 +713,7 @@ void SemanticEngine::reopenDocuments(LspClient& c) {
     std::lock_guard<std::mutex> lk(mu_);
     for (auto& [uri, d] : openDocs_) docs.push_back(d);
   }
-  for (auto* d : docs) c.didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().text());
+  for (auto* d : docs) c.didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().textForLsp());
   for (auto* d : docs) scheduleTokens(*d);
 }
 
@@ -938,19 +945,51 @@ Position SemanticEngine::toServer(const Document& doc, Position p) const {
   return {p.line, TextBuffer::utf8ToUtf16Column(doc.buffer().line(p.line), p.column)};
 }
 
+Encoding SemanticEngine::diskEncoding(const fs::path& file) const {
+  std::error_code ec;
+  const auto size = fs::file_size(file, ec);
+  if (ec || size > (64u << 20)) return Encoding::Utf8;
+  const int64_t mtime = fs::last_write_time(file, ec).time_since_epoch().count();
+  const std::string key = file.generic_string();
+  {
+    std::lock_guard<std::mutex> lk(encMu_);
+    auto it = diskEnc_.find(key);
+    if (it != diskEnc_.end() && it->second.mtime == mtime && it->second.size == size) return it->second.enc;
+  }
+  std::ifstream in(file, std::ios::binary);
+  std::stringstream ss;
+  ss << in.rdbuf();
+  const Encoding enc = decodeFileBytes(ss.str()).encoding;
+  std::lock_guard<std::mutex> lk(encMu_);
+  diskEnc_[key] = {mtime, size, enc};
+  return enc;
+}
+
+// Server columns -> columns in tenfold's text. Open documents were sent as their own UTF-8 text, so utf-8 columns
+// already match and utf-16 ones are converted through the document's line. A file that is not open is read by
+// clangd as raw bytes: for a single-byte file (Windows-1252) the byte column becomes the column in the decoded text.
 Position SemanticEngine::posFromServer(const std::string& uri, Position p) const {
   auto c = client();
-  if (c && c->offsetEncoding() != "utf-8" && p.column > 0) {
-    std::string line;
-    const Document* doc = nullptr;
-    {
-      std::lock_guard<std::mutex> lk(mu_);
-      auto it = openDocs_.find(uri);
-      if (it != openDocs_.end()) doc = it->second;
-    }
-    if (doc && p.line < doc->buffer().lineCount()) line = doc->buffer().line(p.line);
-    else line = readLineOfFile(uriToPath(uri), p.line);
-    p.column = TextBuffer::utf16ToUtf8Column(line, p.column);
+  if (!c || p.column <= 0) return p;
+  const bool utf8 = c->offsetEncoding() == "utf-8";
+  const Document* doc = nullptr;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(uri);
+    if (it != openDocs_.end()) doc = it->second;
+  }
+  if (doc) {
+    if (!utf8 && p.line < doc->buffer().lineCount())
+      p.column = TextBuffer::utf16ToUtf8Column(doc->buffer().line(p.line), p.column);
+    return p;
+  }
+  const fs::path file = uriToPath(uri);
+  if (diskEncoding(file) == Encoding::Windows1252) {
+    const std::string raw = readLineOfFile(file, p.line);
+    const size_t n = std::min(raw.size(), static_cast<size_t>(p.column));
+    p.column = static_cast<int>(decodeAs(std::string_view(raw).substr(0, n), Encoding::Windows1252).size());
+  } else if (!utf8) {
+    p.column = TextBuffer::utf16ToUtf8Column(readLineOfFile(file, p.line), p.column);
   }
   return p;
 }
@@ -997,7 +1036,9 @@ void SemanticEngine::didOpen(Document& doc) {
   }
   if (!isCodeDocument(ws_, doc)) return;
   fast_.updateFile(doc.path(), doc.buffer().text());
-  if (auto c = clangd()) c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().text());
+  // clangd gets the document as UTF-8 with the file's real line endings (a continued #define in a CRLF header
+  // is not the same input to clang with LF; W9e finding 4). Line/column positions are the same either way.
+  if (auto c = clangd()) c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().textForLsp());
   scheduleTokens(doc);
 }
 
@@ -1034,9 +1075,11 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
   }
   if (auto c = clangd()) {
     if (c->offsetEncoding() == "utf-8") {
-      c->didChangeIncremental(doc.uri(), doc.version(), {{change.removed, change.newText}});
+      c->didChangeIncremental(
+          doc.uri(), doc.version(),
+          {{change.removed, TextBuffer::withLineEnding(change.newText, doc.buffer().lspLineEnding())}});
     } else {
-      c->didChangeFull(doc.uri(), doc.version(), doc.buffer().text());
+      c->didChangeFull(doc.uri(), doc.version(), doc.buffer().textForLsp());
     }
   }
   scheduleTokens(doc);

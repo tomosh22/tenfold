@@ -1,0 +1,15 @@
+# symlinks (Linux only): a symlinked directory (link_lib -> real, the header is included through it) and a symlinked file
+# (link_impl.cpp -> real/impl.cpp). The runner copies links as links (W9e H1) and the anchor scanner neither follows nor
+# scans them, so every anchor exists once. clangd answers the real path (docs/STRESS_RESULTS.md).
+fast def use_sl_T -> sl_T
+xfail fast def use_sl_fn -> sl_fn_def | sl_fn_decl  # the fast index follows the symlinked FILE link_impl.cpp and lists the definition under both names (a symlinked directory is not followed)
+def use_sl_fn -> sl_fn_def
+decl use_sl_fn -> sl_fn_decl
+def use_sl_T -> sl_T
+def use_sl_val -> sl_field
+refs sl_fn_decl = sl_fn_decl sl_fn_def use_sl_fn
+refs sl_field = sl_field use_sl_val use_sl_val2
+hover use_sl_fn ~ "sl_fn" "int"
+sym "sl_fn" -> sl_fn_def | sl_fn_decl
+rename sl_fn_decl sl_renamed
+  sl_fn_decl sl_fn_def use_sl_fn

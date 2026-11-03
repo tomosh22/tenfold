@@ -14,6 +14,7 @@
 #endif
 
 #include "core/PathUtil.h"
+#include "core/TextEncoding.h"
 #include "semantic/CppLexer.h"
 
 namespace tf {
@@ -45,8 +46,8 @@ namespace {
 
 class Extractor {
  public:
-  explicit Extractor(std::string_view src, std::vector<std::string>* includes)
-      : toks_(CppLexer(src).all()), includes_(includes) {}
+  explicit Extractor(std::string_view src, std::vector<std::string>* includes, bool isC)
+      : toks_(CppLexer(src, isC).all()), includes_(includes) {}
 
   std::vector<Symbol> run() {
     while (!at(Tok::End)) step();
@@ -863,11 +864,16 @@ namespace {
 constexpr size_t kMaxIndexedFileBytes = size_t{64} << 20;  // larger files are not indexed (no symbols, no includes)
 }
 
-std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes) {
+std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes, bool isC) {
   // The extractor holds every token of the file (about 16 bytes of RSS per source byte, times the number of indexing
   // threads): a 200 MB generated .cpp took 3.4 GB. Such a file is data, not code someone navigates; it is not indexed.
   if (source.size() > kMaxIndexedFileBytes) return {};
-  return Extractor(source, includes).run();
+  return Extractor(source, includes, isC).run();
+}
+
+bool isCSourceFile(const std::filesystem::path& file) {
+  const std::string e = file.extension().string();  // ".C" means C++ with gcc/clang, so only lower case
+  return e == ".c";
 }
 
 // ---------------------------------------------------------------------------
@@ -877,7 +883,13 @@ std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::str
 namespace {
 std::string keyFor(const std::filesystem::path& p) { return p.generic_string(); }
 
-bool readFile(const std::filesystem::path& p, std::string& out) { return readRegularFile(p, out); }
+bool readFile(const std::filesystem::path& p, std::string& out) {
+  if (!readRegularFile(p, out)) return false;
+  // The index works on the same UTF-8 text a Document shows, so locations from it land on the right columns in
+  // Latin-1 / UTF-16 files (core/TextEncoding.h). Valid UTF-8 (the usual case) is not copied again.
+  if (!isValidUtf8(out)) out = decodeFileBytes(out).text;
+  return true;
+}
 }  // namespace
 
 namespace {
@@ -1017,7 +1029,7 @@ FastIndex::Stats FastIndex::indexFilesCached(const std::vector<std::filesystem::
             fs->file = files[i];
             fs->mtime = mtime;
             fs->size = size;
-            fs->symbols = extractSymbols(content, &fs->includes);
+            fs->symbols = extractSymbols(content, &fs->includes, isCSourceFile(files[i]));
             results[i] = std::move(fs);
             ++relexed;
           }
@@ -1069,7 +1081,7 @@ std::vector<std::shared_ptr<const FileSymbols>> FastIndex::exportFiles() const {
 void FastIndex::updateFile(const std::filesystem::path& file, std::string_view text) {
   auto fs = std::make_shared<FileSymbols>();
   fs->file = file;
-  fs->symbols = extractSymbols(text, &fs->includes);
+  fs->symbols = extractSymbols(text, &fs->includes, isCSourceFile(file));
   std::unique_lock<std::shared_mutex> lk(mu_);
   addLocked(std::move(fs));
 }

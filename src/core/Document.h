@@ -7,6 +7,7 @@
 #include "core/PathUtil.h"
 #include "core/Selection.h"
 #include "core/TextBuffer.h"
+#include "core/TextEncoding.h"
 
 namespace tf {
 
@@ -34,8 +35,22 @@ class Document {
     dirty_ = true;
   }
 
+  // Reads the file. The bytes are decoded to UTF-8 (decodeFileBytes, core/TextEncoding.h): any byte content
+  // loads. saveToDisk writes the text back in the encoding that was detected (UTF-16 with its BOM, Windows-1252, or
+  // UTF-8) with the buffer's line ending, so an unchanged file with uniform line endings is written byte for byte.
+  // If the text now holds a character the file's encoding cannot represent (only Windows-1252 has such), the file
+  // is written as UTF-8, encoding() becomes Utf8 and saveNote() says so (OPEN_QUESTIONS, "W9 detail: encodings").
   bool loadFromDisk(std::string* error = nullptr);
   bool saveToDisk(std::string* error = nullptr);
+  Encoding encoding() const { return encoding_; }
+  // Chooses the encoding used on the next save (marks the document dirty). Not an undo step.
+  void setEncoding(Encoding e) {
+    if (encoding_ == e) return;
+    encoding_ = e;
+    dirty_ = true;
+  }
+  // Non-empty after a saveToDisk that had to change the encoding; cleared by the next successful save/load.
+  const std::string& saveNote() const { return saveNote_; }
 
   const std::filesystem::path& path() const { return path_; }
   std::string uri() const;
@@ -113,6 +128,8 @@ class Document {
   bool dirty_ = false;
   bool onDisk_ = false;
   bool untitled_ = false;
+  Encoding encoding_ = Encoding::Utf8;
+  std::string saveNote_;
   std::vector<UndoGroup> undo_, redo_;
   UndoGroup open_;  // the group being built while depth_ > 0
   int depth_ = 0;

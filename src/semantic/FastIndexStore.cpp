@@ -23,7 +23,8 @@ constexpr char kMagic[8] = {'T', 'F', 'F', 'I', 'D', 'X', 0, 1};
 constexpr size_t kHeaderSize = 48;
 constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1;
 constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4;
-constexpr uint32_t kExtractorSalt = 1;  // bump by hand for changes the probe below cannot observe
+constexpr uint32_t kExtractorSalt = 2;  // 2: BOM skipped, lone CR ends lines, C keywords for .c  // bump by hand for
+                                        // changes the probe below cannot observe
 
 uint64_t hashBytes(const char* p, size_t n) {
   uint64_t h = 0x9E3779B97F4A7C15ull ^ n;

@@ -74,14 +74,14 @@ Settings are `editor.*` in `settings.txt`; key bindings are 10x's (#1) in `asset
   FindTextInitialValue / ReplaceTextInitialValue (Current), CloseFindPanelOnEnter (false), ShowFindTextMatchCount (false):
   not mirrored yet (gap).
 * Trailing whitespace: `editor.trimTrailingWhitespace`, off: docs silent (no 10x setting). Line endings LF / CRLF
-  switch commands; encoding is UTF-8 only; new files (`NewTextFile`) take `editor.defaultLineEnding` (CRLF, as 10x's
+  switch commands; files in other encodings are converted (see "W9 detail: encodings"); new files (`NewTextFile`) take `editor.defaultLineEnding` (CRLF, as 10x's
   DefaultLineEnding).
 * Display: `editor.showWhitespace` off (ShowWhitespace false), `editor.columnGuide` 0 (VerticalRulers empty),
   `editor.wheelLines` 3 (MouseWheelScrollStep 3), caret blink (CursorBlinkRate auto = the OS rate; tenfold 530 ms, the
   Windows default), `editor.highlightCurrentLine` on (docs silent; 10x highlights symbols, words and the selection
   instead). `editor.wordWrap` true and `editor.smoothScroll` false differ from 10x (false, true) by the user's decision
   (#4).
-* Not implemented: regex group references in Replace, non-UTF-8 encodings.
+* Not implemented: regex group references in Replace. Encodings: see "W9 detail: encodings".
 
 ## W8b detail: tab, panel and view commands (10x documents only one line each)
 
@@ -306,3 +306,35 @@ TerminalFontSize. Everything else below is tenfold's choice, to be checked again
   (blinking only when the program asks), bold = bright + double strike, no italic face. Values marked `[?]` in vs-dark.txt (see #19).
 * Not done: reflow, search, links, split inside a terminal, persistence across sessions, shell integration, OSC 52, a context menu.
 * ConPTY is untested at run time (compile-tested only); the first run on Windows may show problems the Linux tests cannot.
+
+## W9 detail: encodings, line endings and the BOM (W9-FIX-ENC; 10x documents nothing about them)
+
+Decided without a user decision because the alternative was the editor terminating; to be confirmed.
+
+* **Detection.** Valid UTF-8 (incl. ASCII, with or without BOM) is UTF-8. A UTF-16 BOM plus well-formed UTF-16 is
+  UTF-16 LE/BE. Everything else is **Windows-1252** (the "ANSI" code page 10x and Visual Studio use on Western
+  Windows; also covers ISO-8859-1 apart from the C1 range). No other code pages (Shift-JIS, GBK, ...) and no
+  BOM-less UTF-16/32: such a file loads as Windows-1252, i.e. readable only as far as its ASCII goes, but it never
+  fails and is written back byte for byte. There is no "reopen with encoding" command and the status bar does not
+  show the encoding yet.
+* **Saving.** The file is written in the encoding it was read in; the BOM of UTF-8/UTF-16 files is kept. If an edit
+  adds a character the encoding cannot represent (only Windows-1252 has this), the file is **saved as UTF-8**, a
+  warning is logged (`Document::saveNote()`), and the document is UTF-8 from then on. The alternative, refusing to
+  save until the character is removed, was rejected because it can leave a user unable to save. A prompt would be
+  the 10x/Visual Studio answer and needs UI.
+* **Line endings.** A line ends at CRLF, LF or a lone CR. A document has one ending (the most frequent; ties LF, then
+  CRLF) written for every line, so a file with mixed endings is normalised when saved; saving is not triggered by
+  opening. Per-line preservation would need a parallel per-line array in `TextBuffer`; say if mixed files must
+  survive a save untouched. The status bar shows `CR` for classic Mac files; the line-ending commands only
+  switch between LF and CRLF.
+* **Find in files / replace in files** still search the raw bytes of a file: for a Windows-1252 file the match text is
+  not valid UTF-8 and its columns are raw byte columns, and a replacement is inserted as UTF-8. Decoding there is a
+  follow-up.
+* **Locations in open Windows-1252 files.** clangd's answers that come from data computed on the raw disk bytes (a
+  stale preamble of another file, the background index) carry raw byte columns, while the open document is decoded;
+  such a location can be a few columns off in a line with non-ASCII bytes before the symbol, until clangd reparses.
+  Fixing it fully needs either the UTF-16 offset encoding (full-text sync per keystroke) or a token check.
+* **Version control** (`src/vcs`, not touched by W9-FIX-ENC) splits the committed text at LF/CRLF only and compares it
+  with the buffer as raw bytes: for a Windows-1252 or UTF-16 file the gutter marks every non-ASCII line (and for a CR-only
+  file the whole file) as changed. The fix is the same decode (`decodeFileBytes`) and `TextBuffer`'s line rule applied to
+  the base text.

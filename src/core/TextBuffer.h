@@ -7,10 +7,14 @@
 
 namespace tf {
 
-enum class LineEnding { LF, CRLF };
+enum class LineEnding { LF, CRLF, CR };
 
 // Line-oriented UTF-8 text storage. Lines are stored without terminators.
 // "a\nb\n" is stored as {"a","b",""}, so lineCount() is always >= 1.
+// A line ends at "\r\n", "\n" or a lone '\r' (as in clang and clangd), so a stored line never contains '\r' that
+// came from a line break. setText() remembers the dominant ending (lineEnding(); ties prefer LF, then CRLF) and
+// whether the text mixed several (mixedLineEndings()); textForDisk() writes the dominant one for every line, so a
+// mixed file is normalised when it is saved. Text handed to replace() is split the same way.
 class TextBuffer {
  public:
   TextBuffer() : lines_(1) {}
@@ -18,13 +22,25 @@ class TextBuffer {
 
   void setText(std::string_view text);
   std::string text() const;         // joined with '\n'
-  std::string textForDisk() const;  // joined with the detected line ending
+  std::string textForDisk() const;  // joined with the dominant line ending (also what clangd is sent)
+  // What a language server is sent for this document: the text with its real line endings (a CRLF file stays CRLF, so
+  // the buffer clangd parses is what is on disk and what its index holds: W9e finding 4), except that CR-only text is
+  // sent with LF: clangd's LSP layer finds lines at '\n' only while clang's SourceManager also ends them at a lone
+  // '\r', so CR text makes the two disagree. Line numbers and columns are identical for every ending.
+  LineEnding lspLineEnding() const { return lineEnding_ == LineEnding::CR ? LineEnding::LF : lineEnding_; }
+  std::string textForLsp() const;
+  // `text` with every line break ('\r\n', '\n', lone '\r') replaced by `e`.
+  static std::string withLineEnding(std::string_view text, LineEnding e);
 
   int lineCount() const { return static_cast<int>(lines_.size()); }
   const std::string& line(int i) const { return lines_[static_cast<size_t>(i)]; }
   const std::vector<std::string>& lines() const { return lines_; }
   LineEnding lineEnding() const { return lineEnding_; }
-  void setLineEnding(LineEnding e) { lineEnding_ = e; }
+  void setLineEnding(LineEnding e) {
+    lineEnding_ = e;
+    mixed_ = false;
+  }
+  bool mixedLineEndings() const { return mixed_; }  // the text read by setText() used more than one ending
 
   size_t byteSize() const;
 
@@ -71,6 +87,7 @@ class TextBuffer {
  private:
   std::vector<std::string> lines_;
   LineEnding lineEnding_ = LineEnding::LF;
+  bool mixed_ = false;
 };
 
 }  // namespace tf

@@ -5,6 +5,8 @@
 #include <fstream>
 #include <limits>
 
+#include "core/JsonUtil.h"
+
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #ifndef NOMINMAX
@@ -153,7 +155,7 @@ bool Workspace::saveSettings(std::string* error) const {
       if (error) *error = "cannot write workspace.json";
       return false;
     }
-    out << j.dump(2);
+    out << dumpSafe(j, 2);
     out.flush();
     if (!out) {
       fs::remove(tmp, ec);

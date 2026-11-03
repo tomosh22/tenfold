@@ -31,7 +31,7 @@ def crlf_count_def -> crlf_count
 refs crlf_count = crlf_count crlf_count_def use_crlf_count
 def use_CRLF_MAX -> CRLF_MAX
 def use_CRLF_MAX_in -> CRLF_MAX
-xfail refs CRLF_MAX = CRLF_MAX use_CRLF_MAX use_CRLF_MAX_in  # tenfold sends clangd the document text with the CRLFs turned into LF (TextBuffer::text()) while the file on disk keeps CRLF; with the CRLF header open, clangd reports only the definition of a macro
+refs CRLF_MAX = CRLF_MAX use_CRLF_MAX use_CRLF_MAX_in
 hover use_CRLF_MAX ~ "CRLF_MAX"
 rename crlf_count total
   crlf_count crlf_count_def use_crlf_count
@@ -39,7 +39,7 @@ rename crlf_count total
 # ================= UTF-8 BOM, anchors on line 1 =================
 fast def use_bom_fn -> bom_fn_def | bom_fn_decl
 fast def use_bom_Box -> bom_Box
-xfail fast def use_bom_v -> bom_v  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+fast def use_bom_v -> bom_v | tab_v  # the fast index has no scope: tabs.h also declares a `v`
 fast def use_bom_g -> bom_g_def | bom_g_decl
 fast def use_bom2_fn -> bom2_fn | bom2_fn_decl
 fast sym "bom2_fn" -> bom2_fn | bom2_fn_decl
@@ -72,10 +72,10 @@ refs bom_g_decl = bom_g_decl bom_g_def use_bom_g_in use_bom_g
 rename bom_g_def bom_global
   bom_g_decl bom_g_def use_bom_g_in use_bom_g
 # BOM + a namespace, a class and an enum introduced by the first token of line 1
-xfail fast def use_bomns_inner -> bomns_inner  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
-xfail fast def use_bomns_A -> bomns_A  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
-xfail fast sym "inner_bom" -> bomns_inner  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
-xfail fast sym "Kind" -> bomns_E  # fast lexer does not skip the UTF-8 BOM: on line 1 the BOM glues to the first keyword (struct/class/namespace/enum), so the members, namespace contents and enumerators of that declaration are not indexed
+fast def use_bomns_inner -> bomns_inner
+fast def use_bomns_A -> bomns_A
+fast sym "inner_bom" -> bomns_inner
+fast sym "Kind" -> bomns_E
 fast sym "bomns" -> bomns
 def use_bomns_inner -> bomns_inner
 def use_bomns_A -> bomns_A
@@ -95,12 +95,9 @@ rename bom2_fn bom2_renamed
 sym "bom2_second" -> bom2_second
 
 # ================= Latin-1 =================
-# NOTE: every query below is asked at an anchor in a UTF-8 file (src/use.cpp) and only reads locations in the Latin-1 files.
-# Asking at an anchor inside latin1.h / latin1.cpp, or go to definition / declaration into them (the editor jumps there and
-# opens the file; the `fast def` lines do too, the runner asks the final answer for the fast/final agreement; so does
-# `rename`, which opens the files it edits), opens that document, and opening a document whose text is not valid
-# UTF-8 makes tenfold throw (nlohmann::json type_error 316 while serialising textDocument/didOpen) and, in the
-# runner, terminate the process; see docs/STRESS_RESULTS.md "Corpus findings: C and unusual layouts".
+# Latin-1 (Windows-1252) files: tenfold decodes them to UTF-8 when it opens them and clangd is sent that text, so go to
+# definition / declaration into and inside them, the fast tier, and rename (which edits and saves them in Latin-1) all work.
+# Anchor columns are those of the decoded text (docs/TESTING.md).
 fast sym "l1_after" -> l1_after_def | l1_after
 refs use_l1_fn = l1_fn_decl l1_fn_def use_l1_fn_in use_l1_fn
 refs use_l1_after = l1_after l1_after_def use_l1_after
@@ -110,10 +107,22 @@ hover use_l1_fn ~ "l1_fn" "int"
 sym "l1_msg" -> l1_msg_def | l1_msg_decl
 sym "l1_fn" -> l1_fn_def | l1_fn_decl
 sym "l1_after" -> l1_after_def | l1_after
+fast def use_l1_fn -> l1_fn_def | l1_fn_decl
+fast def use_l1_msg -> l1_msg_def | l1_msg_decl
+def use_l1_fn -> l1_fn_def
+decl use_l1_fn -> l1_fn_decl
+def use_l1_fn_in -> l1_fn_def
+def use_l1_msg -> l1_msg_def
+def use_l1_msg_in -> l1_msg_def
+decl use_l1_msg -> l1_msg_decl
+rename l1_fn_decl l1_renamed_fn
+  l1_fn_decl l1_fn_def use_l1_fn use_l1_fn_in
+hover l1_fn_def ~ "l1_fn" "int"
+refs l1_msg_def = l1_msg_decl l1_msg_def use_l1_msg_in use_l1_msg
 
 # ================= tabs before anchors =================
 fast def use_tab_fn -> tab_fn_def | tab_fn_decl
-fast def use_tab_v -> tab_v
+fast def use_tab_v -> tab_v | bom_v  # same: bom.h also declares a `v`
 fast def use_tab_w -> tab_w
 def use_tab_fn -> tab_fn_def
 decl use_tab_fn -> tab_fn_decl
@@ -288,19 +297,19 @@ rename sep_vt renamed_sep_vt
   sep_vt sep_vt_def use_sep_vt
 
 # ================= CR-only line endings (a C file) =================
-xfail fast def use_cr_fn -> cr_fn_def | cr_fn_decl  # fast lexer: a CR-only file is one preprocessor line starting with #include/#ifndef, nothing in it is indexed
-xfail fast def use_cr_g -> cr_g_def | cr_g_decl  # fast lexer: a CR-only file is one preprocessor line starting with #include/#ifndef, nothing in it is indexed
-xfail def use_cr_fn -> cr_fn_def  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
-xfail decl use_cr_fn -> cr_fn_decl  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
-xfail def use_cr_g -> cr_g_def  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
-xfail decl use_cr_g -> cr_g_decl  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
-xfail def use_cr_g_in -> cr_g_def  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
-xfail refs cr_fn_decl = cr_fn_decl cr_fn_def use_cr_fn  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
-xfail refs cr_g_decl = cr_g_decl cr_g_def use_cr_g_in use_cr_g  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+fast def use_cr_fn -> cr_fn_def | cr_fn_decl
+fast def use_cr_g -> cr_g_def | cr_g_decl
+def use_cr_fn -> cr_fn_def
+decl use_cr_fn -> cr_fn_decl
+def use_cr_g -> cr_g_def
+decl use_cr_g -> cr_g_decl
+def use_cr_g_in -> cr_g_def
+refs cr_fn_decl = cr_fn_decl cr_fn_def use_cr_fn
+refs cr_g_decl = cr_g_decl cr_g_def use_cr_g_in use_cr_g
 hover use_cr_fn ~ "cr_fn" "int"
-xfail rename cr_fn_decl cr_renamed  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+rename cr_fn_decl cr_renamed
   cr_fn_decl cr_fn_def use_cr_fn
-xfail sym "cr_fn" -> cr_fn_def | cr_fn_decl  # tenfold's document model ends lines at LF only (a CR-only file is one line, like the harness), clang and clangd also end them at a lone CR: positions disagree, answers land on other lines (and rename fails with 'Line value is out of range')
+sym "cr_fn" -> cr_fn_def | cr_fn_decl
 
 # ================= unsaved edits in files with CRLF, a BOM and multi-byte text (insertions use the document's text) =================
 open src/crlf.cpp

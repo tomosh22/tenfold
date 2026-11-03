@@ -723,12 +723,49 @@ off; call it from the settings wiring).
 
 ## Text model
 
-`TextBuffer` stores lines without terminators, remembers CRLF vs LF for
-saving, and exposes `replace(Range, text)` returning the inserted range and
+`TextBuffer` stores lines without terminators, remembers the dominant line
+ending (LF, CRLF or CR) for saving, and exposes `replace(Range, text)` returning the inserted range and
 line delta (what undo, the navigation history and LSP incremental sync
 need). Columns are UTF-8 byte offsets; `utf8ToUtf16Column` and the reverse
 exist for protocol conversion. `Document` adds path, version, dirty flag,
 undo/redo and change listeners.
+
+**Encodings and line endings (W9-FIX-ENC).** Everything inside the editor is UTF-8: `TextBuffer`, the fast index,
+the text sent to clangd, every JSON message. Files are converted at the edge.
+
+* *Decoding* (`core/TextEncoding.h`, used by `Document::loadFromDisk`, `Editor::reloadFromDisk`, the fast index's
+  file reads and `SemanticEngine::fileChanged`): valid UTF-8 (ASCII, with or without a BOM) is taken as is, and a
+  UTF-8 BOM stays in line 1 (columns of line 1 count its three bytes, as clangd's do); a UTF-16 BOM followed by
+  well-formed UTF-16 is decoded (the BOM is dropped from the text); anything else is **Windows-1252** (all 256
+  bytes map to one code point each, the five undefined ones to the C1 controls), so *every* byte string loads, never
+  throws, and converts back byte for byte. `Document::encoding()` records the result.
+* *Saving* writes the buffer in `Document::encoding()` with the buffer's line ending: an unchanged file with a uniform
+  line ending is written byte for byte. A character the file's code page cannot hold (an edit adds `U+2260` to a
+  Windows-1252 file) makes `saveToDisk` write the file as UTF-8, switch `encoding()` to Utf8 and set `saveNote()`,
+  which `Editor` logs as a warning; nothing the user typed is lost and nothing is refused (OPEN_QUESTIONS, "W9
+  detail: encodings").
+* *Line endings.* A line ends at `\r\n`, `\n` or a lone `\r` (clang's rule) in `TextBuffer::setText` and in text passed
+  to `replace()` / `replaceMany()`, in the fast lexer, in find-in-files (`TextSearch`, `ReplaceInFiles`) and in the
+  corpus anchor scanner. `lineEnding()` is the dominant ending (ties: LF, then CRLF); `mixedLineEndings()` tells that
+  the file had several, and `textForDisk()` writes the dominant one for every line, so a mixed file is *normalised* when
+  it is saved (the model keeps one ending per document, not per line).
+* *Text for clangd.* `didOpen` / full-sync / `reopenDocuments` send `TextBuffer::textForLsp()`: UTF-8 with the
+  document's real line endings (a CRLF file is sent with CRLF, so the buffer clangd parses is the file on disk;
+  W9e finding 4), and incremental changes get their new text converted the same way. CR-only documents are sent with
+  LF, because clangd's LSP layer finds lines at `\n` only (positions, edits) while clang's preprocessor also ends them
+  at a lone `\r`. Line numbers and columns are identical for every ending.
+* *Positions from clangd.* For an open document clangd saw the same UTF-8 text, so columns map directly. For a
+  Windows-1252 file that is not open, clangd reads the raw bytes from disk and its byte columns are converted
+  (`SemanticEngine::posFromServer`, `diskEncoding`). Known gap: a Windows-1252 file that is open in tenfold but whose
+  answer comes from clangd data computed from the disk bytes (a stale preamble or the background index) can report raw
+  columns.
+* *JSON.* `dumpSafe()` (`core/JsonUtil.h`) is `dump()` with the replace error handler; every dump of data that can
+  hold user text (LSP messages, the clangd trace, bookmarks, breakpoints, `workspace.json`, the generated compile
+  database, the layout, the corpus report) uses it. The documents sent to clangd are valid UTF-8 anyway; this is the
+  last line of defence.
+* *Fast lexer.* `CppLexer` skips a leading UTF-8 BOM, ends lines at a lone `\r`, and has a C keyword table
+  (`isC`, chosen for `.c` files by `extractSymbols(..., isC)` / `isCSourceFile`): `class`, `delete`, `new`,
+  `template`, `this`, `namespace` ... are identifiers there. The persisted fast-index fingerprint salt was bumped.
 
 **Undo groups.** The undo stack holds *groups* of edits; `undo()`/`redo()`
 revert or re-apply one whole group. `Document::beginGroup()/endGroup()` nest
@@ -1733,9 +1770,9 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   `editor.autoCloseQuotes` (false, tenfold only), `editor.bracketSelectedText` (true), `editor.trimTrailingWhitespace`
   (false), `editor.commentBlockUsesLineComments` (true). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
-  lines indents them. Encoding is UTF-8 only (the status bar shows `UTF-8` and the line ending; `Editor.LineEndingLF` /
-  `Editor.LineEndingCRLF` switch the line ending written on save). TODO: other encodings need detection and conversion
-  that must not be invented without a decision.
+  lines indents them. Files are decoded to UTF-8 on load and encoded again on save (see "Encodings and line endings"
+  in the text model; the status bar shows the line ending, `CR` for classic Mac files; `Editor.LineEndingLF` /
+  `Editor.LineEndingCRLF` switch the line ending written on save).
 
 #### Code folding (W8f, `src/ui/view/FoldModel.*`, `WrapLayout`, `TextView`)
 

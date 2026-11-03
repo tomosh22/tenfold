@@ -261,9 +261,15 @@ struct LineTracker {
   const char* le;
   int line = 0;
   LineTracker(const char* d, const char* e) : end(e), ls(d) { le = findNl(d); }
+  // End of the content of the line that starts at `from`: its '\n' (a '\r' before it is stripped by report()), a lone
+  // '\r' (classic Mac files; clang ends lines there too), or the end of the buffer.
   const char* findNl(const char* from) const {
-    const void* r = from < end ? memchr(from, '\n', static_cast<size_t>(end - from)) : nullptr;
-    return r ? static_cast<const char*>(r) : end;
+    if (from >= end) return end;
+    const char* nl = static_cast<const char*>(memchr(from, '\n', static_cast<size_t>(end - from)));
+    const char* lim = nl ? nl : end;
+    const char* cr = static_cast<const char*>(memchr(from, '\r', static_cast<size_t>(lim - from)));
+    if (cr && !(cr + 1 < end && cr[1] == '\n')) return cr;
+    return lim;
   }
   void seek(const char* p) {
     while (le < end && p > le) {
