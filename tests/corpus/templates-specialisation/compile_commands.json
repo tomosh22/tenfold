@@ -1,0 +1,6 @@
+[
+  {"directory": "@CORPUS_ROOT@", "file": "@CORPUS_ROOT@/src/main.cpp",
+   "command": "clang++ -std=c++20 -I@CORPUS_ROOT@/include -c @CORPUS_ROOT@/src/main.cpp"},
+  {"directory": "@CORPUS_ROOT@", "file": "@CORPUS_ROOT@/src/inst.cpp",
+   "command": "clang++ -std=c++20 -I@CORPUS_ROOT@/include -c @CORPUS_ROOT@/src/inst.cpp"}
+]

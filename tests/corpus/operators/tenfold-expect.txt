@@ -1,0 +1,118 @@
+# operators: member / non-member / friend operators, call / subscript / arrow, increment, C++20 rewritten comparisons,
+# enum operators, user-defined literals. Operator uses are queried on the operator token itself (the position anchors
+# the first character of `+`, `<<`, `[`, `(`, `->`, or the first character of a literal).
+
+# ---- fast tier: the lexer index only knows words, so operator tokens have no answer ----
+xfail fast def use_plus -> vec_plus | vec_plus_def  # fast tier: an operator token is not a word, so there is no approximate answer
+xfail fast def use_lit_km -> lit_km  # fast tier: a literal's suffix is not looked up
+fast def use_arrow_sum -> Point3_sum
+fast sym "operator" ∋ vec_minus
+
+# ---- binary / unary / compound operators ----
+def use_pluseq -> vec_pluseq_def
+decl use_pluseq -> vec_pluseq
+def use_neg -> vec_neg_def
+decl use_neg -> vec_neg
+def use_plus -> vec_plus_def
+decl use_plus -> vec_plus
+def use_minus -> vec_minus_def
+decl use_minus -> vec_minus
+def use_mul_vs -> vec_mul_vs_def
+def use_mul_sv -> vec_mul_sv_def
+decl use_mul_vs -> vec_mul_vs
+decl use_mul_sv -> vec_mul_sv
+refs vec_neg >= vec_neg vec_neg_def use_neg
+refs vec_minus >= vec_minus vec_minus_def use_minus
+refs vec_mul_vs >= vec_mul_vs vec_mul_vs_def use_mul_vs
+xfail refs vec_plus >= vec_plus vec_plus_def use_plus  # clangd: the friend declaration and the namespace-scope definition are different symbols; refs from the friend decl miss the call
+refs vec_plus >= vec_plus vec_plus_def
+xfail refs vec_plus_def >= vec_plus_def use_plus  # clangd: from the definition the call in main.cpp is not found (it is found when asked at the call itself)
+refs use_plus >= use_plus vec_plus_def
+hover use_plus ~ "operator+"
+
+# ---- subscript and call operator, overloaded by constness / arity ----
+def use_index -> vec_index_def
+def use_index_c -> vec_index_c_def
+decl use_index -> vec_index
+decl use_index_c -> vec_index_c
+def use_call1 -> vec_call1_def
+def use_call2 -> vec_call2_def
+def use_call_explicit -> vec_call1_def
+refs vec_index >= vec_index vec_index_def use_index
+refs vec_call2 >= vec_call2 vec_call2_def use_call2
+
+# ---- conversion operators (spelled explicitly; the implicit uses have no token) ----
+def use_to_bool -> vec_to_bool_def
+def use_to_double -> vec_to_pair_def
+decl use_to_double -> vec_to_pair
+refs vec_to_bool >= vec_to_bool vec_to_bool_def use_to_bool
+
+# ---- chained <<: the first is std's, the later ones are ours ----
+def use_shl -> vec_shl_def
+def use_shl_vec -> vec_shl_def
+decl use_shl_vec -> vec_shl
+refs vec_shl >= vec_shl vec_shl_def use_shl use_shl_vec
+
+# ---- defaulted <=> and the implicitly declared == ----
+def use_spaceship -> vec_cmp
+def use_lt -> vec_cmp
+def use_ge -> vec_cmp
+def use_eqeq -> vec_cmp  # the implicit defaulted operator== has no source of its own: it points at the defaulted <=>
+xfail refs vec_cmp >= vec_cmp use_spaceship use_lt use_ge  # clangd's index does not record < and >= (rewritten into <=>) as references to operator<=>
+refs vec_cmp >= vec_cmp use_spaceship
+
+# ---- ++ and -- , prefix vs. postfix (the int parameter) ----
+def use_pre_inc -> pre_inc
+def use_post_inc -> post_inc
+def use_pre_dec -> pre_dec
+def use_post_dec -> post_dec
+refs pre_inc = pre_inc use_pre_inc
+refs post_inc = post_inc use_post_inc
+refs pre_dec = pre_dec use_pre_dec
+refs post_dec = post_dec use_post_dec
+
+# ---- C++20 rewritten comparison candidates ----
+def use_id_eq -> id_eq
+def use_id_ne -> id_eq
+def use_id_rev -> id_eq
+xfail refs id_eq >= id_eq use_id_eq use_id_ne use_id_rev  # clangd's index does not record != and the reversed == (rewritten candidates) as references to operator==
+refs id_eq >= id_eq use_id_eq
+refs id_from_int >= id_from_int
+
+# ---- scoped enum operators ----
+def use_flags_or -> flags_or
+def use_flags_and -> flags_and
+def use_flags_not -> flags_not
+def use_flags_or_eq -> flags_or_eq
+refs flags_or >= flags_or use_flags_or
+refs flags_or_eq = flags_or_eq use_flags_or_eq
+
+# ---- operator-> leads on to the pointee's members ----
+def use_arrow -> ptr_arrow
+def use_deref -> ptr_deref
+def use_ptr_index -> ptr_index
+def use_arrow_sum -> Point3_sum
+refs ptr_arrow >= ptr_arrow use_arrow
+refs Point3_sum = Point3_sum use_arrow_sum
+hover use_arrow_sum ~ "sum" "int"
+rename Point3_sum total
+  Point3_sum use_arrow_sum
+
+# ---- functor overloaded on argument type ----
+def use_add_int -> add_int
+def use_add_dbl -> add_dbl
+def use_add_str -> add_str
+refs add_dbl >= add_dbl use_add_dbl
+
+# ---- user-defined literals ----
+def use_lit_km -> lit_km
+def use_lit_m -> lit_m
+def use_lit_m_int -> lit_m_int
+def use_lit_name -> lit_name
+xfail refs lit_km >= lit_km use_lit_km  # reference is reported at the _km suffix inside the literal, the anchor can only point at the literal start (harness limit; clangd answers int literals at their start)
+refs lit_km >= lit_km
+refs lit_m_int >= lit_m_int use_lit_m_int
+
+# ---- workspace symbols ----
+sym "operator<<" ∋ vec_shl_def
+# (Counter has no anchor of its own; its members are reached above)

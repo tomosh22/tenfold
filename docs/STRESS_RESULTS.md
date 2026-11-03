@@ -456,3 +456,95 @@ Build: GCC 13, Debug, `-fsanitize=address,undefined`, `TENFOLD_BUILD_UI=ON`; `AS
 * Unrelated flake seen in the full UI suite under load (Release and not touched by this work):
   `term_scrollback_wheel_shift_page_keys_and_snap_to_bottom` (`tests/ui/test_w8f_term.cpp:812`, a pty echo race: 3 of 5 runs
   fail while the machine is loaded, 0 of 1 when it is quiet). It passed in the ASan run.
+
+## Corpus findings: templates and overloads (W9b)
+
+Six corpus projects under `tests/corpus/`, 649 expectations in total (Release, 5+ consecutive runs of
+`tenfold-corpus-tests`, no flake; once under ASan+UBSan). All use the standard library (libstdc++) except
+`templates-config`, which is `.sln`-mode and std-free.
+
+| project | what it stresses | expectations (pass / xfail) | fast/final agreement | runtime (Release, loaded 4-core box) |
+|---|---|---|---|---|
+| `overloads` | overloads by arity, cv/ref qualifiers, default args, conversions, `0`/`nullptr`, initializer lists, ctor overloads, using-declarations, ADL, hidden friends, virtual overloads, function-vs-template ties, unsaved `edit`s | 132 (121 / 11) | 2/76 (3 %) | 9 - 14 s |
+| `operators` | member / non-member / friend operators, `()` `[]` `->` `<=>`, conversion operators, `++`/`--` pre/post, C++20 rewritten `!=`/reversed `==`, enum operators, user-defined literals | 87 (80 / 7) | 2/54 (4 %) | 8 - 11 s |
+| `templates-basic` | class/function templates, out-of-line members in `.tpp`/`.inl`, dependent names (`typename`/`template`), variadics and folds, CTAD and guides, alias/variable templates, template template params, `a<b<c>>`, chained calls, `auto`/`decltype`/`consteval` | 163 (148 / 15) | 39/94 (41 %) | 24 - 33 s |
+| `templates-specialisation` | full/partial specialisation of class and variable templates, function specialisation vs overload, explicit instantiation, member specialisation, SFINAE/`enable_if`, tag dispatch, CRTP, virtuals of a class template | 126 (117 / 9) | 23/70 (33 %) | 13 - 19 s |
+| `templates-cxx20` | concepts, requires-clauses, abbreviated templates, constraint-ordered overloads, constrained partial specialisation and members, NTTP class types, `constinit`, aggregate CTAD, designated initialisers, `using enum` | 104 (98 / 6) | 35/58 (60 %) | 20 - 28 s |
+| `templates-config` | `config Debug\|x64` / `Release\|x64` selecting different specialisations and constrained overloads (std-free, `.sln`) | 37 (35 / 2) | 1/21 (5 %) | 1 - 2.5 s |
+
+Every expectation kind is used: `def`, `decl`, `typedef`, `impl`, `refs` (`=` and `>=`), `hover`, `sym` (`->`, `∋`),
+`rename`, `fast`, `xfail`, `config`, `open`, `edit`.
+
+Fast/final agreement is low by construction here, not because the fast tier is mostly wrong: the runner compares the
+`file:line` sets, so a fast answer that lists declaration **and** definition (or every overload) never equals the single
+location clangd returns. In `operators` 52 of the 54 queries are on operator tokens, for which the fast tier has no
+answer. In `templates-specialisation` 42 of the 47 disagreements are "fast is a superset of final", 5 are real
+differences (explicit specialisations: the lexer index only knows the primary template's members).
+
+### Findings
+
+"Who" = the layer at fault. *fast tier* = the lexer index (`FastIndex`) / its use for the approximate answer; *tenfold* =
+tenfold's handling (documents opened, waiting, position mapping); *clangd* = clangd's own answer (reproduced by
+talking to clangd 22.1.1 directly, `--background-index`, no tenfold in between); *harness* = the corpus runner.
+
+| # | expectation (project:anchor) | expected | actual | tier | who | minimal repro |
+|---|---|---|---|---|---|---|
+| F1 | `fast def use_ar1`, `use_who_r`, `use_conv_char`, `use_pick_p`, `use_b_f_dbl`, `use_c_f` (overloads); `use_kind_ptr`, `use_name_int`, `use_circle_area` (specialisation); `use_describe_num` (cxx20); `use_vmax_base` (basic) | the one overload / the one `b::f` | every function with that word (up to 9 results), qualifier and arguments ignored | fast | fast tier (by design: word lookup) | `int area(); int area(int);` ... `area(3)` |
+| F2 | `fast def use_draw_sprite`, `fast sym "draw"` (overloads) | the inline hidden friend `friend int draw(Sprite s) {...}` | not in the index: the fast tier answers with the *other* `draw` | fast | fast tier (lexer index does not record friend function definitions inside a class) | `struct S { friend int draw(S) { return 0; } };` then `sym "draw"` |
+| F3 | `fast def use_Stack`, `use_Pair`, `use_Wrap` (basic) | the class | class **plus** its constructor/destructor declarations (same word) | fast | fast tier | `template<class T> struct Pair { Pair(T); };` click `Pair` |
+| F4 | `fast def use_plus`, `use_lit_km` (operators) | the operator function | nothing (an operator token or a literal suffix is not a word) | fast | fast tier (inherent) | `a + b` |
+| F5 | agreement in `templates-specialisation` (5 queries), e.g. `use_swap_int`, `use_convert_bool`, `use_id_v_int` | the explicit specialisation | the primary template | fast | fast tier | `template<> void swap_it<int>(int&, int&)` |
+| F6 | `templates-basic`: after `stack.tpp` is open (`templates-cxx20` has the same shape with `functions.tpp`, whose lines were moved after everything else), `def use_data_in_top`, `use_made_in_push`, `use_push_in_all`, `refs Stack_top_decl`, `refs Stack_map_decl`, `rename Stack_push_all_decl`, `rename Stack_top_c_def` | the definitions in `stack.tpp` are found, references and renames include `stack.tpp` | clangd parses the non-self-contained `stack.tpp` **standalone** (names undeclared): `def` answers the `namespace tb` line, the open document replaces the index shard so every reference inside it disappears, `rename` skips it or is refused ("symbol is not a supported kind") | final | **clangd** (non-self-contained header parsed alone) **and tenfold** (it `didOpen`s the file as soon as it is navigated to, or a rename edits it, with no compile context for it) | `stack.h` ends with `#include "stack.tpp"` and `stack.tpp` has no includes; jump to a definition in `stack.tpp`, then find references of a member declared in `stack.h` |
+| F7 | `templates-basic` run flake (seen once in 6 runs before the corpus was reordered): `refs Stack_map_decl` lost `stack.tpp` | stable answer | answer depends on whether clangd finished the standalone parse of the just-opened `stack.tpp` when the next query arrives | final | tenfold/harness: `ensureReady` waits only for the *anchor's* file, not for documents a rename or navigation opened as a side effect; underlying cause F6 | `rename` of a member defined in a `.tpp`, then `refs` of another member |
+| F8 | `refs describe_num / describe_sized`, `rename describe_num` (cxx20); `decl use_cost_dbl`, `refs cost_small` (config); `refs Holder_num_kind`, `refs Holder_ptr_kind` (cxx20) | one overload / one partial specialisation | all constrained overloads and all constrained partial specialisations are **one symbol**: refs include the calls of the other overloads, rename renames them, `declaration` returns the first | final | **clangd** (clang USR ignores type-constraints and requires-clauses) | `int f(const Numeric auto&); int f(const Container auto&);` rename the first |
+| F9 | `refs vec_plus`, `refs vec_plus_def` (operators); `refs draw_sprite_friend` (overloads) | decl + definition + the call | friend declaration and the namespace-scope definition are different symbols; the call is attached to one only; the ADL call of a hidden friend is not a reference at all | final | **clangd** (index) | `struct V { friend V operator+(V,V); }; V operator+(V a, V b){...}` refs on the friend |
+| F10 | `refs vec_cmp` (`<`, `>=`), `refs id_eq` (`!=`, reversed `==`) (operators) | the rewritten uses are references to `operator<=>` / `operator==` | not reported (go to definition on them works) | final | **clangd** (references of rewritten operator expressions) | `a != b` with only `operator==` |
+| F11 | `impl speak_int`, `impl use_speak_int` (overloads) | all overriders (`Dog`, `Puppy`) | only the direct overrider (`Dog`) | final | **clangd** (relation index is one level) | `A::f` virtual, `B : A` overrides, `C : B` overrides |
+| F12 | `impl Task_run`, `impl use_task_run`, `impl use_task_name` (specialisation) | overriders in classes derived from `Task<int>` | nothing (empty, no error) | final | **clangd** (no override relations for members of class templates) | `template<class T> struct Task { virtual T run()=0; }; struct I : Task<int> { int run() override; };` |
+| F13 | `def inst_convert_float`, `def inst_checked_int`, `refs Registry` (specialisation) | the template; references include the names in explicit instantiations | no result for `template std::string convert<float>(float);`; `template class Registry<int>;` is not listed as a reference | final | **clangd** | `template int f<int>(int);` |
+| F14 | `refs args_param`, `refs Ts_list` (basic) | `sizeof...(args)` / `sizeof...(Ts)` are references | missing (def at the same spot works) | final | **clangd** | `template<class... Ts> int n(Ts... a){ return sizeof...(a); }` refs of `a` |
+| F15 | `def dep_rebind_type` (basic) | `Box<T>::Rebind<int>::type` -> `Rebind::type` | none | final | **clangd** (resolves one dependent step only) | `typename Box<T>::template Rebind<int>::type r;` |
+| F16 | `refs lit_km` (operators) | reference at the literal | reported at the `_km` suffix inside the literal (for int literals at the literal start) | final | **clangd** (inconsistent) + **harness** (an anchor cannot point into a token) | `2.5_km` |
+| F17 | unary `~` (operators, `use_flags_not`) | the query is made at `~` | the runner skips `~` for every `~identifier` (meant for destructors) and queries `f` of `~f` | harness | **harness** (`Runner.cpp`: `'~'` is skipped unconditionally); workaround `~(f)` | `/*@a*/~f` with a `def` expectation |
+
+Behaviour that is not a bug but pinned down so it cannot regress silently (all pass):
+
+* A click on `Bag(3)`, `Bag{3}`, `new Bag(7)` answers the *class*; the chosen constructor is only visible in `refs`
+  (clangd and tenfold agree; the variable name of `Bag b(3);` answers the variable).
+* `def`/`decl` through a using-declaration (`b::f(1)`, `Derived::f`) answer the target **and** the using-declaration
+  (accepted as `A | B` in the corpus; open question 2).
+* `sym` returns the definition of a function when there is one (`area` -> `arity.cpp`, not `arity.h`).
+* `rename` of one overload renames only that overload (plain functions, member functions): correct. For a dependent
+  call such as `half(v)` inside a template, clangd renames it with the overload that is being renamed (judgement, listed).
+* `hover` on a type name in `Pair p{1, 2.0};` shows the template, not `Pair<int, double>`; the deduced type is on the
+  variable (corpus hovers the variable).
+
+### Non-determinism and how the corpora avoid it
+
+* Cross-TU answers (definitions in `src/*.cpp`, uses in `src/main.cpp`) come from clangd's background index; the runner
+  waits for it once per project. No flake was left in 6 consecutive Release runs per project.
+* F6/F7 made the order of lines matter in `templates-basic` and `templates-cxx20`: every check that needs `stack.tpp`'s
+  references comes **before** any line that navigates into or renames inside the non-self-contained file; then an
+  explicit `open include/tb/stack.tpp` (the runner waits until clangd has parsed it) precedes the `xfail`s that document
+  the damage. `queue.h`/`queue.inl` is the same shape with a self-contained `.inl` and keeps working when open.
+  Do not reorder those blocks.
+
+### Open questions
+
+1. Should `fast def` on a class name include constructors (F3) and should a fast `def` offer both declaration and
+   definition? The corpus expects the single class / the definition-or-declaration set, so these show as `xfail`.
+2. Using-declarations: is "target + the using-declaration" the answer tenfold wants to show (F-note above)? Accepted
+   as either today.
+3. Dependent calls (`describe(v)` in a template): the corpus accepts any candidate of the overload set.
+4. `Bag(3)` landing on the class: should tenfold map a construct expression to the selected constructor? clangd never
+   does; only `refs` shows it.
+5. F6: what should tenfold do about `.tpp`/`.inl`? Options: do not `didOpen` such files into clangd without a
+   containing-TU context, or give them a compile command that includes the owning header first.
+
+### Assumptions
+
+* clangd 22.1.1 from `PATH`, libstdc++ 13 headers, `-std=c++20`.
+* Where the C++ rules leave a choice (specialisation vs primary on a type name, rewritten candidates for implicit
+  `operator==`, which declaration a using-declaration shows) the corpus line carries a comment and accepts what clangd
+  shows today when it is a defensible reading; those are the lines marked "judgement".
+* Sources are never reformatted (`tests/corpus/.clang-format` disables it).

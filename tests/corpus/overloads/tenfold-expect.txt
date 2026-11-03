@@ -1,0 +1,174 @@
+# overloads: which overload does a call resolve to (C++ overload resolution), judged on clangd's final answer; the
+# fast tier (lexer index) cannot resolve overloads and answers with every same-named function.
+# Cross-TU answers (definitions in src/*.cpp, uses in src/main.cpp) need clangd's background index; the runner waits.
+
+# ---- fast tier: unique names are exact, overloaded names return the whole set ----
+xfail fast def use_b_f_dbl -> b_f_dbl | b_f_dbl_def  # fast tier ignores the b:: qualifier and returns every function named f (9 results)
+xfail fast def use_c_f -> c_f_str | c_f_str_def  # same: unqualified word lookup of f
+xfail fast def use_draw_sprite -> draw_sprite_friend  # fast index has no entry for the inline hidden friend draw(Sprite): it answers with the other draw()
+xfail fast sym "draw" ∋ draw_sprite_friend  # same root cause: friend function definitions inside a class are not indexed by the lexer index
+fast sym "draw" ∋ draw_point draw_point_def
+xfail fast def use_ar1 -> ar1_decl | ar1_def  # fast tier cannot resolve overloads: returns all area() overloads
+xfail fast def use_who_r -> who_r  # fast tier returns every who() overload
+xfail fast def use_conv_char -> conv_int_def | conv_int  # fast tier returns all conv() overloads
+xfail fast def use_pick_p -> pick_p  # fast tier returns all pick() overloads
+fast sym "area" ∋ ar0_decl
+fast hover use_ar2 ~ "area"
+
+# ---- overloads by arity: definition vs declaration ----
+def use_ar0 -> ar0_def
+def use_ar1 -> ar1_def
+def use_ar2 -> ar2_def
+decl use_ar0 -> ar0_decl
+decl use_ar1 -> ar1_decl
+decl use_ar2 -> ar2_decl
+def use_fp2 -> ar2_def
+decl use_fp2 -> ar2_decl
+def use_fp1 -> ar1_def
+decl use_fp1 -> ar1_decl
+refs ar1_decl = ar1_decl ar1_def use_ar1 use_fp1
+refs ar2_decl = ar2_decl ar2_def use_ar2 use_fp2
+refs ar0_decl = ar0_decl ar0_def use_ar0
+rename ar1_decl areaSq
+  ar1_decl ar1_def use_ar1 use_fp1
+rename ar0_def areaUnit
+  ar0_decl ar0_def use_ar0
+hover use_ar2 ~ "area" "width"
+
+# ---- default arguments, string vs. pointer ----
+def use_log_c -> log_c_def
+def use_log_c2 -> log_c_def
+def use_log_s -> log_s_def
+decl use_log_c -> log_c_decl
+decl use_log_s -> log_s_decl
+refs log_c_decl = log_c_decl log_c_def use_log_c use_log_c2 use_log_c_in_s
+refs log_s_decl >= log_s_decl log_s_def use_log_s
+hover use_log_c ~ "level"
+rename log_s_decl logStr
+  log_s_decl log_s_def use_log_s
+
+# ---- function templates vs. plain functions ----
+def use_pick_i -> pick_i
+def use_pick_t -> pick_t
+def use_pick_p -> pick_p
+def use_pick_expl -> pick_t
+def use_pick_expl_p -> pick_p
+refs pick_i = pick_i use_pick_i
+refs pick_t = pick_t use_pick_t use_pick_expl
+refs pick_p = pick_p use_pick_p use_pick_expl_p
+hover use_pick_p ~ "pick" "int *"
+
+# ---- cv / ref qualifiers ----
+def use_at_nc -> at_nc
+def use_at_c -> at_c
+def use_who_l -> who_l
+def use_who_r -> who_r
+def use_who_c -> who_c
+def use_who_mv -> who_r
+def use_put_l -> put_l
+def use_put_r -> put_r
+def use_put_mv -> put_r
+refs at_c = at_c use_at_c
+refs at_nc = at_nc use_at_nc
+refs who_r = who_r use_who_r use_who_mv
+refs who_l = who_l use_who_l
+refs put_r = put_r use_put_r use_put_mv
+hover use_at_c ~ "const int &"
+hover use_who_c ~ "int"
+rename at_c atConst
+  at_c use_at_c
+
+# ---- base class overload sets, using-declarations, hiding ----
+# clangd also reports the using-declaration (the shadow declaration) next to the target; both are valid answers
+def use_d_f_int -> base_f_int | derived_using_f
+def use_d_f_dbl -> base_f_dbl | derived_using_f
+decl use_d_f_int -> base_f_int | derived_using_f
+def use_d_f_str -> derived_f_str
+def use_h_f -> hider_f
+def use_h_base_f -> base_f_int
+refs base_f_int = base_f_int derived_using_f use_d_f_int use_h_base_f
+refs base_f_dbl = base_f_dbl derived_using_f use_d_f_dbl
+refs hider_f = hider_f use_h_f
+
+# ---- virtual overloads ----
+def use_speak_int -> speak_int
+def use_speak_void -> speak_void
+def use_dog_speak -> dog_speak_int
+xfail impl speak_int = dog_speak_int puppy_speak_int  # clangd's implementation request returns only the direct overrider (Dog), not Puppy which overrides Dog::speak
+impl speak_int >= dog_speak_int
+impl speak_void = puppy_speak_void
+xfail impl use_speak_int = dog_speak_int puppy_speak_int  # same: direct overriders only
+impl use_speak_void = puppy_speak_void
+impl dog_speak_int = puppy_speak_int
+refs speak_void >= speak_void use_speak_void
+rename speak_void talkVoid
+  speak_void use_speak_void puppy_speak_void
+
+# ---- conversion ranking: exact > promotion > conversion ----
+def use_conv_int -> conv_int_def
+def use_conv_char -> conv_int_def
+def use_conv_float -> conv_dbl_def
+def use_conv_str -> conv_cstr_def
+def use_conv_null -> conv_cstr_def
+decl use_conv_char -> conv_int
+decl use_conv_float -> conv_dbl
+def use_ptrq_zero -> ptrq_int_def
+def use_ptrq_null -> ptrq_ptr_def
+decl use_ptrq_null -> ptrq_ptr
+def use_temp_k -> temp_k_def
+def use_temp_c -> temp_k_def
+def use_temp_s -> temp_s_def
+refs conv_int = conv_int conv_int_def use_conv_int use_conv_char
+refs conv_dbl = conv_dbl conv_dbl_def use_conv_float
+refs conv_cstr = conv_cstr conv_cstr_def use_conv_str use_conv_null
+refs ptrq_int = ptrq_int ptrq_int_def use_ptrq_zero
+rename conv_cstr convStr
+  conv_cstr conv_cstr_def use_conv_str use_conv_null
+hover use_conv_float ~ "conv"
+
+# ---- constructors: parentheses vs. braces, initializer_list ----
+# Judgement: the token clicked is the type name Bag, which names the class (clangd answers the class for Bag(3), Bag{3},
+# new Bag(7) and for the variable name it answers the variable). The chosen constructor is only visible in references.
+def use_bag_n -> Bag_class
+def use_bag_nn -> Bag_class
+def use_bag_il1 -> Bag_class
+def use_bag_new -> Bag_class
+def var_bag_a -> var_bag_a
+refs bag_il = bag_il bag_il_def use_bag_il1 use_bag_il2 var_bag_b var_bag_d
+refs bag_nn = bag_nn bag_nn_def use_bag_nn var_bag_c
+refs bag_n = bag_n bag_n_def use_bag_n use_bag_new var_bag_a
+
+# ---- overload sets across namespaces: using-declaration, ADL, hidden friends ----
+def use_b_f_int -> a_f_int_def | b_using_f
+decl use_b_f_int -> a_f_int | b_using_f
+def use_b_f_dbl -> b_f_dbl_def
+def use_draw_point -> draw_point_def
+decl use_draw_point -> draw_point
+def use_draw_sprite -> draw_sprite_friend
+def use_c_f -> c_f_str_def
+refs a_f_int = a_f_int a_f_int_def b_using_f use_b_f_int
+refs draw_point = draw_point draw_point_def use_draw_point
+xfail refs draw_sprite_friend = draw_sprite_friend use_draw_sprite  # clangd (background index) does not record the ADL call as a reference to the hidden friend
+refs draw_sprite_friend >= draw_sprite_friend
+
+# ---- workspace symbols ----
+# clangd lists a function with its definition when there is one
+sym "area" ∋ ar0_def ar1_def ar2_def
+sym "conv" ∋ conv_int_def conv_dbl_def conv_cstr_def
+sym "Bag" ∋ Bag_class bag_il_def
+sym "Puppy" -> Puppy
+
+# ---- unsaved edits: a new overload and a new function appear in the open document ----
+# (later line first, so the line numbers hold)
+open src/main.cpp
+edit src/main.cpp:96:1 "  int extra = ov::/*@use_edit_ar3*/area(1, 2, 3) + /*@use_edit_unique*/brandNewFn(2);\n"
+edit src/main.cpp:12:1 "namespace ov { int /*@edit_ar3*/area(int, int, int); }\nint /*@edit_unique*/brandNewFn(int);\n"
+fast def use_edit_unique -> edit_unique
+def use_edit_unique -> edit_unique
+def use_edit_ar3 -> edit_ar3
+decl use_edit_ar3 -> edit_ar3
+# the existing overloads still resolve to their own definitions after the edit
+def use_ar2 -> ar2_def
+def use_ar1 -> ar1_def
+refs edit_ar3 >= edit_ar3 use_edit_ar3
+refs edit_unique >= edit_unique use_edit_unique
