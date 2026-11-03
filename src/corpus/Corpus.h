@@ -16,11 +16,15 @@ inline constexpr const char* kExpectFileName = "tenfold-expect.txt";
 
 // `/*@name*/token`: the position of the first character of `token`. Lines and columns are 0-based, columns are byte
 // offsets; `file` is relative to the corpus root with '/' separators. `len` is the byte length of the token (an
-// identifier, `~` + identifier, or one punctuation character).
+// identifier, `~` + identifier of a destructor, or one punctuation character). `skip` is the number of bytes from
+// `col` to the first identifier character: 1 for a destructor name (`~Foo`: queries are asked at the `F`), else 0.
+// A `~` is a destructor's only when `~Identifier(` follows a declaration context (start of the line, `::`, `{`, `;`,
+// `}`, `->`, `.`, or one of virtual / inline / constexpr / explicit / friend / public: ...) or the anchor says so
+// (`/*@name~*/~Foo`); otherwise it is the unary operator, a one-character token like any punctuation.
 struct Anchor {
   std::string name;
   std::string file;
-  int line = 0, col = 0, len = 1;
+  int line = 0, col = 0, len = 1, skip = 0;
 };
 using AnchorMap = std::map<std::string, Anchor>;
 
@@ -51,14 +55,14 @@ enum class Rel {
   Eq,        // =   exactly this set
   Ge,        // >=  at least this set
   Contains,  // ~   hover contains every quoted text
-  Has        // ∋ / has  sym: every target is among the results
+  Has        // ∋ / has  sym: every group of targets has a member among the results
 };
 
 const char* toString(Kind k);
 const char* toString(Rel r);
 
 struct Item {
-  enum class Type { Check, Config, Open, Edit } type = Type::Check;
+  enum class Type { Check, Config, Open, Close, Edit } type = Type::Check;
   int line = 0;      // 1-based line in the expectation file
   std::string text;  // the line as written (without the trailing newline), for reports
 
@@ -69,13 +73,18 @@ struct Item {
   std::string reason;  // the text after '#' of an xfail line
   std::string anchor;  // subject: the token whose definition / references / ... is asked
   Rel rel = Rel::None;
-  bool none = false;                 // `-> none`, or an empty set
+  bool none = false;                 // `-> none`, or an empty set; rename: the indented line `(none)` (nothing changes)
+  bool refused = false;              // rename ... `!`: clangd must refuse the rename (and nothing changes)
   std::vector<std::string> targets;  // anchors: alternatives (def, decl, typedef, sym ->) or set members
+  // sym ∋: `A | B C` is two groups {A, B} and {C}; each group needs one member among the results. `targets` holds
+  // every name of every group.
+  std::vector<std::vector<std::string>> groups;
   std::vector<std::string> texts;    // hover: texts that must occur
   std::string query;                 // sym: the query; rename: the new name
   std::vector<std::string> renamed;  // rename: anchors whose token must now read `query`
 
-  // Type::Config (arg = "Debug|x64"), Type::Open (arg = file), Type::Edit (arg = file, editLine/editCol 1-based)
+  // Type::Config (arg = "Debug|x64"), Type::Open / Type::Close (arg = file), Type::Edit (arg = file, editLine/editCol
+  // 1-based)
   std::string arg;
   int editLine = 0, editCol = 0;
   std::string editText;
@@ -111,8 +120,17 @@ Verdict checkHover(const Item& it, const std::string& hoverText);
 // anchor now; `before` the same before. Pure part of the rename check, see the runner.
 Verdict checkRename(const Item& it, const std::map<std::string, std::string>& tokensBefore,
                     const std::map<std::string, std::string>& tokensAfter);
+// A rename that must change nothing (`(none)`) or must be refused (`!`): `answered` is false when clangd did not
+// answer in time, `err` its error (empty when it accepted the rename) and `edits` the number of edits applied.
+// `(none)` passes when no anchor's token changed (clangd may answer with no edits or with an error); `!` also needs
+// the error and no edits.
+Verdict checkRenameNoChange(const Item& it, bool answered, const std::string& err, size_t edits,
+                            const std::map<std::string, std::string>& tokensBefore,
+                            const std::map<std::string, std::string>& tokensAfter);
 
-enum class Status { Pass, Fail, XFail, XPass, Skip };
+// Partial: a verdict that failed while clangd's background index was incomplete (the answer may be wrong only
+// because the index is partial); counted apart from Fail and not a failure of the run.
+enum class Status { Pass, Fail, XFail, XPass, Skip, Partial };
 const char* toString(Status s);
 Status classify(bool xfail, bool ok);
 

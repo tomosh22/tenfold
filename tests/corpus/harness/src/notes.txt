@@ -1,0 +1,2 @@
+This text file is not a C/C++ source: clangd never gets it, so an anchor in it cannot be asked.
+/*@in_text*/word

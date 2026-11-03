@@ -151,6 +151,12 @@ class Editor {
   // Symbols of the current document (fast index first, clangd's authoritative list replaces it).
   void documentSymbols(NavResult done);
   void gotoDeclaration(NavResult done);
+  // Go to the definition of the type of the symbol at the caret (clangd typeDefinition; the fast tier answers like
+  // gotoDefinition). Jumps like gotoDefinition for a single result.
+  void gotoTypeDefinition(NavResult done);
+  // Implementations of the virtual function / overriders of the class at the caret (clangd implementation). A list:
+  // it never jumps, like findReferences.
+  void findImplementations(NavResult done);
   void findReferences(NavResult done);
   void findSymbols(const std::string& query, NavResult done);
   void hover(std::function<void(const std::string&, const std::string& error)> done);

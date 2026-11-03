@@ -66,10 +66,15 @@ Anchor rules:
 * The anchor's location is the **first character of the token after the comment**, on the same line. Blanks between the
   comment and the token are skipped. Several anchors can precede one token (`/*@a*//*@b*/foo`). An anchor at the end of
   its line is an error.
-* The token is the identifier that starts there, `~` plus identifier for a destructor, otherwise one punctuation
-  character (`/*@plus*/+`).
+* The token is the identifier that starts there, `~` plus identifier for a **destructor name**, otherwise one punctuation
+  character (`/*@plus*/+`, and a unary `~`: `/*@not*/~f` anchors the operator, a one-character token). A `~Identifier(`
+  is a destructor name when the text before it on the line is empty, ends with `::`, `->`, `.`, `{`, `}` or `;`, or ends
+  with `virtual` / `inline` / `constexpr` / `explicit` / `friend` / `public:` / `private:` / `protected:` (a class body,
+  an out-of-class definition, an explicit destructor call). Where the context cannot tell (a macro argument), write
+  `/*@name~*/~Foo`: the `~` after the name marks the token as a destructor name (it is an error on any other token).
 * Columns are byte offsets. Only the exact pattern `/*@name*/` is an anchor; `/*@brief */` and the like are ignored.
-* Queries are asked **at the first identifier character of the token** (for `~Foo`, at the `F`).
+* Queries are asked **at the first identifier character of the token** (for the destructor name `~Foo`, at the `F`; for
+  a unary `~` or any other punctuation token, at the token itself).
 * Name anchors for what a person would click on: the use site for `def`/`decl`/`typedef`/`hover`, the declaration for
   `refs`/`impl`/`rename`, and the *target* spots for the right-hand sides.
 
@@ -86,13 +91,16 @@ trailing comment. `A`, `B`, `C` are anchors.
 | `impl A -> B C ...` | go to implementations returns exactly this set (`=` is the same, `>=` at least). |
 | `refs A = B C D` | find references returns exactly these (`>=` at least these, `= none` empty). Include the declaration only if listed. |
 | `hover A ~ "text"` | the hover text contains the text (several quoted strings: all must occur). |
-| `sym "query" -> B` | workspace symbol search ranks B **first** (`-> B \| C`: first is one of them, `-> none`: empty). |
-| `sym "query" ∋ B C` | B and C are **among** the results (ASCII spelling: `has`). |
+| `sym "query" -> B` | workspace symbol search ranks B **first** (`-> B \| C`: first is B or C, e.g. declaration or definition; `-> none`: empty). |
+| `sym "query" ∋ B C` | B and C are **among** the results (ASCII spelling: `has`). `∋ B \| C D`: some result is B **or** C, and D is among them too (blanks separate what must all be hit, `\|` the alternatives of one of them). |
 | `rename A newName` + indented `  B C ...` lines | renaming A to `newName` must change the token of exactly these anchors. |
+| `rename A newName` + indented `  (none)` | the rename must change **no** anchor (clangd may answer with no edits or with an error: both leave everything as it was), e.g. a name pasted over itself. |
+| `rename A newName !` | the rename must be **refused**: clangd answers with an error, applies no edit, and no anchor changes (a keyword, an invalid name). No indented lines follow. |
 | `fast <expectation>` | judged on the fast tier only (clangd's answers held back). Not for `refs`/`rename`. |
 | `xfail <expectation>  # reason` | a known wrong answer: reported `XFAIL`, not a failure; becomes `XPASS` (a failure) when it starts passing. The reason is mandatory. `fast` and `xfail` combine in either order. |
 | `config Name\|Platform` | switch the active Visual Studio configuration (same call as the UI: `Editor::selectVsConfiguration`, which regenerates the compile commands and restarts clangd); applies to the lines that follow. |
 | `open <file>` | open the document (clangd gets `didOpen`). |
+| `close <file>` | close the document (clangd gets `didClose`; unsaved `edit`s are dropped and the file is read from disk again, so anchors an `edit` introduced disappear and the others are where the disk has them). A document that is not open is a `FAIL` of that line. |
 | `edit <file>:<line>:<col> "text"` | insert text into the open document (unsaved), 1-based line and column in the document's **current** text; `\n` `\t` `\"` `\\` are escapes. Anchors in the inserted text become usable by the following lines, and anchors below the insertion move with it. |
 
 Lines are executed **in order**; `config`, `open` and `edit` change the state for everything after them. Put `fast`
@@ -101,8 +109,9 @@ lines first if you want their latency measured cold (clangd has parsed nothing y
 ## How an expectation is judged
 
 **Tiers.** Both tiers are queried through the same code the UI uses: `Editor::gotoDefinition`, `gotoDeclaration`,
-`findReferences`, `findSymbols`, `hover`, `renameSymbol` (go to type definition and implementations have no `Editor`
-wrapper yet; the runner calls `SemanticEngine::gotoTypeDefinition` / `findImplementations`, which `Editor` would call).
+`gotoTypeDefinition`, `findImplementations`, `findReferences`, `findSymbols`, `hover`, `renameSymbol` (type definition and
+implementations are thin `Editor` wrappers over the `SemanticEngine` calls; 10x has no command for them, so the UI does
+not bind them yet).
 
 * The **fast tier** is isolated by a small engine hook, `SemanticEngine::Options::fastOnlyQueries` /
   `setFastOnlyQueries()`: while it is on, navigation, hover and symbol queries behave as if clangd were not running (they
@@ -126,18 +135,35 @@ that is a range (document symbols) also lands on B when it **contains** B's firs
 * `sym ->`: the first result. `sym ∋`: each anchor is landed on by some result.
 * `none`: the answer is empty.
 
+**Order and sync.** A line that needs clangd (every non-`fast` line) first compares the pending `fast` probes with
+clangd's answers (they move the caret), then places the caret on its own anchor, and only then waits and queries: a
+`refs` or `rename` directly after `fast` lines acts on its own anchor. Before the query the runner waits for the TU of
+**every document an earlier line opened or changed** (`open`, `edit`, the jump of a `def`, the files of a rename), not
+only the anchor's. An anchor in a document that is **not synced to clangd** (anything that is not a C/C++ source or
+header, e.g. `.txt`) makes the line `FAIL` at once with `document not synced to clangd`, instead of waiting for the
+project time limit.
+
 **Rename.** The runner snapshots every file with anchors, calls `Editor::renameSymbol` at A, then **re-scans the
 anchors** in the resulting text (documents that are open, files on disk otherwise) and compares the identifier at each
 anchor: every listed anchor must now read `newName`, and no *other* anchor may have become `newName`. It then restores
 the corpus (open documents get their text back, files the rename wrote and closed are rewritten byte for byte) so later
-lines see the original again.
+lines see the original again. `(none)` and `!` compare the identifier at **every** anchor before and after instead
+(any difference fails), and `!` also needs clangd's error and zero edits.
 
 **Status.** `PASS`/`FAIL`; for `xfail` lines `XFAIL` (still wrong, fine) and `XPASS` (right now: **counts as a
-failure** so the line gets promoted). `SKIP`: needs clangd and `--no-clangd` was given.
+failure** so the line gets promoted). `SKIP`: needs clangd and `--no-clangd` was given. `PARTIAL`: failed on an incomplete clangd index (below).
 
 **Fast/final agreement.** At **every `def` and `decl` line** (with or without `fast`) the runner asks both tiers and
 records whether they agree: the same set of `file:line`s (order, duplicates and columns ignored). The rate is a
 property of the engine, not of the expectation: `xfail`, `-> none` and failing lines count too.
+
+**Incomplete clangd index.** The runner waits for clangd's background index once per project (and after each `config`)
+for at most `--index-wait <s>` (default 120, bounded by `--timeout`). On a very large project it may not finish (20k files:
+about 7k translation units). The runner then prints an `INDEX` line, the summary says `clangd index INCOMPLETE (n%)`, the
+JSON has `clangdIndexComplete` / `clangdIndexPercent`, and every non-`fast` expectation that *fails* afterwards is
+reported as `PARTIAL` (JSON `counts.partial`) instead of `FAIL`: the answer may be wrong only because the index is
+partial. `PARTIAL` does not change the exit code; passes stay `PASS`. Raise `--index-wait` (and `--timeout`) to judge
+such a project against the full index.
 
 **Time limit.** `--timeout` (default 180 s) bounds the whole project; when it is used up the remaining lines FAIL with
 "project time limit reached".
@@ -204,6 +230,17 @@ Where `docs/IMPLEMENTATION_PLAN.md` (W9) left room, the harness does this:
     symlinks and is skipped on Windows (marker file `tenfold-corpus-linux-only`).
 14. An exception thrown by the engine while an expectation runs makes that line a `FAIL` (note `exception: ...`); the run
     and the report continue.
+15. **Rename that changes nothing**: an indented `(none)` (no anchor may change; a refusal also satisfies it) and a
+    trailing `!` (must be refused: error, no edits, no change). Chosen over an empty block because an empty block is
+    indistinguishable from a forgotten one, which stays a parse error.
+16. **`~`** is part of an anchor's token only for a destructor name, recognised by context (see the anchor rules) or
+    marked `/*@name~*/`; otherwise it is the one-character unary operator. Both spellings are checked by the
+    scanner's unit test.
+17. **Sync**: `rename`/`refs`/final queries flush the pending `fast` probes before placing the caret; the runner waits
+    for every document earlier lines opened or changed; a document that clangd is never sent fails the line with
+    `document not synced to clangd`. The `fast` tier does not check this (the lexer index simply has no answer).
+18. **`tenfold-cli compdb x.sln`** without `-o` prints the database to stdout (progress on stderr) instead of writing
+    `compile_commands.json` next to the solution, where it would outrank the `.sln` in every later run on that folder.
 
 ## Pathological workspaces
 

@@ -28,7 +28,7 @@ AnchorMap sample() {
   return scan("x.cpp",
               "int /*@a*/alpha() {}\n"
               "int /*@b*/beta() {}\n"
-              "void /*@c*/~Gamma() {}\n"
+              "virtual /*@c*/~Gamma() {}\n"
               "int /*@d*/delta;\n");
 }
 
@@ -61,6 +61,8 @@ TEST(corpus_anchor_scan) {
   CHECK_EQ(m["a"].col, 10);  // after "int /*@a*/" (10 columns): the token follows the comment directly
   CHECK_EQ(m["a"].len, 5);
   CHECK_EQ(m["c"].len, 6);  // ~Gamma: a destructor token includes the tilde
+  CHECK_EQ(m["c"].skip, 1);
+  CHECK_EQ(m["a"].skip, 0);
   CHECK_EQ(m["d"].line, 3);
 
   // Blanks between the comment and the token are skipped; several anchors can name one token.
@@ -114,9 +116,10 @@ TEST(corpus_parse_every_expectation_kind) {
       "  b c\n"
       "  # a comment inside the block\n"
       "  d\n"
-      "def a -> b\n";
+      "def a -> b\n"
+      "close src/x.cpp\n";
   REQUIRE(parse(text, a, it, errs));
-  REQUIRE(it.size() == 23u);
+  REQUIRE(it.size() == 24u);
   CHECK(it[0].kind == Kind::Def && it[0].rel == Rel::Arrow && it[0].targets == std::vector<std::string>{"b"});
   CHECK_EQ(it[0].line, 3);
   CHECK((it[1].targets == std::vector<std::string>{"b", "c"}));
@@ -142,6 +145,7 @@ TEST(corpus_parse_every_expectation_kind) {
   CHECK(it[21].kind == Kind::Rename && it[21].query == "newName");
   CHECK((it[21].renamed == std::vector<std::string>{"b", "c", "d"}));
   CHECK(it[22].kind == Kind::Def);  // the block ended at the next unindented line
+  CHECK(it[23].type == Item::Type::Close && it[23].arg == "src/x.cpp");
 }
 
 TEST(corpus_parse_errors_name_file_and_line) {
@@ -300,6 +304,7 @@ TEST(corpus_check_hover_and_rename) {
 TEST(corpus_status_and_statistics) {
   CHECK(classify(false, true) == Status::Pass);
   CHECK(classify(false, false) == Status::Fail);
+  CHECK_EQ(std::string(toString(Status::Partial)), "PARTIAL");
   CHECK(classify(true, false) == Status::XFail);
   CHECK(classify(true, true) == Status::XPass);
 
@@ -359,4 +364,136 @@ TEST(corpus_anchor_scanner_skips_symlinks) {
   }
   fs::remove_all(d, ec);
 #endif
+}
+
+TEST(corpus_anchor_tilde_is_a_destructor_only_in_a_declaration_context) {
+  std::vector<std::string> errs;
+  // Destructor names: class body (line start, specifier, access label), after `::`, a call through `->` / `.`.
+  AnchorMap m = scan("d.cpp",
+                     "struct S {\n"
+                     "  /*@in_class*/~S();\n"
+                     "  virtual /*@virt*/~S();\n"
+                     "public: /*@label*/~S();\n"
+                     "};\n"
+                     "S::/*@qual*/~S() {}\n"
+                     "void f(S* p, S& r) { p->/*@arrow*/~S(); r./*@dot*/~S(); }\n",
+                     &errs);
+  CHECK(errs.empty());
+  for (const char* n : {"in_class", "virt", "label", "qual", "arrow", "dot"}) {
+    CHECK_EQ(m[n].skip, 1);
+    CHECK_EQ(m[n].len, 2);
+  }
+  // The unary operator is a one-character token: after `=`, `(`, `return`, an operator; or not followed by `(`.
+  m = scan("u.cpp",
+           "int a = /*@eq*/~b;\n"
+           "int c = (/*@paren*/~d(1));\n"
+           "int e = x & /*@amp*/~y(2);\n"
+           "int g() { return /*@ret*/~h(3); }\n"
+           "void k() { x = /*@semi*/~z; }\n",
+           &errs);
+  CHECK(errs.empty());
+  for (const char* n : {"eq", "paren", "amp", "ret", "semi"}) {
+    CHECK_EQ(m[n].skip, 0);
+    CHECK_EQ(m[n].len, 1);
+  }
+  // Explicit opt-in `/*@name~*/` where the context cannot tell (a macro argument), and its misuse.
+  m = scan("e.cpp", "DTOR(/*@opt~*/~S)\nint /*@bad~*/plain;\n", &errs);
+  CHECK_EQ(m["opt"].skip, 1);
+  CHECK_EQ(m["opt"].len, 2);
+  REQUIRE(errs.size() == 1u);
+  CHECK(hasError(errs, "e.cpp:2: anchor 'bad~' is not followed by a ~Identifier"));
+  CHECK(anchorNamesIn("x /*@one~*/~S y /*@two*/z").size() == 2u);
+}
+
+TEST(corpus_sym_alternatives_and_groups) {
+  const AnchorMap a = sample();
+  std::vector<Item> it;
+  std::vector<std::string> errs;
+  REQUIRE(
+      parse("sym \"q\" -> a | b\n"
+            "sym \"q\" \xE2\x88\x8B a | b c\n"
+            "sym \"q\" has a | b | d\n",
+            a, it, errs));
+  CHECK((it[0].targets == std::vector<std::string>{"a", "b"}));
+  REQUIRE(it[1].groups.size() == 2u);
+  CHECK((it[1].groups[0] == std::vector<std::string>{"a", "b"}));
+  CHECK((it[1].groups[1] == std::vector<std::string>{"c"}));
+  CHECK_EQ(it[1].targets.size(), 3u);
+  CHECK_EQ(it[2].groups.size(), 1u);
+
+  const Loc A = at("x.cpp", 0, 10), B = at("x.cpp", 1, 10), C = at("x.cpp", 2, 14), D = at("x.cpp", 3, 10);
+  CHECK(checkLocations(it[0], {B, A}, a).ok);  // the first result is one of the alternatives
+  CHECK(!checkLocations(it[0], {D, A}, a).ok);
+  CHECK(checkLocations(it[1], {B, C}, a).ok);  // b stands in for a
+  CHECK(checkLocations(it[1], {D, A, C}, a).ok);
+  CHECK(!checkLocations(it[1], {A, B}, a).ok);  // the group {c} is missing
+  CHECK(!checkLocations(it[1], {C}, a).ok);     // the group {a | b} is missing
+  Verdict v = checkLocations(it[1], {C}, a);
+  CHECK_EQ(v.expected, "contains a | b c");
+  CHECK(checkLocations(it[2], {D}, a).ok);
+
+  const char* bad[][2] = {{"sym \"q\" has | a\n", "misplaced '|'"},
+                          {"sym \"q\" has a |\n", "missing anchor after '|'"},
+                          {"sym \"q\" has a | | b\n", "misplaced '|'"},
+                          {"sym \"q\" has none\n", "unknown anchor 'none'"}};
+  for (auto& [text, needle] : bad) {
+    CHECK(!parse(text, a, it, errs));
+    CHECK(hasError(errs, needle));
+  }
+}
+
+TEST(corpus_rename_none_and_refused) {
+  const AnchorMap a = sample();
+  std::vector<Item> it;
+  std::vector<std::string> errs;
+  REQUIRE(
+      parse("rename a b\n  (none)\n"
+            "rename a b !   # refused\n"
+            "def a -> b\n"
+            "rename a newName\n  b\n",
+            a, it, errs));
+  REQUIRE(it.size() == 4u);
+  CHECK(it[0].none && !it[0].refused && it[0].renamed.empty());
+  CHECK(it[1].refused && !it[1].none);
+  CHECK(!it[3].none && !it[3].refused && it[3].renamed.size() == 1u);
+
+  const std::map<std::string, std::string> before = {{"a", "alpha"}, {"b", "beta"}, {"c", "gamma"}};
+  // (none): unchanged passes, with or without an error; a changed anchor or no answer fails.
+  CHECK(checkRenameNoChange(it[0], true, "", 0, before, before).ok);
+  CHECK(checkRenameNoChange(it[0], true, "invalid name", 0, before, before).ok);
+  Verdict v = checkRenameNoChange(it[0], true, "", 3, before, {{"a", "b"}, {"b", "beta"}, {"c", "gamma"}});
+  CHECK(!v.ok);
+  CHECK_EQ(v.actual, "changed: a(b)");
+  CHECK(!checkRenameNoChange(it[0], false, "", 0, before, before).ok);
+  // `!`: the rename must also have been refused with an error and no edits.
+  CHECK(checkRenameNoChange(it[1], true, "invalid name", 0, before, before).ok);
+  v = checkRenameNoChange(it[1], true, "", 0, before, before);
+  CHECK(!v.ok);
+  CHECK_EQ(v.actual, "rename accepted (0 edits)");
+  CHECK(!checkRenameNoChange(it[1], true, "x", 2, before, before).ok);
+
+  const char* bad[][2] = {
+      {"rename a b\n", "rename needs indented lines"},
+      {"rename a b\n  (none)\n  c\n", "'(none)' cannot be mixed with anchors"},
+      {"rename a b\n  c\n  (none)\n", "'(none)' cannot be mixed with anchors"},
+      {"rename a b !\n  c\n", "unexpected indented line"},
+      {"rename a b ! extra\n", "unexpected text after the new name"},
+      {"fast rename a b !\n", "rename has no fast tier"},
+  };
+  for (auto& [text, needle] : bad) {
+    CHECK(!parse(text, a, it, errs));
+    CHECK(hasError(errs, needle));
+  }
+}
+
+TEST(corpus_close_directive_errors) {
+  const AnchorMap a = sample();
+  std::vector<Item> it;
+  std::vector<std::string> errs;
+  CHECK(!parse("close\n", a, it, errs));
+  CHECK(hasError(errs, "usage: close <file>"));
+  CHECK(!parse("close a b\n", a, it, errs));
+  CHECK(hasError(errs, "usage: close <file>"));
+  CHECK(!parse("fast close x.cpp\n", a, it, errs));
+  CHECK(hasError(errs, "'close' cannot follow fast/xfail"));
 }

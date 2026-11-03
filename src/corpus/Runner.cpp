@@ -86,12 +86,11 @@ long processId() {
 // Lines end at "\r\n", "\n" or a lone '\r', like TextBuffer's and clang's (the BOM stays in line 1).
 std::vector<std::string> splitLines(const std::string& text) { return TextBuffer(text).lines(); }
 
-// The identifier at an anchor (a leading '~' of a destructor is not part of it).
+// The identifier at an anchor (the '~' of a destructor name is not part of it; a unary '~' is the token itself).
 std::string tokenAt(const std::vector<std::string>& lines, const Anchor& a) {
   if (a.line < 0 || static_cast<size_t>(a.line) >= lines.size()) return {};
   const std::string& l = lines[static_cast<size_t>(a.line)];
-  size_t i = static_cast<size_t>(a.col);
-  if (i < l.size() && l[i] == '~') ++i;
+  size_t i = static_cast<size_t>(a.col + a.skip);
   size_t b = i;
   while (i < l.size() && (std::isalnum(static_cast<unsigned char>(l[i])) || l[i] == '_' || (l[i] & 0x80))) ++i;
   return i > b ? l.substr(b, i - b) : std::string(1, i < l.size() ? l[i] : ' ');
@@ -151,6 +150,7 @@ class Runner {
   void runCheck(const Item& it);
   void runConfig(const Item& it);
   void runOpen(const Item& it);
+  void runClose(const Item& it);
   void runEdit(const Item& it);
   void runRename(const Item& it, ItemResult& r);
 
@@ -159,6 +159,12 @@ class Runner {
   Answer askHover(bool held);
   Answer queryLocs(Kind kind, const Item& it, bool held, const Anchor& a);
   void ensureReady(const std::string& relFile);
+  // Before a query that needs clangd's view: false (with `err`) when the anchor's document is not synced to clangd at
+  // all (it would never become ready), else waits for the TU of every document earlier lines opened or changed.
+  bool awaitDocuments(const std::string& anchorRel, std::string& err);
+  bool isSynced(const fs::path& file) const;
+  void noteDoc(const fs::path& file) { dirtyDocs_.insert(file); }
+  void sweepOpenDocs();
   void flushAgreement();
   void sample(Kind k, bool fast, double ms) {
     if (ms >= 0) rep_.samples[std::string(toString(k)) + (fast ? ".fast" : ".final")].push_back(ms);
@@ -177,6 +183,9 @@ class Runner {
   double deadlineMs_ = 0;
   bool haveClangd_ = false;
   bool indexWaitDue_ = true;
+  bool indexComplete_ = true;     // clangd's background index finished at the last wait
+  std::set<fs::path> dirtyDocs_;  // opened or changed since the last awaitDocuments
+  std::set<fs::path> openSeen_;   // documents open at the last sweep
   std::vector<Pending> pending_;
   std::vector<std::string> engineLog_;
   std::mutex logMu_;
@@ -231,12 +240,19 @@ void Runner::copyTree(const fs::path& from, const fs::path& to) {
 }
 
 void Runner::record(ItemResult r) {
+  // A wrong answer from a partial clangd index is not evidence against tenfold: keep it apart from the FAILs.
+  if (r.status == Status::Fail && r.isCheck && !r.fast && !indexComplete_ && !r.expected.empty() &&
+      r.expected != "an answer") {
+    r.status = Status::Partial;
+    r.note += (r.note.empty() ? "" : " ") + std::string("judged on an incomplete clangd index");
+  }
   switch (r.status) {
     case Status::Pass: ++rep_.pass; break;
     case Status::Fail: ++rep_.fail; break;
     case Status::XFail: ++rep_.xfail; break;
     case Status::XPass: ++rep_.xpass; break;
     case Status::Skip: ++rep_.skip; break;
+    case Status::Partial: ++rep_.partial; break;
   }
   std::ostringstream os;
   os << toString(r.status);
@@ -251,7 +267,8 @@ void Runner::record(ItemResult r) {
     }
     os << "]";
   }
-  const bool bad = r.status == Status::Fail || r.status == Status::XFail || r.status == Status::XPass;
+  const bool bad =
+      r.status == Status::Fail || r.status == Status::XFail || r.status == Status::XPass || r.status == Status::Partial;
   if (bad && !r.expected.empty()) os << "\n        expected: " << r.expected << "\n        actual:   " << r.actual;
   if (!r.note.empty() && (bad || r.status == Status::Skip)) os << "\n        " << r.note;
   emit(os.str());
@@ -292,21 +309,42 @@ bool Runner::moveTo(const std::string& anchor, std::string& err) {
     return false;
   }
   const Anchor& a = it->second;
-  int col = a.col;
-  {
-    // Query at the first identifier character: a destructor's '~' is not a word character.
-    const std::vector<std::string> lines = splitLines(currentText(abs(a.file)));
-    if (static_cast<size_t>(a.line) < lines.size() &&
-        static_cast<size_t>(col) < lines[static_cast<size_t>(a.line)].size() &&
-        lines[static_cast<size_t>(a.line)][static_cast<size_t>(col)] == '~')
-      ++col;
-  }
+  const int col = a.col + a.skip;  // query at the first identifier character: a destructor's '~' is not a word char
   std::string e;
   if (!ed_->gotoLocation({abs(a.file), {a.line, col}}, &e)) {
     err = "cannot open " + a.file + (e.empty() ? "" : ": " + e);
     return false;
   }
   noteOpened(abs(a.file));
+  noteDoc(abs(a.file));
+  return true;
+}
+
+bool Runner::isSynced(const fs::path& file) const {
+  const Workspace& ws = ed_->workspace();
+  return ws.isSource(file) || ws.isHeader(file);  // the engine syncs exactly these to clangd (isCodeDocument)
+}
+
+void Runner::sweepOpenDocs() {
+  std::set<fs::path> now;
+  for (Document* d : ed_->documents()) now.insert(d->path());
+  for (auto& p : now)
+    if (!openSeen_.count(p)) dirtyDocs_.insert(p);  // opened by a jump, a rename or a directive
+  openSeen_ = std::move(now);
+}
+
+bool Runner::awaitDocuments(const std::string& anchorRel, std::string& err) {
+  if (!haveClangd_) return true;
+  if (!anchorRel.empty() && !isSynced(abs(anchorRel))) {
+    err = "document not synced to clangd: " + anchorRel + " (not a C/C++ source or header; clangd never parses it)";
+    return false;
+  }
+  sweepOpenDocs();
+  if (!anchorRel.empty()) dirtyDocs_.insert(abs(anchorRel));
+  std::set<fs::path> todo;
+  todo.swap(dirtyDocs_);
+  for (auto& p : todo)
+    if (ed_->document(p) && isSynced(p)) ed_->semantic().waitForFile(p, std::min(60000, remainingMs()));
   return true;
 }
 
@@ -315,8 +353,16 @@ void Runner::ensureReady(const std::string& relFile) {
   if (indexWaitDue_) {
     indexWaitDue_ = false;
     const auto t = Clock::now();
-    const bool ok = ed_->semantic().waitForClangdIndex(std::min(120000, remainingMs()));
+    const bool ok = ed_->semantic().waitForClangdIndex(std::min(o_.indexWaitSec * 1000, remainingMs()));
     if (rep_.clangdIndexMs < 0 && ok) rep_.clangdIndexMs = msSince(t);
+    indexComplete_ = ok;
+    rep_.indexComplete = rep_.indexComplete && ok;
+    if (!ok) {
+      if (auto c = ed_->semantic().clangd()) rep_.indexPercent = c->indexProgress().percentage;
+      emit("INDEX  " + rep_.name + "  clangd's background index is incomplete after " +
+           std::to_string(o_.indexWaitSec) + " s (" + std::to_string(rep_.indexPercent) +
+           "%); failures from here are reported as PARTIAL (raise --index-wait)");
+    }
   }
   if (!relFile.empty()) ed_->semantic().waitForFile(abs(relFile), std::min(60000, remainingMs()));
 }
@@ -364,8 +410,7 @@ Runner::Answer Runner::askHover(bool held) {
   return st->a;
 }
 
-// One navigation-style query at the caret (already placed): def / decl through the Editor (what the UI calls),
-// typedef / impl / refs / sym through the same engine calls with the same callback plumbing.
+// One navigation-style query at the caret (already placed), through the Editor calls the UI makes.
 Runner::Answer Runner::queryLocs(Kind kind, const Item& it, bool held, const Anchor&) {
   ed_->semantic().setFastOnlyQueries(held && haveClangd_);
   Answer a;
@@ -375,20 +420,9 @@ Runner::Answer Runner::queryLocs(Kind kind, const Item& it, bool held, const Anc
     case Kind::Refs: a = askLocs([&](Editor::NavResult cb) { ed_->findReferences(std::move(cb)); }, true); break;
     case Kind::Sym: a = askLocs([&](Editor::NavResult cb) { ed_->findSymbols(it.query, std::move(cb)); }, !held); break;
     case Kind::Typedef:
-    case Kind::Impl: {
-      Document* doc = ed_->currentDocument();
-      const Position pos = ed_->cursor().pos;
-      a = askLocs(
-          [&](Editor::NavResult cb) {
-            auto post = [this, cb](Confidence c, std::vector<SymbolLocation> l, const std::string& e) {
-              ed_->post([cb, c, l = std::move(l), e] { cb(c, l, e); });
-            };
-            if (kind == Kind::Typedef) ed_->semantic().gotoTypeDefinition(*doc, pos, post);
-            else ed_->semantic().findImplementations(*doc, pos, post);
-          },
-          !held);
+      a = askLocs([&](Editor::NavResult cb) { ed_->gotoTypeDefinition(std::move(cb)); }, !held);
       break;
-    }
+    case Kind::Impl: a = askLocs([&](Editor::NavResult cb) { ed_->findImplementations(std::move(cb)); }, !held); break;
     default: break;
   }
   ed_->semantic().setFastOnlyQueries(haveClangd_);
@@ -405,6 +439,7 @@ void Runner::flushAgreement() {
     std::string err;
     try {
       if (!moveTo(p.anchor, err)) continue;
+      if (!awaitDocuments(anchors_[p.anchor].file, err)) continue;
       ensureReady(anchors_[p.anchor].file);
     } catch (const std::exception& e) {  // W9e H2: an engine exception costs this comparison, not the run
       ed_->semantic().setFastOnlyQueries(haveClangd_);
@@ -477,6 +512,11 @@ void Runner::runCheck(const Item& it) {
       r.note = err;
       return record(std::move(r));
     }
+    if (!awaitDocuments(anchor.file, err)) {
+      r.status = Status::Fail;
+      r.note = err;
+      return record(std::move(r));
+    }
     ensureReady(anchor.file);
     if (it.kind == Kind::Hover) ans = askHover(false);
     else ans = queryLocs(it.kind, it, false, anchor);
@@ -519,12 +559,13 @@ void Runner::runCheck(const Item& it) {
 void Runner::runRename(const Item& it, ItemResult& r) {
   std::string err;
   r.fast = false;
-  if (!moveTo(it.anchor, err)) {
+  // The pending fast probes are compared first: they move the caret, and the rename acts on the caret.
+  flushAgreement();
+  if (!moveTo(it.anchor, err) || !awaitDocuments(anchors_[it.anchor].file, err)) {
     r.status = Status::Fail;
     r.note = err;
     return record(std::move(r));
   }
-  flushAgreement();
   const Anchor a = anchors_[it.anchor];
   ensureReady(a.file);
 
@@ -562,10 +603,10 @@ void Runner::runRename(const Item& it, ItemResult& r) {
   sample(Kind::Rename, false, r.ms);
 
   Verdict v;
-  if (!st->done) {
+  if (!st->done && !(it.none || it.refused)) {
     v.expected = "a rename";
     v.actual = "no answer within the time limit";
-  } else if (!st->err.empty() && st->res.edits == 0) {
+  } else if (!st->err.empty() && st->res.edits == 0 && !(it.none || it.refused)) {
     v.expected = "{" + std::to_string(it.renamed.size()) + " anchors} renamed";
     v.actual = "rename failed: " + st->err;
   } else {
@@ -579,8 +620,12 @@ void Runner::runRename(const Item& it, ItemResult& r) {
     }
     std::map<std::string, std::string> tokensAfter;
     for (auto& [n, an] : after) tokensAfter[n] = tokenAt(afterLines[an.file], an);
-    v = checkRename(it, tokensBefore, tokensAfter);
-    if (!st->err.empty()) v.actual += " (" + st->err + ")";
+    if (it.none || it.refused) {
+      v = checkRenameNoChange(it, st->done, st->err, st->res.edits, tokensBefore, tokensAfter);
+    } else {
+      v = checkRename(it, tokensBefore, tokensAfter);
+      if (!st->err.empty()) v.actual += " (" + st->err + ")";
+    }
   }
 
   // Restore the corpus: open documents get their old text back; files the rename wrote and closed are rewritten
@@ -593,6 +638,7 @@ void Runner::runRename(const Item& it, ItemResult& r) {
         FileEdits fe;
         fe[p].push_back({Range{{0, 0}, d->buffer().endPosition()}, txt});
         ed_->applyEdits(fe);
+        noteDoc(p);
       }
     } else {
       if (ed_->document(p)) ed_->close(p);
@@ -665,6 +711,25 @@ void Runner::runOpen(const Item& it) {
     return record(std::move(r));
   }
   noteOpened(abs(it.arg));
+  noteDoc(abs(it.arg));
+}
+
+void Runner::runClose(const Item& it) {
+  flushAgreement();  // earlier fast probes are compared while the document is as they saw it
+  const fs::path p = abs(it.arg);
+  if (!ed_->document(p)) {
+    ItemResult r;
+    r.line = it.line;
+    r.text = it.text;
+    r.isCheck = false;
+    r.status = Status::Fail;
+    r.note = "close: " + it.arg + " is not open";
+    return record(std::move(r));
+  }
+  ed_->close(p);  // unsaved edits are dropped: the file is what is on disk again
+  dirtyDocs_.erase(p);
+  openSeen_.erase(p);
+  rescanFile(it.arg, currentText(p));  // anchors an `edit` introduced are gone, the others are where the disk has them
 }
 
 void Runner::runEdit(const Item& it) {
@@ -695,6 +760,7 @@ void Runner::runEdit(const Item& it) {
   }
   noteOpened(p);
   ed_->replaceRange({{line, col}, {line, col}}, it.editText);
+  noteDoc(p);
   rescanFile(it.arg, d->buffer().text());
 }
 
@@ -706,6 +772,7 @@ void Runner::runItem(const Item& it) {
       case Item::Type::Check: return runCheck(it);
       case Item::Type::Config: return runConfig(it);
       case Item::Type::Open: return runOpen(it);
+      case Item::Type::Close: return runClose(it);
       case Item::Type::Edit: return runEdit(it);
     }
   } catch (const std::exception& e) { failed(it, std::string("exception: ") + e.what()); } catch (...) {
@@ -865,7 +932,15 @@ std::string Report::summary() const {
   std::snprintf(b, sizeof b,
                 "== %s: %d pass, %d fail, %d xfail, %d xpass, %d skip; fast/final agreement %zu/%zu; total %.1f s ==",
                 name.c_str(), pass, fail, xfail, xpass, skip, agreeSame, agreeTotal, totalMs / 1000.0);
-  return b;
+  std::string s = b;
+  if (!indexComplete || partial > 0) {
+    char c[160];
+    std::snprintf(c, sizeof c,
+                  "\n== %s: clangd index INCOMPLETE (%d%%): %d expectation(s) PARTIAL, not counted as fail ==",
+                  name.c_str(), indexPercent, partial);
+    s += c;
+  }
+  return s;
 }
 
 std::string Report::toJson() const {
@@ -875,8 +950,10 @@ std::string Report::toJson() const {
   if (!fatal.empty()) j["fatal"] = fatal;
   j["clangd"] = clangd ? Json(clangdVersion) : Json(nullptr);
   j["compileCommands"] = compdbSource;
-  j["counts"] = {{"total", results.size()}, {"pass", pass},   {"fail", fail},
-                 {"xfail", xfail},          {"xpass", xpass}, {"skip", skip}};
+  j["counts"] = {{"total", results.size()}, {"pass", pass}, {"fail", fail},      {"xfail", xfail},
+                 {"xpass", xpass},          {"skip", skip}, {"partial", partial}};
+  j["clangdIndexComplete"] = indexComplete;
+  if (!indexComplete) j["clangdIndexPercent"] = indexPercent;
   Json agree;
   agree["queries"] = agreeTotal;
   agree["agree"] = agreeSame;

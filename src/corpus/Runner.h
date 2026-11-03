@@ -13,12 +13,13 @@
 namespace tf::corpus {
 
 struct RunOptions {
-  std::filesystem::path dir;                    // the corpus project (contains tenfold-expect.txt)
-  bool useClangd = true;                        // false: fast tier only; expectations that need clangd are SKIPped
-  std::string clangdPath;                       // empty: the engine's default lookup (bundled, then PATH)
-  int timeoutSec = 180;                         // time limit for the whole project (indexing waits and queries)
-  bool verbose = false;                         // engine log lines to stderr
-  bool keepScratch = false;                     // keep the temporary copy (printed in the report)
+  std::filesystem::path dir;  // the corpus project (contains tenfold-expect.txt)
+  bool useClangd = true;      // false: fast tier only; expectations that need clangd are SKIPped
+  std::string clangdPath;     // empty: the engine's default lookup (bundled, then PATH)
+  int indexWaitSec = 120;     // how long to wait for clangd's background index (once, and after config)
+  int timeoutSec = 180;       // time limit for the whole project (indexing waits and queries)
+  bool verbose = false;       // engine log lines to stderr
+  bool keepScratch = false;   // keep the temporary copy (printed in the report)
   std::function<void(const std::string&)> out;  // one report line at a time; default: stdout
 };
 
@@ -46,6 +47,9 @@ struct Report {
   std::string fatal;  // parse / setup problem; nothing was evaluated
   std::vector<ItemResult> results;
   int pass = 0, fail = 0, xfail = 0, xpass = 0, skip = 0;
+  int partial = 0;            // failed on an incomplete clangd index (see indexComplete); not in `fail`
+  bool indexComplete = true;  // clangd's background index finished within --index-wait (always true without clangd)
+  int indexPercent = -1;      // its last reported progress when it did not
 
   // Fast tier vs final answer at every def / decl query (same file and line = agree).
   size_t agreeTotal = 0, agreeSame = 0;

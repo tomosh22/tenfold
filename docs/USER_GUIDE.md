@@ -388,6 +388,11 @@ To change it:
 * or `tenfold-cli vsconfig <folder> --list` and `tenfold-cli vsconfig <folder> --set "Release|x64"`, or edit
   `workspace.json` and restart.
 
+To see the commands a solution gives clangd, `tenfold-cli compdb Game.sln --config Debug --platform x64` prints the
+database to stdout; `-o <file>` writes it to a file. It does not write next to the solution on its own: a
+`compile_commands.json` in the workspace folder takes precedence over the `.sln` (see above) and would freeze the flags.
+Write the file somewhere else, or only into a folder you want to use that way.
+
 Changing it regenerates `.tenfold/compile_commands.json` and restarts clangd against it. **The build uses the same
 setting**, so clangd and `msbuild` agree. (Selecting a configuration rewrites `workspace.json` with the keys tenfold
 knows; see [the caveat](#workspace-file-tenfoldworkspacejson).) The OPEN_QUESTIONS #2 default (Debug|x64) is a guess
