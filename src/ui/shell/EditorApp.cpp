@@ -99,6 +99,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
       if (v.document() && v.document()->path() == f) v.setSearchMarkers(r);
     });
   });
+  replaceInFiles_ = std::make_unique<ReplaceInFiles>(pickerEnv_);
   diagPanel_ = std::make_unique<DiagnosticsPanel>(pickerEnv_);
   findReplace_ = std::make_unique<FindReplace>(pickerEnv_);
   findReplace_->setViewsFn([this](const std::function<void(TextView&)>& fn) { forEachView(fn); });
@@ -258,6 +259,23 @@ bool EditorApp::commandRunnable(const std::string& id) const {
   return c && c->handler;
 }
 
+// Runs a build in the Build panel (shown first). The panel reports a command that cannot be found or started.
+bool EditorApp::startBuild(BuildOverrides o) {
+  bench_->showBottomPanel("Build");
+  std::string err;
+  if (!build_->start(o, &err)) setMessage("Build failed to start: " + err, kMessageMs);
+  return true;
+}
+
+// Alt R / Shift+Alt R are ReplaceNextInFile / ReplaceAllInFile in 10x and the regex toggle of tenfold's pickers and
+// find bar. The widget keeps the key in an open picker and in the find-only bar; the replace row (Ctrl+H) gives it to
+// the commands.
+bool EditorApp::widgetOwnsKey(const std::string& commandId) const {
+  if (commandId != "Editor.ReplaceNextInFile" && commandId != "Editor.ReplaceAllInFile") return false;
+  if (root_.modal()) return true;
+  return findReplace_->focusInBar() && !findReplace_->replaceRowShown();
+}
+
 void EditorApp::forEachView(const std::function<void(TextView&)>& fn) {
   std::function<void(Widget&)> walk = [&](Widget& w) {
     if (auto* v = dynamic_cast<TextView*>(&w)) fn(*v);
@@ -361,6 +379,7 @@ void EditorApp::closePickers() {
   symbols_->close();
   navResults_->close();
   find_->close();
+  replaceInFiles_->close();
   diagPanel_->close();
   goToLine_->close();
   configPicker_->close();
@@ -479,6 +498,27 @@ void EditorApp::bindUiCommands() {
     find_->open(initial);
     return true;
   });
+  registry_.bind("Search.NewFindInFiles", [this](const CommandContext& c, std::string_view) {
+    std::string initial;  // like Search.FindInWorkspace: a single-line selection seeds the query
+    if (c.editor->currentDocument() && !c.editor->selections().empty() && !c.editor->selections()[0].empty() &&
+        c.editor->selections()[0].anchor.line == c.editor->selections()[0].head.line)
+      initial = c.editor->currentDocument()->buffer().textInRange(c.editor->selections()[0].range());
+    closePickers();
+    find_->openNew(initial);
+    return true;
+  });
+  registry_.bind(
+      "Search.ReplaceInFiles",
+      [this](const CommandContext& c, std::string_view) {
+        std::string initial;
+        if (c.editor->currentDocument() && !c.editor->selections().empty() && !c.editor->selections()[0].empty() &&
+            c.editor->selections()[0].anchor.line == c.editor->selections()[0].head.line)
+          initial = c.editor->currentDocument()->buffer().textInRange(c.editor->selections()[0].range());
+        closePickers();
+        replaceInFiles_->open(initial);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->started(); });
   registry_.bind("Search.NextResult", [this](const CommandContext&, std::string_view) {
     find_->step(true);  // says "No search results" / "Result i of n" itself
     return true;
@@ -543,6 +583,20 @@ void EditorApp::bindUiCommands() {
           return true;
         },
         [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "Editor.ReplaceNextInFile",
+      [this](const CommandContext&, std::string_view) {
+        findReplace_->replaceNext();  // says what it did (or why not) in the status bar
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "Editor.ReplaceAllInFile",
+      [this](const CommandContext&, std::string_view) {
+        findReplace_->replaceAllInFile();
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   for (bool fwd : {true, false})
     registry_.bind(
         fwd ? "Editor.FindNext" : "Editor.FindPrev",
@@ -630,11 +684,28 @@ void EditorApp::bindUiCommands() {
   registry_.bind("Build.Build", [this](const CommandContext&, std::string_view arg) {
     BuildOverrides o;
     o.command = std::string(arg);  // optional: a custom shell command instead of the detected build
-    bench_->showBottomPanel("Build");
-    std::string err;
-    if (!build_->start(o, &err)) setMessage("Build failed to start: " + err, kMessageMs);
-    return true;
+    return startBuild(std::move(o));
   });
+  registry_.bind("Build.Rebuild", [this](const CommandContext&, std::string_view arg) {
+    BuildOverrides o;
+    o.kind = BuildOverrides::Kind::Rebuild;
+    o.rebuildCommand = std::string(arg);  // optional: a custom shell command instead of the detected rebuild
+    return startBuild(std::move(o));
+  });
+  registry_.bind(
+      "Build.BuildCurrentFile",
+      [this](const CommandContext& c, std::string_view) {
+        const Document* d = c.editor->currentDocument();
+        if (d->isUntitled()) {
+          setMessage(d->path().filename().string() + " has not been saved yet", kMessageMs);
+          return true;
+        }
+        BuildOverrides o;
+        o.kind = BuildOverrides::Kind::CurrentFile;
+        o.file = d->path();
+        return startBuild(std::move(o));
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
       "Build.Cancel",
       [this](const CommandContext&, std::string_view) {
@@ -1006,6 +1077,10 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     // (Alt+R toggles regex in the find bar, ReplaceNextInFile is Alt+R in 10x): they get the key first.
     if (std::string_view(ctx) != "editor" && root_.dispatch(e)) return true;
   }
+  if (widgetOwnsKey(resolveCommandName(r.binding->command).id)) {
+    root_.dispatch(e);  // the picker / bar toggles its option; the key never reaches the editor behind
+    return true;
+  }
   setMessage("");
   runCommandId(r.binding->command, r.binding->arg, ctx);
   return true;
@@ -1085,6 +1160,7 @@ int EditorApp::tick(int64_t nowMs) {
   auto soonest = [&](int ms) { wait = wait < 0 ? ms : std::min(wait, ms); };
   if (const int due = symbols_->tick(nowMs); due >= 0) soonest(due);
   if (const int due = find_->tick(nowMs); due >= 0) soonest(due);
+  if (const int due = replaceInFiles_->tick(nowMs); due >= 0) soonest(due);
   findReplace_->tick(nowMs);
   soonest(external_->tick(nowMs));
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);

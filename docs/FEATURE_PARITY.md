@@ -28,7 +28,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Makefile / bare folders | ✅ | Heuristic include paths. |
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. No `.10x` import (OPEN_QUESTIONS #12); compiler settings come from the Visual Studio solution (C5). |
 | Fast "open file" fuzzy search | ✅ | B5a picker (Control O `OpenFile`, Shift Alt O `FindFile`): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
-| Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI (B5b): Ctrl+Shift+F modal list grouped by file, live streaming, case / word / regex toggles, include / exclude globs, F8 / Shift+F8, scrollbar markers. |
+| Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI (B5b): Ctrl+Shift+F modal list grouped by file, live streaming, case / word / regex toggles, include / exclude globs, F8 / Shift+F8, scrollbar markers. W8e: `ReplaceInFiles` (Ctrl+Shift+H) is a modal checklist of the matches with a replace field and the replacement shown in each row; open documents are edited in place (one undo step each), closed files are written after one confirmation. `NewSearchPanel` (Ctrl+Shift+A) keeps the current result list (the last three) and starts an empty one, Alt+PageUp / Alt+PageDown bring a kept list back. Gaps against 10x's search box: see "Find in files options not supported". |
 | File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents. UI (P2): a clean document is reloaded (`editor.reloadExternalChanges` = auto, as Visual Studio), a dirty one asks Reload / Keep my version, a deleted file keeps its buffer and marks its tab and the status bar. |
 | Unsaved changes | ✅ | P2: closing the last view of a modified tab, closing the window and `App.Quit` ask Save / Don't Save / Cancel (Save All for several documents; a failed save keeps the app open and shows the error); `editor.confirmUnsaved`. Follows Visual Studio (OPEN_QUESTIONS #5). No autosave. |
 
@@ -73,14 +73,14 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 41 of the 183 default bindings (39 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 35 of the 183 default bindings (33 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
 | Compile-command diagnostics | ✅ | D4: `Editor::compileCommandInfo(file)` (source of the compile database, active Visual Studio configuration, the file's exact argv or the fallback flags, whether clangd has the file open and parsed), `tenfold-cli why <root> <file>`, and the `Help.ShowCompileCommand` command (read-only popup; no default key). See ARCHITECTURE "Compile-command diagnostics". |
 | clangd visibility, command palette | ✅ | P2: the status bar shows the engine's clangd text ("clangd restarting (2)...", "clangd stopped: crashed 5 times") and `flags: heuristic` (click: `Help.ShowCompileCommand`); `Clangd.Restart`; `App.CommandPalette` (Ctrl+Shift+P, provisional) lists every runnable command with its key and filters fuzzily, which also reaches the commands that have no key (`Vcs.*`, `Debug.OpenInVisualStudio`, ...). |
 | User guide | ✅ | D4: `docs/USER_GUIDE.md`; its settings table is checked against `assets/settings.default.txt` by a test (`user_guide_settings_table_matches_the_default_settings_file`). |
-| Build integration (run command, parse errors, jump) | ✅ | Engine (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`. UI (C1-UI): resizable bottom dock with a streaming Build panel (clickable, severity-coloured lines, Build/Cancel, status), Ctrl+Shift+B / Ctrl+Break / F4 / Shift+F4, build squiggles + scrollbar marks + hover, status bar segment. All jumps go through `gotoLocation`. See ARCHITECTURE "Build panel and bottom dock". |
+| Build integration (run command, parse errors, jump) | ✅ | W8e: `RebuildActiveWorkspace` (Control Alt F7: `msbuild /t:Rebuild`, `cmake --build --clean-first`, `make clean && make`, or the `rebuildCommand` workspace setting) and `BuildCurrentFile` (Control F7: `msbuild <project> /t:ClCompile /p:SelectedFiles=<file>`, `ninja -C <dir> <object>`, or the file's compile database command) run in the same panel with the same error navigation. Engine (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`. UI (C1-UI): resizable bottom dock with a streaming Build panel (clickable, severity-coloured lines, Build/Cancel, status), Ctrl+Shift+B / Ctrl+Break / F4 / Shift+F4, build squiggles + scrollbar marks + hover, status bar segment. All jumps go through `gotoLocation`. See ARCHITECTURE "Build panel and bottom dock". |
 | Debugger integration | 🔶 | Visual Studio debugger through EnvDTE (OPEN_QUESTIONS #9). Engine (C2a): breakpoints that follow edits (`.tenfold/breakpoints.json`), `DebugSession` worker with two-way breakpoint sync and follow-current-statement. Backend (C2b): late-bound COM EnvDTE, finds the VS instance with the solution via the ROT or launches devenv, run/step/break/run-to-cursor, breakpoint sync, current statement; verified against Visual Studio 2022 in the blocking `windows-vs-debugger` CI job (launch, breakpoint hit, step, VS-side breakpoint, stop). UI (C2c): breakpoint glyph lane (click toggles; disabled / conditional shapes), current-statement arrow and line band, `Debug.*` commands on Visual Studio keys (F5, F9, F10, F11, …), breakpoint list (Ctrl+Alt+B), debugger status segment and orange status bar while debugging. `Debug.OpenInVisualStudio` (no default key) opens the current file at the caret in Visual Studio. |
 | Version control (Perforce / Git) | 🔶 | OPEN_QUESTIONS #10. Engine and Git (C3a): provider interface, `git` status / base text / revert, Myers line diff, debounced off-thread hunks, revert file / hunk. Perforce (C3b, tested against a fake `p4` only): auto-checkout on first edit (`p4 edit`), fstat status, `print #have` base, revert, `vcs.provider` setting, clear read-only save error. UI (C3c): change strip between line numbers and text and scrollbar change marks, inline diff block under a hunk (revert hunk, close, Escape), `Vcs.NextChange` / `PrevChange` / `ToggleInlineDiff` / `RevertHunk` / `RevertFile` (confirmation) / `DiffFileExternal` (p4merge or `vcs.diffTool`) / `RefreshStatus` / `CheckOut`, tab markers, status-bar segment ("Git: modified", "P4: checked out"), errors in the status bar, refresh on window focus. Keys: 10x's `Control P, Control E` / `Control P, Control D` / `Control P, Control R` (check out, external diff, revert file); the change commands have no key. Not done: verification against a real Perforce server, blame, commit / stage UI, side-by-side diff. |
 | Python scripting API | — | Excluded by the user (OPEN_QUESTIONS #11). |
@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 142 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 41 bindings (39 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 148 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 35 bindings (33 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -110,7 +110,8 @@ move-line keys also move every line of a selection, `DuplicateLine` duplicates a
 `ToggleComment` never switches to block comments, `GotoNextResult` steps through find-in-files results only (build messages
 are `GotoNextBuildWarningOrError`), `SelectNextMultiCursor` has no undo-last-selection, `OpenFile` and `FindFile` both open
 tenfold's fuzzy file picker, `ShowSwitchPanelPanel` is the recent-documents switcher, `Search` / `FindInFiles` are one
-find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
+find-in-files picker (`NewSearchPanel` keeps up to three earlier result lists in it; there are no separate result panels, so
+the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
 
 **General**
 
@@ -164,15 +165,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `PrevLocationCurrentFile` | `Control =` | Go to the previous cursor location in the current file |
 | `NextLocationCurrentFile` | `Control Shift =` | Go to the next cursor location in the current file |
 | `RestoreRecentlyClosedFile` | `Control Shift T` | Re-open the most recently closed file |
-| `NewSearchPanel` | `Control Shift A` | Open new search panel |
-
-**FindInFiles**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `ReplaceInFiles` | `Control Shift H` | Show the ReplaceInFiles panel |
-| `ReplaceNextInFile` | `Alt R` | Replace the next item from the Find.Replace panel |
-| `ReplaceAllInFile` | `Shift Alt R` | Replace all items in the current file from the Find.Replace panel |
 
 **Parser**
 
@@ -189,13 +181,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 walked (the completion list, previously typed words?), whether the typed word is replaced in place or whether F14 first
 needs an open dropdown. The four `Autocomplete*` list keys already work: the completion popup handles Up, Down, PageUp and
 PageDown itself while it is open.
-
-**Build**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `RebuildActiveWorkspace` | `Control Alt F7` | Rebuild the currently active workspace |
-| `BuildCurrentFile` | `Control F7` | Build the current file |
 
 **Debugging**
 
@@ -249,7 +234,7 @@ when bound in a key file.)
 - **Formatting**: `ToggleIndentMode`, `FormatFile`
 - **MultiCursor**: `StartDraggingRectSelect`
 - **CollapseRegions**: `CollapseAllRegions`, `ExpandAllRegions`, `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`
-- **Navigation**: `NextEditLocation`, `NewSearchPanel`
+- **Navigation**: `NextEditLocation`
 - **Bookmarks**: `RemoveAllBookmarks`
 - **FindInFiles**: `ShowFindInFilesResults1`, `ShowFindInFilesResults2`, `ShowFindInFilesResults3`, `ShowFindInFilesResults4`, `ToggleFindInFilesResultsPanel1`, `ToggleFindInFilesResultsPanel2`, `ToggleFindInFilesResultsPanel3`, `ToggleFindInFilesResultsPanel4`
 - **Tabs**: `CloseAllTabs`, `CloseAllOtherTabs`, `CloseAllButPinnedTabs`, `CloseTabsLeft`, `CloseTabsRight`, `CloseUnmodifiedTabs`, `PinTab`, `TogglePinTab`, `ToggleTabs`
@@ -261,6 +246,26 @@ when bound in a key file.)
 - **SVN**: `SVNDiff`, `SVNAdd`, `SVNUpdateFile`, `SVNUpdateWorkspace`
 - **Git**: `GitDiff`, `GitAdd`, `GitBlame`
 - **Misc**: `ListCommands`, `Update`, `ToggleFPS`, `ListWorkspaceFiles`, `ListFileStatusMonitorFiles`, `LogMemory`, `LogMemoryStats`, `CheckParserIntegrity`
+## Find in files options not supported
+
+Source: 10x's WorkspaceSearch documentation. tenfold's find-in-files is a text search of the workspace files (one query
+line plus Alt+C / Alt+W / Alt+R toggles and ` :: globs`); 10x's search box is a combined workspace search. What tenfold
+lacks (the replace picker takes the same query line, so it lacks the same things):
+
+| 10x option | Status |
+| --- | --- |
+| `*` wildcard in the query, implicit `*` at both ends, space as a wildcard in file searches | missing (the query is a literal, or a regex with Alt+R) |
+| `AND`, `OR`, `AND NOT` logical expressions | missing (use a regex with alternation) |
+| `WORD` / `CASE` operators at the end of the query | missing; Alt+W / Alt+C toggles do the same |
+| `IN path` / `NOT IN path` operators | missing; ` :: glob, !glob` does the same with glob syntax |
+| `DEF` operator (find a class definition) | missing (use Go to Definition / Find Symbol) |
+| Searching file names, workspaces and symbols in the same box | missing; Control O (files) and Control Shift O style pickers are separate |
+| Opening files from disk by typing a path, Tab completion | missing |
+| Search history (Alt+Down, Down in an empty box) | missing |
+| Settings cog, `Search.Extensions`, `Search.ExcludeList`, `Search.GlobalDirectories`, `Search.MaxResults`, `Search.MaxFileSize`, `Search.PathMode` | missing (see the settings table); the picker searches the workspace's source and header files only |
+| Ctrl+Backspace, Ctrl+Home / Ctrl+End (first / last match), Escape | supported |
+| Alt+C / Alt+W | supported (plus Alt+R for regex) |
+
 ## 10x settings not yet supported
 
 Source: 10x's own settings documentation (names, defaults and one-line meanings only). Python, terminal, MCP,

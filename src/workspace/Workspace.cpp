@@ -72,6 +72,7 @@ bool Workspace::loadSettings(std::string* error) {
   settings_.vsPlatform = j.value("vsPlatform", settings_.vsPlatform);
   settings_.runCMake = j.value("runCMake", settings_.runCMake);
   settings_.buildCommand = j.value("buildCommand", settings_.buildCommand);
+  settings_.rebuildCommand = j.value("rebuildCommand", settings_.rebuildCommand);
   settings_.buildDir = j.value("buildDir", settings_.buildDir);
   settings_.msvcToolchain = j.value("msvcToolchain", settings_.msvcToolchain);
   settings_.followSymlinks = j.value("followSymlinks", settings_.followSymlinks);
@@ -121,6 +122,7 @@ bool Workspace::saveSettings(std::string* error) const {
   j["vsPlatform"] = settings_.vsPlatform;
   j["runCMake"] = settings_.runCMake;
   j["buildCommand"] = settings_.buildCommand;
+  j["rebuildCommand"] = settings_.rebuildCommand;
   j["buildDir"] = settings_.buildDir;
   j["msvcToolchain"] = settings_.msvcToolchain;
   j["followSymlinks"] = settings_.followSymlinks;

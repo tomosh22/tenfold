@@ -29,7 +29,13 @@ void splitGlobs(const std::string& s, std::vector<std::string>& inc, std::vector
 class FindInFiles::Popup : public ListPopup {
  public:
   std::function<void(char)> toggle;
+  std::function<void(bool)> cycle;
   bool onEvent(const InputEvent& e) override {
+    if (e.type == InputType::KeyDown && (e.mods & ModAlt) && !(e.mods & ModCtrl) &&
+        (e.key == Key::PageUp || e.key == Key::PageDown)) {
+      if (cycle) cycle(e.key == Key::PageDown);
+      return true;
+    }
     if (e.type == InputType::KeyDown && (e.mods & ModAlt) && !(e.mods & ModCtrl)) {
       const char k = static_cast<char>(e.key);
       if (k == 'C' || k == 'W' || k == 'R') {
@@ -66,6 +72,7 @@ void FindInFiles::open(const std::string& initialQuery) {
   p->onQuery([this](const std::string&) { queryChanged(); });
   p->onAccept([this](int row) { accept(row); });
   p->onClosed([this] {
+    if (popup_ && !popup_->input()->text().empty()) text_ = popup_->input()->text();
     popup_ = nullptr;
     pending_ = false;
     cancel();
@@ -75,12 +82,85 @@ void FindInFiles::open(const std::string& initialQuery) {
     popup_->setStatus(statusText());
     queryChanged();
   };
+  p->cycle = [this](bool forward) {
+    if (!cycleSet(forward)) env_.say("No other search results kept (Ctrl+Shift+A starts a new search)");
+  };
   popup_ = ListPopup::open(env_.root, std::move(p));
   popup_->setStatus(statusText());
   if (!initialQuery.empty()) {
     popup_->input()->setText(initialQuery, true);
     queryChanged();
-  } else if (!all_.empty()) rebuild();  // the previous results stay visible until the query changes
+  } else {
+    if (!all_.empty()) rebuild();  // the previous results stay visible until the query changes
+  }
+}
+
+const std::string& FindInFiles::queryText() const { return text_; }
+
+FindInFiles::Set FindInFiles::park() {
+  Set s;
+  s.text = text_;
+  s.cs = cs_;
+  s.word = word_;
+  s.regex = regex_;
+  s.all = std::move(all_);
+  s.summary = summary_;
+  s.number = number_;
+  return s;
+}
+
+void FindInFiles::clearResults() {
+  cancel();
+  pending_ = false;
+  all_.clear();
+  order_.clear();
+  rowMatch_.clear();
+  summary_ = {};
+  cur_ = -1;
+  text_.clear();
+  dirty_ = false;
+  setMarkers();
+}
+
+void FindInFiles::restore(Set s) {
+  clearResults();
+  text_ = s.text;
+  cs_ = s.cs;
+  word_ = s.word;
+  regex_ = s.regex;
+  all_ = std::move(s.all);
+  summary_ = s.summary;
+  number_ = s.number;
+  if (popup_) popup_->input()->setText(text_, true);  // does not search again
+  rebuild();
+}
+
+void FindInFiles::openNew(const std::string& initialQuery) {
+  close();
+  if (!all_.empty() || !text_.empty()) {
+    kept_.push_back(park());
+    if (kept_.size() > kMaxKept) kept_.erase(kept_.begin());
+    number_ = ++created_;
+  }
+  clearResults();
+  open(initialQuery);
+}
+
+bool FindInFiles::cycleSet(bool forward) {
+  if (kept_.empty()) return false;
+  Set next;
+  if (forward) {
+    next = std::move(kept_.front());
+    kept_.erase(kept_.begin());
+    kept_.push_back(park());
+  } else {
+    next = std::move(kept_.back());
+    kept_.pop_back();
+    kept_.insert(kept_.begin(), park());
+  }
+  restore(std::move(next));
+  env_.say("Search results " + std::to_string(number_) + " (" + std::to_string(kept_.size() + 1) + " kept)");
+  return true;
 }
 
 void FindInFiles::close() {
@@ -119,6 +199,7 @@ int FindInFiles::tick(int64_t now) {
 void FindInFiles::start() {
   pending_ = false;
   const std::string text = popup_ ? popup_->input()->text() : std::string();
+  text_ = text;
   cancel();
   all_.clear();
   order_.clear();
@@ -163,6 +244,7 @@ std::string FindInFiles::statusText() const {
   std::set<std::filesystem::path> files;
   for (const SearchMatch& m : all_) files.insert(m.file);
   if (all_.empty() && !running_ && !summary_.filesSearched) return s;
+  if (!kept_.empty()) s += "#" + std::to_string(number_) + " ";
   s += std::to_string(all_.size()) + " matches in " + std::to_string(files.size()) + " files";
   if (summary_.truncated) s += " (truncated)";
   if (running_) s += " - searching\xE2\x80\xA6";

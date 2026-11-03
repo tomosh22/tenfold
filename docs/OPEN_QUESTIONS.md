@@ -108,3 +108,27 @@ against a running 10x.
 * `InternetSearch`: the selection of the first caret, else the word under it; a blank run becomes one blank, the text is
   percent-encoded and appended to `editor.internetSearchCommand`. `OpenFolderForActivefile`: Windows `explorer /select,`,
   macOS `open -R`, elsewhere `xdg-open` on the folder (no portable "select").
+
+## W8e detail: build and search commands (10x documents one line each)
+
+* `RebuildActiveWorkspace`: "Rebuild the currently active workspace". Default: the detected build system's own rebuild
+  (`msbuild /t:Rebuild`, `cmake --build --clean-first`, `make clean && make`); a custom `buildCommand` has no known clean,
+  so a `rebuildCommand` workspace setting (a shell command) is required and the command says so when it is missing.
+  `CleanActiveWorkspace` is not implemented.
+* `BuildCurrentFile`: "Build the current file". Default: a real compile (not `-fsyntax-only` / `/Zs`): `msbuild
+  <project> /t:ClCompile /p:SelectedFiles=<file>` for a solution / `.vcxproj`, the Ninja object target for a build
+  directory with `build.ninja`, otherwise the file's compile database command run as is (it writes the command's output).
+  The saved file on disk is compiled (no implicit save, like `BuildActiveWorkspace`); `buildCommand` is ignored; a header
+  or any file without a project or compile entry reports an error instead of guessing a translation unit.
+* `ReplaceInFiles`: "Show the ReplaceInFiles panel". Default: the find-in-files query syntax (options, ` :: globs`) plus
+  a replace field and a per-match checklist; every match starts checked; the replacement is literal text (no group
+  references, as in the file bar); open documents are edited in place and stay unsaved, closed files are written after
+  one confirmation; a match whose line changed since the search is skipped, not forced.
+* `ReplaceNextInFile` / `ReplaceAllInFile`: "from the Find.Replace panel". Default: they use the find/replace bar's last
+  query, options and replacement, also when the bar is closed or the editor has the focus; next = the first match at or
+  after the caret (the selected match first, wrapping). They collide with tenfold's Alt+R regex toggle: the commands win
+  when the bar shows its replace row, the toggle wins in the find-only bar and in pickers (Alt+E toggles regex in the bar
+  too).
+* `NewSearchPanel`: "Open new search panel". 10x has separate result panels 1-4; tenfold has one picker. Default: the
+  picker keeps the last three result lists (Alt+PageUp / Alt+PageDown bring them back); `ShowFindInFilesResults1-4` and
+  `ToggleFindInFilesResultsPanel1-4` stay unimplemented.

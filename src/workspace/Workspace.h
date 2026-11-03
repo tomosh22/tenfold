@@ -40,6 +40,10 @@ class Workspace {
     // through the shell (sh -c / cmd /c) in the workspace root. buildDir: CMake build directory (relative to the
     // root); empty uses the directory of the compile database, else .tenfold/cmake-build.
     std::string buildCommand;
+    // RebuildActiveWorkspace for a custom build: a shell command run in the workspace root. Empty: the detected build
+    // system's own rebuild (msbuild /t:Rebuild, cmake --build --clean-first, make clean && make); a custom
+    // buildCommand without a rebuildCommand cannot be rebuilt.
+    std::string rebuildCommand;
     std::string buildDir;
     bool runCMake = true;  // configure CMake projects to obtain compile commands
     // Path of the MSVC cl.exe used for clangd's --query-driver (.vcxproj/.sln projects).

@@ -18,6 +18,10 @@ namespace tf::ui {
 // context line and the match highlighted). Option toggles: Alt+C case sensitive, Alt+W whole word, Alt+R regex.
 // Globs: type "query :: *.cpp, !third_party" (include globs, '!' excludes). Enter / click -> Editor::gotoSearchMatch
 // (navigation history, constraint 1.3). A new query or closing the popup cancels the running search.
+//
+// NewSearchPanel (Ctrl+Shift+A): openNew() keeps the current result list aside (the last kMaxKept ones) and starts an
+// empty, independent one; F4 / Shift+F4 and the markers follow the list that is current. Alt+PageDown / Alt+PageUp in
+// the popup bring the next / previous kept list back (the lists rotate; the query, options and results return with it).
 class FindInFiles {
  public:
   using SearchFn =
@@ -34,6 +38,13 @@ class FindInFiles {
   void setMarkersFn(MarkersFn fn) { markers_ = std::move(fn); }
   void setDebounceMs(int ms) { debounceMs_ = ms; }
   void open(const std::string& initialQuery = {});
+  // NewSearchPanel: parks the current result list and opens with an empty one.
+  void openNew(const std::string& initialQuery = {});
+  // Makes the next / previous kept result list the current one (the current one is parked); false with none kept.
+  bool cycleSet(bool forward);
+  size_t keptSets() const { return kept_.size(); }
+  static constexpr size_t kMaxKept = 3;
+  const std::string& queryText() const;  // the query line (with globs) last searched in the current result list
   void close();
   bool isOpen() const { return popup_ != nullptr; }
   ListPopup* popup() const { return popup_; }
@@ -61,9 +72,23 @@ class FindInFiles {
   std::string statusText() const;
   void accept(int row);
 
+  struct Set {
+    std::string text;
+    bool cs = false, word = false, regex = false;
+    std::vector<SearchMatch> all;
+    SearchSummary summary;
+    int number = 1;
+  };
+  Set park();
+  void restore(Set s);
+  void clearResults();
+
   PickerEnv& env_;
   SearchFn search_;
   MarkersFn markers_;
+  std::vector<Set> kept_;  // parked result lists, oldest first
+  std::string text_;       // the query line of the current list (kept when the popup closes)
+  int number_ = 1, created_ = 1;
   ListPopup* popup_ = nullptr;
   SearchHandle handle_;
   std::vector<SearchMatch> all_;  // arrival order

@@ -285,6 +285,19 @@ fast editor must:
   has a `CMakeCache.txt`, else `.tenfold/cmake-build`. Configuration and
   platform are the same settings the compile database generation uses, so
   clangd and the build agree. The build tree is not configured automatically.
+* **Rebuild and single-file builds (W8e)**: `BuildOverrides::kind` selects what `detectBuildCommand` returns. `Rebuild`
+  (RebuildActiveWorkspace, `Build.Rebuild`): `rebuildCommand` (override argument or setting, a shell command) >
+  `msbuild <sln> /t:Rebuild /m ...` > `cmake --build <dir> --config <cfg> --clean-first` > the shell command
+  `make clean && make -j<cores>`; a custom `buildCommand` without a `rebuildCommand` is an error (nothing can clean it).
+  `CurrentFile` (BuildCurrentFile, `Build.BuildCurrentFile`, `BuildOverrides::file`; `buildCommand` is ignored): a
+  solution or lone `.vcxproj` -> `msbuild <owning project> /t:ClCompile /p:SelectedFiles=<file> /p:Configuration=..
+  /p:Platform=..`, where the owning project is the first project of the solution whose `ClCompile Include` items name the
+  file (read with `XmlLite`; wildcards and imported item groups are not expanded) and the configuration is the
+  solution's mapping of the active one (`SolutionInfo::mapping`); otherwise the file's entry in the compile database
+  (`CompileDatabase::find`): `ninja -C <entry directory> <object>` when that directory holds a `build.ninja` and the
+  command has an output (`-o` / `/Fo`), else the entry's own argv run in its directory (the 10x documentation only says
+  "Build the current file", so it is a real compile, not `-fsyntax-only`). A file without a project or entry is an
+  error. Both run through the same `Editor::build`, so the Build panel, `buildMessages`, squiggles and F8 work unchanged.
 * **`ErrorParser`** (stateful, one per build) recognises MSVC
   (`file(l,c): error C1234:`, column-less, `LINK : fatal error`, `x.obj :
   error LNK`), MSBuild decorations (`  1>` prefixes, `[proj.vcxproj]` suffix,
@@ -1070,6 +1083,23 @@ word), Alt+R (regex); globs after ` :: ` (`foo :: *.cpp, !third_party`, `!` excl
 walk them with wrap-around, and every file with matches gets scrollbar markers (`TextView::setSearchMarkers`).
 A single-line selection seeds the query.
 
+*Several result lists* (NewSearchPanel, W8e): 10x keeps independent search panels with their own results. tenfold keeps its
+one modal picker and adds lists to it: `FindInFiles::openNew` parks the current list (`Set`: query line, options, matches,
+summary; the last `kMaxKept` = 3) and opens an empty one; `cycleSet` (Alt+PageUp / Alt+PageDown in the picker) rotates a
+kept list back in and parks the current one. F4 and the markers always follow the current list. The separate 10x
+commands `ShowFindInFilesResults1-4` / `ToggleFindInFilesResultsPanel1-4` need result panels and stay unimplemented.
+
+*Replace in files* (`ReplaceInFiles`, Ctrl+Shift+H, W8e): a second modal widget in `src/ui/features/ReplaceInFiles.*`
+(not a `ListPopup`: it needs two input lines). Search is the same `Editor::findInWorkspace` with `FindInFiles::parse`'s
+query syntax; the matches are a checklist (`Entry::checked`, file rows toggle all their matches) and each row shows the
+line with the old text struck and the literal replacement after it. Enter calls `Editor::replaceInFiles(matches,
+replacement)`: files that are open documents are edited with `applyEdits` (one undo group per document, the document
+stays modified), the others go through `replaceMatchesInFile` (`src/search/ReplaceInFiles.*`: temporary file in the same
+directory, permissions copied, renamed over the original; bytes outside the matches, including CRLF, are untouched). A
+`SearchMatch` carries the text of its line as the search saw it, so `matchStillAt` skips a match whose line has changed
+since (counted as `stale`). Writing closed files needs one confirmation (`confirming()`): the first Enter only shows how
+many replacements go to how many files on disk. Regex group references are not expanded, as in the file replace bar.
+
 *Non-modal popups* (`PopupBox`: a top-layer widget that keeps its own box inside the window, below its anchor or above
 it when there is no room, never takes focus). `EditorApp::handleEvent` offers keys to them first (completion:
 Up/Down/PageUp/PageDown, Tab/Enter accept, Escape; signature help: Escape), tells them about typed text and runs
@@ -1168,7 +1198,9 @@ an installed 10x's `%APPDATA%\10x\Settings\KeyMappings.10x_settings` (Windows; `
 `setKeyImportFile`, setting `keys.import10x` once it is in the settings schema; only when the user dir is the real
 user config dir), `<user config dir>/tenfold/KeyMappings.10x_settings`, `<workspace>/.tenfold/KeyMappings.10x_settings`.
 A leftover `keybindings.txt` gives a warning. When a matched binding's command is not runnable (not implemented, no
-handler) and the focus is not a text view, the focused widget gets the key first (`Alt R` in the find bar), and an
+handler) and the focus is not a text view, the focused widget gets the key first (`Alt R` in the find bar; since W8e
+`ReplaceNextInFile` / `ReplaceAllInFile` exist, `EditorApp::widgetOwnsKey` gives `Alt R` to an open picker and to the
+find-only bar, and to the commands when the bar shows its replace row), and an
 unimplemented middle-button binding never swallows the click (tab close). `tests/fixtures/KeyMappings.10x.expected.txt`
 is the key list generated from the 10x documentation; a test compares the defaults file against it.
 `EditorApp` (below) wires `KeyMap::feed` into the app's event loop.
@@ -1402,6 +1434,11 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   `Editor::moveCursor`, so Back returns); in the replace field Enter replaces the selected match and moves on, Ctrl+Enter
   replaces all (one undo step); Tab switches fields; Escape closes and returns the focus to the view. The bar re-searches
   when the document changes (`tick`). Keys reach it because the focused InputLine bubbles unhandled keys to the bar.
+  W8e: `Editor.ReplaceNextInFile` (Alt+R) / `Editor.ReplaceAllInFile` (Shift+Alt+R) call `FindReplace::replaceNext` /
+  `replaceAllInFile` with the bar's last query, options and replacement even when it is closed or the editor has the
+  focus: the first match at or after the caret (the selected match first, wrapping) is replaced and the next one
+  selected; "all" is `Editor::replaceAll` (one undo step). Alt+E toggles regex as well, because Alt+R belongs to the
+  commands while the replace row is shown.
 * **W8a view commands** (bound in `EditorApp::bindEditingCommands`): `Editor.FindNextCurrentWord/FindPrevCurrentWord`
   (Ctrl+F3 / Ctrl+Shift+F3) call `FindReplace::stepCurrentWord`: the query becomes the selection or the word at the caret
   (whole word, case-sensitive), the bar's field follows, and `step` selects the next / previous match; the word is
