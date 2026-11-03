@@ -247,6 +247,29 @@ std::vector<Document*> Editor::documents() {
   return out;
 }
 
+void Editor::watchDocument(Document& doc) {
+  doc.addListener([this](Document& d, const Document::Change& ch) {
+    int newLines = 1 + static_cast<int>(std::count(ch.newText.begin(), ch.newText.end(), '\n'));
+    nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
+      int& ln = lastEdit_.pos.line;
+      if (ln > ch.removed.end.line) {
+        ln += newLines - (ch.removed.end.line - ch.removed.start.line + 1);
+      } else if (ln > ch.removed.start.line) {
+        ln = ch.removed.start.line;
+        lastEdit_.pos.column = 0;
+      }
+    }
+    if (!d.isUntitled()) {  // an untitled document has no file yet: clangd and version control know nothing about it
+      if (semantic_) semantic_->didChange(d, ch);
+      if (!reloading_) vcs_->documentChanged(d);
+    }
+    if (current_ == &d && !inEdit_) clampCarets();
+  });
+}
+
 Document* Editor::open(const fs::path& pathIn, std::string* error) {
   std::error_code ec;
   // The stored path keeps the caller's spelling (first open wins); only the
@@ -261,24 +284,7 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
   auto doc = std::make_unique<Document>(path);
   if (!doc->loadFromDisk(error)) return nullptr;
   Document* raw = doc.get();
-  raw->addListener([this](Document& d, const Document::Change& ch) {
-    int newLines = 1 + static_cast<int>(std::count(ch.newText.begin(), ch.newText.end(), '\n'));
-    nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
-    bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
-    breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
-    if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
-      int& ln = lastEdit_.pos.line;
-      if (ln > ch.removed.end.line) {
-        ln += newLines - (ch.removed.end.line - ch.removed.start.line + 1);
-      } else if (ln > ch.removed.start.line) {
-        ln = ch.removed.start.line;
-        lastEdit_.pos.column = 0;
-      }
-    }
-    if (semantic_) semantic_->didChange(d, ch);
-    if (!reloading_) vcs_->documentChanged(d);
-    if (current_ == &d && !inEdit_) clampCarets();
-  });
+  watchDocument(*raw);
   std::string key = docKey(path);
   docs_[key] = std::move(doc);
   diskHash_[key] = hashFile(path);
@@ -307,6 +313,10 @@ bool Editor::close(const fs::path& path) {
 }
 
 bool Editor::save(Document& doc, std::string* error) {
+  if (doc.isUntitled()) {
+    if (error) *error = "it has no file name yet";
+    return false;
+  }
   if (editing_.trimTrailingWhitespace) {
     std::vector<Document::BatchEdit> trims;  // one undo step; the carets of the current document are carried along
     const TextBuffer& b = doc.buffer();
@@ -345,6 +355,55 @@ bool Editor::save(Document& doc, std::string* error) {
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
   if (semantic_) semantic_->didSave(doc);
   vcs_->documentSaved(doc);
+  return true;
+}
+
+Document* Editor::newUntitled(LineEnding lineEnding) {
+  std::error_code ec;
+  for (int n = 1;; ++n) {
+    const fs::path path = ws_.root() / ("Untitled " + std::to_string(n));
+    if (document(path) || fs::exists(path, ec)) continue;
+    auto doc = std::make_unique<Document>(Document::untitled(path, lineEnding));
+    Document* raw = doc.get();
+    watchDocument(*raw);
+    docs_[docKey(path)] = std::move(doc);
+    return raw;
+  }
+}
+
+bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error) {
+  auto fail = [&](const std::string& m) {
+    if (error) *error = m;
+    return false;
+  };
+  if (!doc.isUntitled()) return fail("only an untitled document can be saved under a new name");
+  if (pathIn.empty()) return fail("no file name");
+  const fs::path path = pathIn.is_absolute() ? pathIn : ws_.root() / pathIn;
+  std::error_code ec;
+  if (document(path) || fs::exists(path, ec)) return fail(path.filename().string() + " already exists");
+  if (!fs::is_directory(path.parent_path(), ec))
+    return fail("the folder " + path.parent_path().string() + " does not exist");
+  const std::string oldKey = docKey(doc.path());
+  auto it = docs_.find(oldKey);
+  if (it == docs_.end() || it->second.get() != &doc) return fail("not an open document");
+  const fs::path oldPath = doc.path();
+  doc.setPath(path);
+  if (!doc.saveToDisk(error)) {
+    doc.setPath(oldPath);  // cannot happen with a path that was just checked, but never leave a half-renamed document
+    return false;
+  }
+  auto owned = std::move(it->second);
+  docs_.erase(it);
+  const std::string key = docKey(path);
+  docs_[key] = std::move(owned);
+  diskHash_[key] = hashFile(path);
+  if (cursor_.file == oldPath) cursor_.file = path;
+  if (lastEdit_.file == oldPath) lastEdit_.file = path;
+  nav_.onFileRenamed(oldPath, path);
+  saveBookmarks();
+  saveBreakpoints();
+  if (semantic_) semantic_->didOpen(doc);
+  vcs_->documentOpened(doc);
   return true;
 }
 

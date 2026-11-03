@@ -137,6 +137,7 @@ add_executable(tenfold-tests
   tests/test_filewatcher.cpp
   tests/test_multicaret.cpp
   tests/test_editing.cpp
+  tests/test_untitled.cpp
   tests/test_lsp_features.cpp
   tests/test_build.cpp
   tests/test_symbol_search.cpp
@@ -252,6 +253,8 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/FindInFiles.cpp
     src/ui/features/FindReplace.cpp
     src/ui/features/GoToLine.cpp
+    src/ui/features/SaveAsPrompt.cpp
+    src/ui/features/OsLauncher.cpp
     src/ui/features/ConfigurationPicker.cpp
     src/ui/features/BookmarkList.cpp
     src/ui/features/CompletionPopup.cpp
@@ -346,6 +349,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_vcs_ui.cpp
     tests/ui/test_config_ui.cpp
     tests/ui/test_p2_ui.cpp
+    tests/ui/test_w8b.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

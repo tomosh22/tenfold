@@ -74,11 +74,37 @@ Settings are `editor.*` in `settings.txt`; key bindings are 10x's (#1) in `asset
   FindTextInitialValue / ReplaceTextInitialValue (Current), CloseFindPanelOnEnter (false), ShowFindTextMatchCount (false):
   not mirrored yet (gap).
 * Trailing whitespace: `editor.trimTrailingWhitespace`, off: docs silent (no 10x setting). Line endings LF / CRLF
-  switch commands; encoding is UTF-8 only; new-file line ending (DefaultLineEnding, CRLF) has no tenfold counterpart
-  because tenfold cannot create untitled files.
+  switch commands; encoding is UTF-8 only; new files (`NewTextFile`) take `editor.defaultLineEnding` (CRLF, as 10x's
+  DefaultLineEnding).
 * Display: `editor.showWhitespace` off (ShowWhitespace false), `editor.columnGuide` 0 (VerticalRulers empty),
   `editor.wheelLines` 3 (MouseWheelScrollStep 3), caret blink (CursorBlinkRate auto = the OS rate; tenfold 530 ms, the
   Windows default), `editor.highlightCurrentLine` on (docs silent; 10x highlights symbols, words and the selection
   instead). `editor.wordWrap` true and `editor.smoothScroll` false differ from 10x (false, true) by the user's decision
   (#4).
 * Not implemented: regex group references in Replace, non-UTF-8 encodings.
+
+## W8b detail: tab, panel and view commands (10x documents only one line each)
+
+The 10x documentation names these commands and gives one sentence; everything below is tenfold's reading, to be checked
+against a running 10x.
+
+* Focus mode (`ToggleFocusMode`, `ToggleFullScreenFocusMode`): the docs say only "Toggle focus mode" / "Toggle fullscreen
+  focus mode". tenfold shows nothing but the current panel (its tab strip and editor over the whole window): no status
+  bar, top bar, bottom dock or other panels. The layout and splitter sizes are untouched, so toggling back restores the
+  window. The fullscreen variant switches both on, or both off when both are on.
+* `MovePanelLeft` / `Right` / `Up` / `Down`: "Move the current panel left" is read as the panel trading places with its
+  neighbour in that direction; there is no re-docking to the window edge. `MovePanelFocus*` picks the neighbour by position.
+* `DuplicatePanel`: a copy of the panel with views of every tab, placed to the right; the focus stays on the original.
+  `DuplicatePanelLeft` / `Right` ("and move to the left / right"): the copy opens on that side and takes the focus.
+* `MovePrevPanelTab` / `MoveNextPanelTab` stop at the ends (no wrapping); `PrevPanelTab` / `NextPanelTab` wrap round.
+* `ZoomIn` / `ZoomOut`: one point per step, session only (the docs give no persistence; EditorFontSize is a setting).
+  tenfold has one font for the whole UI, so zooming scales the tabs and status bar too. `MouseWheelZoom` is not mirrored.
+* `NewTextFile`: "Untitled N" in the workspace root, line ending `editor.defaultLineEnding` (CRLF), UTF-8. Saving asks for a
+  path (relative to the workspace, or absolute) in an input line; it refuses a file that exists (10x's save dialog is not
+  documented) and a folder that does not exist. An untitled document is not saved in `layout.json`, is not sent to clangd
+  and has no version-control state until it has a file; quitting with it dirty offers Save, which says to use Control S
+  first. `AutoNameUntitledFiles`: the first word typed (up to the first blank) names the tab and is the Save As
+  suggestion; the file is still untitled until saved.
+* `InternetSearch`: the selection of the first caret, else the word under it; a blank run becomes one blank, the text is
+  percent-encoded and appended to `editor.internetSearchCommand`. `OpenFolderForActivefile`: Windows `explorer /select,`,
+  macOS `open -R`, elsewhere `xdg-open` on the folder (no portable "select").

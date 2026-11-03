@@ -1163,6 +1163,36 @@ Layout is saved to `<workspace>/.tenfold/layout.json` (split orientation + ratio
 workspace, pinned flags, active tab, active panel) and restored on start; missing files are dropped and a corrupt file
 yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the workbench.
 
+#### Tabs, panels and view commands (W8b, `Workbench`, `Splitter`, `EditorApp`, `src/ui/features/{SaveAsPrompt,OsLauncher}.*`)
+
+* **Panel geometry** (`Workbench::panelToward`): the neighbour of a panel in a direction is found from the laid-out
+  rectangles (it re-lays out first, so a command right after another sees the new tree): among panels wholly beyond that
+  edge that overlap the panel across it, the nearest, then the one with the most overlap, then layout order.
+  `focusPanelToward` activates it; `movePanelToward` swaps the two panels' places (`swapPanels`: `Splitter::swapChildren`
+  for siblings, else three `replaceChild` calls through a placeholder), so the layout serialises like any other tree.
+  `duplicatePanel` is `splitPanel(..., duplicateAll)`: views of every tab, pinned flags and the active tab included.
+  `stepTab` (wraps) and `moveActiveTab` (does not wrap, stays in its pinned / unpinned group) work on the panel's strip.
+* **Focus mode** (`setFocusMode`): `Splitter::setSolo` gives one child the whole area and hides the other, the workbench
+  sets it along the path to the active panel (`applyFocusMode`, also run from `onLayout` and after any change of the
+  active panel or the tree), hides the status bar and top bar and treats the dock as closed. Ratios and tabs are not
+  touched, so leaving the mode restores the window. Panel focus / move commands find no neighbour while it is on.
+* **Zoom**: `EditorApp::zoomBy` keeps `fontZoomPt()` (-8..+40 points, session only) and calls the `rebuildFont` hook
+  given to `attachSettings`; the app's hook builds the font with `makeEditorTextRenderer(settings, scale, err,
+  app.fontZoomPt())`, so a later `font.*` change keeps the zoom. The TextRenderer is shared by the whole UI, so tabs and
+  status bar scale too. **Fullscreen**: `EditorApp::WindowHooks::setFullscreen` (`Window::setFullscreen`, SDL borderless
+  desktop fullscreen); without the hook the command only says so.
+* **Untitled documents** (engine): `Document::untitled(path, lineEnding)` / `isUntitled()`; `Editor::newUntitled` picks
+  "Untitled N" under the workspace root (a name that is neither open nor on disk), keeps it out of clangd, version
+  control and the disk hash; `Editor::save` refuses it; `Editor::saveAs(doc, path)` re-keys the same `Document` (history
+  and carets stay), writes it and then announces it to clangd and version control. The workbench follows with
+  `documentRenamed`; `noteRecent` and `layout.json` skip untitled tabs; `ExternalChanges` does not poll them.
+  `File.Save` on an untitled document opens `SaveAsPrompt` (a ListPopup input with one row saying where the file goes or
+  why not). `editor.autoNameUntitledFiles`: `EditorApp::updateUntitledNames` (every tick) derives the first word typed and
+  sets a tab title override (`Workbench::setTitleOverride`) and the prompt's suggestion.
+* **OS launches** (`OsLauncher`): `openUrl` and `showInFolder` through `tf::Process` (parked, reaped at the next launch);
+  EditorApp holds one and tests replace it with `setLauncher`, so no browser or file manager starts in tests.
+  `urlEncode` / `internetSearchUrl` are plain functions.
+
 #### Build panel and bottom dock (C1-UI, `Workbench`, `src/ui/features/BuildPanel.*`)
 
 * **Bottom dock** (`Workbench::addBottomPanel / showBottomPanel / hideBottomPanel / toggleBottomPanel`): the panel tree

@@ -230,13 +230,14 @@ int main(int argc, char** argv) {
   if (app && settings) {
     // A changed font.* setting rebuilds the TextRenderer; the old one lives until the root points at the new one.
     app->attachSettings(*settings, win->pixelScale(), [&] {
-      auto next = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale());
+      auto next = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), nullptr, app->fontZoomPt());
       if (!next) return false;
       root->setTextRenderer(*next);
       text->releaseTexture(*renderer);
       text = std::move(next);
       return true;
     });
+    app->setWindowHooks({[&](bool on) { win->setFullscreen(on); }});  // View.ToggleFullscreen
     if (shot.empty()) settings->startWatching();
   }
   auto drawFrame = [&](int w, int h, float mx, float my) {

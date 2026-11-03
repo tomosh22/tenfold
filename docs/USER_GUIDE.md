@@ -525,6 +525,9 @@ tests.)
 | `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). 10x documents no such setting. |
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
 | `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
+| `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. Encoding of new files is UTF-8 (10x: DefaultEncoding). |
+| `editor.autoNameUntitledFiles` | `false` | bool | An untitled file is named after the first word typed in it; the name is what the Save As prompt offers. 10x: AutoNameUntitledFiles. |
+| `editor.internetSearchCommand` | `https://www.google.com/search?q=` | string | `InternetSearch` (F1) opens this address with the word under the caret or the selection appended (percent-encoded) in the default browser. 10x: InternetSearchCommand. |
 | `font.editor` | (empty) | font | Editor font as `family or path[, size in pt]`. Empty means unset: `font.fallbacks` are tried in order. A family name is matched against font file names in the system font folders (case and spaces ignored), so give a full path if it is not found. |
 | `font.fallbacks` | `Cascadia Mono, Consolas` | string | Comma-separated font names tried in order when `font.editor` is unset or not found; after the last one the platform's usual monospace font is used. |
 | `font.size` | `10` | float | Font size in points when `font.editor` does not carry one. |
@@ -681,7 +684,7 @@ command tenfold lacks would take a key from the focused input line or the open p
 `Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files. tenfold saves at the first press and says
 `not implemented yet: SaveAll` at the second.
 
-The 92 default bindings that run a tenfold command today (all other defaults are in
+The 115 default bindings that run a tenfold command today (all other defaults are in
 [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
 differs from the 10x description:
 
@@ -691,6 +694,12 @@ differs from the 10x description:
 | --- | --- | --- | --- |
 | `Control Shift X` | `ShowCommandPanel` | `App.CommandPalette` | a list to pick from; it does not take a typed command line |
 | `Alt X` | `OpenCurrentFileInDebugger` | `Debug.OpenInVisualStudio` |  |
+| `F1` | `InternetSearch` | `Editor.InternetSearch` | the word under the caret or the selection, percent-encoded after `editor.internetSearchCommand` |
+| `Control Shift .` | `ZoomIn` | `View.ZoomIn` | one point per step on the whole UI font, for this session only (not saved) |
+| `Control Shift Comma` | `ZoomOut` | `View.ZoomOut` | one point per step on the whole UI font, for this session only (not saved) |
+| `Alt Enter` | `ToggleFullscreen` | `View.ToggleFullscreen` | borderless fullscreen on the current display |
+| `Control Alt Enter` | `ToggleFocusMode` | `View.ToggleFocusMode` | shows only the current panel: no status bar, other panels or bottom dock (10x's documentation gives no details) |
+| `Shift Alt Enter` | `ToggleFullScreenFocusMode` | `View.ToggleFullscreenFocusMode` | both together; both off when both are on |
 
 **File**
 
@@ -698,7 +707,9 @@ differs from the 10x description:
 | --- | --- | --- | --- |
 | `Control O` | `OpenFile` | `File.OpenFile` | opens tenfold's file picker, not a native open dialog |
 | `Control F4` | `CloseFile` | `Workbench.CloseTab` | closes the tab (asks about unsaved changes) |
-| `Control S` | `SaveFile` | `File.Save` |  |
+| `Control S` | `SaveFile` | `File.Save` | an untitled file asks for a path first |
+| `Control N` | `NewTextFile` | `File.New` | "Untitled N", line ending from `editor.defaultLineEnding`, UTF-8; saving asks for a path in an input line |
+| `Control Shift Alt /` | `OpenFolderForActivefile` | `File.ShowInFolder` | `explorer /select` (Windows), `open -R` (macOS), `xdg-open` on the folder (Linux) |
 
 **Edit**
 
@@ -827,10 +838,24 @@ differs from the 10x description:
 | `Control ]` | `IndentLine` | `Editor.Indent` |  |
 | `Control [` | `UnindentLine` | `Editor.Outdent` |  |
 
+**Tabs**
+
+| Keys | 10x command | tenfold command | Difference |
+| --- | --- | --- | --- |
+| `Control PageUp` | `PrevPanelTab` | `Workbench.PrevTab` | wraps round |
+| `Control PageDown` | `NextPanelTab` | `Workbench.NextTab` | wraps round |
+| `Control Shift PageUp` | `MovePrevPanelTab` | `Workbench.MoveTabPrev` | stops at the first tab, never leaves the pinned / unpinned group |
+| `Control Shift PageDown` | `MoveNextPanelTab` | `Workbench.MoveTabNext` | stops at the last tab, never leaves the pinned / unpinned group |
+
 **Panels**
 
 | Keys | 10x command | tenfold command | Difference |
 | --- | --- | --- | --- |
+| `Alt Left` / `Right` / `Up` / `Down` | `MovePanelFocusLeft` / `Right` / `Up` / `Down` | `Workbench.FocusPanelLeft` / `Right` / `Up` / `Down` | the neighbouring panel by position on screen |
+| `Control Alt Left` / `Right` / `Up` / `Down` | `MovePanelLeft` / `Right` / `Up` / `Down` | `Workbench.MovePanelLeft` / `Right` / `Up` / `Down` | swaps places with that neighbour; sizes follow the places |
+| `Shift Alt D` | `DuplicatePanel` | `Workbench.DuplicatePanel` | a copy with all the tabs opens to the right, the focus stays |
+| `Alt Comma` | `DuplicatePanelLeft` | `Workbench.DuplicatePanelLeft` | the copy opens to the left and takes the focus |
+| `Alt .` | `DuplicatePanelRight` | `Workbench.DuplicatePanelRight` | the copy opens to the right and takes the focus |
 | `Control Tab` | `ShowSwitchPanelPanel` | `Workbench.CycleMruNext` | tenfold's recent-documents switcher; releasing Control ends the cycle |
 | `Control Shift Tab` | `ShowSwitchPanelPrevItem` | `Workbench.CycleMruPrev` | tenfold's recent-documents switcher |
 
@@ -1027,7 +1052,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** 10x's own format and default key map; 91 of its 183 default bindings (88 commands) are not implemented yet (FEATURE_PARITY).
+* **Key bindings:** 10x's own format and default key map; 68 of its 183 default bindings (65 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session

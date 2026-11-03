@@ -39,6 +39,10 @@ class Window {
   void show();
   void hide();
   void setTitle(const std::string& title);
+  // Borderless desktop fullscreen (the window covers the display at its current resolution) and back. Takes effect
+  // asynchronously on some platforms; isFullscreen() reports the request until the window manager answers.
+  bool setFullscreen(bool on);
+  bool isFullscreen() const;
   void sizePx(int& w, int& h) const;                  // drawable size in pixels
   float pixelScale() const;                           // pixels per point (high-DPI)
   float displayScale() const;                         // OS UI scale for the current display

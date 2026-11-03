@@ -14,6 +14,13 @@ Document Document::fromText(std::filesystem::path path, std::string text) {
   return d;
 }
 
+Document Document::untitled(std::filesystem::path path, LineEnding lineEnding) {
+  Document d(std::move(path));
+  d.buf_.setLineEnding(lineEnding);
+  d.untitled_ = true;
+  return d;
+}
+
 bool Document::loadFromDisk(std::string* error) {
   std::ifstream in(path_, std::ios::binary);
   if (!in) {

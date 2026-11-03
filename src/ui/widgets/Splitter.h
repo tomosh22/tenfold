@@ -19,6 +19,14 @@ class Splitter : public Widget {
   Widget* first() const { return children().size() > 0 ? children()[0].get() : nullptr; }
   Widget* second() const { return children().size() > 1 ? children()[1].get() : nullptr; }
 
+  // Exchanges the two children (the user's "move panel" along this splitter); the ratio flips so each child keeps its
+  // size.
+  void swapChildren();
+  // Focus mode: -1 lays out both children as usual, 0 / 1 gives that child the whole area and hides the other one
+  // (no divider, no hit testing). Not persisted anywhere.
+  void setSolo(int which);
+  int solo() const { return solo_; }
+
   Orientation orientation() const { return orient_; }
   float ratio() const { return ratio_; }
   void setRatio(float r);
@@ -38,6 +46,7 @@ class Splitter : public Widget {
 
   Orientation orient_;
   float ratio_ = 0.5f, minFirst_ = 80, minSecond_ = 80;
+  int solo_ = -1;
   bool dragging_ = false;
   float grab_ = 0;  // pointer offset inside the divider at press
 };

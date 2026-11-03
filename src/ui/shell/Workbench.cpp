@@ -57,6 +57,11 @@ class Body : public Widget {
 };
 }  // namespace
 
+namespace {
+// Stands in for a panel while two panels trade places.
+class Placeholder : public Widget {};
+}  // namespace
+
 // Bottom dock host: every panel fills it, only the selected one is visible.
 class Workbench::Dock : public Widget {
  public:
@@ -165,6 +170,7 @@ void Workbench::installTree(std::unique_ptr<Widget> top, bool keepTabs) {
   addChild(removeChild(overlay_));  // the overlay stays last (on top)
   auto ps = panels();
   active_ = ps.empty() ? nullptr : ps.front();
+  applyFocusMode();
   requestLayout();
 }
 
@@ -185,13 +191,14 @@ void Workbench::setTopBar(Widget* bar, float height) {
 
 void Workbench::onLayout() {
   const RectF& b = bounds();
-  const float sh = status_->preferredHeight();
-  const float tb = topBar_ ? topBarH_ : 0;
+  applyFocusMode();  // a no-op unless the tree or the active panel changed since the last pass
+  const float sh = focusMode_ ? 0 : status_->preferredHeight();
+  const float tb = topBar_ && !focusMode_ ? topBarH_ : 0;
   if (topBar_) topBar_->layout({b.x, b.y, b.w, tb});
   split_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
   RectF acc{0, 0, 0, 0};
-  if (active_ && panels().size() > 1)
+  if (active_ && panels().size() > 1 && !focusMode_)
     acc = {active_->bounds().x, active_->bounds().y, active_->bounds().w, theme().accentHeight};
   overlay_->accent = acc;
   overlay_->layout(dragTab_ >= 0 ? b : acc);
@@ -251,7 +258,7 @@ bool Workbench::toggleBottomPanel(const std::string& name) {
 // Brings the widgets in line with dock_: open only when visible is wanted and the named panel exists.
 void Workbench::applyDock() {
   Widget* w = bottomPanel(dock_.name);
-  const bool open = dock_.visible && w;
+  const bool open = dock_.visible && w && !focusMode_;
   split_->open = open;
   dockWidget_->setVisible(open);
   dockWidget_->select(open ? dock_.name : std::string());
@@ -259,7 +266,7 @@ void Workbench::applyDock() {
   requestLayout();
 }
 
-Panel* Workbench::splitPanel(Panel* target, Splitter::Orientation o, bool after, int moveId) {
+Panel* Workbench::splitPanel(Panel* target, Splitter::Orientation o, bool after, int moveId, bool duplicateAll) {
   if (!target) return nullptr;
   auto npOwn = makePanel();
   Panel* np = npOwn.get();
@@ -270,8 +277,19 @@ Panel* Workbench::splitPanel(Panel* target, Splitter::Orientation o, bool after,
   auto old = replaceNode(target, std::move(spl));
   if (after) sraw->setChildren(std::move(old), std::move(npOwn));
   else sraw->setChildren(std::move(npOwn), std::move(old));
-  if (moveId >= 0) moveTab(moveId, np, -1);
-  else if (dup) addTabTo(np, *dup, false);
+  if (moveId >= 0) {
+    moveTab(moveId, np, -1);
+  } else if (duplicateAll) {
+    int activeNew = -1;
+    for (const auto& t : target->tabs().tabs())
+      if (Document* d = docOf(t.id)) {
+        const int id = addTabTo(np, *d, t.pinned);
+        if (t.id == activeId) activeNew = id;
+      }
+    if (activeNew >= 0) np->setActive(activeNew);
+  } else if (dup) {
+    addTabTo(np, *dup, false);
+  }
   setActivePanel(np);
   requestLayout();
   return np;
@@ -293,6 +311,7 @@ bool Workbench::closePanel(Panel* p) {
   auto dead = replaceNode(s, std::move(sibOwn));  // destroys the splitter and with it the (now empty) panel
   dead.reset();
   if (active_ == p || !active_) active_ = n;
+  applyFocusMode();
   requestLayout();
   showActiveTab();
   return true;
@@ -302,9 +321,139 @@ void Workbench::setActivePanel(Panel* p) {
   if (!p) return;
   if (active_ != p) {
     active_ = p;
+    applyFocusMode();
     requestLayout();
   }
   showActiveTab();
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Panel navigation, moves, duplicates, focus mode (W8b)
+// ---------------------------------------------------------------------------------------------------------------
+
+Panel* Workbench::panelToward(Panel* from, Side d) {
+  if (!from) return nullptr;
+  layout(bounds());            // the rectangles must match the tree as it is now, not as of the last frame
+  constexpr float kSlack = 2;  // panels touch at a divider; allow for rounding
+  const RectF r = from->bounds();
+  const bool horizontal = d == Side::Left || d == Side::Right;
+  Panel* best = nullptr;
+  float bestGap = 0, bestOverlap = 0;
+  for (Panel* q : panels()) {
+    if (q == from) continue;
+    const RectF b = q->bounds();
+    if (b.w <= 0 || b.h <= 0) continue;
+    float gap, overlap;
+    if (horizontal) {
+      gap = d == Side::Left ? r.x - (b.x + b.w) : b.x - (r.x + r.w);
+      overlap = std::min(r.y + r.h, b.y + b.h) - std::max(r.y, b.y);
+    } else {
+      gap = d == Side::Up ? r.y - (b.y + b.h) : b.y - (r.y + r.h);
+      overlap = std::min(r.x + r.w, b.x + b.w) - std::max(r.x, b.x);
+    }
+    if (gap < -kSlack || overlap <= kSlack) continue;
+    gap = std::max(gap, 0.0f);
+    if (!best || gap < bestGap - kSlack || (std::abs(gap - bestGap) <= kSlack && overlap > bestOverlap + kSlack)) {
+      best = q;
+      bestGap = gap;
+      bestOverlap = overlap;
+    }
+  }
+  return best;
+}
+
+bool Workbench::focusPanelToward(Side d) {
+  Panel* n = panelToward(active_, d);
+  if (!n) return false;
+  setActivePanel(n);
+  return true;
+}
+
+void Workbench::swapPanels(Panel* a, Panel* b) {
+  auto* sa = dynamic_cast<Splitter*>(a->parent());
+  auto* sb = dynamic_cast<Splitter*>(b->parent());
+  if (!sa || !sb) return;
+  if (sa == sb) {
+    sa->swapChildren();
+  } else {
+    auto ph = std::make_unique<Placeholder>();
+    Widget* phRaw = ph.get();
+    auto ownA = sa->replaceChild(a, std::move(ph));
+    auto ownB = sb->replaceChild(b, std::move(ownA));
+    sa->replaceChild(phRaw, std::move(ownB));
+  }
+  cycle_ = {};
+  applyFocusMode();
+  requestLayout();
+  focusActiveView();  // detaching the panels dropped the keyboard focus
+}
+
+bool Workbench::movePanelToward(Side d) {
+  Panel* n = panelToward(active_, d);
+  if (!n) return false;
+  swapPanels(active_, n);
+  return true;
+}
+
+Panel* Workbench::duplicatePanel(Panel* p, bool after, bool focusNew) {
+  if (!p || panels().size() >= static_cast<size_t>(kMaxPanels)) return nullptr;
+  Panel* np = splitPanel(p, Splitter::Orientation::Horizontal, after, -1, true);
+  if (np && !focusNew) setActivePanel(p);
+  return np;
+}
+
+bool Workbench::stepTab(Panel* p, int direction) {
+  if (!p) return false;
+  const auto& tabs = p->tabs().tabs();
+  const int n = static_cast<int>(tabs.size());
+  if (n < 2) return false;
+  const int cur = std::max(0, p->tabs().indexOf(p->activeId()));
+  p->setActive(tabs[static_cast<size_t>(((cur + (direction < 0 ? -1 : 1)) % n + n) % n)].id);
+  cycle_ = {};
+  if (p == active_) showActiveTab();
+  return true;
+}
+
+bool Workbench::moveActiveTab(Panel* p, int direction) {
+  if (!p || p->activeId() < 0) return false;
+  TabStrip& st = p->tabs();
+  const int id = p->activeId(), from = st.indexOf(id), to = from + (direction < 0 ? -1 : 1);
+  if (to < 0 || to >= static_cast<int>(st.tabs().size())) return false;
+  if (st.tabs()[static_cast<size_t>(to)].pinned != st.tabs()[static_cast<size_t>(from)].pinned) return false;
+  st.moveTab(id, to);
+  return st.indexOf(id) == to;
+}
+
+void Workbench::setFocusMode(bool on) {
+  if (focusMode_ == on) return;
+  focusMode_ = on;
+  applyFocusMode();
+  applyDock();
+  status_->setVisible(!on);
+  if (topBar_) topBar_->setVisible(!on);
+  requestLayout();
+  focusActiveView();
+}
+
+// Brings the splitters in line with the mode and the active panel: along the path to the active panel each splitter
+// shows only that side.
+void Workbench::applyFocusMode() {
+  if (!top_) return;
+  auto contains = [](Widget* root, Widget* w) {
+    for (; w; w = w->parent())
+      if (w == root) return true;
+    return false;
+  };
+  auto walk = [&](auto&& self, Widget* w) -> void {
+    auto* s = dynamic_cast<Splitter*>(w);
+    if (!s) return;
+    int solo = -1;
+    if (focusMode_ && active_) solo = contains(s->first(), active_) ? 0 : 1;
+    s->setSolo(solo);
+    self(self, s->first());
+    self(self, s->second());
+  };
+  walk(walk, top_);
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -338,8 +487,7 @@ int Workbench::findTab(Panel* p, const Document& doc) const {
 int Workbench::addTabTo(Panel* p, Document& doc, bool pinned) {
   const int id = nextId_++;
   tabs_[id] = {doc.path()};
-  p->addTab(id, doc.path().filename().string() + (fileMissing(doc.path()) ? " (deleted)" : ""),
-            makeDocumentView(editor_, doc), pinned);
+  p->addTab(id, tabTitle(doc.path()), makeDocumentView(editor_, doc), pinned);
   p->tabs().setDirty(id, doc.dirty());
   return id;
 }
@@ -357,6 +505,7 @@ int Workbench::openFile(const fs::path& path, Panel* in) {
 }
 
 void Workbench::noteRecent(const fs::path& file) {
+  if (const Document* d = editor_.document(file); d && d->isUntitled()) return;  // not a file yet
   constexpr size_t kMaxRecent = 50;
   const auto it = std::find(recent_.begin(), recent_.end(), file);
   if (it != recent_.end()) recent_.erase(it);
@@ -393,10 +542,44 @@ void Workbench::setFileMissing(const fs::path& file, bool missing) {
   for (Panel* p : panels())
     for (const auto& t : p->tabs().tabs()) {
       const auto it = tabs_.find(t.id);
-      if (it != tabs_.end() && it->second.path == file)
-        p->tabs().setTitle(t.id, file.filename().string() + (missing ? " (deleted)" : ""));
+      if (it != tabs_.end() && it->second.path == file) p->tabs().setTitle(t.id, tabTitle(file));
     }
   refreshStatus();
+}
+
+std::string Workbench::tabTitle(const fs::path& file) const {
+  const auto it = titles_.find(file.generic_string());
+  return (it != titles_.end() ? it->second : file.filename().string()) + (fileMissing(file) ? " (deleted)" : "");
+}
+
+void Workbench::setTitleOverride(const fs::path& file, const std::string& title) {
+  if (title.empty()) titles_.erase(file.generic_string());
+  else titles_[file.generic_string()] = title;
+  for (Panel* p : panels())
+    for (const auto& t : p->tabs().tabs()) {
+      const auto it = tabs_.find(t.id);
+      if (it != tabs_.end() && it->second.path == file) p->tabs().setTitle(t.id, tabTitle(file));
+    }
+}
+
+int Workbench::openDocument(Document& d, Panel* in) {
+  Panel* p = in ? in : active_;
+  int id = findTab(p, d);
+  if (id < 0) id = addTabTo(p, d, false);
+  else p->setActive(id);
+  setActivePanel(p);
+  noteRecent(d.path());
+  return id;
+}
+
+void Workbench::documentRenamed(const fs::path& from, const fs::path& to) {
+  titles_.erase(from.generic_string());
+  for (auto& [id, t] : tabs_)
+    if (t.path == from) {
+      t.path = to;
+      if (Panel* p = panelOf(id)) p->tabs().setTitle(id, tabTitle(to));
+    }
+  lastCur_ = editor_.currentDocument();
 }
 
 bool Workbench::closeTab(int id, bool discard) {
@@ -704,6 +887,8 @@ std::string Workbench::layoutJson() const {
     Json tabs = Json::array();
     int activeIdx = -1, i = 0;
     for (const auto& t : p->tabs().tabs()) {
+      const Document* d = editor_.document(tabPath(t.id));
+      if (d && d->isUntitled()) continue;  // nothing to reopen
       tabs.push_back({{"path", rel(tabPath(t.id))}, {"pinned", t.pinned}});
       if (t.id == p->activeId()) activeIdx = i;
       ++i;

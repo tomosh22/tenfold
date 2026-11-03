@@ -75,6 +75,8 @@ void* Window::nativeHandle() const {
 void Window::show() { SDL_ShowWindow(impl_->win); }
 void Window::hide() { SDL_HideWindow(impl_->win); }
 void Window::setTitle(const std::string& t) { SDL_SetWindowTitle(impl_->win, t.c_str()); }
+bool Window::setFullscreen(bool on) { return SDL_SetWindowFullscreen(impl_->win, on); }
+bool Window::isFullscreen() const { return (SDL_GetWindowFlags(impl_->win) & SDL_WINDOW_FULLSCREEN) != 0; }
 void Window::sizePx(int& w, int& h) const { SDL_GetWindowSizeInPixels(impl_->win, &w, &h); }
 
 float Window::pixelScale() const {

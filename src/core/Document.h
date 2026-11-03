@@ -23,6 +23,17 @@ class Document {
   explicit Document(std::filesystem::path path);
   static Document fromText(std::filesystem::path path, std::string text);
 
+  // A document with no file yet (NewTextFile): `path` is only its identity ("<workspace>/Untitled 1"), nothing is read
+  // from or written to it until Editor::saveAs gives it a real path (setPath). Empty, clean, `lineEnding` on save.
+  static Document untitled(std::filesystem::path path, LineEnding lineEnding);
+  bool isUntitled() const { return untitled_; }
+  // Gives an untitled document its file: the path changes, the document stays untitled-free and dirty until saved.
+  void setPath(std::filesystem::path p) {
+    path_ = std::move(p);
+    untitled_ = false;
+    dirty_ = true;
+  }
+
   bool loadFromDisk(std::string* error = nullptr);
   bool saveToDisk(std::string* error = nullptr);
 
@@ -101,6 +112,7 @@ class Document {
   int version_ = 1;
   bool dirty_ = false;
   bool onDisk_ = false;
+  bool untitled_ = false;
   std::vector<UndoGroup> undo_, redo_;
   UndoGroup open_;  // the group being built while depth_ > 0
   int depth_ = 0;

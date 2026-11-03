@@ -49,6 +49,16 @@ editor.confirmUnsaved = true
 # ask) or never (leave the buffer alone, only say so in the status bar).
 editor.reloadExternalChanges = auto
 
+# New files, search and zoom (10x DefaultLineEnding, AutoNameUntitledFiles, InternetSearchCommand).
+# defaultLineEnding: line ending of a new untitled file, CRLF or LF (10x's default is CRLF; any other text is CRLF).
+editor.defaultLineEnding = CRLF
+# autoNameUntitledFiles: an untitled file takes its name from the first word typed in it (the name is only a
+# suggestion for the Save As prompt until the file is saved).
+editor.autoNameUntitledFiles = false
+# internetSearchCommand: InternetSearch opens this address with the word under the caret (or the selection) appended,
+# percent-encoded, in the default browser.
+editor.internetSearchCommand = https://www.google.com/search?q=
+
 # Unset: the app discovers a monospace font, trying font.fallbacks in order (OPEN_QUESTIONS #7).
 font.editor =
 font.fallbacks = Cascadia Mono, Consolas

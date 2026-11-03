@@ -2,6 +2,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -26,6 +27,8 @@
 #include "ui/features/HoverTooltip.h"
 #include "ui/features/NavResultPicker.h"
 #include "ui/features/NavigationUi.h"
+#include "ui/features/OsLauncher.h"
+#include "ui/features/SaveAsPrompt.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
 #include "ui/features/UnsavedPrompt.h"
@@ -108,6 +111,20 @@ class EditorApp {
   VcsUi& vcsUi() { return *vcsUi_; }           // C3c: Vcs.* commands, revert confirmation, external diff tool
   void closePickers();
 
+  // W8b. The window belongs to the program: it gives EditorApp what View.ToggleFullscreen needs (null: the command
+  // does nothing). Tests and the real window install their own.
+  struct WindowHooks {
+    std::function<void(bool on)> setFullscreen;
+  };
+  void setWindowHooks(WindowHooks h) { window_ = std::move(h); }
+  bool fullscreen() const { return fullscreen_; }
+  // How InternetSearch and OpenFolderForActivefile reach the OS (default: the real browser / file manager).
+  void setLauncher(OsLauncher l) { launcher_ = std::move(l); }
+  SaveAsPrompt& saveAsPrompt() { return *saveAs_; }
+  // View.ZoomIn / ZoomOut: points added to the configured font size for this session (never saved). The function the
+  // app passes to attachSettings as `rebuildFont` must build the editor font at configured size + fontZoomPt().
+  float fontZoomPt() const { return zoomPt_; }
+
   // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a
   // theme change is applied to the root (scaled by `displayScale`), and settings / theme diagnostics go to the status
   // bar message like key-binding ones. `rebuildFont` (optional) is called when a font.* key changed; it swaps the
@@ -142,6 +159,12 @@ class EditorApp {
   void applyEditingSettings(const Settings& s);
   void forEachView(const std::function<void(TextView&)>& fn);
   void reloadKeyBindings();
+  void bindViewCommands();
+  void bindPanelCommands();
+  bool zoomBy(float stepPt);
+  void setFullscreen(bool on);
+  void updateUntitledNames();
+  std::string untitledSuggestion(const Document& d) const;
   bool commandRunnable(const std::string& id) const;
   void bindUiCommands();
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
@@ -194,7 +217,21 @@ class EditorApp {
   std::unique_ptr<ExternalChanges> external_;
   std::unique_ptr<CommandPalette> palette_;
   bool confirmUnsaved_ = true;
-  BuildPanel* build_ = nullptr;  // owned by the Workbench's bottom dock
+  // W8b
+  WindowHooks window_;
+  OsLauncher launcher_ = systemLauncher();
+  std::unique_ptr<SaveAsPrompt> saveAs_;
+  float zoomPt_ = 0;
+  bool fullscreen_ = false;
+  LineEnding defaultEol_ = LineEnding::CRLF;                        // editor.defaultLineEnding
+  std::string searchCommand_ = "https://www.google.com/search?q=";  // editor.internetSearchCommand
+  bool autoNameUntitled_ = false;                                   // editor.autoNameUntitledFiles
+  struct UntitledName {
+    std::string word;
+    bool frozen = false;  // the first word is complete
+  };
+  std::map<std::string, UntitledName> untitledNames_;  // generic path of an untitled document -> its name
+  BuildPanel* build_ = nullptr;                        // owned by the Workbench's bottom dock
 };
 
 }  // namespace tf::ui

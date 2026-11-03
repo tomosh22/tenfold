@@ -50,11 +50,44 @@ class Workbench : public RootWidget {
   void setActivePanel(Panel* p);
   Panel* splitActive(Splitter::Orientation o) { return splitPanel(active_, o, true, -1); }
   // New panel after/before `target` along `o`: moves tab `moveId` into it, or (-1) duplicates target's active tab.
-  Panel* splitPanel(Panel* target, Splitter::Orientation o, bool after, int moveId);
+  // `duplicateAll` (with moveId < 0): the new panel gets a view of every tab of target, in order, pinned flags and
+  // active tab included (DuplicatePanel); otherwise only target's active tab.
+  Panel* splitPanel(Panel* target, Splitter::Orientation o, bool after, int moveId, bool duplicateAll = false);
   bool closePanel(Panel* p);  // its tabs move to the nearest neighbour; false for the last panel
+
+  // ---- panel navigation and layout moves (W8b) ----
+  enum class Side { Left, Right, Up, Down };
+  // The panel next to `from` in a direction by geometry (the panels' laid-out rectangles): among the panels that lie
+  // wholly beyond that edge and overlap `from` across it, the closest one, then the one with the largest overlap, then
+  // the first in layout order. Null when there is none (also in focus mode, where only one panel has an area).
+  Panel* panelToward(Panel* from, Side d);
+  bool focusPanelToward(Side d);  // MovePanelFocus*: makes that neighbour the active panel
+  // MovePanel*: the active panel and its neighbour in that direction exchange places in the layout (sizes follow the
+  // places); the active panel stays active. False when there is no neighbour.
+  bool movePanelToward(Side d);
+  // DuplicatePanel*: a copy of the panel with views of all its tabs next to it (after = to the right). `focusNew`
+  // makes the copy the active panel. Null at the panel limit.
+  Panel* duplicatePanel(Panel* p, bool after, bool focusNew);
+  // PrevPanelTab / NextPanelTab: the neighbouring tab of the panel's strip, wrapping round. False with fewer than two.
+  bool stepTab(Panel* p, int direction);
+  // MovePrevPanelTab / MoveNextPanelTab: the active tab swaps places with its neighbour (no wrapping, never out of the
+  // pinned / unpinned group). False when it cannot move.
+  bool moveActiveTab(Panel* p, int direction);
+  // Focus mode (ToggleFocusMode): only the active panel is shown, over the whole window; the status bar, the top bar,
+  // the bottom dock and the other panels are hidden. Layout, tabs and splitter ratios are untouched, so leaving the
+  // mode restores the window exactly. Session state, not saved.
+  void setFocusMode(bool on);
+  bool focusMode() const { return focusMode_; }
 
   // ---- tabs ----
   int openFile(const std::filesystem::path& path, Panel* in = nullptr);  // tab id or -1; focuses an existing tab
+  // A tab for a document the Editor already holds (an untitled one from Editor::newUntitled); focuses an existing tab.
+  int openDocument(Document& doc, Panel* in = nullptr);
+  // An untitled document got a file (Editor::saveAs): its tabs follow, with the file name as title.
+  void documentRenamed(const std::filesystem::path& from, const std::filesystem::path& to);
+  // Shows `title` instead of the file name on the tabs of `file` (untitled files named after their first word); an
+  // empty title removes it.
+  void setTitleOverride(const std::filesystem::path& file, const std::string& title);
   bool closeTab(int id, bool discard = false);  // discard: also close a dirty document in the Editor (changes lost)
   // A close the user asked for. When `confirmClose` is set and the tab is the last view of a dirty document, it is
   // called instead of closing and returns true if it took over (it calls closeTab itself once the user agrees).
@@ -155,6 +188,9 @@ class Workbench : public RootWidget {
   void collect(Widget* w, std::vector<Panel*>& out) const;
   void refreshStatus();
   void applyDock();
+  void applyFocusMode();
+  void swapPanels(Panel* a, Panel* b);
+  std::string tabTitle(const std::filesystem::path& file) const;
 
   Editor& editor_;
   DockSplit* split_ = nullptr;  // body_ above, dock_ below
@@ -173,6 +209,8 @@ class Workbench : public RootWidget {
   Panel* active_ = nullptr;
   std::map<int, TabInfo> tabs_;
   std::map<std::string, Position> lastCaret_;
+  std::map<std::string, std::string> titles_;  // generic path -> tab title override
+  bool focusMode_ = false;
   std::set<std::string> missing_;  // generic paths of open documents whose file vanished
   std::vector<std::filesystem::path> recent_;
   Document* lastCur_ = nullptr;
