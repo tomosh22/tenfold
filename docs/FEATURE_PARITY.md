@@ -73,7 +73,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 35 of the 183 default bindings (33 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 21 of the 183 default bindings (20 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -99,16 +99,15 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 148 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 35 bindings (33 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 162 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 21 bindings (20 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
 
 Where a mapped command is only close to the 10x one, the alias table carries a note (shown in the user guide): the
 move-line keys also move every line of a selection, `DuplicateLine` duplicates a selection instead of the line,
-`ToggleComment` never switches to block comments, `GotoNextResult` steps through find-in-files results only (build messages
-are `GotoNextBuildWarningOrError`), `SelectNextMultiCursor` has no undo-last-selection, `OpenFile` and `FindFile` both open
+`ToggleComment` never switches to block comments, `OpenFile` and `FindFile` both open
 tenfold's fuzzy file picker, `ShowSwitchPanelPanel` is the recent-documents switcher, `Search` / `FindInFiles` are one
 find-in-files picker (`NewSearchPanel` keeps up to three earlier result lists in it; there are no separate result panels, so
 the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
@@ -133,17 +132,6 @@ the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the
 | --- | --- | --- |
 | `PasteHistory` | `Control Shift V` | Show the paste history dropdown |
 
-**MultiCursor**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `UndoSelectNextMultiCursor` | `Control Shift D` | Undo the previous selection from SelectNextMultiCursor |
-| `SelectAllOccurrences` | `Control Shift Alt J`; `Alt F3` | Select all of the find results with multiple cursors |
-| `AddCursorAtMousePos` | `Control MouseMiddleButton` | Add a new cursor at the current mouse pos |
-| `AlignMultiCursor` | `Alt A` | Align all cursors |
-| `MultiCursorMoveLeft` | `Shift Alt Left` | Increase selection end for all multi-cursors |
-| `MultiCursorMoveRight` | `Shift Alt Right` | Decrease selection end for all multi-cursors |
-
 **CollapseRegions**
 
 | Command | Default keys | 10x description |
@@ -152,19 +140,6 @@ the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the
 | `ExpandRegion` | `Control Shift ]` | Expand the current region |
 | `ToggleCollapseExpandRegion` | `Control M, Control M` | Toggle the collapse/expand of the current region |
 | `ToggleCollapseExpandAllRegions` | `Control M, Control L` | Toggle the collapse/expand of the all regions in the file |
-
-**Tabs**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-
-**Navigation**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `PrevLocationCurrentFile` | `Control =` | Go to the previous cursor location in the current file |
-| `NextLocationCurrentFile` | `Control Shift =` | Go to the next cursor location in the current file |
-| `RestoreRecentlyClosedFile` | `Control Shift T` | Re-open the most recently closed file |
 
 **Parser**
 
@@ -182,31 +157,12 @@ walked (the completion list, previously typed words?), whether the typed word is
 needs an open dropdown. The four `Autocomplete*` list keys already work: the completion popup handles Up, Down, PageUp and
 PageDown itself while it is open.
 
-**Debugging**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `RemoveAllBreakpointsFromFile` | `Control Shift F9` | Remove all breakpoints from the current file |
-
 **MacroRecording**
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
 | `RecordKeySequence` | `Control Shift R` | Start/stop recording a key sequence |
 | `PlaybackKeySequence` | `Control Shift P` | Playback a key sequence |
-
-**Bookmarks**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `PrevBookmarkInFile` | `Shift Alt F2` | Go to the previous bookmark in the current file |
-| `NextBookmarkInFile` | `Alt F2` | Go to the next bookmark in the current file |
-| `RemoveAllBookmarksFromFile` | `Control Shift F2` | Remove all bookmarks from the current file |
-
-**Panels**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
 
 **Misc**
 
@@ -220,7 +176,6 @@ PageDown itself while it is open.
 | --- | --- | --- |
 | `PerforceHistory` | `Control P, Control H` | Show the perforce history for the current file |
 | `PerforceShowInP4v` | `Control P, Control V` | Show the current file in p4v |
-
 
 ### Commands without a default key that tenfold does not implement either
 

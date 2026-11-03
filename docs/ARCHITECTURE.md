@@ -792,6 +792,26 @@ pick, per selection, the smallest of {inside, with the brackets} of every enclos
 repeated presses grow outward; `moveToMatchingBracket` jumps to the same side of the partner and fails when the caret is
 not next to a (code) bracket. All of them select through `setSelections`, so the move lands in the navigation history.
 
+**10x multi-cursor commands (W8d, `Editor.cpp` / `EditorEditing.cpp`).** `addCaretAtNextOccurrence` wraps the old step
+(`addCaretAtNextOccurrenceStep`) and pushes `{document, version, carets before, carets after}` on `selectNextSteps_`
+when the carets changed; `undoAddCaretAtNextOccurrence` pops one step and restores `before`, but only while the current
+document, its `version()` and the caret set still equal the step's `after` (else the whole stack is dropped).
+`selectAllOccurrences(find?)` runs `findInDocument` (the find bar's options, or the selection / word with a built option
+set) and calls `setSelections` with the match at or after the primary first. `alignCarets` computes visual columns (tab
+stops of `EditingOptions::tabWidth`, set from `editor.tabWidth`), sorts the carets by position, and builds one `CaretEdit`
+per caret (an insertion of spaces for the first caret of a line that is left of the rightmost caret, an empty edit for
+the others) for `applyCaretEdits`: one undo step. `adjustSelectionEnds(grow)` moves `range().end` of every selection by one
+character (crossing line breaks when growing) and keeps the orientation; `addCaretAt(p)` inserts a primary caret.
+
+**Navigation and bookmark variants (W8d).** `NavigationHistory::backInFile/forwardInFile(current)` scan for the nearest
+entry of `current.file` in that direction and move the cursor straight to it (`Editor::backInFile/forwardInFile`, no
+`gotoLocation`: like `back()` they add no entries); the live position is recorded (as `back()` does) only when a target
+exists. `Bookmarks::nextInFile/prevInFile` wrap inside one file, `removeFile` clears one file; `Breakpoints::removeFile`
+erases one file and runs the change handler once, so `DebugSession` syncs it to the backend like any other change.
+`Editor::lastResultSource()` (set by `build` and `findInWorkspace`, and by `FindInFiles::start` for a replaced search
+function) tells `EditorApp` whether `Search.NextResult` / `PrevResult` (F4 / Shift+F4) call `FindInFiles::step` or the
+shared `EditorApp::stepBuildResult` (also behind `Build.NextError` / `PrevError`, F8).
+
 `Bookmarks` keeps sorted line sets per file (key `pathKey`), moves them with the same rule as
 `NavigationHistory::onLinesReplaced` (the Editor's document listener feeds both), is persisted as
 `.tenfold/bookmarks.json` (`{"version":1,"bookmarks":{"<path relative to the root>":[line,...]}}`, 0-based lines; loaded
@@ -1202,6 +1222,10 @@ handler) and the focus is not a text view, the focused widget gets the key first
 `ReplaceNextInFile` / `ReplaceAllInFile` exist, `EditorApp::widgetOwnsKey` gives `Alt R` to an open picker and to the
 find-only bar, and to the commands when the bar shows its replace row), and an
 unimplemented middle-button binding never swallows the click (tab close). `tests/fixtures/KeyMappings.10x.expected.txt`
+handler) and the focus is not a text view, the focused widget gets the key first (`Alt R` in the find bar), and an
+unimplemented middle-button binding never swallows the click (tab close). `Control MouseMiddleButton`
+(`AddCursorAtMousePos`, `Editor.AddCaretAtMouse`) runs only when the pointer is over a `TextView` (`EditorApp::textViewAt`,
+the pointer position is tracked from mouse events); elsewhere the click is dispatched to the widgets. `tests/fixtures/KeyMappings.10x.expected.txt`
 is the key list generated from the 10x documentation; a test compares the defaults file against it.
 `EditorApp` (below) wires `KeyMap::feed` into the app's event loop.
 ## Settings and themes (`src/ui/settings/{Settings,Theme}.*`, B7)
@@ -1450,7 +1474,7 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   file in the status bar.
 * **GoToLine** (`Editor.GotoLine`, Ctrl+G): a one-row modal ListPopup; `42` or `42:7`, Enter -> `Editor::gotoLine`
   (`gotoLocation`, so it is in the navigation history); numbers past the end clamp to the last line.
-* **BookmarkList** (`Editor.ListBookmarks`, Ctrl+Shift+F2): modal list of every bookmark (line text, `path:line`),
+* **BookmarkList** (`Editor.ListBookmarks`, no default key since W8d: Ctrl+Shift+F2 is 10x's RemoveAllBookmarksFromFile): modal list of every bookmark (line text, `path:line`),
   the input filters, Enter -> `gotoBookmarkItem`. Toggle / next / previous (Ctrl+F2, F2, Shift+F2) are engine commands.
   TextView draws a small accent-coloured flag at the left edge of a bookmarked line's gutter (right of the breakpoint
   glyph lane when there is one, see "Debugger UI").

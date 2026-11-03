@@ -180,6 +180,8 @@ class EditorApp {
   std::pair<TextView*, Position> identifierUnderMouse(float x, float y);  // {null, _} when not over an identifier
   void bindParserCommands();  // W8c: rename, autocomplete, signature help, symbol info, FindFunction, format
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
+  bool stepBuildResult(bool forward);      // next / previous build error or warning (F8; F4 after a build)
+  TextView* textViewAt(float x, float y);  // the editor view under a window point, or null
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
   std::string shortcutFor(const std::string& command) const;
   std::string bindingFor(const std::string& command) const;  // any context, for the command palette
@@ -229,7 +231,8 @@ class EditorApp {
   std::unique_ptr<SignatureHelp> sigHelp_;
   std::unique_ptr<RenameInput> rename_;
   std::unique_ptr<FunctionPicker> functions_;
-  float mouseX_ = 0, mouseY_ = 0;  // last pointer position (GotoSymbolDefinitionUnderMouse from the palette)
+  float mouseX_ = 0,
+        mouseY_ = 0;  // last pointer position (GotoSymbolDefinitionUnderMouse from the palette, AddCursorAtMousePos)
   std::unique_ptr<VcsUi> vcsUi_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
   std::unique_ptr<ExternalChanges> external_;

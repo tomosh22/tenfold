@@ -116,6 +116,15 @@ void Breakpoints::clear() {
   changed();
 }
 
+size_t Breakpoints::removeFile(const fs::path& file) {
+  auto it = files_.find(fileKey(file));
+  if (it == files_.end()) return 0;
+  const size_t n = it->second.bps.size();
+  files_.erase(it);
+  changed();
+  return n;
+}
+
 void Breakpoints::onLinesReplaced(const fs::path& file, int startLine, int endLine, int newLineCount) {
   if (files_.empty()) return;  // the common case: no canonicalisation on every keystroke
   auto it = files_.find(fileKey(file));

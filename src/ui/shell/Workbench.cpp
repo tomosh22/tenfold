@@ -586,14 +586,47 @@ bool Workbench::closeTab(int id, bool discard) {
   Panel* p = panelOf(id);
   if (!p) return false;
   const fs::path path = tabs_[id].path;
+  // Where the caret was, for RestoreRecentlyClosedFile (taken before the Editor switches to another document).
+  Position caret;
+  if (const Document* cur = editor_.currentDocument(); cur && cur->path() == path) caret = editor_.cursor().pos;
+  else if (const auto it = lastCaret_.find(path.generic_string()); it != lastCaret_.end()) caret = it->second;
   p->removeTab(id);
   tabs_.erase(id);
   cycle_ = {};
+  noteClosed(path, caret);
   releaseDocument(path, discard);
   if (discard || !editor_.document(path)) missing_.erase(path.generic_string());
   if (p == active_) showActiveTab();
   requestLayout();
   return true;
+}
+
+// Pushes the file on the closed-file stack unless another tab still shows it (then it is not closed) or it is an
+// untitled document (no file to reopen).
+void Workbench::noteClosed(const fs::path& file, Position caret) {
+  for (const auto& [id, t] : tabs_)
+    if (t.path == file) return;
+  if (const Document* d = editor_.document(file); d && d->isUntitled()) return;
+  constexpr size_t kMaxClosed = 30;
+  closed_.erase(std::remove_if(closed_.begin(), closed_.end(), [&](const ClosedTab& c) { return c.file == file; }),
+                closed_.end());
+  closed_.push_back({file, caret});
+  if (closed_.size() > kMaxClosed) closed_.erase(closed_.begin());
+}
+
+bool Workbench::reopenClosedTab() {
+  while (!closed_.empty()) {
+    const ClosedTab c = closed_.back();
+    closed_.pop_back();
+    bool shown = false;
+    for (const auto& [id, t] : tabs_) shown = shown || t.path == c.file;
+    std::error_code ec;
+    if (shown || !fs::exists(c.file, ec)) continue;  // open again by other means, or gone from disk: try the one before
+    if (!editor_.gotoLocation({c.file, c.caret})) continue;
+    sync();  // reveals a tab for the document in the active panel
+    return true;
+  }
+  return false;
 }
 
 void Workbench::closeOthers(int id) {

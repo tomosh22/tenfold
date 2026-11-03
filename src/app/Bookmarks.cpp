@@ -52,6 +52,30 @@ void Bookmarks::clear() {
   files_.clear();
 }
 
+std::optional<int> Bookmarks::nextInFile(const fs::path& file, int line) const {
+  auto it = files_.find(pathKey(file));
+  if (it == files_.end() || it->second.lines.empty()) return std::nullopt;
+  const auto n = it->second.lines.upper_bound(line);
+  return n == it->second.lines.end() ? *it->second.lines.begin() : *n;
+}
+
+std::optional<int> Bookmarks::prevInFile(const fs::path& file, int line) const {
+  auto it = files_.find(pathKey(file));
+  if (it == files_.end() || it->second.lines.empty()) return std::nullopt;
+  const auto n = it->second.lines.lower_bound(line);
+  return n == it->second.lines.begin() ? *it->second.lines.rbegin() : *std::prev(n);
+}
+
+size_t Bookmarks::removeFile(const fs::path& file) {
+  auto it = files_.find(pathKey(file));
+  if (it == files_.end()) return 0;
+  const size_t n = it->second.lines.size();
+  files_.erase(it);
+  dirty_ = true;
+  ++gen_;
+  return n;
+}
+
 std::optional<Bookmarks::Item> Bookmarks::step(const fs::path& file, int line, bool forward) const {
   const std::vector<Item> v = all();
   if (v.empty()) return std::nullopt;

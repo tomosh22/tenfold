@@ -35,6 +35,13 @@ class Bookmarks {
   std::optional<Item> next(const std::filesystem::path& file, int line) const { return step(file, line, true); }
   std::optional<Item> prev(const std::filesystem::path& file, int line) const { return step(file, line, false); }
 
+  // Within one file only (PrevBookmarkInFile / NextBookmarkInFile): the first bookmark line after / before `line`,
+  // wrapping around; nullopt when the file has none.
+  std::optional<int> nextInFile(const std::filesystem::path& file, int line) const;
+  std::optional<int> prevInFile(const std::filesystem::path& file, int line) const;
+  // Removes every bookmark of one file (RemoveAllBookmarksFromFile); returns how many there were.
+  size_t removeFile(const std::filesystem::path& file);
+
   // Same contract as NavigationHistory::onLinesReplaced: lines startLine..endLine (inclusive) became newLineCount.
   void onLinesReplaced(const std::filesystem::path& file, int startLine, int endLine, int newLineCount);
   void onFileRenamed(const std::filesystem::path& from, const std::filesystem::path& to);

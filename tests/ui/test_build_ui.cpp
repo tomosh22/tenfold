@@ -314,6 +314,55 @@ TEST(build_ui_f4_steps_through_messages_selects_lines_and_records_history) {
   CHECK(env.app->message().find("No build errors") != std::string::npos);
 }
 
+TEST(build_ui_f4_follows_whichever_of_search_and_build_ran_last) {
+  Env env;
+  env.open("a.cpp");
+  const auto searchInt = [&] {
+    env.app->findInFiles().open("int");
+    env.advance(400);  // the debounce, then the search starts
+    for (int i = 0; i < 600 && env.app->findInFiles().running(); ++i) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+      env.advance(20);
+    }
+    env.advance(200);
+    REQUIRE_EQ(env.app->findInFiles().matches().size(), size_t(7));
+    CHECK(env.key(Key::Enter));  // first match: a.cpp line 1, column 0
+  };
+  searchInt();
+  CHECK_EQ(env.ed->cursor().pos.line, 0);
+  CHECK(env.key(Key::F4));  // a search ran last: the next search result
+  CHECK_EQ(env.curFile(), std::string("a.cpp"));
+  CHECK_EQ(env.ed->cursor().pos.line, 1);
+  CHECK_EQ(env.ed->cursor().pos.column, 0);
+  // A build ran after it: F4 / Shift+F4 walk the build messages (F8 does so too)
+  REQUIRE(env.runFailing());
+  const int errLine = env.lineWith("error: bad name"), warnLine = env.lineWith("warning C4189");
+  CHECK(env.key(Key::F4));
+  CHECK_EQ(env.curFile(), std::string("a.cpp"));
+  CHECK_EQ(env.ed->cursor().pos.line, 1);
+  CHECK_EQ(env.ed->cursor().pos.column, 4);
+  CHECK_EQ(env.panel().selectedLine(), errLine);
+  CHECK(env.key(Key::F4));
+  CHECK_EQ(env.curFile(), std::string("b.cpp"));
+  CHECK_EQ(env.panel().selectedLine(), warnLine);
+  CHECK(env.key(Key::F4, ModShift));
+  CHECK_EQ(env.curFile(), std::string("a.cpp"));
+  CHECK_EQ(env.ed->cursor().pos.column, 4);
+  CHECK(env.key(Key::F8));  // the build-only command is unchanged
+  CHECK_EQ(env.curFile(), std::string("b.cpp"));
+  // A new search takes the keys back
+  searchInt();
+  CHECK(env.key(Key::F4));
+  CHECK_EQ(env.ed->cursor().pos.column, 0);
+  CHECK_EQ(env.curFile(), std::string("a.cpp"));
+  CHECK_EQ(env.ed->cursor().pos.line, 1);
+  // A clean build is the last operation now: nothing to step through, and no stale search result is visited
+  REQUIRE(env.run(emit({"fine"}, 0)));
+  CHECK(env.key(Key::F4));
+  CHECK(env.app->message().find("No build errors") != std::string::npos);
+  CHECK_EQ(env.ed->cursor().pos.line, 1);
+}
+
 TEST(build_ui_clicking_a_line_jumps_and_alt_left_returns) {
   Env env;
   env.open("a.cpp");

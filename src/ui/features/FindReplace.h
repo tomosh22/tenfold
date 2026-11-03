@@ -60,6 +60,7 @@ class FindReplace {
   void setReplacement(const std::string& r);
   void setOptions(bool caseSensitive, bool wholeWord, bool regex);
   const std::string& query() const;
+  SearchOptions options() const;  // the query and the case / whole word / regex toggles (SelectAllOccurrences)
   bool caseSensitive() const { return cs_; }
   bool wholeWord() const { return word_; }
   bool regex() const { return regex_; }
@@ -75,7 +76,6 @@ class FindReplace {
   void refresh(bool select);
   void publish();
   void select(int index, bool viaHistory);
-  SearchOptions options() const;
 
   PickerEnv& env_;
   ViewsFn views_;

@@ -221,6 +221,7 @@ void FindInFiles::start() {
   auto onDone = [this, seq, alive](const SearchSummary& s) {
     if (!alive.expired()) this->onDone(seq, s);
   };
+  env_.editor.noteResultSource(Editor::ResultSource::Search);  // F4 / Shift+F4 now walk these results
   handle_ = search_ ? search_(o.query, o, onBatch, onDone) : env_.editor.findInWorkspace(o.query, o, onBatch, onDone);
   rebuild();
 }
