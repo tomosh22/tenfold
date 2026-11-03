@@ -1,0 +1,10 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/a_node.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/a_node.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/a_widget.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/a_widget.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/b_node.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/b_node.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/b_widget.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/b_widget.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/c_graph.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/c_graph.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/common.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/common.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/loops.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/loops.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.cpp"]}
+]

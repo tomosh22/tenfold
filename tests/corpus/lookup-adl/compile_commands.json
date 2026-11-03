@@ -1,0 +1,4 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/impl.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/impl.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/main.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/main.cpp"]}
+]

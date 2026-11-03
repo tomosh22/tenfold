@@ -1,0 +1,241 @@
+# oop-virtual: virtual / pure virtual / override / final, interfaces with several implementations across files,
+# multiple inheritance, virtual-inheritance diamond, covariant returns, calls through base pointers and references,
+# member pointers, pimpl (`Impl` twice), dependent bases (`this->`), and the short names get/size/Impl all over.
+# `impl` answers: clangd reports an override at its definition when it has an out-of-line one (Rect::area in rect.cpp).
+
+# ---- fast tier ----
+xfail fast def use_Engine -> Engine  # fast tier conflates the class with its constructors and destructor (all named Engine)
+fast def use_Counter_count -> Counter_count
+xfail fast def use_Bag_size -> Bag_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_duck_walk -> Walker_walk
+fast def use_duck_swim -> Swimmer_swim
+xfail fast def use_Engine_Impl_size -> Engine_Impl_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_Cache_Impl_size -> Cache_Impl_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_area_ptr -> Shape_area  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_rd_size -> Readable_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_wr_size -> Writable_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_fs_size -> FileStream_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_Engine_size -> Engine_size | Engine_size_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_Cache_size -> Cache_size | Cache_size_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_duck_legs -> Animal_legs
+xfail fast def use_this_helper -> TBase_helper  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_unqual_helper -> g_helper | g_helper_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_pm_r -> Circle_r
+xfail fast def use_circle_get -> Circle_get  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_get_ptr -> Shape_get  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+xfail fast def use_clone_rect -> Rect_clone | Rect_clone_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast sym "Duck" ∋ Duck
+fast sym "Impl" ∋ Engine_Impl Cache_Impl
+fast sym "speak" ∋ Animal_speak Walker_speak Duck_speak
+fast sym "Buffer" ∋ Buffer
+fast hover use_area_ptr ~ "area"
+
+# ---- definition / declaration through base pointers, references, covariant returns ----
+def use_area_ptr -> Shape_area
+decl use_area_ptr -> Shape_area
+def use_sides_ptr -> Shape_sides_def
+decl use_sides_ptr -> Shape_sides
+def use_get_ptr -> Shape_get
+def use_name_ref -> Shape_name
+def use_clone_rect -> Rect_clone_def
+decl use_clone_rect -> Rect_clone
+def use_clone_sq -> Square_clone_def
+decl use_clone_sq -> Square_clone
+def use_clone_ptr -> Shape_clone
+def use_pm_area -> Shape_area
+def use_pm_r -> Circle_r
+def use_circle_get -> Circle_get
+def use_circle_size -> Shape_size
+def use_sq_area -> Square_area_def
+decl use_sq_area -> Square_area
+def use_tri_area -> Triangle_area
+typedef var_cl -> Shape
+typedef var_a -> Animal
+
+# ---- interfaces, multiple inheritance ----
+def use_wr_write -> Writable_write
+def use_rd_size -> Readable_size
+def use_wr_size -> Writable_size
+def use_buf_size -> Buffer_size
+def use_fs_size -> FileStream_size
+def use_ns_size -> NullStream_size
+def use_rd_read -> Readable_read
+
+# ---- diamond ----
+def use_duck_walk -> Walker_walk
+def use_duck_swim -> Swimmer_swim
+def use_duck_legs -> Animal_legs
+def use_duck_get -> Animal_get
+def use_animal_speak -> Animal_speak
+def use_walker_speak -> Walker_speak
+def use_duck_speak -> Duck_speak
+
+# ---- pimpl: two different `Impl` and `size` ----
+def use_Engine -> Engine
+def use_Engine_size -> Engine_size_def
+decl use_Engine_size -> Engine_size
+def use_Cache_size -> Cache_size_def
+decl use_Cache_size -> Cache_size
+def use_Engine_get -> Engine_get_def
+def use_Engine_Impl_size -> Engine_Impl_size
+def use_Engine_Impl_get -> Engine_Impl_get
+def use_Cache_Impl_size -> Cache_Impl_size
+def Engine_impl_type -> Engine_Impl
+decl Engine_impl_type -> Engine_Impl_decl
+def Cache_impl_type -> Cache_Impl
+def Engine_new_impl -> Engine_Impl
+def Cache_new_impl -> Cache_Impl
+def Engine_Impl_decl -> Engine_Impl
+decl Engine_Impl -> Engine_Impl_decl
+def Engine_ctor -> Engine_ctor_def
+decl Engine_ctor_def -> Engine_ctor
+def Engine_dtor -> Engine_dtor_def
+decl Engine_dtor_def -> Engine_dtor
+def Cache_ctor -> Cache_ctor_def
+def Cache_dtor -> Cache_dtor_def
+
+# ---- dependent bases, CRTP ----
+def use_this_helper -> TBase_helper
+def use_this_get -> TBase_get
+def use_unqual_helper -> g_helper_def
+decl use_unqual_helper -> g_helper
+def use_Counter_count -> Counter_count
+def use_Bag_size -> Bag_size
+
+# ---- implementations (set equality unless noted) ----
+impl Shape_area >= Circle_area Rect_area_def Triangle_area
+xfail impl Shape_area = Circle_area Rect_area_def Square_area_def Triangle_area  # clangd findImplementations is one level only: Square (overrides Rect::area, not Shape::area directly) / Duck (via Walker) are missing; indirect overriders are implementations too
+impl Shape_name >= Circle_name Rect_name
+xfail impl Shape_name = Circle_name Rect_name Square_name  # clangd findImplementations is one level only: Square (overrides Rect::area, not Shape::area directly) / Duck (via Walker) are missing; indirect overriders are implementations too
+impl Shape_sides = Rect_sides Triangle_sides
+impl Shape_clone >= Circle_clone Rect_clone_def Triangle_clone
+xfail impl Shape_clone = Circle_clone Rect_clone_def Square_clone_def Triangle_clone  # clangd findImplementations is one level only: Square (overrides Rect::area, not Shape::area directly) / Duck (via Walker) are missing; indirect overriders are implementations too
+impl Rect_area = Square_area_def
+impl Rect_name = Square_name
+impl Readable_size = Buffer_size FileStream_size
+impl Writable_size = Buffer_size NullStream_size
+impl Readable_read = Buffer_read FileStream_read
+impl Writable_write = Buffer_write NullStream_write
+impl Animal_speak = Walker_speak Duck_speak
+impl Walker_speak = Duck_speak
+impl use_area_ptr >= Circle_area Rect_area_def Triangle_area
+impl use_rd_size = Buffer_size FileStream_size
+impl use_wr_size = Buffer_size NullStream_size
+impl use_animal_speak = Walker_speak Duck_speak
+impl use_name_ref >= Circle_name Rect_name
+impl Shape >= Circle Rect Triangle
+xfail impl Shape = Circle Rect Square Triangle  # clangd findImplementations is one level only: Square (overrides Rect::area, not Shape::area directly) / Duck (via Walker) are missing; indirect overriders are implementations too
+impl Rect = Square
+impl Readable = Buffer FileStream
+impl Writable = Buffer NullStream
+impl Animal >= Walker Swimmer
+xfail impl Animal = Walker Swimmer Duck  # clangd findImplementations is one level only: Square (overrides Rect::area, not Shape::area directly) / Duck (via Walker) are missing; indirect overriders are implementations too
+impl Walker = Duck
+impl Shape_get = none
+impl Circle_get = none
+
+# ---- references ----
+refs Shape_area >= Shape_area use_area_ptr use_pm_area
+refs Square_area_def >= Square_area Square_area_def use_sq_area
+refs Triangle_area >= Triangle_area use_tri_area
+refs Shape_sides >= Shape_sides Shape_sides_def use_sides_ptr
+refs Shape_get = Shape_get use_get_ptr
+refs Circle_get = Circle_get use_circle_get
+refs Shape_size = Shape_size use_circle_size
+refs Shape_name >= Shape_name use_name_ref
+refs Shape_clone >= Shape_clone use_clone_ptr
+refs Rect_clone >= Rect_clone Rect_clone_def use_clone_rect
+refs Circle_r >= Circle_r use_pm_r
+refs Readable_size >= Readable_size use_rd_size
+refs Writable_size >= Writable_size use_wr_size
+refs Buffer_size >= Buffer_size use_buf_size
+refs FileStream_size >= FileStream_size use_fs_size
+refs NullStream_size >= NullStream_size use_ns_size
+refs Animal_legs >= Animal_legs use_duck_legs
+refs Animal_get = Animal_get use_duck_get
+refs Animal_speak >= Animal_speak use_animal_speak
+refs Walker_speak >= Walker_speak use_walker_speak
+refs Duck_speak >= Duck_speak use_duck_speak
+refs Walker_walk = Walker_walk use_duck_walk
+refs Engine_size = Engine_size Engine_size_def use_Engine_size
+refs Cache_size = Cache_size Cache_size_def use_Cache_size
+refs Engine_Impl_size = Engine_Impl_size use_Engine_Impl_size
+refs Cache_Impl_size = Cache_Impl_size use_Cache_Impl_size
+refs Engine_Impl_decl = Engine_Impl_decl Engine_Impl Engine_impl_type Engine_new_impl
+refs Cache_Impl_decl = Cache_Impl_decl Cache_Impl Cache_impl_type Cache_new_impl
+refs TBase_helper = TBase_helper use_this_helper
+refs g_helper = g_helper g_helper_def use_unqual_helper
+refs TBase_get = TBase_get use_this_get
+refs Counter_count = Counter_count use_Counter_count
+refs Bag_size = Bag_size use_Bag_size
+refs Engine >= Engine use_Engine
+
+# ---- hover ----
+hover use_area_ptr ~ "area" "double"
+hover use_name_ref ~ "name" "const char"
+hover use_sides_ptr ~ "sides" "int"
+hover use_circle_get ~ "get" "Circle"
+hover use_get_ptr ~ "get" "Shape"
+hover use_Engine_Impl_size ~ "size" "Impl"
+hover use_duck_legs ~ "legs" "Animal"
+hover use_Engine ~ "Engine"
+hover use_pm_r ~ "r_" "Circle"
+hover use_this_helper ~ "helper"
+hover use_Bag_size ~ "size" "Bag"
+
+# ---- workspace symbols ----
+sym "Duck" -> Duck
+sym "Impl" ∋ Engine_Impl Cache_Impl
+sym "speak" ∋ Animal_speak Walker_speak Duck_speak
+sym "area" ∋ Shape_area Circle_area Rect_area_def Square_area_def Triangle_area
+sym "size" ∋ Readable_size Writable_size Buffer_size Engine_size_def Cache_size_def
+sym "Buffer" ∋ Buffer
+sym "Counter" ∋ Counter
+sym "TBase" ∋ TBase
+
+# ---- rename: virtual families rename together, non-virtual namesakes do not ----
+rename Shape_area surface
+  Shape_area Circle_area Rect_area Rect_area_def Square_area Square_area_def Triangle_area use_area_ptr use_pm_area use_sq_area use_tri_area
+rename Shape_name label
+  Shape_name Circle_name Rect_name Square_name use_name_ref
+rename Shape_get fetch
+  Shape_get use_get_ptr
+rename Circle_get cfetch
+  Circle_get use_circle_get
+rename Shape_size extent
+  Shape_size use_circle_size
+xfail rename Readable_size length  # clangd rename of Readable::size renames Buffer::size but not Writable::size/NullStream::size which Buffer::size also overrides: result no longer compiles
+  Readable_size Writable_size Buffer_size FileStream_size NullStream_size use_rd_size use_wr_size use_buf_size use_fs_size use_ns_size
+rename Buffer_read pull
+  Readable_read Buffer_read FileStream_read use_rd_read
+rename Animal_speak talk
+  Animal_speak Walker_speak Duck_speak use_animal_speak use_walker_speak use_duck_speak
+rename Animal_legs limbs
+  Animal_legs use_duck_legs
+rename Engine_Impl_size isize
+  Engine_Impl_size use_Engine_Impl_size
+rename Cache_Impl_size csize
+  Cache_Impl_size use_Cache_Impl_size
+rename Engine_size esize
+  Engine_size Engine_size_def use_Engine_size
+rename TBase_helper thelper
+  TBase_helper use_this_helper
+rename g_helper ghelper
+  g_helper g_helper_def use_unqual_helper
+rename Bag_size bsize
+  Bag_size use_Bag_size
+rename Counter_count ccount
+  Counter_count use_Counter_count
+rename Rect_clone rclone
+  Shape_clone Circle_clone Rect_clone Rect_clone_def Square_clone Square_clone_def Triangle_clone use_clone_rect use_clone_sq use_clone_ptr
+
+# ---- unsaved edit: a new override in the open document is an implementation too ----
+# (the impl lines come after other queries on purpose: asked right after the edit, clangd's dynamic index may not have the new override yet)
+open src/main.cpp
+edit src/main.cpp:69:1 "struct EditShape : geom::Shape {\n  double /*@edit_area*/area() const override { return 0; }\n  geom::Shape* /*@edit_clone*/clone() const override { return nullptr; }\n  const char* /*@edit_name*/name() const override { return \"edit\"; }\n};\ndouble edit_use(geom::Shape& s, EditShape& e) { return s./*@edit_use_area*/area() + e./*@edit_use_area2*/area(); }\n"
+def edit_use_area -> Shape_area
+def edit_use_area2 -> edit_area
+refs edit_area >= edit_area edit_use_area2
+impl Shape_area >= Circle_area Rect_area_def Triangle_area edit_area
+impl Shape_name >= Circle_name Rect_name edit_name
+impl Shape_clone >= Circle_clone Rect_clone_def Triangle_clone edit_clone

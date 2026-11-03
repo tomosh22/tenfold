@@ -1,0 +1,9 @@
+#pragma once
+namespace util {
+template <class... Ts>
+struct /*@overloaded*/overloaded : Ts... {
+  using Ts::operator()...;
+};
+template <class... Ts>
+overloaded(Ts...) -> overloaded<Ts...>;
+} // namespace util

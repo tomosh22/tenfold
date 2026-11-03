@@ -1,0 +1,270 @@
+# name-collisions: the same short names (Node, Impl, get, size, Id, i, n, Stat, log) in different namespaces, classes and
+# translation units; forward declarations in several headers; uses through incomplete types; friend classes that name a
+# different `Impl` per namespace; a function named like a struct; same local names in neighbouring functions.
+# A name-based guess is wrong almost everywhere here.
+
+# ---- fast tier ----
+xfail fast def use_a_Node_get -> a_Node_get | a_Node_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_b_Node_get -> b_Node_get | b_Node_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_get -> a_get | a_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_b_get -> b_get | b_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_get_tpl -> a_get_tpl  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_size -> a_size | a_size_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_Node_in_Widget -> a_Node  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_b_Impl_in_Widget -> b_Impl | b_Impl_decl  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_Impl_in_Widget -> a_Impl | a_Impl_fwd  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_c_Node_in_Edge -> c_Node  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_Id -> a_Id  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_b_Id -> b_Id  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_Stat_struct -> Stat  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_Stat_func -> Stat_func | Stat_func_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_g_get -> g_get | g_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_g_log -> g_log | g_log_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_log_ns_log -> log_ns_log | log_ns_log_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_c_get -> c_get | c_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_c_static_get -> c_static_get  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_c_anon_Impl_get -> c_anon_Impl_get  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_a_Widget_node -> a_Widget_node | a_Widget_node_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+xfail fast def use_i_a1 -> i_a  # fast tier has no local scope: parameter/loop variable not found, an unrelated same-named member (Holder::i) is answered instead
+xfail fast def use_param_i -> Holder_param_i  # fast tier has no local scope: parameter/loop variable not found, an unrelated same-named member (Holder::i) is answered instead
+fast def use_Holder_n3 -> Holder_n
+fast sym "Edge" ∋ c_Edge
+fast sym "Stat" ∋ Stat
+fast sym "Widget" ∋ a_Widget b_Widget
+fast sym "Node" ∋ a_Node b_Node c_Node
+fast sym "Impl" ∋ a_Impl b_Impl c_anon_Impl
+
+# ---- forward declarations and incomplete types: definition lives elsewhere ----
+def use_a_Node_in_Node -> a_Node
+def use_a_Id_in_Node -> a_Id
+def use_b_Id_in_Node -> b_Id
+def use_a_Node_in_Widget -> a_Node
+def use_a_Impl_in_Widget -> a_Impl
+def use_b_Impl_in_Widget -> b_Impl
+decl use_b_Impl_in_Widget -> b_Impl_decl
+def use_c_Node_in_Edge -> c_Node
+decl use_c_Node_in_Edge -> c_Node_fwd
+def a_Impl_fwd -> a_Impl
+def a_Node_fwd -> a_Node
+def b_Node_fwd -> b_Node
+def c_Node_fwd -> c_Node
+def b_Impl_decl -> b_Impl
+def a_fr_Impl -> a_Impl
+def b_fr_Impl -> b_fr_Impl
+def use_a_Node_type -> a_Node
+def use_a_Id -> a_Id
+def use_b_Id -> b_Id
+def use_b_Impl_nested -> b_Impl
+def new_a_Impl -> a_Impl
+def new_b_Impl -> b_Impl
+def use_a_Node_in_Impl -> a_Node
+def use_a_Node_ret -> a_Node
+def use_c_anon_Impl -> c_anon_Impl
+
+# ---- members vs free functions vs other classes, same names ----
+def use_a_Node_get -> a_Node_get_def
+decl use_a_Node_get -> a_Node_get
+def use_b_Node_get -> b_Node_get_def
+decl use_b_Node_get -> b_Node_get
+def use_a_get -> a_get_def
+decl use_a_get -> a_get
+def use_b_get -> b_get_def
+def use_a_get_tpl -> a_get_tpl
+def use_a_size -> a_size_def
+def use_a_Node_size -> a_Node_size_def
+def use_b_Node_size -> b_Node_size_def
+def use_a_Widget_get -> a_Widget_get_def
+decl use_a_Widget_get -> a_Widget_get
+def use_b_Widget_get -> b_Widget_get_def
+def use_a_Widget_size -> a_Widget_size_def
+def use_b_Widget_size -> b_Widget_size_def
+def use_a_Widget_node -> a_Widget_node_def
+def use_a_Impl_get -> a_Impl_get
+def use_a_Impl_size -> a_Impl_size
+def use_b_Impl_get -> b_Impl_get
+def use_b_Impl_size -> b_Impl_size
+def use_a_Node_get_in_Impl -> a_Node_get_def
+def use_a_size_free -> a_size_def
+def use_b_Node_get_in_Impl -> b_Node_get_def
+def use_b_Node_size_in_Impl -> b_Node_size_def
+def use_b_get_free -> b_get_def
+def use_b_Node_get_in_free -> b_Node_get_def
+def use_a_Node_size_in_free -> a_Node_size_def
+def use_c_Node_get -> c_Node_get
+def use_c_Node_size -> c_Node_size
+def use_c_anon_Impl_get -> c_anon_Impl_get
+def use_c_anon_Impl_size -> c_anon_Impl_size
+def use_c_static_get -> c_static_get
+def use_c_get -> c_get_def
+decl use_c_get -> c_get
+def use_g_get -> g_get_def
+def use_g_size -> g_size_def
+def use_g_log -> g_log_def
+def use_log_ns_log -> log_ns_log_def
+def g_get -> g_get_def
+decl g_get_def -> g_get
+
+# ---- a function named like a struct ----
+def use_Stat_struct -> Stat
+def use_Stat_func -> Stat_func_def
+decl use_Stat_func -> Stat_func
+def Stat_func -> Stat_func_def
+
+# ---- locals and members named alike ----
+def use_i_a1 -> i_a
+def use_i_a2 -> i_a
+def use_i_a3 -> i_a
+def use_n_a -> n_a
+def use_total_a -> total_a
+def use_total_a2 -> total_a
+def use_i_b1 -> i_b
+def use_i_b3 -> i_b
+def use_n_b -> n_b
+def use_total_b2 -> total_b
+def use_Holder_i -> Holder_i
+def use_Holder_n -> Holder_n
+def use_Holder_n2 -> Holder_n
+def use_Holder_n3 -> Holder_n
+def use_param_i -> Holder_param_i
+def use_this_i -> Holder_i
+def use_i_h -> i_h
+def use_i_h2 -> i_h
+def use_i_h3 -> i_h
+def use_this_i2 -> Holder_i
+
+# ---- implementations: nothing here is virtual ----
+impl a_Node_get = none
+impl b_Widget_get = none
+impl a_Impl_get = none
+
+# ---- references ----
+refs a_Node_get = a_Node_get a_Node_get_def use_a_Node_get use_a_Node_get_in_Impl
+refs b_Node_get = b_Node_get b_Node_get_def use_b_Node_get use_b_Node_get_in_Impl use_b_Node_get_in_free
+refs a_get = a_get a_get_def use_a_get
+refs b_get = b_get b_get_def use_b_get use_b_get_free
+refs a_get_tpl = a_get_tpl use_a_get_tpl
+refs c_get = c_get c_get_def use_c_get
+refs g_get = g_get g_get_def use_g_get
+refs c_static_get = c_static_get use_c_static_get
+refs a_Node_size = a_Node_size a_Node_size_def use_a_Node_size use_a_Node_size_in_free
+refs a_size = a_size a_size_def use_a_size use_a_size_free
+refs b_Node_size = b_Node_size b_Node_size_def use_b_Node_size use_b_Node_size_in_Impl
+refs g_size = g_size g_size_def use_g_size
+refs a_Widget_get = a_Widget_get a_Widget_get_def use_a_Widget_get
+refs b_Widget_get = b_Widget_get b_Widget_get_def use_b_Widget_get
+refs a_Widget_size = a_Widget_size a_Widget_size_def use_a_Widget_size
+refs b_Widget_size = b_Widget_size b_Widget_size_def use_b_Widget_size
+refs a_Widget_node = a_Widget_node a_Widget_node_def use_a_Widget_node
+refs a_Impl_get = a_Impl_get use_a_Impl_get
+refs a_Impl_size = a_Impl_size use_a_Impl_size
+refs b_Impl_get = b_Impl_get use_b_Impl_get
+refs b_Impl_size = b_Impl_size use_b_Impl_size
+refs c_Node_get = c_Node_get use_c_Node_get
+refs c_Node_size = c_Node_size use_c_Node_size
+refs c_anon_Impl_get = c_anon_Impl_get use_c_anon_Impl_get
+refs c_anon_Impl_size = c_anon_Impl_size use_c_anon_Impl_size
+refs a_Impl = a_Impl_fwd a_Impl a_fr_Impl use_a_Impl_in_Widget new_a_Impl
+refs b_Impl = b_Impl_decl b_Impl use_b_Impl_in_Widget new_b_Impl use_b_Impl_nested
+refs c_anon_Impl = c_anon_Impl use_c_anon_Impl
+refs a_Node >= a_Node_fwd a_Node use_a_Node_in_Node use_a_Node_in_Widget use_a_Node_type use_a_Node_in_Impl use_a_Node_ret
+refs c_Node >= c_Node_fwd c_Node use_c_Node_in_Edge
+refs a_Id = a_Id use_a_Id use_a_Id_in_Node
+refs b_Id = b_Id use_b_Id use_b_Id_in_Node
+refs Stat = Stat use_Stat_struct
+refs Stat_func = Stat_func Stat_func_def use_Stat_func
+refs g_log = g_log g_log_def use_g_log
+refs log_ns_log = log_ns_log log_ns_log_def use_log_ns_log
+refs i_a = i_a use_i_a1 use_i_a2 use_i_a3
+refs i_b = i_b use_i_b1 use_i_b2 use_i_b3
+refs n_a = n_a use_n_a
+refs n_b = n_b use_n_b
+refs total_a = total_a use_total_a use_total_a2
+refs total_b = total_b use_total_b use_total_b2
+refs Holder_i = Holder_i use_Holder_i use_this_i use_this_i2
+refs Holder_n = Holder_n use_Holder_n use_Holder_n2 use_Holder_n3
+refs Holder_param_i = Holder_param_i use_param_i
+refs i_h = i_h use_i_h use_i_h2 use_i_h3
+
+# ---- hover ----
+hover use_a_Node_get ~ "get" "In Node" "a/node.h"
+hover use_b_Node_get ~ "get" "In Node" "b/node.h"
+hover use_a_Id ~ "Id" "int"
+hover use_b_Id ~ "Id" "long"
+hover use_Stat_func ~ "Stat" "const char"
+hover use_Stat_struct ~ "Stat"
+hover use_a_get_tpl ~ "get" "template"
+hover use_c_static_get ~ "get" "static"
+hover use_c_anon_Impl_get ~ "get" "Impl"
+hover use_i_a1 ~ "i" "int"
+hover use_Holder_n ~ "n" "int"
+hover use_g_log ~ "log" "const char"
+hover use_log_ns_log ~ "log" "log_ns"
+hover use_a_Widget_size ~ "size" "In Widget" "a/widget.h"
+hover use_b_Widget_size ~ "size" "In Widget" "b/widget.h"
+
+# ---- workspace symbols ----
+sym "Edge" -> c_Edge
+sym "Stat" ∋ Stat Stat_func_def
+sym "Widget" ∋ a_Widget b_Widget
+sym "Node" ∋ a_Node b_Node c_Node
+sym "Impl" ∋ a_Impl b_Impl
+sym "a::Node" -> a_Node
+sym "b::Widget::Impl" -> b_Impl
+sym "log_ns::log" -> log_ns_log_def
+sym "Holder" ∋ Holder
+
+# ---- rename: the namesake in the neighbour must stay ----
+rename a_Node_get a_fetch
+  a_Node_get a_Node_get_def use_a_Node_get use_a_Node_get_in_Impl
+rename b_Node_get b_fetch
+  b_Node_get b_Node_get_def use_b_Node_get use_b_Node_get_in_Impl use_b_Node_get_in_free
+rename a_get a_free_get
+  a_get a_get_def use_a_get
+rename b_get b_free_get
+  b_get b_get_def use_b_get use_b_get_free
+rename g_get gget
+  g_get g_get_def use_g_get
+rename c_static_get cget
+  c_static_get use_c_static_get
+rename a_Widget_size a_wsize
+  a_Widget_size a_Widget_size_def use_a_Widget_size
+rename b_Widget_size b_wsize
+  b_Widget_size b_Widget_size_def use_b_Widget_size
+rename a_Impl_get a_iget
+  a_Impl_get use_a_Impl_get
+rename b_Impl_get b_iget
+  b_Impl_get use_b_Impl_get
+rename c_anon_Impl_size csz
+  c_anon_Impl_size use_c_anon_Impl_size
+rename a_Impl AImpl
+  a_Impl_fwd a_Impl a_fr_Impl use_a_Impl_in_Widget new_a_Impl
+rename b_Impl BImpl
+  b_Impl_decl b_Impl use_b_Impl_in_Widget new_b_Impl use_b_Impl_nested
+rename c_anon_Impl CImpl
+  c_anon_Impl use_c_anon_Impl
+rename a_Id AId
+  a_Id use_a_Id use_a_Id_in_Node
+rename b_Id BId
+  b_Id use_b_Id use_b_Id_in_Node
+rename Stat StatBuf
+  Stat use_Stat_struct
+rename Stat_func stat_path
+  Stat_func Stat_func_def use_Stat_func
+rename g_log glog
+  g_log g_log_def use_g_log
+rename log_ns_log nslog
+  log_ns_log log_ns_log_def use_log_ns_log
+rename i_a idx
+  i_a use_i_a1 use_i_a2 use_i_a3
+rename n_b count_b
+  n_b use_n_b
+rename total_a acc
+  total_a use_total_a use_total_a2
+rename Holder_i first
+  Holder_i use_Holder_i use_this_i use_this_i2
+rename Holder_n len
+  Holder_n use_Holder_n use_Holder_n2 use_Holder_n3
+rename Holder_param_i pi
+  Holder_param_i use_param_i
+rename i_h j
+  i_h use_i_h use_i_h2 use_i_h3

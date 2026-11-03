@@ -1,0 +1,7 @@
+[
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/outer.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/outer.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/versions.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/versions.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/anon_a.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/anon_a.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/anon_b.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/anon_b.cpp"]},
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/use.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/use.cpp"]}
+]

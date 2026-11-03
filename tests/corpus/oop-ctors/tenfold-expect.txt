@@ -1,0 +1,290 @@
+# oop-ctors: constructors (default, explicit, delegating, copy, move, inherited with `using Base::Base`), destructors,
+# conversion operators, enums vs enum classes with the same enumerators, bit-fields, unions, static members defined in a
+# .cpp, nested / local classes with the same names (Node, get, size), range-for over a custom container.
+# Open question: a click on the *type name* of `Widget(2)` / `new Widget(5)` / a mem-initializer: C++ says a constructor
+# is called, clangd answers the class. Both are accepted (`Widget | Widget_ctor_int`) rather than guessing.
+
+# ---- fast tier ----
+fast def use_Registry_instance -> Registry_instance | Registry_instance_def
+fast def use_Registry_count -> Registry_count | Registry_count_def
+fast def use_Registry_add -> Registry_add | Registry_add_def
+fast def use_take_feet -> take_feet | take_feet_def
+fast def use_take_meters -> take_meters | take_meters_def
+fast def use_make -> Widget_make | Widget_make_def
+fast def use_live -> Widget_live | Widget_live_def
+xfail fast def use_Red -> Color_Red  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_Mode_Red -> Mode_Red  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_ui_Red -> ui_Color_Red  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast def case_Mode_Fast -> Mode_Fast
+fast def use_Low -> Level_Low
+xfail fast def use_Tagged_i -> Tagged_i  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_Variant_i -> Variant_i  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_Node_get -> Node_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_Tree_Node_get -> Tree_Node_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_List_Node_get -> List_Node_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_Local_get -> Local_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast def use_Flags_b -> Flags_b
+fast def use_Registry_max -> Registry_max
+xfail fast def use_Feet_to_Meters -> Feet_to_Meters  # fast tier does not index conversion operators (operator Meters): no symbol, no definition
+xfail fast def use_Widget_size -> Widget_size  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+xfail fast def use_dtor_call -> Widget_dtor | Widget_dtor_def  # fast tier looks up the word under the caret, not '~Widget': returns the class, all constructors and the destructor
+xfail fast def use_Derived_get -> Derived_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast sym "Registry" ∋ Registry
+fast sym "Widget" ∋ Widget
+fast sym "Flags" ∋ Flags
+fast sym "Tagged" ∋ Tagged
+fast hover use_Registry_add ~ "add"
+
+# ---- constructors and destructors: declaration <-> definition ----
+def Widget_ctor0 -> Widget_ctor0_def
+decl Widget_ctor0_def -> Widget_ctor0
+def Widget_ctor_int -> Widget_ctor_int_def
+decl Widget_ctor_int_def -> Widget_ctor_int
+def Widget_ctor_wh -> Widget_ctor_wh_def
+decl Widget_ctor_wh_def -> Widget_ctor_wh
+def Widget_copy -> Widget_copy_def
+decl Widget_copy_def -> Widget_copy
+def Widget_move -> Widget_move_def
+decl Widget_move_def -> Widget_move
+def Widget_copy_assign -> Widget_copy_assign_def
+decl Widget_copy_assign_def -> Widget_copy_assign
+def Widget_move_assign -> Widget_move_assign_def
+decl Widget_move_assign_def -> Widget_move_assign
+def Widget_dtor -> Widget_dtor_def
+decl Widget_dtor_def -> Widget_dtor
+def Widget_to_bool -> Widget_to_bool_def
+decl Widget_to_bool_def -> Widget_to_bool
+def Widget_to_int -> Widget_to_int_def
+decl Widget_to_int_def -> Widget_to_int
+def Derived_ctor_cstr -> Derived_ctor_cstr_def
+decl Derived_ctor_cstr_def -> Derived_ctor_cstr
+def Derived_dtor -> Derived_dtor_def
+decl Derived_dtor_def -> Derived_dtor
+
+# ---- constructor calls, delegating / inherited constructors ----
+def use_deleg -> Widget | Widget_ctor_int
+def use_deleg_wh -> Widget | Widget_ctor_int
+def use_new_int -> Widget | Widget_ctor_int
+def use_temp_int -> Widget | Widget_ctor_int
+def use_temp_wh -> Widget | Widget_ctor_wh
+def use_Base_init -> Base | Base_ctor_int
+def use_Derived_init -> Derived | Base_ctor_int
+def use_Derived_temp -> Derived | Base_ctor_int
+def use_Derived_temp2 -> Derived | Base_ctor_ii
+def use_make -> Widget_make_def
+decl use_make -> Widget_make
+def use_dtor_call -> Widget_dtor_def
+decl use_dtor_call -> Widget_dtor
+def use_explicit_to_int -> Widget_to_int_def
+def use_explicit_to_bool -> Widget_to_bool_def
+
+# ---- members, statics ----
+def use_Widget_size -> Widget_size
+def use_Widget_get -> Widget_get_def
+decl use_Widget_get -> Widget_get
+def use_live -> Widget_live_def
+decl use_live -> Widget_live
+def use_live_in_ctor -> Widget_live_def
+def use_Derived_get -> Derived_get
+def use_Base_get -> Base_get
+def use_Base_get_in_Derived -> Base_get
+def use_leaf_tag -> Leaf_tag
+def use_Registry_add -> Registry_add_def
+decl use_Registry_add -> Registry_add
+def use_Registry_count -> Registry_count_def
+decl use_Registry_count -> Registry_count
+def use_Registry_count2 -> Registry_count_def
+def use_count_in_add -> Registry_count_def
+def use_Registry_instance -> Registry_instance_def
+def use_Registry_max -> Registry_max
+def use_Registry_get -> Registry_get
+
+# ---- conversions ----
+def use_Feet_to_Meters -> Feet_to_Meters
+def use_Feet_to_double -> Feet_to_double
+def use_take_feet -> take_feet_def
+decl use_take_feet -> take_feet
+def use_take_meters -> take_meters_def
+typedef var_f -> Feet
+typedef var_m -> Meters
+
+# ---- enums ----
+def use_Red -> Color_Red
+def use_Mode_Red -> Mode_Red
+def use_Low -> Level_Low
+def use_ui_Red -> ui_Color_Red
+def case_Green -> Color_Green
+def case_Blue -> Color_Blue
+def case_Mode_Fast -> Mode_Fast
+def case_Mode_Blue -> Mode_Blue
+def use_using_enum_Fast -> Mode_Fast
+typedef var_c2 -> Color
+
+# ---- bit-fields, unions ----
+def use_Flags_b -> Flags_b
+def use_Flags_b2 -> Flags_b
+def use_Flags_c -> Flags_c
+def use_Variant_i -> Variant_i
+def use_Variant_f -> Variant_f
+def use_Tagged_i -> Tagged_i
+def use_Tagged_i2 -> Tagged_i
+def use_Tagged_d -> Tagged_d
+def use_Tagged_Int -> Tagged_Int
+
+# ---- nested, local, same-named classes ----
+def use_Node_in_List -> List_Node
+def use_Node_in_Iter -> List_Node
+def use_Node_in_deref -> List_Node
+def use_Node_head -> List_Node
+def use_Node_in_Tree -> Tree_Node
+def use_Node_gn -> Node
+def use_List_Node_ln -> List_Node
+def use_Tree_Node_tn -> Tree_Node
+def use_List_Node_in_for -> List_Node
+def use_List_Node_get -> List_Node_get
+def use_List_Node_get2 -> List_Node_get
+def use_Tree_Node_get -> Tree_Node_get
+def use_Node_get -> Node_get
+def use_Local -> Local
+def use_Local_get -> Local_get
+def use_Local_size -> Local_size
+def use_List_size -> List_size
+typedef use_Local -> Local
+
+# ---- references ----
+refs Widget_size = Widget_size use_Widget_size
+refs Widget_get = Widget_get Widget_get_def use_Widget_get
+refs Widget_live = Widget_live Widget_live_def use_live use_live_in_ctor use_live_copy use_live_move use_live_dtor
+refs Widget_make = Widget_make Widget_make_def use_make
+refs Widget_dtor >= Widget_dtor use_dtor_call
+refs Widget_to_int >= Widget_to_int Widget_to_int_def use_explicit_to_int
+refs Widget_to_bool >= Widget_to_bool Widget_to_bool_def use_explicit_to_bool
+refs Base_get = Base_get use_Base_get use_Base_get_in_Derived
+refs Derived_get = Derived_get use_Derived_get
+refs Leaf_tag = Leaf_tag use_Leaf_tag_init use_leaf_tag
+refs Feet_to_Meters = Feet_to_Meters use_Feet_to_Meters conv_f_arg
+refs Feet_from_Meters = Feet_from_Meters conv_m_init conv_m_arg
+refs Feet_to_double = Feet_to_double use_Feet_to_double
+refs take_feet = take_feet take_feet_def use_take_feet
+refs take_meters = take_meters take_meters_def use_take_meters
+refs Color_Red = Color_Red use_Red
+refs Color_Green = Color_Green case_Green
+refs Color_Blue = Color_Blue case_Blue
+refs Mode_Red = Mode_Red use_Mode_Red
+refs Mode_Fast = Mode_Fast case_Mode_Fast use_using_enum_Fast
+refs Mode_Blue = Mode_Blue case_Mode_Blue
+refs ui_Color_Red = ui_Color_Red use_ui_Red
+refs Level_Low = Level_Low use_Low
+refs Color >= Color
+refs Flags_b = Flags_b use_Flags_b use_Flags_b2
+refs Flags_c = Flags_c use_Flags_c
+refs Variant_i = Variant_i use_Variant_i
+refs Variant_f = Variant_f use_Variant_f
+refs Tagged_i = Tagged_i use_Tagged_i use_Tagged_i2
+refs Tagged_d = Tagged_d use_Tagged_d
+refs Tagged_Int = Tagged_Int use_Tagged_Int
+refs Registry_count = Registry_count Registry_count_def use_Registry_count use_Registry_count2 use_count_in_add
+refs Registry_add = Registry_add Registry_add_def use_Registry_add
+refs Registry_instance = Registry_instance Registry_instance_def use_Registry_instance use_instance_in_add
+refs Registry_max = Registry_max use_Registry_max
+refs Registry_get = Registry_get use_Registry_get
+refs Node = Node use_Node_gn
+refs Node_get = Node_get use_Node_get
+refs List_Node = List_Node use_Node_in_List use_Node_in_Iter use_Node_in_deref use_Node_head use_List_Node_ln use_List_Node_in_for
+refs Tree_Node = Tree_Node use_Node_in_Tree use_Node_l use_Tree_Node_tn
+refs List_Node_get = List_Node_get use_List_Node_get use_List_Node_get2
+refs Tree_Node_get = Tree_Node_get use_Tree_Node_get
+refs Local_get = Local_get use_Local_get
+refs Local_size = Local_size use_Local_size
+refs List_size = List_size use_List_size
+refs Local = Local use_Local
+refs List_begin >= List_begin
+xfail refs List_begin = List_begin range_list  # clangd does not report the implicit begin()/end() calls of a range-for as references (location convention is debatable: the range expression)
+def range_list -> var_list
+
+# ---- hover ----
+hover use_Widget_size ~ "size" "int"
+hover use_live ~ "live" "static"
+hover use_make ~ "make" "Widget"
+hover use_Registry_max ~ "max" "const"
+hover use_Registry_count ~ "count"
+hover use_Feet_to_Meters ~ "operator Meters"
+hover use_Feet_to_double ~ "operator double"
+hover use_Red ~ "Red"
+hover case_Mode_Blue ~ "Blue"
+hover use_Flags_b ~ "b" "unsigned"
+hover use_Tagged_d ~ "d" "double"
+hover use_Node_gn ~ "Node"
+hover use_Local_get ~ "get" "int"
+hover use_dtor_call ~ "~Widget"
+hover use_Base_get ~ "get" "Base"
+hover use_Derived_get ~ "get" "Derived"
+
+# ---- workspace symbols ----
+sym "Registry" -> Registry
+sym "Widget" ∋ Widget
+sym "Flags" ∋ Flags
+sym "Tagged" ∋ Tagged
+sym "Variant" ∋ Variant
+sym "Feet" ∋ Feet
+sym "Meters" ∋ Meters
+sym "Node" ∋ Node List_Node Tree_Node
+sym "take_feet" -> take_feet_def
+sym "Mode" ∋ Mode
+sym "Level" ∋ Level
+
+# ---- rename ----
+rename Widget_size extent
+  Widget_size use_Widget_size
+rename Widget_get fetch
+  Widget_get Widget_get_def use_Widget_get
+rename Widget_live alive
+  Widget_live Widget_live_def use_live use_live_in_ctor use_live_copy use_live_move use_live_dtor
+rename Widget_make create
+  Widget_make Widget_make_def use_make
+rename Base_get bget
+  Base_get use_Base_get use_Base_get_in_Derived
+rename Derived_get dget
+  Derived_get use_Derived_get
+rename Leaf_tag mark
+  Leaf_tag use_Leaf_tag_init use_leaf_tag
+rename take_feet feet_in
+  take_feet take_feet_def use_take_feet
+rename Color_Red Crimson
+  Color_Red use_Red
+rename Mode_Red Scarlet
+  Mode_Red use_Mode_Red
+rename Mode_Fast Quick
+  Mode_Fast case_Mode_Fast use_using_enum_Fast
+rename ui_Color_Red uiRed
+  ui_Color_Red use_ui_Red
+rename Level_Low Floor
+  Level_Low use_Low
+rename Flags_b mid
+  Flags_b use_Flags_b use_Flags_b2
+rename Variant_i ival
+  Variant_i use_Variant_i
+rename Tagged_i tint
+  Tagged_i use_Tagged_i use_Tagged_i2
+rename Registry_count total
+  Registry_count Registry_count_def use_Registry_count use_Registry_count2 use_count_in_add
+rename Registry_add push
+  Registry_add Registry_add_def use_Registry_add
+rename Registry_max cap
+  Registry_max use_Registry_max
+rename Node Elem
+  Node use_Node_gn
+rename Node_get node_get
+  Node_get use_Node_get
+rename Tree_Node TNode
+  Tree_Node use_Node_in_Tree use_Node_l use_Tree_Node_tn
+rename List_Node LNode
+  List_Node use_Node_in_List use_Node_in_Iter use_Node_in_deref use_Node_head use_List_Node_ln use_List_Node_in_for
+rename List_Node_get lget
+  List_Node_get use_List_Node_get use_List_Node_get2
+rename Local_size lsize
+  Local_size use_Local_size
+rename Local_get lget2
+  Local_get use_Local_get
+rename Tree_Node_get tget
+  Tree_Node_get use_Tree_Node_get
