@@ -504,6 +504,12 @@ group as real commands, sets the alias targets in `src/ui/commands/CommandNames.
 * **W8f → W8b larger features (one task each):** code folding (CollapseRegions group), workspace explorer tree
   (ToggleWorkspaceExplorer, ShowInWorkspaceTree), paste history, key-sequence recording / playback, Perforce history and
   ShowInP4v, terminal panel (NewTerminal, ShowTerminal), context menus (ShowContextMenu).
+* **W8 status (all merged):** W8a-W8f are on main. Of the 183 default bindings 177 run a tenfold command; the six
+  left are the four autocomplete list keys (handled by the completion popup, not as bindable commands) and
+  InsertPrev/NextAutocomplete (10x's description is too thin to implement; FEATURE_PARITY). W8f was split into folding,
+  explorer tree, misc (paste history, key sequences, Perforce history / p4v), context menus (+ explorer menu), terminal
+  engine and terminal panel. Windows-only paths still unverified on real Windows: ConPTY (CI tests), the Visual Studio
+  configuration lookup (CI-W1 added retries and diagnostics), p4v / filelog against a real server (OPEN_QUESTIONS #17).
 
 ---
 
