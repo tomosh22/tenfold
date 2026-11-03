@@ -18,6 +18,7 @@
 #include "ui/features/CompileInfo.h"
 #include "ui/features/CompletionPopup.h"
 #include "ui/features/ConfigurationPicker.h"
+#include "ui/features/ContextMenus.h"
 #include "ui/features/DiagnosticsPanel.h"
 #include "ui/features/ExternalChanges.h"
 #include "ui/features/FileSearch.h"
@@ -117,6 +118,27 @@ class EditorApp {
   BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
   VcsUi& vcsUi() { return *vcsUi_; }           // C3c: Vcs.* commands, revert confirmation, external diff tool
   void closePickers();
+
+  // W8f context menus. Right-click and ShowContextMenu (Shift F10 / AppsKey) build a menu for the widget under the
+  // pointer, or for the focused widget: providers first (newest first), then the built-ins for TextView (editor menu),
+  // TabStrip (tab menu) and StatusBar segments. A provider fills `out` and returns true, or returns false to pass.
+  // `keyboard`: opened from the keyboard (x, y are unused; the anchor is the caret or the selected element).
+  // This is also the hook for the workspace explorer tree: its provider builds the node's items with
+  // buildCommandMenu (commands act on the active document, so open the node first) or with MenuItems of its own.
+  struct ContextMenuRequest {
+    std::vector<MenuItem> items;
+    RectF anchor{0, 0, 0, 0};  // empty rect: the pointer position
+  };
+  using ContextMenuProvider =
+      std::function<bool(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out)>;
+  void addContextMenuProvider(ContextMenuProvider p) { menuProviders_.push_back(std::move(p)); }
+  // Items for `entries` (ContextMenus.h) with the labels, enabled state and key bindings of the command registry.
+  std::vector<MenuItem> buildCommandMenu(const std::vector<MenuEntry>& entries, bool onVcsChange = false);
+  // Shows a menu on the top layer (closing any picker or menu); false for an empty menu.
+  bool showContextMenu(std::vector<MenuItem> items, const RectF& anchor, bool keyboard);
+  bool openContextMenuAt(float x, float y);  // right-click
+  bool openContextMenuForFocus();            // ShowContextMenu
+  ContextMenu* contextMenu();                // the open menu, null when none
 
   // W8b. The window belongs to the program: it gives EditorApp what View.ToggleFullscreen needs (null: the command
   // does nothing). Tests and the real window install their own.
@@ -253,6 +275,12 @@ class EditorApp {
   };
   std::map<std::string, UntitledName> untitledNames_;  // generic path of an untitled document -> its name
   BuildPanel* build_ = nullptr;                        // owned by the Workbench's bottom dock
+  // W8f
+  ContextMenu* menu_ = nullptr;  // use contextMenu(): it is stale once another modal replaced the menu
+  std::vector<ContextMenuProvider> menuProviders_;
+  MenuCommandInfo menuInfo(const std::string& command);
+  bool menuRequestFor(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out);
+  void closeTabs(const std::vector<int>& ids);
 };
 
 }  // namespace tf::ui

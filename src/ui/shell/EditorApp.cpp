@@ -377,6 +377,7 @@ void EditorApp::applySettings(const Settings& s) {
 }
 
 void EditorApp::closePickers() {
+  if (ContextMenu* m = contextMenu()) m->close();
   symbols_->close();
   navResults_->close();
   find_->close();
@@ -509,6 +510,15 @@ void EditorApp::bindEditingCommands() {
 void EditorApp::bindUiCommands() {
   vcsUi_->bind(registry_);
   compileInfo_->bind(registry_, [this] { closePickers(); });
+  registry_.bind("App.ShowContextMenu", [this](const CommandContext&, std::string_view) {
+    if (ContextMenu* m = contextMenu()) {  // pressing the key again dismisses the menu
+      m->close();
+      return true;
+    }
+    if (root_.modal()) return true;  // a picker owns the keys
+    if (!openContextMenuForFocus()) setMessage("No context menu for this element", kMessageMs);
+    return true;
+  });
   registry_.bind(
       "Search.SymbolSearch",
       [this](const CommandContext&, std::string_view) {
@@ -749,6 +759,9 @@ void EditorApp::bindUiCommands() {
   for (bool fwd : {true, false})
     registry_.bind(fwd ? "Build.NextError" : "Build.PrevError",
                    [this, fwd](const CommandContext&, std::string_view) { return stepBuildResult(fwd); });
+  const CommandEnabled hasActiveTab = [this](const CommandContext&) {
+    return bench_->activePanel() && bench_->activePanel()->activeId() >= 0;
+  };
   registry_.bind(
       "Workbench.CloseTab",
       [this](const CommandContext&, std::string_view) {
@@ -756,7 +769,41 @@ void EditorApp::bindUiCommands() {
         bench_->requestCloseTab(bench_->activePanel()->activeId());
         return true;
       },
-      [this](const CommandContext&) { return bench_->activePanel() && bench_->activePanel()->activeId() >= 0; });
+      hasActiveTab);
+  // W8f: CloseAllOtherTabs / CloseAllButPinnedTabs close without asking, except tabs that hold the last view of a
+  // modified document: those stay open (closing them is a decision for the user, tab by tab).
+  registry_.bind(
+      "Workbench.CloseOtherTabs",
+      [this](const CommandContext&, std::string_view) {
+        Panel* p = bench_->activePanel();
+        std::vector<int> ids;
+        for (const auto& t : p->tabs().tabs())
+          if (t.id != p->activeId() && !t.pinned) ids.push_back(t.id);
+        closeTabs(ids);
+        return true;
+      },
+      hasActiveTab);
+  registry_.bind(
+      "Workbench.CloseAllButPinned",
+      [this](const CommandContext&, std::string_view) {
+        std::vector<int> ids;
+        for (const auto& t : bench_->activePanel()->tabs().tabs())
+          if (!t.pinned) ids.push_back(t.id);
+        closeTabs(ids);
+        return true;
+      },
+      hasActiveTab);
+  for (bool toggle : {false, true})
+    registry_.bind(
+        toggle ? "Workbench.TogglePinTab" : "Workbench.PinTab",
+        [this, toggle](const CommandContext&, std::string_view) {
+          Panel* p = bench_->activePanel();
+          const int id = p->activeId(), i = p->tabs().indexOf(id);
+          if (i < 0) return false;
+          bench_->setPinned(id, toggle ? !p->tabs().tabs()[static_cast<size_t>(i)].pinned : true);
+          return true;
+        },
+        hasActiveTab);
   registry_.bind("View.ToggleBuildPanel", [this](const CommandContext&, std::string_view) {
     bench_->toggleBottomPanel("Build");
     return true;
@@ -907,6 +954,21 @@ void EditorApp::bindViewCommands() {
           return true;
         }
         setMessage("Searching the web: " + url, kMessageMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "File.CopyPath",
+      [this](const CommandContext& c, std::string_view) {
+        Document* d = c.editor->currentDocument();
+        if (!d) return false;
+        if (d->isUntitled()) {
+          setMessage(d->path().filename().string() + " has not been saved yet", kMessageMs);
+          return true;
+        }
+        std::filesystem::path p = d->path();
+        if (!clipboardSet(p.make_preferred().string())) return false;
+        setMessage("Copied " + p.string(), kMessageMs);
         return true;
       },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
@@ -1071,6 +1133,11 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     ttlMs_ = 0;
   }
   if (e.type == InputType::FocusGained) vcsUi_->refreshOnFocus();  // the engine does not watch .git / the p4 client
+  // Right click: the context menu of whatever is under the pointer (W8f). The widgets ignore the right button, so
+  // where there is no menu the click goes on to them as before.
+  if (e.type == InputType::MouseDown && e.button == MouseButton::Right && !root_.modal() && !root_.captured() &&
+      openContextMenuAt(e.x, e.y))
+    return true;
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
     if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the Ctrl+Tab cycle is over
       cycling_ = false;
@@ -1328,6 +1395,138 @@ void EditorApp::bindParserCommands() {
         return true;
       },
       hasDoc);
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// W8f: context menus. Every item runs a command through the registry; the menus are only lists of command names
+// (ContextMenus.cpp). The widget under the pointer (right click) or the focused widget (ShowContextMenu) decides which.
+// ---------------------------------------------------------------------------------------------------------------
+
+ContextMenu* EditorApp::contextMenu() { return menu_ && root_.modal() == menu_ ? menu_ : nullptr; }
+
+MenuCommandInfo EditorApp::menuInfo(const std::string& written) {
+  MenuCommandInfo info;
+  const ResolvedCommand rc = resolveCommandName(written);
+  if (rc.known10x && !rc.implemented) return info;  // a 10x command tenfold lacks: left out
+  const Command* c = registry_.find(rc.id);
+  if (!c || !c->handler) return info;  // not bound by the front end (no Workbench, ...)
+  if (rc.id == "Debug.OpenInVisualStudio" && !editor_.debug().hasBackend()) return info;
+  CommandContext cc;
+  cc.editor = &editor_;
+  cc.context = activeContext();
+  info.available = true;
+  info.enabled = c->isEnabled(cc);
+  info.name = c->name;
+  info.shortcut = bindingFor(rc.id);
+  return info;
+}
+
+std::vector<MenuItem> EditorApp::buildCommandMenu(const std::vector<MenuEntry>& entries, bool onVcsChange) {
+  MenuHooks h;
+  h.info = [this](const std::string& cmd) { return menuInfo(cmd); };
+  h.run = [this](const std::string& cmd) { runCommandId(cmd, "", activeContext()); };
+  return buildMenu(entries, h, onVcsChange);
+}
+
+bool EditorApp::showContextMenu(std::vector<MenuItem> items, const RectF& anchor, bool keyboard) {
+  if (items.empty()) return false;
+  closePickers();
+  completion_->close();
+  sigHelp_->close();
+  hover_->dismiss();
+  auto m = std::make_unique<ContextMenu>(std::move(items));
+  ContextMenu* raw = m.get();
+  raw->onClosed([this, raw] {
+    if (menu_ == raw) menu_ = nullptr;
+  });
+  menu_ = ContextMenu::open(root_, std::move(m), anchor, keyboard);
+  return menu_ != nullptr;
+}
+
+bool EditorApp::menuRequestFor(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out) {
+  for (size_t i = menuProviders_.size(); i-- > 0;)
+    if (menuProviders_[i](target, x, y, keyboard, out) && !out.items.empty()) return true;
+  for (Widget* w = &target; w; w = w->parent()) {
+    if (auto* tv = dynamic_cast<TextView*>(w)) {
+      if (!tv->document() || (!keyboard && w != &target)) return false;
+      if (!keyboard) {  // like clicking: this view and its document become current, the caret goes under the pointer
+        if (bench_)
+          for (Widget* p = tv; p; p = p->parent())
+            if (auto* panel = dynamic_cast<Panel*>(p)) {
+              bench_->setActivePanel(panel);
+              break;
+            }
+        tv->activate();
+        const Position pos = tv->document()->buffer().clamp(tv->positionAt(x, y));
+        bool inSelection = false;
+        for (const Selection& s : editor_.selections())
+          if (!s.empty() && s.range().contains(pos)) inSelection = true;
+        if (!inSelection) editor_.setSelections({caretAt(pos)});
+        out.anchor = {x, y, 0, 0};
+      } else {
+        RectF c = tv->caretRect(editor_.cursor().pos);
+        const RectF& b = tv->bounds();  // a caret scrolled out of view: the nearest edge of the view
+        c.x = std::clamp(c.x, b.x, std::max(b.x, b.x + b.w - 1));
+        c.y = std::clamp(c.y, b.y, std::max(b.y, b.y + b.h - c.h));
+        out.anchor = c;
+      }
+      bool onChange = false;
+      if (tv->diffStripActive()) {
+        const std::vector<DiffHunk> hunks = tv->currentHunks();
+        onChange = TextView::hunkIndexAt(hunks, editor_.cursor().pos.line) >= 0;
+      }
+      out.items = buildCommandMenu(editorMenuEntries(), onChange);
+      return !out.items.empty();
+    }
+    if (keyboard) continue;
+    if (auto* strip = dynamic_cast<TabStrip*>(w)) {
+      const int id = strip->tabAt(x, y);
+      if (id < 0) return false;
+      strip->setActive(id);  // the tab menu's commands act on the active tab
+      if (strip->onActivate) strip->onActivate(id);
+      const int i = strip->indexOf(id);
+      out.items = buildCommandMenu(tabMenuEntries(i >= 0 && strip->tabs()[static_cast<size_t>(i)].pinned));
+      out.anchor = {x, y, 0, 0};
+      return !out.items.empty();
+    }
+    if (auto* bar = dynamic_cast<StatusBar*>(w)) {
+      const std::string key = bar->keyAt(x, y);
+      if (key.empty()) return false;
+      out.items = buildCommandMenu(statusMenuEntries(key));
+      out.anchor = {x, y, 0, 0};
+      return !out.items.empty();
+    }
+  }
+  return false;
+}
+
+bool EditorApp::openContextMenuAt(float x, float y) {
+  Widget* target = root_.hitTest(x, y);
+  if (!target) return false;
+  ContextMenuRequest req;
+  if (!menuRequestFor(*target, x, y, false, req)) return false;
+  return showContextMenu(std::move(req.items), req.anchor, false);
+}
+
+bool EditorApp::openContextMenuForFocus() {
+  Widget* f = root_.focused();
+  if (!f)
+    forEachView([&](TextView& v) {
+      if (!f && v.isCurrent() && v.visible()) f = &v;
+    });
+  if (!f) return false;
+  ContextMenuRequest req;
+  if (!menuRequestFor(*f, 0, 0, true, req)) return false;
+  return showContextMenu(std::move(req.items), req.anchor, true);
+}
+
+void EditorApp::closeTabs(const std::vector<int>& ids) {
+  int kept = 0;
+  for (int id : ids) {
+    if (bench_->isLastViewOfDirty(id)) ++kept;
+    else bench_->closeTab(id);
+  }
+  if (kept) setMessage(std::to_string(kept) + " modified tab(s) left open", kMessageMs);
 }
 
 }  // namespace tf::ui

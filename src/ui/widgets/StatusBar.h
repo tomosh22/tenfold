@@ -30,6 +30,8 @@ class StatusBar : public Widget {
   float preferredHeight() const;
   // Window-coordinate rect of a segment as of the last layout/paint (zero-size if empty or unknown).
   RectF segmentRect(const std::string& key);
+  // Key of the segment under a window point, empty when none (context menus).
+  std::string keyAt(float x, float y);
 
   bool onEvent(const InputEvent& e) override;
   void onHover(bool entered) override;

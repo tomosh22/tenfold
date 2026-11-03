@@ -169,3 +169,33 @@ against a running 10x.
   build started last (`Editor::lastResultSource`); stepping continues from where that list left off. After a build the keys
   walk the build's errors and warnings that have a source location, exactly like `GotoNextBuildWarningOrError` (F8), which
   keeps walking the build whatever came last.
+
+
+## W8f detail: context menus (10x documents almost nothing)
+
+The documentation only says `ShowContextMenu` "shows the context menu for the currently selected UI element" (Shift F10,
+AppsKey) and mentions right-clicking the workspace node or a project in the workspace tree for Settings... (workspace
+settings, the debugger tab). It lists no menu contents, so apart from those two the menus follow Visual Studio's context
+menus, the editor the user is switching from. Defaults to confirm against a running 10x:
+
+* Editor menu: Cut / Copy / Paste, the navigation and refactoring commands (Go To Definition, Go To Declaration, Find All
+  References, Rename, Quick Info, Switch Header/Source), Format Selection, Toggle Comment, Select All, Toggle Breakpoint,
+  Run To Cursor, Revert Change / Show Change on a version-control change, Open in Visual Studio, Show in Workspace Tree,
+  Open Containing Folder, Copy Full Path. Only commands that exist are listed; those that cannot run now are greyed out.
+* Right-click in the editor moves the caret to the pointer unless the pointer is inside a selection (VS behaviour);
+  Shift F10 / AppsKey open the menu at the caret and select its first item.
+* Tab menu: Close, Close All But This, Close All But Pinned, Pin / Unpin Tab, Copy Full Path, Open Containing Folder,
+  Show in Workspace Tree (the last once the tree exists). Right-clicking a tab activates it. The "close all" items leave
+  tabs with unsaved changes open instead of prompting once per tab.
+* Status bar segments (position, line ending, configuration, flags, clangd, build) get a one-to-three item menu; this is
+  tenfold's own idea, not 10x's or VS's.
+* The workspace explorer tree's menu (Open, Copy Path, Open Containing Folder, Build Current File for a source file; on a
+  workspace or project node, Settings... once workspace settings exist) is not built here: the tree is not in this
+  branch. `EditorApp::addContextMenuProvider` is the hook; the provider builds its items with `buildCommandMenu`.
+* Keys inside the menu: arrows, Enter, Escape, first-letter jump; disabled items are skipped by the arrows (Windows
+  menus stop on them). A left press runs an item, not the release.
+* `ShowContextMenu` pressed with the menu open closes it (a toggle).
+* `CloseAllOtherTabs` closes the other unpinned tabs of the active panel (pinned ones stay), `CloseAllButPinnedTabs`
+  every unpinned tab of the active panel; 10x's own wording is only "all tabs except for the current tab" / "all
+  non-pinned tabs", so whether pinned tabs survive "close all other tabs" is a guess. `CopyActiveFilePath` copies the
+  path with the platform's separators.

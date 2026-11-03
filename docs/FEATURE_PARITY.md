@@ -164,12 +164,6 @@ PageDown itself while it is open.
 | `RecordKeySequence` | `Control Shift R` | Start/stop recording a key sequence |
 | `PlaybackKeySequence` | `Control Shift P` | Playback a key sequence |
 
-**Misc**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `ShowContextMenu` | `Shift F10`; `AppsKey` | Show the context menu for the currently selected UI element |
-
 **Perforce**
 
 | Command | Default keys | 10x description |
@@ -182,7 +176,7 @@ PageDown itself while it is open.
 (10x commands that are in Commands but have no entry in the default key map; they also resolve to `not implemented yet:`
 when bound in a key file.)
 
-- **File**: `SaveFileAs`, `CloseAll`, `CopyActiveFilePath`, `ShowInWorkspaceTreeWithToggle`, `ToggleReadOnly`
+- **File**: `SaveFileAs`, `CloseAll`, `ShowInWorkspaceTreeWithToggle`, `ToggleReadOnly`
 - **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
 - **General**: `CreateSecondaryWindow`, `Show10XOutput`, `ClaudeCodeTerminal`, `CursorTerminal`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
@@ -192,7 +186,7 @@ when bound in a key file.)
 - **Navigation**: `NextEditLocation`
 - **Bookmarks**: `RemoveAllBookmarks`
 - **FindInFiles**: `ShowFindInFilesResults1`, `ShowFindInFilesResults2`, `ShowFindInFilesResults3`, `ShowFindInFilesResults4`, `ToggleFindInFilesResultsPanel1`, `ToggleFindInFilesResultsPanel2`, `ToggleFindInFilesResultsPanel3`, `ToggleFindInFilesResultsPanel4`
-- **Tabs**: `CloseAllTabs`, `CloseAllOtherTabs`, `CloseAllButPinnedTabs`, `CloseTabsLeft`, `CloseTabsRight`, `CloseUnmodifiedTabs`, `PinTab`, `TogglePinTab`, `ToggleTabs`
+- **Tabs**: `CloseAllTabs`, `CloseTabsLeft`, `CloseTabsRight`, `CloseUnmodifiedTabs`, `ToggleTabs`
 - **PanelGrid**: `SetColumnCountAuto`, `SetColumnCount1`, `SetColumnCount2`, `SetColumnCount3`, `SetColumnCount4`, `SetColumnCount5`, `SetColumnCount6`, `SetColumnCount7`, `SetColumnCount8`, `SetRowCountAuto`, `SetRowCount1`, `SetRowCount2`, `SetRowCount3`, `SetRowCount4`, `SetRowCount5`, `SetRowCount6`, `SetRowCount7`, `SetRowCount8`
 - **Build**: `BuildAll`, `RebuildAll`, `CleanAll`, `CleanActiveWorkspace`, `ShowBuildOutput`, `CloseBuildPanel`, `GotoPrevBuildError`, `GotoNextBuildError`, `GotoPrevBuildWarning`, `GotoNextBuildWarning`
 - **Debugging**: `VSDebuggerReconnect`, `PrevBreakpoint`, `NextBreakpoint`, `PrevBreakpointInFile`, `NextBreakpointInFile`, `CommandLineArgSelector`, `ToggleCommandLineArgSelector`, `OpenDebugPanels`, `OpenCallstackPanel`, `OpenWatchPanel`, `OpenAttachDebuggerPanel`

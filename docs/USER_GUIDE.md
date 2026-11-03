@@ -995,6 +995,29 @@ status bar. Not listed: commands that need an argument to do anything (`Workbenc
 still needs a key binding with an argument. The palette lists the commands tenfold has; 10x commands it lacks are not
 listed (see FEATURE_PARITY).
 
+## Context menus
+
+**Right-click** opens the context menu of what is under the pointer, **Shift F10** or the **AppsKey** (10x's
+`ShowContextMenu`) opens the one for the focused element: the editor menu at the caret. Pressing the key again closes it.
+
+* **Editor text**: Cut, Copy, Paste, Go To Definition, Go To Declaration, Find All References, Rename, Quick Info, Switch
+  Header/Source, Format Selection, Toggle Comment, Select All, Toggle Breakpoint, Run To Cursor, Revert Change and Show
+  Change (only when the caret is on a version-control change), Open in Visual Studio (Windows), Show in Workspace Tree
+  (once the tree exists), Open Containing Folder, Copy Full Path. A right-click outside the selection moves the caret
+  there first, inside it keeps the selection.
+* **A tab**: Close, Close All But This, Close All But Pinned, Pin / Unpin Tab, Copy Full Path, Open Containing Folder. The
+  right-clicked tab becomes the active tab first. Tabs holding unsaved changes are left open by the two "close all"
+  items.
+* **Status bar**: the position (Go To Line), line ending (CRLF / LF), configuration, compile flags, clangd and build
+  segments each offer the commands that belong to them.
+
+Every item runs the same command as its key; the key is shown on the right in 10x's notation, and an item whose command
+cannot run right now is greyed out. Up / Down (Home / End) move, Enter runs the item, Escape closes, a typed letter jumps
+to the next item that starts with it, Right / Left open and close a submenu. With the mouse, hovering highlights and a
+click runs the item; a click anywhere else closes the menu. The menu opens below the pointer or caret, above it when
+there is no room, and stays inside the window. Colours: `menuBackground`, `menuBorder`, `menuSelection`, `menuSeparator`
+in a theme (they default to the popup colours).
+
 ## Logs and crash reports
 
 tenfold sends nothing anywhere. It keeps local files only.

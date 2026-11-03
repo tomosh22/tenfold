@@ -249,6 +249,8 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/TextView.cpp
     src/ui/widgets/InputLine.cpp
     src/ui/widgets/ListPopup.cpp
+    src/ui/widgets/ContextMenu.cpp
+    src/ui/features/ContextMenus.cpp
     src/ui/features/PickerUtil.cpp
     src/ui/features/SymbolSearch.cpp
     src/ui/features/FileSearch.cpp
@@ -362,6 +364,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8c.cpp
     tests/ui/test_w8e.cpp
     tests/ui/test_w8d_commands.cpp
+    tests/ui/test_w8f_ctx.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
