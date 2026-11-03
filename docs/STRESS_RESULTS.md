@@ -230,7 +230,7 @@ sanitizer report; counts as in Release in 9 of 12 runs of `encodings` and in the
 `encodings` under ASan on a loaded machine one clangd-dependent line failed (`sym "fn_ünï"` returned nothing, or `rename id_kanji` missed the use in
 `use.cpp`): index freshness, not seen in 10 Release runs or in 6 ASan runs of the identifier section alone (see Determinism).
 
-**Fixed by W9-FIX-ENC (commit @COMMIT@)**: findings 1, 2, 3, 4, 5, 8 and harness findings H1, H2 (marked "(fixed)" in the tables below; the text of each row
+**Fixed by W9-FIX-ENC (commit b16ebdd)**: findings 1, 2, 3, 4, 5, 8 and harness findings H1, H2 (marked "(fixed)" in the tables below; the text of each row
 is the state before the fix). 1: files are decoded to UTF-8 on load (Windows-1252 / UTF-16 detection, `core/TextEncoding.h`) and encoded again on save, clangd
 and the fast index see the same UTF-8 text, and every `dump()` of user text is `dumpSafe()` (docs/ARCHITECTURE.md, "Encodings and line endings"); the
 Latin-1 files now take `def` / `decl` / `fast def` / `rename` in `encodings`. 4: clangd is sent the document's real line endings (`textForLsp()`). 2, 3: a
