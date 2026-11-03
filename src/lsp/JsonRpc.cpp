@@ -10,7 +10,11 @@ JsonRpcConnection::~JsonRpcConnection() { stop(200); }
 bool JsonRpcConnection::start(const std::string& exe, const std::vector<std::string>& args,
                               const std::filesystem::path& cwd, const std::filesystem::path& stderrLog,
                               std::string* error, const Process::Env& env) {
-  if (!proc_.start(exe, args, cwd, stderrLog, error, env)) return false;
+  // The server runs as its own process tree: stop() must also end its children (clangd installed through pip is a
+  // Python wrapper whose real clangd would otherwise outlive the kill and keep our pipe open, blocking the reader).
+  ProcessOptions opts;
+  opts.processTree = true;
+  if (!proc_.start(exe, args, cwd, stderrLog, error, env, opts)) return false;
   running_ = true;
   reader_ = std::thread([this] { readerLoop(); });
   return true;
