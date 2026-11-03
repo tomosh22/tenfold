@@ -419,7 +419,20 @@ TEST(vsdte_integration) {
     REQUIRE(SUCCEEDED(sol.getObject(L"SolutionBuild", build)));
     REQUIRE(SUCCEEDED(build.getObject(L"ActiveConfiguration", active)));
     CHECK(SUCCEEDED(active.getString(L"Name", cfgName)));
-    CHECK(SUCCEEDED(active.getString(L"PlatformName", platName)));
+    // The active configuration dispatches as the base SolutionConfiguration: PlatformName is only on
+    // SolutionConfiguration2, so fall back to the first SolutionContext's PlatformName.
+    HRESULT ph = active.getString(L"PlatformName", platName);
+    if (FAILED(ph)) {
+      com::Dispatch contexts, ctx;
+      com::Variant item;
+      ph = active.getObject(L"SolutionContexts", contexts);
+      if (SUCCEEDED(ph)) ph = contexts.call(L"Item", {com::Variant::fromLong(1)}, &item);
+      if (SUCCEEDED(ph)) {
+        ctx = item.toDispatch();
+        ph = ctx ? ctx.getString(L"PlatformName", platName) : E_NOINTERFACE;
+      }
+    }
+    CHECK(SUCCEEDED(ph));
     CHECK_EQ(cfgName, std::string("Release"));
     CHECK_EQ(platName, std::string("x64"));
   }

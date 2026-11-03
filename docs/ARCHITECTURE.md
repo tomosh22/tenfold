@@ -364,8 +364,10 @@ here; the Visual Studio backend (C2b, `VsDebugger_win32.cpp`) and the UI (C2c) p
   `debug.visualStudioSync`, default true). `DebugSession` calls the optional `Debugger::setActiveConfiguration(name,
   platform)` right before `start`, `startWithoutDebugging`, `restart` and `runToCursor` (not before steps or `break`),
   with `Workspace::activeVsConfiguration()` and only when the workspace has a solution. The Visual Studio backend finds
-  the entry in `DTE.Solution.SolutionBuild.SolutionConfigurations` by `Name` + `PlatformName` (case-insensitive) and
-  calls `Activate()`; it does nothing while a debuggee exists (Visual Studio refuses to switch then) and when that
+  the entry in `DTE.Solution.SolutionBuild.SolutionConfigurations` by `Name` + platform (case-insensitive) and
+  calls `Activate()`. The items dispatch as the base `SolutionConfiguration`, which has no `PlatformName`, so the platform
+  is read from `PlatformName` when present, else from the first `SolutionContexts` item, and if that fails too the
+  `Build.SolutionConfigurations` / `Build.SolutionPlatforms` commands are the last resort; it does nothing while a debuggee exists (Visual Studio refuses to switch then) and when that
   configuration is already active; an unknown one is an error that lists what Visual Studio has. A failure never blocks
   the command: the command runs and the session shows the problem in `lastError()` (`DebugResult::warning` carries it
   on a successful command). With the setting off there is no configuration sync, no breakpoint push or adoption and no
