@@ -239,9 +239,18 @@ menus, the editor the user is switching from. Defaults to confirm against a runn
   tabs with unsaved changes open instead of prompting once per tab.
 * Status bar segments (position, line ending, configuration, flags, clangd, build) get a one-to-three item menu; this is
   tenfold's own idea, not 10x's or VS's.
-* The workspace explorer tree's menu (Open, Copy Path, Open Containing Folder, Build Current File for a source file; on a
-  workspace or project node, Settings... once workspace settings exist) is not built here: the tree is not in this
-  branch. `EditorApp::addContextMenuProvider` is the hook; the provider builds its items with `buildCommandMenu`.
+* The workspace explorer tree's menu (`EditorApp::explorerMenu`, a context menu provider): a right click selects the
+  node under the pointer first (and gives the tree the focus); Shift F10 / AppsKey with the tree focused use the selected
+  node and open at its row. File node: Open (the same as Enter), Collapse All, Open Containing Folder, Copy Full Path and,
+  for `.c` / `.cc` / `.cpp` / `.cxx`, Build Current File. Node with children (folder, project, solution, root): Expand or
+  Collapse, Collapse All, Open Containing Folder, Copy Full Path (when it has a path). The path commands take the node's
+  path as their argument (`File.ShowInFolder`, `File.CopyPath`, `Build.BuildCurrentFile`), so the file is not opened first.
+  "Build Current File" is offered for any source file of the tree, not only those in a project; a file outside every
+  project is reported by the build like the command does. The docs say to right-click the workspace node (to uncheck "Sync
+  Folder") or a project (Debug tab, "Sync from project") and choose **Settings...**. tenfold has no workspace or project
+  settings dialog (`WorkspaceSettings` is unimplemented, settings are files, OPEN_QUESTIONS #12), so "Settings..." is
+  left out rather than opening something else; it appears when such a command exists (add the entry to the provider).
+  Expand / Collapse / Collapse All are tree operations with no command, so those items call the view directly.
 * Keys inside the menu: arrows, Enter, Escape, first-letter jump; disabled items are skipped by the arrows (Windows
   menus stop on them). A left press runs an item, not the release.
 * `ShowContextMenu` pressed with the menu open closes it (a toggle).

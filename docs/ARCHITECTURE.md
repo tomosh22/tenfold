@@ -1160,7 +1160,8 @@ are dropped.
 `EditorApp::handleEventImpl` intercepts a right `MouseDown` (no modal open) and calls `openContextMenuAt`; the
 `App.ShowContextMenu` command (10x `ShowContextMenu`, Shift F10 / AppsKey) calls `openContextMenuForFocus` and closes an
 open menu instead when pressed again. Both go through `menuRequestFor(target, x, y, keyboard)`: first the **providers**
-(`addContextMenuProvider`, newest first; the hook for the workspace explorer tree and any other widget that owns a menu:
+(`addContextMenuProvider`, newest first; `EditorApp` registers one for the workspace explorer's `TreeView`, `explorerMenu`,
+using `TreeView::nodeAt` / `selectedNode`, and any other widget that owns a menu can add its own:
 it gets the widget under the pointer, or the focused widget with `keyboard` set, and fills items plus an anchor), then
 the built-ins found by walking up from the widget: a `TextView` (editor menu; with the mouse the view and panel become
 active and the caret goes under the pointer unless it is inside a selection; from the keyboard the anchor is the caret

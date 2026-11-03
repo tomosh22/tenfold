@@ -13,6 +13,7 @@
 #include "ui/platform/Clipboard.h"
 #include "ui/settings/Settings.h"
 #include "ui/widgets/TextView.h"
+#include "vcs/VcsExec.h"
 
 namespace tf::ui {
 
@@ -202,6 +203,9 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     eh.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
     eh.focusEditor = [this] { bench_->setActivePanel(bench_->activePanel()); };
     explorer_ = std::make_unique<WorkspaceExplorer>(editor_, *bench_, std::move(eh));
+    addContextMenuProvider([this](Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out) {
+      return explorerMenu(target, x, y, keyboard, out);
+    });
   }
   showDiagnostics();
   // Clangd semantic tokens go to every view of the document they describe (they replace the previous set).
@@ -770,18 +774,23 @@ void EditorApp::bindUiCommands() {
   });
   registry_.bind(
       "Build.BuildCurrentFile",
-      [this](const CommandContext& c, std::string_view) {
+      [this](const CommandContext& c, std::string_view arg) {
+        BuildOverrides o;
+        o.kind = BuildOverrides::Kind::CurrentFile;
+        if (!arg.empty()) {  // a file given by the caller (the explorer tree's menu)
+          o.file = pathFromUtf8(std::string(arg));
+          return startBuild(std::move(o));
+        }
         const Document* d = c.editor->currentDocument();
+        if (!d) return false;
         if (d->isUntitled()) {
           setMessage(d->path().filename().string() + " has not been saved yet", kMessageMs);
           return true;
         }
-        BuildOverrides o;
-        o.kind = BuildOverrides::Kind::CurrentFile;
         o.file = d->path();
         return startBuild(std::move(o));
       },
-      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+      [](const CommandContext& c) { return c.editor != nullptr; });
   registry_.bind(
       "Build.Cancel",
       [this](const CommandContext&, std::string_view) {
@@ -1007,7 +1016,13 @@ void EditorApp::bindViewCommands() {
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
       "File.CopyPath",
-      [this](const CommandContext& c, std::string_view) {
+      [this](const CommandContext& c, std::string_view arg) {
+        if (!arg.empty()) {  // a path given by the caller (the explorer tree's menu)
+          std::filesystem::path p = pathFromUtf8(std::string(arg));
+          if (!clipboardSet(p.make_preferred().string())) return false;
+          setMessage("Copied " + p.string(), kMessageMs);
+          return true;
+        }
         Document* d = c.editor->currentDocument();
         if (!d) return false;
         if (d->isUntitled()) {
@@ -1019,10 +1034,16 @@ void EditorApp::bindViewCommands() {
         setMessage("Copied " + p.string(), kMessageMs);
         return true;
       },
-      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+      [](const CommandContext& c) { return c.editor != nullptr; });
   registry_.bind(
       "File.ShowInFolder",
-      [this](const CommandContext& c, std::string_view) {
+      [this](const CommandContext& c, std::string_view arg) {
+        if (!arg.empty()) {
+          std::string err;
+          if (!launcher_.showInFolder || !launcher_.showInFolder(pathFromUtf8(std::string(arg)), &err))
+            setMessage("Cannot open the file manager" + (err.empty() ? std::string() : ": " + err), kMessageMs);
+          return true;
+        }
         Document* d = c.editor->currentDocument();
         if (!d) return false;
         if (d->isUntitled()) {
@@ -1034,7 +1055,7 @@ void EditorApp::bindViewCommands() {
           setMessage("Cannot open the file manager" + (err.empty() ? std::string() : ": " + err), kMessageMs);
         return true;
       },
-      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+      [](const CommandContext& c) { return c.editor != nullptr; });
   registry_.bind("File.New", [this](const CommandContext&, std::string_view) {
     if (!bench_) return false;
     Document* d = editor_.newUntitled(defaultEol_);
@@ -1475,7 +1496,7 @@ MenuCommandInfo EditorApp::menuInfo(const std::string& written) {
 std::vector<MenuItem> EditorApp::buildCommandMenu(const std::vector<MenuEntry>& entries, bool onVcsChange) {
   MenuHooks h;
   h.info = [this](const std::string& cmd) { return menuInfo(cmd); };
-  h.run = [this](const std::string& cmd) { runCommandId(cmd, "", activeContext()); };
+  h.run = [this](const std::string& cmd, const std::string& arg) { runCommandId(cmd, arg, activeContext()); };
   return buildMenu(entries, h, onVcsChange);
 }
 
@@ -1578,6 +1599,65 @@ void EditorApp::closeTabs(const std::vector<int>& ids) {
     else bench_->closeTab(id);
   }
   if (kept) setMessage(std::to_string(kept) + " modified tab(s) left open", kMessageMs);
+}
+
+// The explorer tree's menu (W8f): the node under the pointer, or the selected one from the keyboard. Commands take the
+// node's path as their argument, so nothing has to be opened first.
+bool EditorApp::explorerMenu(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out) {
+  TreeView* tv = explorer_ ? explorer_->view() : nullptr;
+  if (!tv) return false;
+  bool inside = false;
+  for (Widget* w = &target; w; w = w->parent())
+    if (w == tv) inside = true;
+  if (!inside) return false;
+  const int node = keyboard ? tv->selectedNode() : tv->nodeAt(x, y);
+  if (node <= 0) return false;
+  if (!keyboard) {
+    tv->select(node);  // right click selects first
+    tv->setFocus();
+  }
+  const TreeNode n = tv->model().node(node);
+  std::vector<MenuItem> items;
+  const bool isFile = n.kind == TreeKind::File && !n.path.empty();
+  if (isFile) {
+    MenuItem open;
+    open.label = "Open";
+    open.action = [tv, node] {
+      if (tv->onActivate) tv->onActivate(node);
+    };
+    items.push_back(std::move(open));
+  }
+  if (n.expandable()) {
+    MenuItem m;
+    m.label = tv->isExpanded(node) ? "Collapse" : "Expand";
+    m.action = [tv, node] { tv->toggle(node); };
+    items.push_back(std::move(m));
+  }
+  {
+    MenuItem m;
+    m.label = "Collapse All";
+    m.action = [tv] { tv->expandAll(false); };
+    items.push_back(std::move(m));
+  }
+  if (!n.path.empty()) {
+    items.push_back(MenuItem::sep());
+    std::vector<MenuEntry> entries = {{"File.ShowInFolder", "Open Containing Folder", false, n.path},
+                                      {"File.CopyPath", "Copy Full Path", false, n.path}};
+    std::string ext = std::filesystem::path(n.path).extension().string();
+    for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    if (isFile && (ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx"))
+      entries.push_back({"Build.BuildCurrentFile", "Build Current File", false, n.path});
+    for (MenuItem& m : buildCommandMenu(entries)) items.push_back(std::move(m));
+  }
+  out.items = std::move(items);
+  if (keyboard) {
+    const int row = tv->selectedRow();
+    const RectF r = row >= 0 ? tv->rowRect(row) : tv->bounds();
+    out.anchor = {r.x + 24, r.y, 0, r.h};
+  } else {
+    out.anchor = {x, y, 0, 0};
+  }
+  return true;
 }
 
 }  // namespace tf::ui

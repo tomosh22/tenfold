@@ -1087,6 +1087,10 @@ listed (see FEATURE_PARITY).
 * **A tab**: Close, Close All But This, Close All But Pinned, Pin / Unpin Tab, Copy Full Path, Open Containing Folder. The
   right-clicked tab becomes the active tab first. Tabs holding unsaved changes are left open by the two "close all"
   items.
+* **Explorer tree**: right-click a node (it is selected first), or Shift F10 / AppsKey with the tree focused. Files: Open,
+  Collapse All, Open Containing Folder, Copy Full Path, Build Current File (C/C++ sources). Folders, projects and the
+  solution: Expand / Collapse, Collapse All, Open Containing Folder, Copy Full Path. 10x's "Settings..." on the workspace
+  and project nodes is not there (no settings dialog).
 * **Status bar**: the position (Go To Line), line ending (CRLF / LF), configuration, compile flags, clangd and build
   segments each offer the commands that belong to them.
 
