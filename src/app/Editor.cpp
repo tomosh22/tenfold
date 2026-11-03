@@ -36,11 +36,8 @@ std::string docKey(const fs::path& p) {
 
 // Hash of a file's raw bytes; 0 when it cannot be read.
 size_t hashFile(const fs::path& p) {
-  std::ifstream in(p, std::ios::binary);
-  if (!in) return 0;
-  std::stringstream ss;
-  ss << in.rdbuf();
-  const std::string bytes = ss.str();
+  std::string bytes;
+  if (!readRegularFile(p, bytes)) return 0;
   return std::hash<std::string>{}(bytes) ^ (bytes.size() * 0x9e3779b97f4a7c15ULL);
 }
 
@@ -415,14 +412,9 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
     explicit ReloadScope(bool& f) : flag(f) { flag = true; }
     ~ReloadScope() { flag = false; }
   } reloadScope(reloading_);
-  std::ifstream in(doc.path(), std::ios::binary);
-  if (!in) {
-    if (error) *error = "cannot open " + doc.path().string();
-    return false;
-  }
-  std::stringstream ss;
-  ss << in.rdbuf();
-  TextBuffer fresh(ss.str());
+  std::string bytes;
+  if (!readRegularFile(doc.path(), bytes, error)) return false;
+  TextBuffer fresh(bytes);
   const TextBuffer& old = doc.buffer();
   const int oldN = old.lineCount(), newN = fresh.lineCount();
   // Replace only the lines that differ so history entries and clangd keep their place.
@@ -790,6 +782,14 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
     case E::Created:
     case E::Modified:
       if (ev.isDirectory) return;
+      {
+        // Events are debounced and handled later: the path may be gone or have become a directory since (churn).
+        std::error_code ec;
+        if (!fs::is_regular_file(ev.path, ec)) {
+          if (ws_.noteFileRemoved(ev.path)) semantic_->fileRemoved(ev.path);
+          return;
+        }
+      }
       ws_.noteFileAdded(ev.path);
       touched(ev.path);
       semantic_->watchedFileChanged(ev.path, ev.kind == E::Created ? 1 : 2);  // skipped for open documents

@@ -48,7 +48,9 @@ void JsonRpcConnection::failPending(const char* why) {
 bool JsonRpcConnection::alive() const { return running_ && proc_.running(); }
 
 void JsonRpcConnection::send(const Json& msg) {
-  std::string body = msg.dump();
+  // Document text goes into messages as it is on disk. A file with invalid UTF-8 (Latin-1, a binary with a source
+  // extension) made dump() throw type_error 316 out of Editor::open / every edit; invalid bytes become U+FFFD instead.
+  std::string body = msg.dump(-1, ' ', false, Json::error_handler_t::replace);
   std::string frame = "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
   if (trace_) trace_("->", msg);
   std::lock_guard<std::mutex> lk(writeMu_);
