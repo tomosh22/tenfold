@@ -523,6 +523,7 @@ tests.)
 | `editor.autoCloseQuotes` | `false` | bool | `"` and `'` insert a second quote (not after an identifier character, a backslash or the same quote) and wrap a selection. tenfold only: 10x documents no setting for quotes. |
 | `editor.bracketSelectedText` | `true` | bool | Typing `(`, `[` or `{` with text selected encloses the selection in the pair. 10x: BracketSelectedText. |
 | `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). 10x documents no such setting. |
+| `editor.commentBlockUsesLineComments` | `true` | bool | 10x `CommentBlockUsesLineComments`: the 10x `ToggleComment` command (Ctrl+Shift+/) comments a selection with `//` line comments; `false` wraps the selection in `/* */` instead. Without a selection it always toggles a line comment. |
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
 | `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. Encoding of new files is UTF-8 (10x: DefaultEncoding). |
@@ -681,10 +682,10 @@ picker is open the editor bindings are out of the way, so the pickers keep their
 command tenfold lacks would take a key from the focused input line or the open picker, the widget gets the key first
 (`Alt R` toggles regex in the find bar; in 10x it is `ReplaceNextInFile`).
 
-`Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files. tenfold saves at the first press and says
-`not implemented yet: SaveAll` at the second.
+`Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files, and so does tenfold (`Control Shift S`
+saves all at once). The second press runs `File.SaveAll`; the first one has already saved the current file.
 
-The 115 default bindings that run a tenfold command today (all other defaults are in
+The 134 default bindings that run a tenfold command today (all other defaults are in
 [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
 differs from the 10x description:
 
@@ -708,6 +709,7 @@ differs from the 10x description:
 | `Control O` | `OpenFile` | `File.OpenFile` | opens tenfold's file picker, not a native open dialog |
 | `Control F4` | `CloseFile` | `Workbench.CloseTab` | closes the tab (asks about unsaved changes) |
 | `Control S` | `SaveFile` | `File.Save` | an untitled file asks for a path first |
+| `Control S, Control S`; `Control Shift S` | `SaveAll` | `File.SaveAll` | saves every modified open file; a failure is named in the status bar |
 | `Control N` | `NewTextFile` | `File.New` | "Untitled N", line ending from `editor.defaultLineEnding`, UTF-8; saving asks for a path in an input line |
 | `Control Shift Alt /` | `OpenFolderForActivefile` | `File.ShowInFolder` | `explorer /select` (Windows), `open -R` (macOS), `xdg-open` on the folder (Linux) |
 
@@ -723,13 +725,25 @@ differs from the 10x description:
 | `Control Shift Up` | `MoveLineUp` | `Editor.MoveLinesUp` | also moves every line a selection touches |
 | `Control Shift Down` | `MoveLineDown` | `Editor.MoveLinesDown` | also moves every line a selection touches |
 | `Control Shift L` | `DeleteLine` | `Editor.DeleteLines` |  |
-| `Control Shift /` | `ToggleComment` | `Editor.ToggleLineComment` | always toggles line comments (block comments: Editor.ToggleBlockComment) |
+| `Control Shift /` | `ToggleComment` | `Editor.ToggleComment` | a selection follows `editor.commentBlockUsesLineComments` (default: `//` line comments, `false`: `/* */` around the selection); no selection: line comment |
 | `Control E, Control V` | `DuplicateLine` | `Editor.Duplicate` | with a selection it duplicates the selected text, not the line |
 | `Control A` | `SelectAll` | `Editor.SelectAll` |  |
 | `Delete` | `Delete` | `Editor.Delete` |  |
 | `Control Insert` | `Copy` | `Editor.Copy` |  |
 | `Shift Insert` | `Paste` | `Editor.Paste` |  |
 | `Control Shift Z` | `Redo` | `Editor.Redo` |  |
+| `Shift Delete` | `CutLine` | `Editor.CutLine` | cuts the lines the carets (or selections) touch into the clipboard, line break included |
+| `Control Shift U` | `MakeSelectionUppercase` | `Editor.MakeSelectionUppercase` | ASCII letters only; the selection stays |
+| `Control U` | `MakeSelectionLowercase` | `Editor.MakeSelectionLowercase` | ASCII letters only; the selection stays |
+| `Control K, Control C` | `Commentline` | `Editor.CommentLines` | `// ` on every non-blank line the carets touch, at the smallest indentation |
+| `Control K, Control U` | `Uncommentline` | `Editor.UncommentLines` | removes `//` (and one space) from the lines that have it |
+| `Control L` | `DeleteToEndOfLine` | `Editor.DeleteToEndOfLine` | from the caret (selection: its start) to the end of the line; the line break stays |
+| `Control Enter` | `InsertLine` | `Editor.InsertLineAbove` | a blank line above the current line, same indentation, caret on it |
+| `Control Shift Enter` | `InsertLineAfter` | `Editor.InsertLineBelow` | a blank line below the current line (one level deeper after `{ ( [`), caret on it |
+| `Control W` | `SelectCurrentWord` | `Editor.SelectCurrentWord` | the identifier at or just before the caret |
+| `Shift Alt =` | `SelectCurrentScope` | `Editor.SelectCurrentScope` | inside the enclosing `{}`, then with the braces, then the next scope out; braces in comments and literals are ignored |
+| `Control Shift M` | `SelectCurrentBracketScope` | `Editor.SelectCurrentBracketScope` | the same for `()`, `[]` and `{}` |
+| `Control Shift W` | `ToggleWhitespace` | `View.ToggleWhitespace` | for this session; `editor.showWhitespace` sets the start-up state |
 
 **MultiCursor**
 
@@ -749,6 +763,11 @@ differs from the 10x description:
 | `F3` | `FindInFileNext` | `Editor.FindNext` |  |
 | `Control H` | `FindReplaceInFile` | `Editor.Replace` |  |
 | `Control G` | `GoToLine` | `Editor.GotoLine` |  |
+| `Control F3` | `FindInFileNextCurrentWord` | `Editor.FindNextCurrentWord` | searches the selection (as text) or else the word at the caret (whole word, case-sensitive) and selects the next match |
+| `Control Shift F3` | `FindInFilePrevCurrentWord` | `Editor.FindPrevCurrentWord` | the same, backwards |
+| `Control Shift \` | `MoveToMatchingBracket` | `Editor.MoveToMatchingBracket` | to the same side of the partner bracket (before it when the caret was before the bracket, else after it) |
+| `Control Up` | `ScrollOneLineUp` | `Editor.ScrollLineUp` | the carets stay unless they would leave the view; then they move to the nearest visible row |
+| `Control Down` | `ScrollOneLineDown` | `Editor.ScrollLineDown` | the same, downwards |
 | `Control -` | `PrevLocation` | `Nav.Back` |  |
 | `Control Shift -` | `NextLocation` | `Nav.Forward` |  |
 | `Control Shift Backspace` | `PrevEditLocation` | `Nav.LastEditLocation` |  |
@@ -1052,7 +1071,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** 10x's own format and default key map; 68 of its 183 default bindings (65 commands) are not implemented yet (FEATURE_PARITY).
+* **Key bindings:** 10x's own format and default key map; 49 of its 183 default bindings (47 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session

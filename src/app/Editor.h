@@ -239,16 +239,17 @@ class Editor {
   // Defaults are 10x's documented defaults (AutoIndent, AutoIndentBraces, FormatBracesOnEnterSplit, AutoAddCloseBrace,
   // AutoAddCloseBracket, BracketSelectedText, AutoDetectIndentMode, IndentMode).
   struct EditingOptions {
-    bool autoIndent = true;                 // Enter copies / extends the indentation
-    bool autoIndentBraces = true;           // '}' typed first on a line dedents to the line of its '{'
-    bool formatBracesOnEnterSplit = false;  // Enter between "{" and "}" moves the closer to its own line
-    bool autoCloseBrace = false;            // "{" inserts "}" (with skip-over and pair Backspace)
-    bool autoCloseBracket = false;          // "(" and "[" insert their closer (with skip-over and pair Backspace)
-    bool autoCloseQuotes = false;           // tenfold only: quotes pair (10x documents no setting for it)
-    bool bracketSelectedText = true;        // typing ( [ { over a selection encloses it (quotes: autoCloseQuotes)
-    bool detectIndent = false;              // take the indent unit from the document's first lines
-    std::string indentUnit = "\t";          // "\t" or N spaces; the fallback when detection finds nothing
-    bool trimTrailingWhitespace = false;    // on save()
+    bool autoIndent = true;                    // Enter copies / extends the indentation
+    bool autoIndentBraces = true;              // '}' typed first on a line dedents to the line of its '{'
+    bool formatBracesOnEnterSplit = false;     // Enter between "{" and "}" moves the closer to its own line
+    bool autoCloseBrace = false;               // "{" inserts "}" (with skip-over and pair Backspace)
+    bool autoCloseBracket = false;             // "(" and "[" insert their closer (with skip-over and pair Backspace)
+    bool autoCloseQuotes = false;              // tenfold only: quotes pair (10x documents no setting for it)
+    bool bracketSelectedText = true;           // typing ( [ { over a selection encloses it (quotes: autoCloseQuotes)
+    bool detectIndent = false;                 // take the indent unit from the document's first lines
+    std::string indentUnit = "\t";             // "\t" or N spaces; the fallback when detection finds nothing
+    bool trimTrailingWhitespace = false;       // on save()
+    bool commentBlockUsesLineComments = true;  // 10x CommentBlockUsesLineComments: ToggleComment with a selection
   };
   EditingOptions& editing() { return editing_; }
   const EditingOptions& editing() const { return editing_; }
@@ -269,6 +270,22 @@ class Editor {
   void moveLines(bool down);  // lines touched by carets swap with the neighbour line
   void joinLines();           // line + next line (selection: all its lines), leading blanks of the next -> one space
   void deleteLines();         // lines touched by carets, line break included
+  // --- 10x editing commands (W8a); each edits at every caret and is ONE undo step ---
+  std::string cutLines();         // CutLine: removes the lines touched by carets (deleteLines), returns their text
+  void makeSelectionUppercase();  // ASCII letters of every selection; the selections stay
+  void makeSelectionLowercase();
+  void commentLines();        // Commentline: "// " on every non-blank touched line, at the minimum indentation
+  void uncommentLines();      // Uncommentline: removes "//" (and one space) where present
+  void toggleComment();       // ToggleComment: editing().commentBlockUsesLineComments decides for selections
+  void deleteToEndOfLine();   // from each caret / selection start to the end of the line (selection: of its last line)
+  void insertLineAbove();     // InsertLine: blank line above the caret's line (same indentation), caret on it
+  void insertLineBelow();     // InsertLineAfter: blank line below the caret's line, caret on it
+  void selectCurrentWord();   // each caret selects the identifier under / before it
+  void selectCurrentScope();  // grows each selection to the enclosing { } (inside, then with the braces, then outward)
+  void selectCurrentBracketScope();  // the same for ( ) [ ] { }
+  bool moveToMatchingBracket();  // each caret next to a bracket jumps to the same side of its partner; false if none
+  // Saves every modified document; false (and `error` set to the first failure) if any could not be saved.
+  bool saveAll(std::string* error = nullptr);
   bool gotoLine(int line, int column = 1, std::string* error = nullptr);  // 1-based, through gotoLocation
   // Line ending of `doc` (LF / CRLF): marks the document dirty; not an undo step.
   void setLineEnding(Document& doc, LineEnding e);
@@ -402,6 +419,10 @@ class Editor {
     if (current_) lastEdit_ = cursor_;
   }
   void applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious);
+  enum class LineCommentMode { Toggle, Comment, Uncomment };
+  void lineComments(LineCommentMode mode);
+  void changeSelectionCase(bool upper);
+  void growSelectionToBrackets(bool bracesOnly);
   void typeEdits(std::vector<CaretEdit> edits, const std::string& typed);  // insertText's undo coalescing
   // Batch edits (sorted, disjoint) as one undo step. `carets` maps the batch result to the new caret set and sets
   // the index of the primary in it; without it every caret is carried through the edits.

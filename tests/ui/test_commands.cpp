@@ -607,10 +607,10 @@ TEST(cmd_alias_resolution) {
   CHECK_EQ(t.id, std::string("Editor.GotoDefinition"));
   CHECK_EQ(t.name10x, std::string("GotoSymbolDefinition"));
   // 10x commands tenfold lacks keep their 10x name as id and say so.
-  const ResolvedCommand m = resolveCommandName("SaveAll");
+  const ResolvedCommand m = resolveCommandName("FormatFile");
   CHECK(m.known10x);
   CHECK(!m.implemented);
-  CHECK_EQ(m.id, std::string("SaveAll"));
+  CHECK_EQ(m.id, std::string("FormatFile"));
   // Unknown names pass through for the registry to reject.
   const ResolvedCommand u = resolveCommandName("Totally.Unknown");
   CHECK(!u.known10x);

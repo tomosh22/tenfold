@@ -167,6 +167,7 @@ class EditorApp {
   std::string untitledSuggestion(const Document& d) const;
   bool commandRunnable(const std::string& id) const;
   void bindUiCommands();
+  void bindEditingCommands();
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
   std::string shortcutFor(const std::string& command) const;
@@ -187,6 +188,8 @@ class EditorApp {
   int64_t expiry_ = 0;  // 0 = never
   std::unique_ptr<NavigationUi> nav_;
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
+  std::optional<bool>
+      whitespaceOverride_;            // ToggleWhitespace: wins over editor.showWhitespace until that setting changes
   std::optional<bool> wrapOverride_;  // View.ToggleWordWrap: wins over editor.wordWrap until that setting changes
   SettingsService* settings_ = nullptr;
   float scale_ = 1.0f;

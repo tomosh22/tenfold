@@ -275,6 +275,7 @@ void EditorApp::applyEditorSettings() {
   forEachView([&](TextView& v) {
     v.applySettings(es);
     if (wrapOverride_) v.setWordWrap(*wrapOverride_);
+    if (whitespaceOverride_) v.setShowWhitespace(*whitespaceOverride_);
     v.settingsGen = settingsGen_;
   });
 }
@@ -295,6 +296,7 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.autoCloseQuotes = s.getBool("editor.autoCloseQuotes");
   o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
+  o.commentBlockUsesLineComments = s.getBool("editor.commentBlockUsesLineComments");
 }
 
 void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::function<bool()> rebuildFont) {
@@ -312,6 +314,7 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
     for (const std::string& k : keys) {
       font |= k.rfind("font.", 0) == 0;
       if (k == "editor.wordWrap") wrapOverride_.reset();  // the file has spoken again
+      if (k == "editor.showWhitespace") whitespaceOverride_.reset();
     }
     if (font && rebuildFont_) rebuildFont_();
     ++settingsGen_;
@@ -393,6 +396,55 @@ bool EditorApp::requestQuit() {
   closePickers();
   unsaved_->ask(dirty, [this](bool) { quit_ = true; });
   return false;
+}
+
+// The 10x editing commands that need the UI (W8a): the clipboard, views and the find bar.
+void EditorApp::bindEditingCommands() {
+  const CommandEnabled hasDoc = [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); };
+  registry_.bind(
+      "Editor.CutLine",
+      [](const CommandContext& c, std::string_view) {
+        const std::string text = c.editor->cutLines();
+        return text.empty() || clipboardSet(text);
+      },
+      hasDoc);
+  registry_.bind(
+      "File.SaveAll",
+      [this](const CommandContext& c, std::string_view) {
+        std::string err;
+        if (!c.editor->saveAll(&err)) setMessage("Cannot save all files: " + err, kDiagMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor != nullptr; });
+  registry_.bind("View.ToggleWhitespace", [this](const CommandContext&, std::string_view) {
+    bool on = false, seen = false;
+    forEachView([&](TextView& v) {
+      if (!seen || (v.isCurrent() && v.visible())) on = v.settings().showWhitespace;
+      seen = true;
+    });
+    if (!seen) return false;
+    whitespaceOverride_ = !on;
+    forEachView([&](TextView& v) { v.setShowWhitespace(!on); });
+    setMessage(on ? "Whitespace hidden" : "Whitespace visible", kMessageMs);
+    return true;
+  });
+  for (bool down : {false, true})
+    registry_.bind(
+        down ? "Editor.ScrollLineDown" : "Editor.ScrollLineUp",
+        [this, down](const CommandContext&, std::string_view) {
+          TextView* target = nullptr;
+          forEachView([&](TextView& v) {
+            if (v.isCurrent() && v.visible() && (!target || v.hasFocus())) target = &v;
+          });
+          if (!target) return false;
+          target->scrollLines(down ? 1 : -1);
+          return true;
+        },
+        hasDoc);
+  for (bool fwd : {true, false})
+    registry_.bind(
+        fwd ? "Editor.FindNextCurrentWord" : "Editor.FindPrevCurrentWord",
+        [this, fwd](const CommandContext&, std::string_view) { return findReplace_->stepCurrentWord(fwd); }, hasDoc);
 }
 
 void EditorApp::bindUiCommands() {
@@ -547,6 +599,7 @@ void EditorApp::bindUiCommands() {
     return true;
   });
   bindViewCommands();
+  bindEditingCommands();
   if (!bench_) return;
   bindPanelCommands();
   registry_.bind("File.OpenFile", [this](const CommandContext&, std::string_view) {
@@ -998,6 +1051,7 @@ int EditorApp::tick(int64_t nowMs) {
       if (v.settingsGen != settingsGen_) {
         v.applySettings(editorSettings(settings_->settings()));
         if (wrapOverride_) v.setWordWrap(*wrapOverride_);
+        if (whitespaceOverride_) v.setShowWhitespace(*whitespaceOverride_);
         v.settingsGen = settingsGen_;
       }
     });

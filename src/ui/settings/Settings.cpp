@@ -55,6 +55,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.autoCloseQuotes", SettingType::Bool},
                                              {"editor.bracketSelectedText", SettingType::Bool},
                                              {"editor.trimTrailingWhitespace", SettingType::Bool},
+                                             {"editor.commentBlockUsesLineComments", SettingType::Bool},
                                              {"editor.confirmUnsaved", SettingType::Bool},
                                              {"editor.reloadExternalChanges", SettingType::String},
                                              {"editor.defaultLineEnding", SettingType::String},

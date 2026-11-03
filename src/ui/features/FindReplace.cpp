@@ -279,6 +279,37 @@ bool FindReplace::step(bool forward) {
   return true;
 }
 
+bool FindReplace::stepCurrentWord(bool forward) {
+  const Document* d = env_.editor.currentDocument();
+  if (!d || env_.editor.selections().empty()) return false;
+  const TextBuffer& b = d->buffer();
+  const Selection s = env_.editor.selections()[0];
+  std::string q;
+  bool whole = true;
+  if (!s.empty() && s.min().line == s.max().line) {
+    q = b.textInRange(s.range());
+    whole = false;
+  } else if (s.empty()) {
+    const auto w = b.wordAt(s.head);
+    q = w.text;
+    // The word itself is the starting point, so that "next" leaves it and "previous" goes before it.
+    if (!q.empty()) env_.editor.setSelections({Selection{w.range.start, w.range.end}});
+  }
+  if (q.empty()) {
+    env_.say("No word at the caret");
+    return false;
+  }
+  query_ = q;
+  cs_ = true;
+  word_ = whole;
+  regex_ = false;
+  bar_->find_->setText(q);
+  origin_ = env_.editor.selections()[0].min();
+  refresh(false);
+  bar_->markDirty();
+  return step(forward);
+}
+
 bool FindReplace::replaceCurrent() {
   if (!env_.editor.currentDocument()) return false;
   refresh(false);
