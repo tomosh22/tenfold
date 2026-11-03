@@ -15,9 +15,11 @@ find_package(Threads REQUIRED)
 
 if(WIN32)
   set(TENFOLD_PROCESS_SRC src/lsp/Process_win32.cpp)
+  set(TENFOLD_PTY_SRC src/term/Pty_win32.cpp)
   set(TENFOLD_VS_DEBUGGER_SRC src/debug/VsDebugger_win32.cpp src/debug/ComDispatch_win32.cpp)
 else()
   set(TENFOLD_PROCESS_SRC src/lsp/Process_posix.cpp)
+  set(TENFOLD_PTY_SRC src/term/Pty_posix.cpp)
   set(TENFOLD_VS_DEBUGGER_SRC "")
 endif()
 if(MSVC)
@@ -68,6 +70,10 @@ add_library(tenfold_core STATIC
   src/vcs/GitProvider.cpp
   src/vcs/PerforceProvider.cpp
   src/vcs/VcsManager.cpp
+  src/term/Pty.cpp
+  ${TENFOLD_PTY_SRC}
+  src/term/VtScreen.cpp
+  src/term/TermKeys.cpp
 )
 target_include_directories(tenfold_core PUBLIC src third_party "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
@@ -157,6 +163,9 @@ add_executable(tenfold-tests
   tests/test_w8a_editing.cpp
   tests/test_w8e_build_search.cpp
   tests/test_w8d_multicursor_nav.cpp
+  tests/test_term_vt.cpp
+  tests/test_term_keys.cpp
+  tests/test_term_pty.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.

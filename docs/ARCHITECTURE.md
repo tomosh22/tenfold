@@ -947,6 +947,75 @@ fixture in two configurations, an existing `compile_commands.json`, a heuristic 
 real clangd; plus the check that the user guide's settings table matches `assets/settings.default.txt`) and
 `tests/ui/test_compile_info_ui.cpp`.
 
+## Terminal engine (W8f, `src/term`, part of `tenfold_core`)
+
+The UI-agnostic half of the terminal panel (`NewTerminal`, `ShowTerminal`); the panel that renders it is a later task.
+No third-party code. Three independent pieces:
+
+* **`Pty`** runs a program in a pseudo-terminal. `PtyOptions{program, args, cwd, rows, cols, env}`; an empty program is
+  `Pty::defaultShell()`: the `TerminalCommand` setting if given (10x default `cmd.exe`; `Pty::splitCommand` splits
+  `cmd /c agent` style values), else `%ComSpec%` on Windows, `$SHELL` or `/bin/sh` on POSIX. The working directory is
+  the workspace root (the caller passes it). One **reader thread** per `Pty` polls the master with a 25 ms timeout and
+  calls `onData(bytes)`; when the program exits by itself the remaining output is delivered, then `onExit(code)` runs
+  once (code is the exit status, `128 + signal` on POSIX). Both callbacks run on the reader thread: the owner posts
+  them to the main thread (`Editor::post`) and feeds the bytes to a `VtScreen`. `write` is a blocking write of input
+  (keystrokes, `VtScreen` replies); `resize` is `TIOCSWINSZ` / `ResizePseudoConsole`; `close()` (also the destructor)
+  kills the tree, joins the reader and guarantees no callback runs afterwards (it is not reported as an exit).
+  * POSIX (`Pty_posix.cpp`): `posix_openpt/grantpt/unlockpt`, the slave is opened by the parent, `fork`, in the child
+    `setsid`, `TIOCSCTTY`, `dup2` onto 0-2, `SIGPIPE` and the signal mask reset, `chdir`, `environ` replaced by an
+    array built before the fork (only async-signal-safe calls between `fork` and `exec`), `execvp`. `TERM=xterm-256color`
+    and `COLORTERM=truecolor` are added unless the caller sets them. A close-on-exec error pipe reports exec/chdir
+    failure to `start()`. Every descriptor (master, slave, error pipe) is close-on-exec (see D2 and commit d93f151): a
+    child forked concurrently on another thread cannot inherit a terminal's master and keep it open. The child leads its
+    own session, so `close()` sends `SIGHUP` to the process group, waits up to 300 ms, then `SIGKILL` to the group
+    (also stragglers that outlived the shell).
+  * Windows (`Pty_win32.cpp`): ConPTY. `CreatePseudoConsole`, `ResizePseudoConsole`, `ClosePseudoConsole` come from
+    `GetProcAddress(kernel32)`, so the binary starts (and the mingw build compiles) without them and
+    `Pty::available()` is false. Two non-inheritable anonymous pipes; `STARTUPINFOEX` with
+    `PROC_THREAD_ATTRIBUTE_PSEUDOCONSOLE`; `CreateProcess` with `bInheritHandles = FALSE` (the pseudo console supplies the
+    standard handles, so concurrent `Process::start` calls cannot leak the pipe ends either way); the process is created
+    suspended, assigned to a kill-on-close job object, then resumed. The reader polls (`PeekNamedPipe` plus a wait on the
+    process handle) because ConPTY keeps the output pipe open after the child exits until `ClosePseudoConsole`;
+    `close()` terminates the job, then calls `ClosePseudoConsole` while the reader is still draining the pipe.
+* **`VtScreen`** is the screen model: `feed(bytes)` (any chunking), grid of `VtCell{cp, fg, bg, attrs, width}`, cursor,
+  scroll region, scrollback (`std::deque` of rows, default 10000 lines, `setScrollbackLimit`), alternate screen, wide
+  characters (width table, 2-cell characters store a width-0 right half), per-row soft-wrap flag. Colours are one
+  `uint32_t` (`0` default, `0x01000000 | n` palette 0-255, `0x02000000 | rgb` truecolour); mapping to real colours and
+  bold-as-bright is the renderer's decision. Replies to the program (`DSR`, `DA`) go through `setReplyCallback`, which the
+  owner connects to `Pty::write`. Mode accessors for the panel: `bracketedPaste()`, `applicationCursorKeys()`,
+  `mouseTracking()/mouseSgr()`, `focusReporting()`, `cursorVisible()/cursorShape()`, `title()`, `altScreen()`.
+  * Rendering support: `generation()` increases whenever anything visible changes (cells, cursor, modes, title,
+    size); `rowDirty(r)` / `allDirty()` / `clearDirty()` track the visible rows touched since the last repaint
+    (scrolling dirties the whole region; entering/leaving the alternate screen and resizing dirty everything).
+    Scrollback rows are immutable once pushed.
+  * Resize does **not reflow**: columns are truncated (a wide character that would be cut is blanked) or padded with
+    blanks, rows are appended at the bottom; when the height shrinks on the main screen and the cursor would fall off,
+    the top lines move into the scrollback so the cursor line stays visible. The scroll region is reset and the program
+    is expected to redraw after `SIGWINCH`. Scrollback lines keep the width they had (renderers pad or clip).
+  * Robustness: a byte-at-a-time and a whole-buffer feed give identical screens (tested); unknown sequences (any CSI
+    final, DCS/APC/PM/SOS strings, unknown OSC, ESC with intermediates) are consumed and ignored; `CAN`/`SUB` abort a
+    sequence, `ESC` inside one restarts it; parameters beyond 32 and OSC payloads beyond 4096 bytes are dropped without
+    losing sync; invalid UTF-8 becomes U+FFFD. Random-byte tests check the cursor/region invariants under ASan.
+  * Throughput (Release, 50 MB of coloured `ls`-like output in 64 KiB chunks): see the number printed by the
+    `vt_throughput` test; printable ASCII takes a fast path that writes a cell and marks the row dirty.
+  * Supported sequences. C0: BS HT LF VT FF CR SO SI (BEL and the rest are ignored). ESC: `7 8 c D E M H = >`, `( )`
+    with `0`/`B` (DEC special graphics on G0/G1), `Z`. CSI: `@ A B C D E F G H I L M P S T X Z ` a b c d e f g h l m
+    n r s t u`, DECSCUSR (`SP q`), DECSTR (`! p`). SGR: 0-9, 21-29, 30-39, 40-49, 90-97, 100-107, 38/48 with `;5;n`
+    `;2;r;g;b` and the colon forms (`38:2::r:g:b`, `4:n`), 58/59 (underline colour, consumed and ignored). Modes (set
+    and reset): 4 (insert), private 1 (application cursor keys), 6 (origin), 7 (wrap), 25 (cursor), 47, 1047, 1048, 1049
+    (alternate screen), 1000/1002/1003/1006 (mouse flags), 1004 (focus), 2004 (bracketed paste); other modes (3, 5, 12,
+    1005, 1015, 9001 ...) are accepted and ignored. Reports: `CSI 5 n`, `CSI 6 n`, `CSI ? 6 n`, `CSI c`, `CSI > c`,
+    `ESC Z`, `CSI 18 t`. OSC 0 and 2 (title); OSC 1, 7, 8, 9;9 and the rest are ignored. Not implemented: reflow,
+    combining characters (dropped), grapheme clusters, selective erase, rectangle operations, DECALN, sixel/kitty graphics.
+* **`TermKeys`** (`encodeTermKey`, `encodeTermPaste`) are pure functions mapping a `TermKeyEvent` (named key or UTF-8
+  text, ctrl/alt/shift) to the bytes of xterm conventions: arrows/Home/End (`ESC [ x`, `ESC O x` in application cursor
+  mode, `ESC [ 1 ; m x` with modifiers), Insert/Delete/PageUp/PageDown (`ESC [ n ~`), F1-F12, Ctrl+letter, Alt as an `ESC`
+  prefix, Enter `CR`, Backspace `DEL`, Shift+Tab `ESC [ Z`. Pastes are wrapped in `ESC [ 200 ~ ... ESC [ 201 ~` when
+  `bracketedPaste()` is on (embedded end markers removed), else line breaks become `CR`.
+
+Threading: `Pty` owns one reader thread; `VtScreen` and the key functions are single-threaded and belong to whoever
+consumes the posted data (the main thread). Lock order is trivial: the backend's `exitMu` is a leaf lock.
+
 ## Portability
 
 Everything is standard C++20 except `src/lsp/Process.cpp` (fork/exec and

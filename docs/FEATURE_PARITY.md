@@ -117,8 +117,8 @@ the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the
 | Command | Default keys | 10x description |
 | --- | --- | --- |
 | `ToggleWorkspaceExplorer` | `Control Shift E` | Toggle the workspace explorer panel |
-| `NewTerminal` | `Control '` | Create a terminal panel |
-| `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. |
+| `NewTerminal` | `Control '` | Create a terminal panel (engine: `src/term` `Pty`, `VtScreen`, `TermKeys`; the panel is pending) |
+| `ShowTerminal` | `Control Shift I` | Create or show an existing terminal. Cycle through if there are multiple. (engine: `src/term`; the panel is pending) |
 
 **File**
 
