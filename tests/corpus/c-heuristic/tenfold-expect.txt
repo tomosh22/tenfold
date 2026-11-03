@@ -1,8 +1,8 @@
 # c-heuristic: a C project without compile_commands.json or .sln: tenfold has to pick the C language and a C standard for
 # .c files by itself (the identifiers below are keywords in C++, so a C++ parse breaks navigation).
 
-xfail fast def use_class -> class_def | class_decl  # fast lexer treats C++ keywords (class) as keywords even in a .c file: nothing is indexed under that name
-xfail fast def use_delete -> delete_def | delete_decl  # same for the C++ keyword delete
+fast def use_class -> class_def | class_decl
+fast def use_delete -> delete_def | delete_decl
 fast def use_is_even -> is_even_def | is_even_decl
 fast sym "arr_sum" -> arr_sum_def | arr_sum_decl
 

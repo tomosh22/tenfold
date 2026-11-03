@@ -36,6 +36,7 @@ endif()
 
 add_library(tenfold_core STATIC
   src/core/TextBuffer.cpp
+  src/core/TextEncoding.cpp
   src/core/Document.cpp
   src/core/PathUtil.cpp
   src/core/CrashHandler.cpp
@@ -147,6 +148,7 @@ add_executable(tenfold-tests
   tests/test_multicaret.cpp
   tests/test_editing.cpp
   tests/test_untitled.cpp
+  tests/test_encodings.cpp
   tests/test_lsp_features.cpp
   tests/test_build.cpp
   tests/test_symbol_search.cpp

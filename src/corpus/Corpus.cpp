@@ -8,6 +8,8 @@
 #include <set>
 #include <sstream>
 
+#include "core/TextEncoding.h"
+
 namespace tf::corpus {
 
 namespace fs = std::filesystem;
@@ -69,7 +71,9 @@ void scanAnchorsInText(const std::string& relFile, std::string_view text, Anchor
   int lineNo = 0;
   size_t pos = 0;
   while (pos <= text.size()) {
-    size_t nl = text.find('\n', pos);
+    // A line ends at "\r\n", "\n" or a lone '\r' (clang's and TextBuffer's rule).
+    size_t nl = text.find_first_of("\r\n", pos), brk = 1;
+    if (nl != std::string_view::npos && text[nl] == '\r' && nl + 1 < text.size() && text[nl + 1] == '\n') brk = 2;
     std::string_view line = text.substr(pos, nl == std::string_view::npos ? std::string_view::npos : nl - pos);
     size_t p = 0;
     while ((p = line.find("/*@", p)) != std::string_view::npos) {
@@ -109,7 +113,7 @@ void scanAnchorsInText(const std::string& relFile, std::string_view text, Anchor
       p = std::max(t, p + 1);
     }
     if (nl == std::string_view::npos) break;
-    pos = nl + 1;
+    pos = nl + brk;
     ++lineNo;
   }
 }
@@ -121,6 +125,7 @@ bool scanAnchors(const fs::path& dir, AnchorMap& out, std::vector<std::string>& 
   for (fs::recursive_directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
        !ec && it != end; it.increment(ec)) {
     const std::string name = it->path().filename().string();
+    if (it->is_symlink(ec)) continue;  // a link is not scanned or followed: its target's anchors would appear twice
     if (it->is_directory(ec)) {
       if (name == ".tenfold" || name == ".git") it.disable_recursion_pending();
       continue;
@@ -136,7 +141,12 @@ bool scanAnchors(const fs::path& dir, AnchorMap& out, std::vector<std::string>& 
     ss << in.rdbuf();
     std::string text = ss.str();
     if (text.size() > (8u << 20)) continue;
-    if (text.substr(0, 8192).find('\0') != std::string::npos) continue;  // binary
+    // UTF-16 files have NULs but are text; everything else with a NUL in the first 8 KiB is binary.
+    DecodedText dec = decodeFileBytes(text);
+    if (dec.encoding != Encoding::Utf16LE && dec.encoding != Encoding::Utf16BE &&
+        text.substr(0, 8192).find('\0') != std::string::npos)
+      continue;                  // binary
+    text = std::move(dec.text);  // anchor columns are bytes of the UTF-8 text tenfold shows (Latin-1 is decoded)
     scanAnchorsInText(fs::relative(f, dir, ec).generic_string(), text, out, errors);
   }
   return errors.size() == before;

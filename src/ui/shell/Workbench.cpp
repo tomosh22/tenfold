@@ -6,6 +6,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/JsonUtil.h"
 #include "ui/features/VcsState.h"
 #include "ui/shell/DocumentView.h"
 
@@ -966,7 +967,9 @@ void Workbench::refreshStatus() {
   if (cur) {
     const Position p = editor_.cursor().pos;
     status_->setText("pos", "Ln " + std::to_string(p.line + 1) + ", Col " + std::to_string(p.column + 1));
-    status_->setText("eol", cur->buffer().lineEnding() == LineEnding::CRLF ? "CRLF" : "LF");
+    status_->setText("eol", cur->buffer().lineEnding() == LineEnding::CRLF ? "CRLF"
+                            : cur->buffer().lineEnding() == LineEnding::CR ? "CR"
+                                                                           : "LF");
     status_->setText("encoding", "UTF-8");
     status_->setText("vcs", vcsStatusText(editor_.vcs(), cur->path()));
     status_->setText("disk", fileMissing(cur->path()) ? "deleted on disk" : "");
@@ -1045,7 +1048,7 @@ std::string Workbench::layoutJson() const {
     out["recent"] = Json::array();
     for (const fs::path& p : recent_) out["recent"].push_back(rel(p));
   }
-  return out.dump(2);
+  return dumpSafe(out, 2);
 }
 
 bool Workbench::saveLayout() const {

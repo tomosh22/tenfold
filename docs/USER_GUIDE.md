@@ -260,8 +260,10 @@ message for that spot follows, marked `build`), then clangd's hover text. Comple
 
 ## Editing
 
-The text model is UTF-8 with LF or CRLF preserved per file (`Editor.LineEndingLF` / `Editor.LineEndingCRLF` convert;
-they have no default key). Other encodings are not supported.
+The text model is UTF-8. A file that is not valid UTF-8 opens as Windows-1252 (Latin-1 / "ANSI") or, with a BOM, as UTF-16,
+and is saved back in the same encoding (a character it cannot hold makes the save write UTF-8 and logs a warning). Line
+endings LF, CRLF and classic Mac CR are recognised; the most frequent one is written on save (`Editor.LineEndingLF` /
+`Editor.LineEndingCRLF` convert; they have no default key).
 
 **Carets.** Shift+Alt+Up / Down (`MultiCursorMoveUp` / `Down`) add a caret above / below, **Ctrl+D** (`SelectNextMultiCursor`) selects the word under the caret and then adds the
 next occurrence, **Ctrl-click** adds a caret, **Alt-click** adds a caret and **Alt-drag** makes a column selection,

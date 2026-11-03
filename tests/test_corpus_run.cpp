@@ -28,6 +28,13 @@ TEST(corpus_projects) {
   CHECK(!dirs.empty());
   for (auto& dir : dirs) {
     if (only && dir.filename().string() != only) continue;
+#ifdef _WIN32
+    // A project that needs symlinks (git creates them only where core.symlinks is on) is marked and skipped here.
+    if (fs::exists(dir / "tenfold-corpus-linux-only")) {
+      std::cerr << "    SKIPPED " << dir.filename().string() << " (Linux only)\n";
+      continue;
+    }
+#endif
     corpus::RunOptions ro;
     ro.dir = dir;
     ro.timeoutSec = limit ? std::max(1, std::atoi(limit)) : 300;

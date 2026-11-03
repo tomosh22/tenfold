@@ -1,6 +1,7 @@
 #include "core/TextBuffer.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 
 namespace tf {
@@ -11,27 +12,81 @@ bool isIdentChar(unsigned char c) {
 }
 }  // namespace
 
+namespace {
+// Finds the line breaks of a text: "\r\n", "\n" or a lone '\r'. next(from, len) gives the offset of the first break at
+// or after `from` (npos if none) and its length. '\n' is found with memchr per line; the position of the next '\r' is
+// remembered, so a file without CRs (or with CRLF everywhere) costs one extra memchr pass over the text in total,
+// not one per line.
+class BreakFinder {
+ public:
+  explicit BreakFinder(std::string_view t) : t_(t) {}
+  size_t next(size_t from, size_t& len) {
+    constexpr size_t npos = std::string_view::npos;
+    if (from >= t_.size()) return npos;
+    const char* base = t_.data();
+    const size_t n = t_.size();
+    const char* nlp = static_cast<const char*>(std::memchr(base + from, '\n', n - from));
+    const size_t nl = nlp ? static_cast<size_t>(nlp - base) : npos;
+    if (!crKnown_ || (cr_ != npos && cr_ < from)) {
+      const char* c = static_cast<const char*>(std::memchr(base + from, '\r', n - from));
+      cr_ = c ? static_cast<size_t>(c - base) : npos;
+      crKnown_ = true;
+    }
+    if (cr_ != npos && (nl == npos || cr_ < nl)) {
+      len = (cr_ + 1 < n && base[cr_ + 1] == '\n') ? 2 : 1;
+      return cr_;
+    }
+    if (nl != npos) {
+      len = 1;
+      return nl;
+    }
+    return npos;
+  }
+
+ private:
+  std::string_view t_;
+  size_t cr_ = 0;
+  bool crKnown_ = false;
+};
+
+bool hasBreak(std::string_view t) {
+  if (t.size() <= 32) {  // keystrokes and short pastes: a plain loop beats two library calls
+    for (char c : t)
+      if (c == '\n' || c == '\r') return true;
+    return false;
+  }
+  return std::memchr(t.data(), '\n', t.size()) != nullptr || std::memchr(t.data(), '\r', t.size()) != nullptr;
+}
+
+size_t countBreaks(std::string_view t) {
+  size_t n = 0, len = 0;
+  BreakFinder bf(t);
+  for (size_t at = bf.next(0, len); at != std::string_view::npos; at = bf.next(at + len, len)) ++n;
+  return n;
+}
+}  // namespace
+
 void TextBuffer::setText(std::string_view text) {
   lines_.clear();
-  int crlf = 0, lf = 0;
-  size_t start = 0;
+  size_t crlf = 0, lf = 0, cr = 0;
+  size_t start = 0, len = 0;
+  BreakFinder bf(text);
   while (true) {
-    size_t nl = text.find('\n', start);
-    if (nl == std::string_view::npos) {
+    const size_t at = bf.next(start, len);
+    if (at == std::string_view::npos) {
       lines_.emplace_back(text.substr(start));
       break;
     }
-    size_t end = nl;
-    if (end > start && text[end - 1] == '\r') {
-      --end;
-      ++crlf;
-    } else {
-      ++lf;
-    }
-    lines_.emplace_back(text.substr(start, end - start));
-    start = nl + 1;
+    lines_.emplace_back(text.substr(start, at - start));
+    if (len == 2) ++crlf;
+    else if (text[at] == '\n') ++lf;
+    else ++cr;
+    start = at + len;
   }
-  lineEnding_ = (crlf > lf) ? LineEnding::CRLF : LineEnding::LF;
+  mixed_ = (crlf != 0) + (lf != 0) + (cr != 0) > 1;
+  if (crlf > lf && crlf >= cr) lineEnding_ = LineEnding::CRLF;
+  else if (cr > lf && cr > crlf) lineEnding_ = LineEnding::CR;
+  else lineEnding_ = LineEnding::LF;
 }
 
 std::string TextBuffer::text() const {
@@ -46,12 +101,37 @@ std::string TextBuffer::text() const {
 
 std::string TextBuffer::textForDisk() const {
   if (lineEnding_ == LineEnding::LF) return text();
+  const char* sep = lineEnding_ == LineEnding::CRLF ? "\r\n" : "\r";
   std::string out;
+  out.reserve(byteSize() + lines_.size());
   for (size_t i = 0; i < lines_.size(); ++i) {
-    if (i) out += "\r\n";
+    if (i) out += sep;
     out += lines_[i];
   }
   return out;
+}
+
+std::string TextBuffer::textForLsp() const {
+  if (lineEnding_ == LineEnding::CR) return text();
+  return textForDisk();
+}
+
+std::string TextBuffer::withLineEnding(std::string_view text, LineEnding e) {
+  const std::string_view sep = e == LineEnding::CRLF ? "\r\n" : e == LineEnding::CR ? "\r" : "\n";
+  std::string out;
+  out.reserve(text.size() + 16);
+  size_t start = 0, len = 0;
+  BreakFinder bf(text);
+  while (true) {
+    const size_t at = bf.next(start, len);
+    if (at == std::string_view::npos) {
+      out.append(text.substr(start));
+      return out;
+    }
+    out.append(text.substr(start, at - start));
+    out.append(sep);
+    start = at + len;
+  }
 }
 
 size_t TextBuffer::byteSize() const {
@@ -108,28 +188,32 @@ std::string TextBuffer::textInRange(Range r) const {
 }
 
 namespace {
-// Splits `text` into lines, dropping a '\r' that precedes a '\n'; appends to `out`.
+// Splits `text` into lines at "\r\n", "\n" and lone '\r'; appends to `out`.
 void splitInto(std::string_view text, std::vector<std::string>& out) {
-  size_t start = 0;
+  size_t start = 0, len = 0;
+  BreakFinder bf(text);
   while (true) {
-    size_t nl = text.find('\n', start);
-    if (nl == std::string_view::npos) {
+    const size_t at = bf.next(start, len);
+    if (at == std::string_view::npos) {
       out.emplace_back(text.substr(start));
       return;
     }
-    size_t end = nl;
-    if (end > start && text[end - 1] == '\r') --end;
-    out.emplace_back(text.substr(start, end - start));
-    start = nl + 1;
+    out.emplace_back(text.substr(start, at - start));
+    start = at + len;
   }
 }
 
 // Where the end of `text` lands when it is inserted at `start`.
 Position insertedEnd(Position start, std::string_view text) {
-  size_t last = text.rfind('\n');
-  if (last == std::string_view::npos) return {start.line, start.column + static_cast<int>(text.size())};
-  const int newlines = static_cast<int>(std::count(text.begin(), text.end(), '\n'));
-  return {start.line + newlines, static_cast<int>(text.size() - last - 1)};
+  size_t lastEnd = 0, len = 0;
+  int breaks = 0;
+  BreakFinder bf(text);
+  for (size_t at = bf.next(0, len); at != std::string_view::npos; at = bf.next(lastEnd, len)) {
+    ++breaks;
+    lastEnd = at + len;
+  }
+  if (!breaks) return {start.line, start.column + static_cast<int>(text.size())};
+  return {start.line + breaks, static_cast<int>(text.size() - lastEnd)};
 }
 }  // namespace
 
@@ -141,7 +225,7 @@ TextBuffer::EditResult TextBuffer::replace(Range r, std::string_view text) {
   EditResult res;
   res.removed = r;
   const size_t sl = static_cast<size_t>(r.start.line), el = static_cast<size_t>(r.end.line);
-  if (sl == el && text.find('\n') == std::string_view::npos) {  // keystroke fast path: edit the one line in place
+  if (sl == el && !hasBreak(text)) {  // keystroke fast path: edit the one line in place
     lines_[sl].replace(static_cast<size_t>(r.start.column), static_cast<size_t>(r.end.column - r.start.column), text);
     res.inserted = {r.start, insertedEnd(r.start, text)};
     return res;
@@ -193,7 +277,7 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
     if (r.end < r.start) std::swap(r.start, r.end);
     rs[k] = r;
     if (k > 0 && r.start < rs[k - 1].end) ordered = false;
-    if (r.start.line != r.end.line || edits[k].text.find('\n') != std::string_view::npos) sameLine = false;
+    if (r.start.line != r.end.line || hasBreak(edits[k].text)) sameLine = false;
   }
   if (!ordered) {  // contract violated: still do something well-defined (bottom-to-top, one at a time)
     for (size_t k = n; k-- > 0;) results[k] = replace(edits[k].range, edits[k].text);
@@ -215,7 +299,7 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
   // General case: build the new line vector once, moving untouched lines. `cur` is the line under construction;
   // (curLine, curCol) is the first old byte not yet consumed.
   size_t extra = 0;
-  for (const Edit& e : edits) extra += static_cast<size_t>(std::count(e.text.begin(), e.text.end(), '\n'));
+  for (const Edit& e : edits) extra += countBreaks(e.text);
   std::vector<std::string> out;
   out.reserve(lines_.size() + extra);
   std::string cur;
@@ -234,19 +318,18 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
     }
     cur.append(lines_[curLine], curCol, sc - curCol);
     std::string_view text = edits[k].text;
-    size_t start = 0;
+    size_t start = 0, blen = 0;
+    BreakFinder bf(text);
     while (true) {
-      size_t nl = text.find('\n', start);
-      if (nl == std::string_view::npos) {
+      const size_t at = bf.next(start, blen);
+      if (at == std::string_view::npos) {
         cur.append(text.substr(start));
         break;
       }
-      size_t end = nl;
-      if (end > start && text[end - 1] == '\r') --end;
-      cur.append(text.substr(start, end - start));
+      cur.append(text.substr(start, at - start));
       out.push_back(std::move(cur));
       cur.clear();
-      start = nl + 1;
+      start = at + blen;
     }
     curLine = static_cast<size_t>(r.end.line);
     curCol = static_cast<size_t>(r.end.column);

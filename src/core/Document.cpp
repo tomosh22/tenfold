@@ -29,7 +29,10 @@ bool Document::loadFromDisk(std::string* error) {
   }
   std::stringstream ss;
   ss << in.rdbuf();
-  buf_.setText(ss.str());
+  DecodedText dec = decodeFileBytes(ss.str());
+  buf_.setText(dec.text);
+  encoding_ = dec.encoding;
+  saveNote_.clear();
   dirty_ = false;
   onDisk_ = true;
   undo_.clear();
@@ -41,12 +44,22 @@ bool Document::loadFromDisk(std::string* error) {
 }
 
 bool Document::saveToDisk(std::string* error) {
+  std::string bytes;
+  saveNote_.clear();
+  size_t bad = 0;
+  if (!encodeText(buf_.textForDisk(), encoding_, bytes, &bad)) {
+    // A character the file's code page cannot hold: keep the user's text, change the file to UTF-8.
+    const std::string was = encodingName(encoding_);
+    saveNote_ = path_.filename().string() + " contains characters that " + was + " cannot represent; saved as UTF-8";
+    encoding_ = Encoding::Utf8;
+    bytes = buf_.textForDisk();
+  }
   std::ofstream out(path_, std::ios::binary | std::ios::trunc);
   if (!out) {
     if (error) *error = "cannot write " + path_.string();
     return false;
   }
-  out << buf_.textForDisk();
+  out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
   dirty_ = false;
   onDisk_ = true;
   return true;

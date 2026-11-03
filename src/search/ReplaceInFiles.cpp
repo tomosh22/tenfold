@@ -22,10 +22,10 @@ std::string replaceMatchesInText(std::string_view text, std::vector<SearchMatch>
   std::sort(matches.begin(), matches.end(), [](const SearchMatch& a, const SearchMatch& b) {
     return a.line != b.line ? a.line < b.line : a.column < b.column;
   });
-  // Line start offsets; a line ends before its '\n' (and a '\r' in front of it).
+  // Line start offsets; a line ends before its '\n' (and a '\r' in front of it) or at a lone '\r'.
   std::vector<size_t> starts{0};
   for (size_t i = 0; i < text.size(); ++i)
-    if (text[i] == '\n') starts.push_back(i + 1);
+    if (text[i] == '\n' || (text[i] == '\r' && !(i + 1 < text.size() && text[i + 1] == '\n'))) starts.push_back(i + 1);
   auto lineView = [&](int l) {
     const size_t b = starts[static_cast<size_t>(l)];
     size_t e = static_cast<size_t>(l) + 1 < starts.size() ? starts[static_cast<size_t>(l) + 1] - 1 : text.size();

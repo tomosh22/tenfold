@@ -9,6 +9,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <unordered_map>
 #include <vector>
 
 #include "core/Document.h"
@@ -321,6 +322,9 @@ class SemanticEngine {
   Position toServer(const Document& doc, Position p) const;
   Range toServer(const Document& doc, Range r) const { return {toServer(doc, r.start), toServer(doc, r.end)}; }
   Position posFromServer(const std::string& uri, Position p) const;
+  // Encoding of a file that is NOT open as a Document (clangd reads those from disk, so its columns count the file's
+  // raw bytes); cached per path and invalidated by mtime/size. Utf8 for unreadable or huge files.
+  Encoding diskEncoding(const std::filesystem::path& file) const;
   Range rangeFromServer(const std::string& uri, Range r) const {
     return {posFromServer(uri, r.start), posFromServer(uri, r.end)};
   }
@@ -424,6 +428,13 @@ class SemanticEngine {
     uint64_t generation = 0;
     int pendingVersion = 0;
   };
+  struct DiskEncoding {
+    int64_t mtime = 0;
+    uint64_t size = 0;
+    Encoding enc = Encoding::Utf8;
+  };
+  mutable std::mutex encMu_;
+  mutable std::unordered_map<std::string, DiskEncoding> diskEnc_;
   mutable std::mutex tokMu_;
   std::map<std::string, TokenState> tokens_;
   TokenStats tokenStats_;

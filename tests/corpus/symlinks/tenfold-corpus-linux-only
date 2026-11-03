@@ -1,0 +1,1 @@
+Symlinks need a checkout that creates them: the corpus test skips this project on Windows.

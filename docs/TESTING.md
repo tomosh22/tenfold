@@ -190,5 +190,11 @@ Where `docs/IMPLEMENTATION_PLAN.md` (W9) left room, the harness does this:
 10. **Agreement** compares `file:line` sets at every `def`/`decl` line; `rate` is `agree / queries`.
 11. **Hover** is the raw text clangd returns (markdown); `~` is a plain substring test.
 12. **`@CORPUS_ROOT@`** in a copied `compile_commands.json` names the scratch copy.
-13. Not handled yet: a UTF-8 BOM on the first line shifts the anchors of line 1 by three bytes in the scan but not
-    necessarily in the document (found by the format corpora when they add such a file).
+13. Encodings and line endings: a line ends at `\r\n`, `\n` or a lone `\r` (the scanner, `TextBuffer` and clang agree).
+    Files are scanned as the UTF-8 text tenfold shows: a Latin-1 / UTF-16 file is decoded first (`core/TextEncoding.h`), so
+    anchor columns are byte offsets of that text (for UTF-8 files: of the file as stored). A UTF-8 BOM stays in line 1 and
+    its three bytes count in the columns of line 1 (clangd's do too). Symbolic links are copied as links and are neither
+    followed nor scanned, so their targets' anchors appear once; `tests/corpus/symlinks` needs a checkout that creates
+    symlinks and is skipped on Windows (marker file `tenfold-corpus-linux-only`).
+14. An exception thrown by the engine while an expectation runs makes that line a `FAIL` (note `exception: ...`); the run
+    and the report continue.

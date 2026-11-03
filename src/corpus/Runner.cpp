@@ -14,6 +14,10 @@
 #include <sstream>
 #include <thread>
 
+#include "core/JsonUtil.h"
+#include "core/TextBuffer.h"
+#include "core/TextEncoding.h"
+
 #if defined(__unix__) || defined(__APPLE__)
 #include <sys/resource.h>
 #include <unistd.h>
@@ -79,19 +83,8 @@ long processId() {
 #endif
 }
 
-std::vector<std::string> splitLines(const std::string& text) {
-  std::vector<std::string> out;
-  size_t pos = 0;
-  for (;;) {
-    size_t nl = text.find('\n', pos);
-    std::string l = text.substr(pos, nl == std::string::npos ? std::string::npos : nl - pos);
-    if (!l.empty() && l.back() == '\r') l.pop_back();
-    out.push_back(std::move(l));
-    if (nl == std::string::npos) break;
-    pos = nl + 1;
-  }
-  return out;
-}
+// Lines end at "\r\n", "\n" or a lone '\r', like TextBuffer's and clang's (the BOM stays in line 1).
+std::vector<std::string> splitLines(const std::string& text) { return TextBuffer(text).lines(); }
 
 // The identifier at an anchor (a leading '~' of a destructor is not part of it).
 std::string tokenAt(const std::vector<std::string>& lines, const Anchor& a) {
@@ -154,6 +147,7 @@ class Runner {
 
   void record(ItemResult r);
   void runItem(const Item& it);
+  void failed(const Item& it, const std::string& what);
   void runCheck(const Item& it);
   void runConfig(const Item& it);
   void runOpen(const Item& it);
@@ -220,7 +214,8 @@ void Runner::copyTree(const fs::path& from, const fs::path& to) {
   for (fs::recursive_directory_iterator it(from, fs::directory_options::skip_permission_denied, ec), end;
        !ec && it != end; it.increment(ec)) {
     const std::string name = it->path().filename().string();
-    fs::path rel = fs::relative(it->path(), from, ec);
+    // lexically: fs::relative() resolves symlinks, which would name a copied link after its target (W9e H1)
+    const fs::path rel = it->path().lexically_relative(from);
     if (it->is_symlink(ec)) {
       fs::copy_symlink(it->path(), to / rel, ec);
     } else if (it->is_directory(ec)) {
@@ -265,7 +260,7 @@ void Runner::record(ItemResult r) {
 
 std::string Runner::currentText(const fs::path& file) {
   if (Document* d = ed_->document(file)) return d->buffer().text();
-  return readFile(file);
+  return decodeFileBytes(readFile(file)).text;  // columns are those of the UTF-8 text tenfold shows
 }
 
 void Runner::rescanFile(const std::string& rel, const std::string& text) {
@@ -408,10 +403,21 @@ void Runner::flushAgreement() {
   for (auto& p : todo) {
     if (remainingMs() <= 0) break;
     std::string err;
-    if (!moveTo(p.anchor, err)) continue;
-    ensureReady(anchors_[p.anchor].file);
+    try {
+      if (!moveTo(p.anchor, err)) continue;
+      ensureReady(anchors_[p.anchor].file);
+    } catch (const std::exception& e) {  // W9e H2: an engine exception costs this comparison, not the run
+      ed_->semantic().setFastOnlyQueries(haveClangd_);
+      continue;
+    }
     Item dummy;
-    Answer fin = queryLocs(p.kind, dummy, false, anchors_[p.anchor]);
+    Answer fin;
+    try {
+      fin = queryLocs(p.kind, dummy, false, anchors_[p.anchor]);
+    } catch (const std::exception&) {
+      ed_->semantic().setFastOnlyQueries(haveClangd_);
+      continue;
+    }
     if (!fin.got) continue;
     sample(p.kind, false, fin.ms);
     ++rep_.agreeTotal;
@@ -693,12 +699,31 @@ void Runner::runEdit(const Item& it) {
 }
 
 void Runner::runItem(const Item& it) {
-  switch (it.type) {
-    case Item::Type::Check: return runCheck(it);
-    case Item::Type::Config: return runConfig(it);
-    case Item::Type::Open: return runOpen(it);
-    case Item::Type::Edit: return runEdit(it);
+  // W9e H2: whatever the engine throws while answering one line is that line's FAIL (with the exception text); the
+  // run goes on with the next line and the report is still written.
+  try {
+    switch (it.type) {
+      case Item::Type::Check: return runCheck(it);
+      case Item::Type::Config: return runConfig(it);
+      case Item::Type::Open: return runOpen(it);
+      case Item::Type::Edit: return runEdit(it);
+    }
+  } catch (const std::exception& e) { failed(it, std::string("exception: ") + e.what()); } catch (...) {
+    failed(it, "exception: unknown");
   }
+}
+
+void Runner::failed(const Item& it, const std::string& what) {
+  ed_->semantic().setFastOnlyQueries(haveClangd_);  // the throw may have skipped the restore in queryLocs
+  ItemResult r;
+  r.line = it.line;
+  r.text = it.text;
+  r.kind = it.kind;
+  r.fast = it.fast;
+  r.isCheck = it.type == Item::Type::Check;
+  r.status = Status::Fail;
+  r.note = what;
+  record(std::move(r));
 }
 
 bool Runner::setup() {
@@ -890,7 +915,7 @@ std::string Report::toJson() const {
     rs.push_back(x);
   }
   j["results"] = rs;
-  return j.dump(2, ' ', false, Json::error_handler_t::replace);
+  return dumpSafe(j, 2);
 }
 
 }  // namespace tf::corpus

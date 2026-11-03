@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/JsonUtil.h"
 #include "core/Platform.h"
 #include "semantic/XmlLite.h"
 
@@ -147,7 +148,7 @@ bool CompileDatabase::save(const std::vector<CompileCommand>& cmds, const fs::pa
     if (error) *error = "cannot write " + jsonFile.string();
     return false;
   }
-  out << arr.dump(2);
+  out << dumpSafe(arr, 2);
   return true;
 }
 

@@ -347,6 +347,49 @@ TEST(app_control_s_saves_and_a_second_control_s_is_save_all) {
   CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("Hi!int a0;"));
 }
 
+// W9-FIX-ENC: a Latin-1 file and a CR-only file open in the app (with the engine's default clangd running, which used
+// to terminate the editor on the Latin-1 bytes), show the decoded text and the right line count, and save back in their
+// own encoding / line ending.
+TEST(app_opens_latin1_and_cr_only_files_displays_them_and_saves_them_in_their_own_format) {
+  Env env;
+  auto slurp = [&](const char* f) {
+    std::ifstream in(env.dir / f, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+  };
+  const std::string latin =
+      "const char* s = \"Gr\xF6\xDF"
+      "e\";\r\nint x;\r\n";
+  const std::string cr = "int a;\rint b;\rint c;\r";
+  std::ofstream(env.dir / "lat.cpp", std::ios::binary) << latin;
+  std::ofstream(env.dir / "cr.c", std::ios::binary) << cr;
+
+  env.bench->openFile("lat.cpp");
+  REQUIRE(env.curFile() == "lat.cpp");
+  Document* d = env.ed->currentDocument();
+  CHECK_EQ(d->buffer().line(0), std::string("const char* s = \"Gr\xC3\xB6\xC3\x9F"
+                                            "e\";"));
+  CHECK(d->encoding() == Encoding::Windows1252);
+  env.key(Key::Right);  // a frame: the status bar follows the current document
+  CHECK_EQ(env.status("eol"), std::string("CRLF"));
+  env.key(Key::Home);
+  env.type("//");
+  CHECK(env.key(Key('S'), ModCtrl));
+  CHECK_EQ(slurp("lat.cpp"), "//" + latin);  // the very same bytes, only the typed text added
+
+  env.bench->openFile("cr.c");
+  REQUIRE(env.curFile() == "cr.c");
+  d = env.ed->currentDocument();
+  CHECK_EQ(d->buffer().lineCount(), 4);
+  CHECK_EQ(d->buffer().line(1), std::string("int b;"));
+  env.key(Key::Right);
+  CHECK_EQ(env.status("eol"), std::string("CR"));
+  env.key(Key::Home);
+  env.type("//");
+  CHECK(env.key(Key('S'), ModCtrl));
+  CHECK_EQ(slurp("cr.c"), "//" + cr);
+  CHECK(env.app->message().empty());
+}
+
 TEST(app_middle_click_still_reaches_the_widgets_while_its_commands_are_missing) {
   Env env;
   env.bench->openFile("a.cpp");

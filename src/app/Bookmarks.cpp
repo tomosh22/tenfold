@@ -4,6 +4,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/JsonUtil.h"
 #include "core/PathUtil.h"
 
 namespace tf {
@@ -143,7 +144,7 @@ bool Bookmarks::save(const fs::path& jsonFile, const fs::path& root, std::string
     if (error) *error = "cannot write " + jsonFile.string();
     return false;
   }
-  out << j.dump(2);
+  out << dumpSafe(j, 2);
   dirty_ = false;
   return true;
 }
