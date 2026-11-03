@@ -349,6 +349,12 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Workbench.CycleMruPrev", "Previous Recent Document");
   addUi(r, "Workbench.FocusPanel", "Focus Panel (argument: index)");
   addUi(r, "Workbench.CloseTab", "Close Tab");
+  addUi(r, "Workbench.CloseOtherTabs", "Close All Other Tabs");
+  addUi(r, "Workbench.CloseAllButPinned", "Close All But Pinned Tabs");
+  addUi(r, "Workbench.PinTab", "Pin Tab");
+  addUi(r, "Workbench.TogglePinTab", "Toggle Pin Tab");
+  addUi(r, "File.CopyPath", "Copy Full Path");
+  addUi(r, "App.ShowContextMenu", "Show Context Menu");
   addUi(r, "Workbench.ReopenClosedTab", "Reopen Closed Tab");
   // W8b: tabs, panels and view
   addUi(r, "Workbench.PrevTab", "Previous Tab in Panel");

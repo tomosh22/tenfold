@@ -84,6 +84,11 @@ StatusBar::Segment* StatusBar::segmentAt(float x, float y) {
   return nullptr;
 }
 
+std::string StatusBar::keyAt(float x, float y) {
+  const Segment* s = segmentAt(x, y);
+  return s ? s->key : std::string();
+}
+
 void StatusBar::setDebugging(bool on) {
   if (debugging_ == on) return;
   debugging_ = on;

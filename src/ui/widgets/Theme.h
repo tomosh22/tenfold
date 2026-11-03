@@ -66,6 +66,12 @@ struct Theme {
   Color tabInactiveText{0, 0, 0, 0};       // title of an inactive, un-hovered tab; unset = textDim
   Color popupBackground{0, 0, 0, 0};       // pickers, completion list, find box; unset = tabInactive
   Color popupBorder{0, 0, 0, 0};           // their 1px border; unset = splitterHot
+  // Context menus (W8f). Unset keeps the popup look: background = popupBackground (else tabInactive), border =
+  // popupBorder (else splitterHot), highlighted item = selection, separator = splitter.
+  Color menuBackground{0, 0, 0, 0};
+  Color menuBorder{0, 0, 0, 0};
+  Color menuSelection{0, 0, 0, 0};
+  Color menuSeparator{0, 0, 0, 0};
   // Debugger (C2c). Breakpoint glyph: unset = #E51400; current statement line / arrow: unset = dirtyMarker at 25% /
   // dirtyMarker.
   Color debugBreakpoint{0, 0, 0, 0};

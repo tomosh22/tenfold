@@ -1138,6 +1138,42 @@ badge, `dim` rows for approximate results) + optional preview pane + a status la
 PageUp/PageDown/Ctrl+Home/Ctrl+End (Home/End too without an input), Enter accepts, Escape closes; mouse: hover, click
 accepts, click outside closes, wheel scrolls. Callbacks: `onQuery`, `onAccept`, `onSelection`, `onClosed`.
 
+### Context menus (W8f, `src/ui/widgets/ContextMenu.*`, `src/ui/features/ContextMenus.*`, `EditorApp`)
+
+`ContextMenu` is a modal top-layer widget like `ListPopup`: `ContextMenu::open(root, menu, anchor, keyboard)` shows it
+through `showModal` (previous focus restored on close). Items are `MenuItem`s (label, display-only shortcut, enabled,
+separator, optional `sub` submenu, `action`); the geometry is computed on demand from the root's size (below the anchor
+rectangle, above it when there is no room, clamped to the window; a submenu to the right of its parent item or to the
+left). Keys: Up / Down / Home / End over the enabled items (wrapping), Right / Left open and close a submenu, Enter /
+Space run, Escape closes the innermost menu, a typed letter jumps to the next enabled item starting with it. Mouse:
+hover selects and opens a submenu, a left press runs the item (not the release: the menu opens under the pointer, so the
+release of the opening right click must not hit an item), a press outside closes. The action runs after the menu has
+closed.
+
+Menus are data (`ContextMenus.cpp`): a list of `MenuEntry` (command name, label, optional "only on a version-control
+change"). `buildMenu` turns it into items through two hooks that `EditorApp` fills (`buildCommandMenu`): an entry is
+**left out** when its command is unknown, a 10x command tenfold lacks (`ShowInWorkspaceTree` until the tree exists) or
+has no handler, **greyed out** when `Command::enabled` says no, and shows the first key binding in 10x notation
+(`bindingFor`). A menu item never carries behaviour: it calls `runCommandId`. Separators that would lead, trail or repeat
+are dropped.
+
+`EditorApp::handleEventImpl` intercepts a right `MouseDown` (no modal open) and calls `openContextMenuAt`; the
+`App.ShowContextMenu` command (10x `ShowContextMenu`, Shift F10 / AppsKey) calls `openContextMenuForFocus` and closes an
+open menu instead when pressed again. Both go through `menuRequestFor(target, x, y, keyboard)`: first the **providers**
+(`addContextMenuProvider`, newest first; the hook for the workspace explorer tree and any other widget that owns a menu:
+it gets the widget under the pointer, or the focused widget with `keyboard` set, and fills items plus an anchor), then
+the built-ins found by walking up from the widget: a `TextView` (editor menu; with the mouse the view and panel become
+active and the caret goes under the pointer unless it is inside a selection; from the keyboard the anchor is the caret
+rectangle clamped into the view), a `TabStrip` (the clicked tab is activated first, because the tab commands act on the
+active tab), a `StatusBar` segment (`StatusBar::keyAt`). Widgets that ignore the right button are untouched, so a right
+click where no menu applies still reaches them (the navigation dropdown buttons).
+
+Commands added for the menus (all thin over existing `Workbench` calls): `Workbench.CloseOtherTabs` (10x
+`CloseAllOtherTabs`), `Workbench.CloseAllButPinned` (`CloseAllButPinnedTabs`), `Workbench.PinTab` / `TogglePinTab`,
+`File.CopyPath` (`CopyActiveFilePath`) and `App.ShowContextMenu`. The two close commands skip the last view of a modified
+document (a message says how many were kept) instead of opening one prompt per tab. Theme keys `menuBackground`,
+`menuBorder`, `menuSelection`, `menuSeparator` are optional (popup colours otherwise).
+
 ### Pickers (`src/ui/features`, B5a)
 
 All pickers are owned by `EditorApp` and share a `PickerEnv` (root, editor, `LineSource` for previews, the app clock).

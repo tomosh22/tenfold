@@ -43,6 +43,11 @@ color.tabActiveText = #FFFFFF
 color.tabInactiveText = #D0D0D0
 color.popupBackground = #252526
 color.popupBorder = #3F3F46
+# Context menus (VS dark menu values).
+color.menuBackground = #1F1F1F
+color.menuBorder = #3F3F46
+color.menuSelection = #3E3E40
+color.menuSeparator = #3F3F46
 # Selected row in pickers / completion list / find box buttons.
 color.selection = #094771
 
