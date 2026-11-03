@@ -1093,6 +1093,49 @@ so) plus the last build's `Editor::buildDiagnostics`, labelled "build"; errors f
 Enter -> `gotoLocation`. Engine additions (additive): `Editor::hoverAt(doc, pos, done)` and
 `Editor::signatureHelp(done)`.
 
+### 10x parser commands (W8c, `src/ui/features/{RenameInput,FunctionPicker,ParserCommands}.*`, `EditorApp::bindParserCommands`)
+
+Eight 10x commands wire the existing engine features to 10x's default keys; none re-implements a feature.
+
+* **RenameSymbol / SubmitRenameSymbol** (`Control R`, then `Enter`): `RenameInput` is a non-modal top-layer box under the
+  symbol (a bordered widget holding an `InputLine`, pre-filled and selected, focused). While it is open
+  `EditorApp::activeContext()` is `"popup"`, which is the context 10x's `Enter: SubmitRenameSymbol` binding lives in
+  (CommandNames.cpp), so Enter never reaches the editor's `Editor.Enter`; Escape and a click outside cancel; Up/Down/PageUp/
+  PageDown are swallowed by the box (they are `AutocompleteUp...` in the popup context and must not report "not implemented").
+  The engine half is `Editor::renameSymbol(at, name, done)` over `SemanticEngine::rename` (clangd's `textDocument/rename`).
+  **No approximate tier (constraint 1.4):** without a running clangd the command says so and opens nothing, and the engine
+  call answers `clangd not running`. `Editor::applyRenameEdits` applies the WorkspaceEdit: every file is opened first (a
+  failure to open one leaves all untouched), one undo group per document (`applyEdits`), documents that were open stay
+  open and dirty, files that were not open are saved (with `trimTrailingWhitespace` switched off for the write, so only the
+  renamed text changes) and closed again; a file that cannot be saved stays open and dirty and is named in the result.
+  A rename is dropped when the document changed while clangd was thinking.
+* **Autocomplete** (`Control Space`): `CompletionPopup::trigger()` is the same request as typing, anchored at the start of
+  the word at the caret whatever its length; an empty or failed answer says so in the status bar (typed triggers stay
+  silent). **ShowFunctionArgsInfo** (`Control Shift Space`): `SignatureHelp::trigger()` requests the call around the caret
+  (the scan for the unmatched `(` of the typed path) and reports "not inside a function call" / clangd's error.
+  **ShowSymbolInfo** (`Control K, Control I`): `HoverTooltip::showAtCaret()` fills the hover tooltip for the word at the
+  caret (diagnostics first, then `Editor::hoverAt`, greyed and marked when the fast index answers).
+* **FindFunction** (`Alt M`): `FunctionPicker`, a modal `ListPopup` over `Editor::documentSymbols` (new, current document;
+  `SemanticEngine::documentSymbols` already delivered the fast tier first and clangd's list as the authoritative
+  replacement). Only function-like symbols that are *defined* are listed (`isFunctionDefinition`): fast-tier symbols carry
+  a `definition` flag; clangd's document symbols do not, so `SymbolLocation::extent` (the full range, additive) is
+  inspected: a `{` before a `;` outside parentheses means a body. Source order, fuzzy filter on the qualified name, rows
+  greyed with the `verifying...` / `approximate (why)` badge until clangd answers, selection kept on replacement. Enter
+  is `Editor::gotoLocation` (navigation history).
+* **GotoSymbolDefinitionUnderMouse** (`MouseMiddleButton`): `Editor::gotoDefinitionAt(doc, pos, done)` is `gotoDefinition`
+  for a position other than the caret: the same two-tier query and `autoJump`, except that a single answer that is the
+  asked-about spot itself does not jump. `TextView::identifierAt(x, y)` is the hit test (inside the text area, over the
+  glyphs of an identifier, not over blank space after a line or a number). `EditorApp::handleEventImpl` runs the command
+  only when that test succeeds; over a tab, the gutter, a picker or blank text the middle click is dispatched to the
+  widgets exactly as before, so `TabStrip`'s middle-click close is untouched. The caret does not move and the answers share
+  the `Editor.Goto*` result picker for several definitions. From the command palette it uses the last mouse position.
+* **FormatSelection** (`Control K, Control F`): `Editor::formatRange` (clangd range formatting, one undo group). The range
+  is the first non-empty selection (the primary one first); without a selection it is `formatScopeRange`: the innermost
+  `{ }` block around the caret as whole lines from the line of the `{` to the line of the `}` (comments, string and
+  character literals and preprocessor lines skipped), else the caret line. clangd only (no approximate formatting).
+* **InsertPrevAutocomplete / InsertNextAutocomplete** are not implemented: their description does not say what is inserted.
+  See FEATURE_PARITY.md.
+
 ## Commands and key bindings (`src/ui/commands`, `src/ui/settings/KeyBindings.*`, part of `tenfold_ui`)
 
 Every user action is a named `Command` (`Editor.GotoDefinition`, `Nav.Back`, ...: id, human name, handler

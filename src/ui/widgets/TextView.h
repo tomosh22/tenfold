@@ -150,6 +150,10 @@ class TextView : public Widget {
   // it is scrolled out of view; both use scroll offsets of the last paint-independent state (the viewport now).
   Position positionAt(float x, float y) const;
   RectF caretRect(Position p) const;
+  // The start of the identifier drawn under the point (window pixels), for commands that act on the symbol under the
+  // mouse rather than at the caret. Nullopt over the gutter, the scrollbar, blank space, line ends,
+  // numbers and punctuation. Pure geometry: it does not move the caret.
+  std::optional<Position> identifierAt(float x, float y) const;
   RectF textArea() const;  // the clip rect of text (right of the gutter)
   int visibleLineCount() const;
   // Debugger glyph lane (C2c): present when the Editor has a debugger backend or any breakpoint; width 0 otherwise.

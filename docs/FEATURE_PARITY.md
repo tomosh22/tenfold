@@ -44,7 +44,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Autocomplete | ✅ | clangd, detailed style; approximate fallback (greyed). GUI (B5b): popup at the caret, `.` `->` `::` and 2+ identifier characters, client-side fuzzy filter, docs pane, Tab / Enter accept as one undo step. |
 | Signature help | ✅ | GUI (B5b): on `(` / `,`, active parameter highlighted, follows commas locally, Escape / `)` closes. |
 | Hover / quick info | ✅ | GUI (B5b): 400 ms dwell, diagnostics first, approximate text greyed. |
-| Rename | ✅ | Returns a per-file edit map; GUI applies it. |
+| Rename | ✅ | clangd only, no approximate tier (an approximate rename would be wrong). GUI (W8c, Control R, Enter): inline box pre-filled with the symbol; open documents are edited in place (one undo step per file), closed files are edited and written to disk. |
 | Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`; squiggles + scrollbar markers in TextView (B2b); list of open-file and build diagnostics (B5b, Ctrl+Shift+M). |
 | Switch header/source | ✅ | clangd extension, fallback by stem. |
 | Semantic highlighting | ✅ | Lexical colours instantly (cached per line, background exact pass), clangd semantic tokens override identifiers only — no flicker (A9 + B2b). Palette pending OPEN_QUESTIONS #7. |
@@ -73,7 +73,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | 🔶 | B1 foundation merged (`-DTENFOLD_BUILD_UI=ON`): SDL3 window/input, batched GL 3.3 renderer, FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. `tenfold-ui <file>` renders files with a line-number gutter (B1c; 0.29 ms CPU/frame for a 10k-line file). Retained widget layer + TabStrip (pinned, MRU, drag reorder), Splitter, Panel, StatusBar (B3a; `tenfold-ui --shell`, 2 draw calls/frame). TextView (B2) and Workbench layout persistence (B3b) in progress. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 49 of the 183 default bindings (47 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 41 of the 183 default bindings (39 commands) are not implemented yet (table below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b; some palette values recalled from memory, listed in the theme header; no control-keyword / escape-sequence colours yet). |
 | Settings as text file | 🔶 | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -99,8 +99,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 134 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 49 bindings (47 distinct commands, below) stay bound, so the file matches 10x;
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 142 of the 183 run a tenfold command
+today (the table in the user guide, "Key bindings"). The other 41 bindings (39 distinct commands, below) stay bound, so the file matches 10x;
 pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
@@ -178,19 +178,17 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 
 | Command | Default keys | 10x description |
 | --- | --- | --- |
-| `GotoSymbolDefinitionUnderMouse` | `MouseMiddleButton` | Jump to the definition of the symbol at the mouse position |
-| `RenameSymbol` | `Control R` | Rename the current symbol |
-| `SubmitRenameSymbol` | `Enter` | Submit the current symbol rename |
-| `FindFunction` | `Alt M` | Open the Find Function panel to find a function defnition in the current file |
-| `Autocomplete` | `Control Space` | Show the autocomplete dropdown |
 | `AutocompleteUp` | `Up` | Move to the previous item in the autocomplete list |
 | `AutocompleteDown` | `Down` | Move to the next item in the autocomplete list |
 | `AutocompletePageUp` | `PageUp` | Page selection up in the autocomplete list |
 | `AutocompletePageDown` | `PageDown` | Page selection down in the autocomplete list |
-| `ShowFunctionArgsInfo` | `Control Shift Space` | If cursor is in a function call show the function declaration |
 | `InsertPrevAutocomplete` | `Shift F14` | Insert prev autocomplete |
 | `InsertNextAutocomplete` | `F14` | Insert next autocomplete |
-| `ShowSymbolInfo` | `Control K, Control I` | Show the symbol info for the current symbol |
+
+`InsertPrev/NextAutocomplete` stay unimplemented on purpose (W8c): the one-line description does not say which list is
+walked (the completion list, previously typed words?), whether the typed word is replaced in place or whether F14 first
+needs an open dropdown. The four `Autocomplete*` list keys already work: the completion popup handles Up, Down, PageUp and
+PageDown itself while it is open.
 
 **Build**
 
@@ -219,12 +217,6 @@ find-in-files picker, `ListBreakpoints` opens the breakpoint picker instead of w
 | `PrevBookmarkInFile` | `Shift Alt F2` | Go to the previous bookmark in the current file |
 | `NextBookmarkInFile` | `Alt F2` | Go to the next bookmark in the current file |
 | `RemoveAllBookmarksFromFile` | `Control Shift F2` | Remove all bookmarks from the current file |
-
-**Formatting**
-
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `FormatSelection` | `Control K, Control F` | Format the selection or the current scope if no selection |
 
 **Panels**
 

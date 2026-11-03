@@ -35,6 +35,9 @@ struct SymbolLocation {
   std::string kind;       // human-readable kind
   bool definition = true;
   Confidence confidence = Confidence::Authoritative;
+  // Whole extent of the symbol (byte columns) for document symbols answered by clangd: a function definition's
+  // extent contains its body, a declaration's ends at the `;`. Empty (start == end) when unknown.
+  Range extent;
 };
 
 struct Diagnostic {

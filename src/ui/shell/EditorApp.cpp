@@ -9,6 +9,7 @@
 
 #include "ui/commands/CommandNames.h"
 #include "ui/commands/EditorCommands.h"
+#include "ui/features/ParserCommands.h"
 #include "ui/platform/Clipboard.h"
 #include "ui/settings/Settings.h"
 #include "ui/widgets/TextView.h"
@@ -116,6 +117,13 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   completion_ = std::make_unique<CompletionPopup>(pickerEnv_);
   hover_ = std::make_unique<HoverTooltip>(pickerEnv_);
   sigHelp_ = std::make_unique<SignatureHelp>(pickerEnv_);
+  rename_ = std::make_unique<RenameInput>(pickerEnv_);
+  rename_->onClosed([this] {  // give the keys back to the editor view
+    forEachView([&](TextView& v) {
+      if (v.isCurrent() && v.visible()) v.setFocus();
+    });
+  });
+  functions_ = std::make_unique<FunctionPicker>(pickerEnv_);
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
   saveAs_ = std::make_unique<SaveAsPrompt>(pickerEnv_);
@@ -153,6 +161,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   }
   registerEditorCommands(registry_);
   bindUiCommands();
+  bindParserCommands();
   keyOpts_.workspaceRoot = editor.workspace().root();
   keyOpts_.userDir = userDir;
   if (!userDir.empty() && userDir == userConfigDir()) keyOpts_.import10xFile = default10xKeyMappingsPath();
@@ -216,6 +225,8 @@ EditorApp::~EditorApp() {
   completion_.reset();
   hover_.reset();
   sigHelp_.reset();
+  rename_.reset();
+  functions_.reset();
   life_.reset();
   editor_.onSemanticTokens(nullptr);
   if (settings_) {
@@ -356,6 +367,7 @@ void EditorApp::closePickers() {
   bookmarkList_->close();
   breakpointList_->close();
   compileInfo_->close();
+  functions_->close();
   palette_->close();
   unsaved_->close();
   saveAs_->close();
@@ -894,6 +906,7 @@ void EditorApp::bindPanelCommands() {
 
 const char* EditorApp::activeContext() const {
   if (root_.modal()) return "picker";
+  if (rename_ && rename_->isOpen()) return "popup";  // the rename box: Enter is SubmitRenameSymbol
   return dynamic_cast<TextView*>(root_.focused()) ? "editor" : "global";
 }
 
@@ -920,7 +933,13 @@ void EditorApp::setMessage(const std::string& text, int ttlMs, bool pending) {
 
 bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
   now_ = nowMs;
-  if (root_.modal()) {  // a picker owns the screen: the editor popups step aside
+  if (e.type == InputType::MouseMove || e.type == InputType::MouseDown || e.type == InputType::MouseUp) {
+    mouseX_ = e.x;
+    mouseY_ = e.y;
+  }
+  if (e.type == InputType::MouseDown && rename_->isOpen() && !ui::contains(rename_->box()->bounds(), e.x, e.y))
+    rename_->cancel();  // a click elsewhere abandons the rename; the click itself still goes through
+  if (root_.modal() || rename_->isOpen()) {  // a picker or the rename box owns the keys: the editor popups step aside
     completion_->close();
     sigHelp_->close();
     hover_->dismiss();
@@ -933,7 +952,7 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
     hover_->dismiss();
   }
   const bool r = handleEventImpl(e, nowMs);
-  if (!root_.modal()) {
+  if (!root_.modal() && !rename_->isOpen()) {
     if (e.type == InputType::Text) {
       completion_->onTyped(e.text);
       sigHelp_->onTyped(e.text);
@@ -974,9 +993,14 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
       return r.abortedChord || root_.dispatch(e);  // an aborted chord's stroke is swallowed
     case KeyMap::Status::Matched: break;
   }
+  // GotoSymbolDefinitionUnderMouse only takes the middle click over an identifier of a text view; anywhere else (a tab,
+  // the gutter, blank space, a picker) the click goes to the widgets as before, so a middle click still closes tabs.
+  if (chord.mouse && chord.button == MouseButton::Middle && r.binding->command == "Editor.GotoDefinitionUnderMouse" &&
+      !identifierUnderMouse(e.x, e.y).first)
+    return root_.dispatch(e);
   if (!commandRunnable(r.binding->command)) {
-    // The middle button also closes tabs and so on: while its 10x commands (GotoSymbolDefinitionUnderMouse,
-    // AddCursorAtMousePos) are missing, the click goes to the widgets as before.
+    // The middle button also closes tabs and so on: while its other 10x command (AddCursorAtMousePos) is missing,
+    // the click goes to the widgets as before.
     if (chord.mouse && chord.button == MouseButton::Middle) return root_.dispatch(e);
     // A 10x binding for a command tenfold lacks must not take keys away from the focused input or the open picker
     // (Alt+R toggles regex in the find bar, ReplaceNextInFile is Alt+R in 10x): they get the key first.
@@ -1083,6 +1107,105 @@ int EditorApp::tick(int64_t nowMs) {
   if (keys_.pending()) soonest(100);
   if (expiry_) soonest(static_cast<int>(std::max<int64_t>(1, expiry_ - nowMs)));
   return wait;
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// W8c: the 10x parser commands. They wire the existing engine features (clangd rename, formatting, hover, signature
+// help, completion, document symbols) to commands. Only FindFunction and Autocomplete have a fast-tier fallback, and
+// both show which tier answered; rename and formatting say so when clangd is missing.
+// ---------------------------------------------------------------------------------------------------------------
+
+std::pair<TextView*, Position> EditorApp::identifierUnderMouse(float x, float y) {
+  Widget* w = root_.hitTest(x, y);
+  while (w && !dynamic_cast<TextView*>(w)) w = w->parent();
+  auto* v = static_cast<TextView*>(w);
+  if (!v || !v->document()) return {nullptr, {}};
+  if (const auto p = v->identifierAt(x, y)) return {v, *p};
+  return {nullptr, {}};
+}
+
+void EditorApp::bindParserCommands() {
+  const auto hasDoc = [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); };
+  // The features report their outcome in the status bar, so these handlers report success and keep that text.
+  registry_.bind(
+      "Editor.RenameSymbol",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        completion_->close();
+        sigHelp_->close();
+        hover_->dismiss();
+        rename_->open();
+        return true;
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.SubmitRenameSymbol", [this](const CommandContext&, std::string_view) { return rename_->submit(); },
+      [this](const CommandContext&) { return rename_->isOpen(); });
+  registry_.bind(
+      "Editor.Autocomplete",
+      [this](const CommandContext&, std::string_view) {
+        hover_->dismiss();
+        return completion_->trigger();
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.ShowFunctionArgs", [this](const CommandContext&, std::string_view) { return sigHelp_->trigger(); },
+      hasDoc);
+  registry_.bind(
+      "Editor.ShowSymbolInfo",
+      [this](const CommandContext&, std::string_view) {
+        hover_->showAtCaret();
+        return true;
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.FindFunction",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        functions_->open();
+        return true;
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.GotoDefinitionUnderMouse",
+      [this](const CommandContext& c, std::string_view) {
+        const auto [view, pos] = identifierUnderMouse(mouseX_, mouseY_);
+        if (!view) {
+          setMessage("No symbol under the mouse", kMessageMs);
+          return true;
+        }
+        c.editor->gotoDefinitionAt(*view->document(), pos, c.onNavResult);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->started(); });
+  registry_.bind(
+      "Editor.FormatSelection",
+      [this](const CommandContext& c, std::string_view) {
+        Editor& ed = *c.editor;
+        if (!ed.started() || !ed.semantic().status().clangdInitialized) {
+          setMessage("Format needs clangd, which is not running: it has no approximate tier", kMessageMs);
+          return true;
+        }
+        Range r{};
+        bool selected = false;
+        for (const Selection& s : ed.selections())  // the primary selection, else the first other one
+          if (!s.empty() && !selected) {
+            r = s.range();
+            selected = true;
+          }
+        if (!selected) r = formatScopeRange(ed.currentDocument()->buffer(), ed.selections()[0].head);
+        const std::string what = selected ? "selection" : "scope";
+        ed.formatRange(r, [this, life = std::weak_ptr<int>(life_), what](const size_t& n, const std::string& err) {
+          if (life.expired()) return;
+          if (!err.empty()) setMessage("Format failed: " + err, kMessageMs);
+          else if (n == 0) setMessage("The " + what + " is already formatted", kMessageMs);
+          else
+            setMessage("Formatted the " + what + " (" + std::to_string(n) + (n == 1 ? " edit)" : " edits)"),
+                       kMessageMs);
+        });
+        return true;
+      },
+      hasDoc);
 }
 
 }  // namespace tf::ui

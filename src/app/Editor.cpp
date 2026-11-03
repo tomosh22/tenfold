@@ -1195,9 +1195,12 @@ bool Editor::goToHistoryEntry(size_t index) {
 // Semantic commands
 // ---------------------------------------------------------------------------
 
-void Editor::autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done) {
-  // Drop results that point at the caret itself (e.g. "definition" of a definition).
-  if (locs.size() == 1 && !(locs[0].loc.file == cursor_.file && locs[0].loc.pos.line == cursor_.pos.line)) {
+void Editor::autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done,
+                      const Location* origin) {
+  // Drop results that point at the asked-about spot itself (e.g. "definition" of a definition); that is the caret
+  // unless the question was about another position.
+  const Location& at = origin ? *origin : cursor_;
+  if (locs.size() == 1 && !(locs[0].loc.file == at.file && locs[0].loc.pos.line == at.pos.line)) {
     std::string e;
     if (gotoLocation(locs[0].loc, &e, locs[0].name)) {
       if (done) done(c, locs, err);
@@ -1216,6 +1219,29 @@ void Editor::gotoDefinition(NavResult done) {
       *current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
         post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
       });
+}
+
+void Editor::gotoDefinitionAt(Document& doc, Position pos, NavResult done) {
+  const Location origin{doc.path(), pos};
+  semantic_->gotoDefinition(
+      doc, pos, [this, origin, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+        post([this, origin, c, locs = std::move(locs), err, done]() mutable {
+          autoJump(c, std::move(locs), err, done, &origin);
+        });
+      });
+}
+
+void Editor::documentSymbols(NavResult done) {
+  if (!current_) {
+    if (done) done(Confidence::Approximate, {}, "no document");
+    return;
+  }
+  semantic_->documentSymbols(*current_,
+                             [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+                               post([c, locs = std::move(locs), err, done] {
+                                 if (done) done(c, locs, err);
+                               });
+                             });
 }
 
 void Editor::gotoDeclaration(NavResult done) {
@@ -1918,6 +1944,56 @@ void Editor::formatRange(Range range, Done<size_t> done) {
   semantic_->formatRange(*current_, range, [this, file, version, done](TextEditList edits, const std::string& err) {
     post([this, file, version, done, edits = std::move(edits), err] {
       applyFormatting(done, edits, err, file, version);
+    });
+  });
+}
+
+Editor::RenameResult Editor::applyRenameEdits(const FileEdits& edits, std::string* error) {
+  RenameResult res;
+  std::vector<fs::path> wasClosed;
+  for (const auto& [f, list] : edits)
+    if (!list.empty() && !document(f)) wasClosed.push_back(f);
+  std::string e;
+  if (!applyEdits(edits, &e)) {
+    if (error) *error = e;
+    return res;
+  }
+  const bool trim = editing_.trimTrailingWhitespace;
+  editing_.trimTrailingWhitespace = false;  // a rename must not touch lines it did not edit
+  std::string saveError;
+  for (const auto& [f, list] : edits) {
+    if (list.empty()) continue;
+    res.edits += list.size();
+    Document* nd = document(f);
+    if (!nd) continue;
+    if (std::find(wasClosed.begin(), wasClosed.end(), f) == wasClosed.end()) {
+      res.updated.push_back(f);
+    } else if (save(*nd, &saveError)) {
+      close(f);
+      res.written.push_back(f);
+    } else {
+      res.unsaved.push_back(f);
+    }
+  }
+  editing_.trimTrailingWhitespace = trim;
+  if (error) *error = saveError;
+  return res;
+}
+
+void Editor::renameSymbol(Position at, const std::string& newName, Done<RenameResult> done) {
+  TF_NEED_DOC(RenameResult, done)
+  const fs::path file = current_->path();
+  const int version = current_->version();
+  semantic_->rename(*current_, at, newName, [this, file, version, done](FileEdits edits, const std::string& err) {
+    post([this, file, version, done, edits = std::move(edits), err] {
+      if (!done) return;
+      if (!err.empty()) return done({}, err);
+      Document* d = document(file);
+      if (!d || d->version() != version) return done({}, "document changed while renaming");
+      if (edits.empty()) return done({}, "clangd returned no edits");
+      std::string e;
+      const RenameResult res = applyRenameEdits(edits, &e);
+      done(res, e);
     });
   });
 }

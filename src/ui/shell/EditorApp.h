@@ -23,11 +23,13 @@
 #include "ui/features/FileSearch.h"
 #include "ui/features/FindInFiles.h"
 #include "ui/features/FindReplace.h"
+#include "ui/features/FunctionPicker.h"
 #include "ui/features/GoToLine.h"
 #include "ui/features/HoverTooltip.h"
 #include "ui/features/NavResultPicker.h"
 #include "ui/features/NavigationUi.h"
 #include "ui/features/OsLauncher.h"
+#include "ui/features/RenameInput.h"
 #include "ui/features/SaveAsPrompt.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
@@ -107,6 +109,9 @@ class EditorApp {
   CompletionPopup& completion() { return *completion_; }
   HoverTooltip& hover() { return *hover_; }
   SignatureHelp& signatureHelp() { return *sigHelp_; }
+  // W8c parser commands: the inline rename box (Control R) and the "functions in this file" picker (Alt M).
+  RenameInput& renameInput() { return *rename_; }
+  FunctionPicker& functionPicker() { return *functions_; }
   BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
   VcsUi& vcsUi() { return *vcsUi_; }           // C3c: Vcs.* commands, revert confirmation, external diff tool
   void closePickers();
@@ -168,6 +173,8 @@ class EditorApp {
   bool commandRunnable(const std::string& id) const;
   void bindUiCommands();
   void bindEditingCommands();
+  std::pair<TextView*, Position> identifierUnderMouse(float x, float y);  // {null, _} when not over an identifier
+  void bindParserCommands();  // W8c: rename, autocomplete, signature help, symbol info, FindFunction, format
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
   std::string shortcutFor(const std::string& command) const;
@@ -215,6 +222,9 @@ class EditorApp {
   std::unique_ptr<CompletionPopup> completion_;
   std::unique_ptr<HoverTooltip> hover_;
   std::unique_ptr<SignatureHelp> sigHelp_;
+  std::unique_ptr<RenameInput> rename_;
+  std::unique_ptr<FunctionPicker> functions_;
+  float mouseX_ = 0, mouseY_ = 0;  // last pointer position (GotoSymbolDefinitionUnderMouse from the palette)
   std::unique_ptr<VcsUi> vcsUi_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
   std::unique_ptr<ExternalChanges> external_;

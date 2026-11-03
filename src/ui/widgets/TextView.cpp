@@ -1,6 +1,7 @@
 #include "ui/widgets/TextView.h"
 
 #include <algorithm>
+#include <cctype>
 #include <chrono>
 #include <cmath>
 #include <cstring>
@@ -442,6 +443,21 @@ RectF TextView::caretRect(Position p) const {
   const int row = W.rowOfByte(p.line, p.column);
   return {bounds().x + L.textOffset(b.lineCount()) - scrollX() + W.xOf(p.line, row, p.column),
           bounds().y + L.lineTop(rowMap().display(W.firstRowOf(p.line) + row), std::floor(vp_.y())), w, L.lineHeight()};
+}
+
+std::optional<Position> TextView::identifierAt(float x, float y) const {
+  const Document* d = document();
+  if (!d || !root() || !ui::contains(textArea(), x, y)) return std::nullopt;
+  const TextBuffer& b = d->buffer();
+  const TextBuffer::Word w = b.wordAt(b.clamp(positionAt(x, y)));
+  if (w.text.empty()) return std::nullopt;
+  const unsigned char c0 = static_cast<unsigned char>(w.text[0]);
+  if (!(std::isalpha(c0) || c0 == '_' || c0 >= 0x80)) return std::nullopt;  // a number or punctuation
+  if (w.range.start.line == w.range.end.line) {  // the point must be over the word, not in the blank after it
+    const RectF a = caretRect(w.range.start), z = caretRect(w.range.end);
+    if (a.y == z.y && (x < a.x || x >= z.x)) return std::nullopt;
+  }
+  return w.range.start;
 }
 
 std::string TextView::positionText() const {
