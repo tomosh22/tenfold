@@ -644,8 +644,9 @@ Key bindings work the way they do in 10x: the same file format, the same command
 
 Mistakes (unknown key or modifier, missing colon, Python statements) are reported in the status bar with the file and
 line, and the line is skipped (Python lines load as described above); a duplicate binding in one file warns and the later
-one wins. **Key bindings are read once at start**; restart tenfold after editing them. (`keys.import10x` is read from
-`settings.txt` as soon as the settings schema lists it, see below.)
+one wins. **Key bindings are read once at start**; restart tenfold after editing them. (`keys.import10x` is already
+read by the app, but its entry in the settings schema (`settings.default.txt`) is added separately; until then the
+import is always on.)
 
 Example `KeyMappings.10x_settings` in your user config dir:
 
