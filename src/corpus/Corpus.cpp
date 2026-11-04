@@ -27,22 +27,67 @@ std::string trim(std::string_view s) {
 }
 
 // One anchor comment at `at` (pointing at "/*@"): its name, and the offset just past "*/"; npos when there is none.
-size_t parseAnchorComment(std::string_view line, size_t at, std::string& name) {
+// `/*@name~*/` marks the token as a destructor name (`dtor`).
+size_t parseAnchorComment(std::string_view line, size_t at, std::string& name, bool* dtor = nullptr) {
   if (line.compare(at, 3, "/*@") != 0) return std::string::npos;
   size_t i = at + 3;
   size_t b = i;
   while (i < line.size() && isNameChar(line[i])) ++i;
-  if (i == b || line.compare(i, 2, "*/") != 0) return std::string::npos;
-  name.assign(line.substr(b, i - b));
+  if (i == b) return std::string::npos;
+  const size_t nameEnd = i;
+  bool tilde = false;
+  if (i < line.size() && line[i] == '~') {
+    tilde = true;
+    ++i;
+  }
+  if (line.compare(i, 2, "*/") != 0) return std::string::npos;
+  name.assign(line.substr(b, nameEnd - b));
+  if (dtor) *dtor = tilde;
   return i + 2;
 }
 
-int tokenLength(std::string_view line, size_t at) {
+bool startsIdentifier(std::string_view line, size_t i) {
+  return i < line.size() && isIdentChar(line[i]) && !std::isdigit(static_cast<unsigned char>(line[i]));
+}
+
+// Is the `~Identifier` at `at` a destructor name? `before` is the text of the line before the (first) anchor comment.
+// Yes when `(` follows the identifier and the context declares or calls a destructor: line start, `::`, `{` `}` `;`,
+// `->` `.`, an access label, or a declaration specifier. A unary `~x(...)` after an operator or `(` is not one.
+bool looksLikeDestructor(std::string_view line, size_t at, std::string_view before) {
+  size_t i = at + 1;
+  while (i < line.size() && isIdentChar(line[i])) ++i;
+  while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+  if (i >= line.size() || line[i] != '(') return false;
+  size_t e = before.size();
+  while (e > 0 && (before[e - 1] == ' ' || before[e - 1] == '\t')) --e;
+  before = before.substr(0, e);
+  if (before.empty()) return true;
+  auto endsWith = [&](std::string_view t) {
+    return before.size() >= t.size() && before.substr(before.size() - t.size()) == t;
+  };
+  if (endsWith("::") || endsWith("->") || endsWith(".") || endsWith("{") || endsWith("}") || endsWith(";")) return true;
+  size_t w = before.size();
+  while (w > 0 && (isIdentChar(before[w - 1]) || before[w - 1] == ':')) --w;
+  const std::string_view word = before.substr(w);
+  static const char* const kWords[] = {"virtual", "inline",  "constexpr", "explicit",
+                                       "friend",  "public:", "private:",  "protected:"};
+  for (const char* k : kWords)
+    if (word == k) return true;
+  return false;
+}
+
+// Length of the token at `at`; `skip` receives 1 for a destructor name. `dtor`: the anchor said `~`.
+int tokenLength(std::string_view line, size_t at, std::string_view before, bool dtor, int& skip) {
+  skip = 0;
   size_t i = at;
-  if (i < line.size() && line[i] == '~') ++i;
+  if (i < line.size() && line[i] == '~' && startsIdentifier(line, i + 1) &&
+      (dtor || looksLikeDestructor(line, at, before))) {
+    skip = 1;
+    ++i;
+  }
   size_t b = i;
   while (i < line.size() && isIdentChar(line[i])) ++i;
-  if (i == b) return 1;  // punctuation: one character
+  if (i == b) return 1;  // punctuation (also a unary '~'): one character
   return static_cast<int>(i - at);
 }
 
@@ -78,7 +123,8 @@ void scanAnchorsInText(const std::string& relFile, std::string_view text, Anchor
     size_t p = 0;
     while ((p = line.find("/*@", p)) != std::string_view::npos) {
       std::string name;
-      size_t end = parseAnchorComment(line, p, name);
+      bool dtor = false;
+      size_t end = parseAnchorComment(line, p, name, &dtor);
       if (end == std::string::npos) {
         p += 3;
         continue;
@@ -89,21 +135,28 @@ void scanAnchorsInText(const std::string& relFile, std::string_view text, Anchor
       for (;;) {
         while (t < line.size() && (line[t] == ' ' || line[t] == '\t')) ++t;
         std::string more;
-        size_t e2 = t < line.size() ? parseAnchorComment(line, t, more) : std::string::npos;
+        bool d2 = false;
+        size_t e2 = t < line.size() ? parseAnchorComment(line, t, more, &d2) : std::string::npos;
         if (e2 == std::string::npos) break;
         names.push_back(more);
+        dtor = dtor || d2;
         t = e2;
       }
       if (t >= line.size() || line[t] == '\r') {
         errors.push_back(where(relFile, lineNo + 1) + "anchor '" + name + "' has no token after it on its line");
+      } else if (dtor && !(line[t] == '~' && startsIdentifier(line, t + 1))) {
+        errors.push_back(where(relFile, lineNo + 1) + "anchor '" + name + "~' is not followed by a ~Identifier");
       } else {
+        int skip = 0;
+        const int len = tokenLength(line, t, line.substr(0, p), dtor, skip);
         for (auto& n : names) {
           Anchor a;
           a.name = n;
           a.file = relFile;
           a.line = lineNo;
           a.col = static_cast<int>(t);
-          a.len = tokenLength(line, t);
+          a.len = len;
+          a.skip = skip;
           auto [it, fresh] = out.emplace(n, a);
           if (!fresh)
             errors.push_back(where(relFile, lineNo + 1) + "duplicate anchor '" + n + "' (first at " + it->second.file +
@@ -185,6 +238,7 @@ const char* toString(Status s) {
     case Status::XFail: return "XFAIL";
     case Status::XPass: return "XPASS";
     case Status::Skip: return "SKIP";
+    case Status::Partial: return "PARTIAL";
   }
   return "?";
 }
@@ -294,7 +348,9 @@ struct Parser {
   void closeRename() {
     if (openRename < 0) return;
     const Item& r = out[static_cast<size_t>(openRename)];
-    if (r.renamed.empty()) error(r.line, "rename needs indented lines listing the anchors that must be renamed");
+    if (r.renamed.empty() && !r.none)
+      error(r.line,
+            "rename needs indented lines listing the anchors that must be renamed, or '(none)', or a trailing '!'");
     openRename = -1;
   }
 
@@ -306,8 +362,16 @@ struct Parser {
       std::vector<Tok> toks;
       std::string comment, err;
       if (!tokenize(t, toks, comment, err)) return error(no, err);
-      for (auto& k : toks)
-        if (anchorOk(no, k)) out[static_cast<size_t>(openRename)].renamed.push_back(k.text);
+      Item& r = out[static_cast<size_t>(openRename)];
+      if (toks.size() == 1 && !toks[0].quoted && toks[0].text == "(none)") {
+        if (!r.renamed.empty()) return error(no, "'(none)' cannot be mixed with anchors");
+        r.none = true;
+        return;
+      }
+      for (auto& k : toks) {
+        if (r.none) return error(no, "'(none)' cannot be mixed with anchors");
+        if (anchorOk(no, k)) r.renamed.push_back(k.text);
+      }
       return;
     }
     closeRename();
@@ -316,6 +380,16 @@ struct Parser {
 
   void parseDirective(Item& it, const std::string& first, const std::string& rest) {
     const int no = it.line;
+    if (first == "close") {
+      std::vector<Tok> ctoks;
+      std::string ccomment, cerr;
+      if (!tokenize(rest, ctoks, ccomment, cerr)) return error(no, cerr);
+      if (ctoks.size() != 1 || ctoks[0].isBar()) return error(no, "usage: close <file>");
+      it.type = Item::Type::Close;
+      it.arg = ctoks[0].text;
+      out.push_back(std::move(it));
+      return;
+    }
     if (first == "config") {
       std::string name = rest;
       size_t h = name.find(" #");
@@ -367,7 +441,7 @@ struct Parser {
     it.text = t;
     size_t sp = t.find_first_of(" \t");
     const std::string first = t.substr(0, sp);
-    if (first == "config" || first == "open" || first == "edit")
+    if (first == "config" || first == "open" || first == "close" || first == "edit")
       return parseDirective(it, first, sp == std::string::npos ? std::string() : trim(t.substr(sp)));
 
     std::vector<Tok> toks;
@@ -391,9 +465,10 @@ struct Parser {
         {"refs", Kind::Refs}, {"hover", Kind::Hover}, {"sym", Kind::Sym},         {"rename", Kind::Rename}};
     auto kit = kinds.find(kw);
     if (kit == kinds.end()) {
-      if (kw == "config" || kw == "open" || kw == "edit") return error(no, "'" + kw + "' cannot follow fast/xfail");
-      return error(no,
-                   "unknown expectation '" + kw + "' (def decl typedef impl refs hover sym rename config open edit)");
+      if (kw == "config" || kw == "open" || kw == "close" || kw == "edit")
+        return error(no, "'" + kw + "' cannot follow fast/xfail");
+      return error(
+          no, "unknown expectation '" + kw + "' (def decl typedef impl refs hover sym rename config open close edit)");
     }
     it.kind = kit->second;
     if (it.fast && (it.kind == Kind::Refs || it.kind == Kind::Rename))
@@ -423,9 +498,14 @@ struct Parser {
       if (!n) return;
       if (n->quoted || !isIdentifier(n->text)) return error(no, "rename target '" + n->text + "' is not an identifier");
       it.query = n->text;
-      if (i != toks.size()) return error(no, "unexpected text after the new name");
+      if (i < toks.size() && !toks[i].quoted && toks[i].text == "!") {
+        it.refused = true;  // no indented lines follow: nothing may change
+        ++i;
+      }
+      if (i != toks.size()) return error(no, "unexpected text after the new name (only '!' may follow)");
+      const bool refused = it.refused;
       out.push_back(std::move(it));
-      openRename = static_cast<long>(out.size()) - 1;
+      if (!refused) openRename = static_cast<long>(out.size()) - 1;
       return;
     }
 
@@ -463,8 +543,29 @@ struct Parser {
       return;
     }
 
-    // Operands: alternatives separated by '|' (def, decl, typedef, sym ->), else a blank-separated set.
+    // Operands: alternatives separated by '|' (def, decl, typedef, sym ->), else a blank-separated set. `sym ∋` takes
+    // both: blanks separate the groups that must all be hit, '|' the alternatives within a group.
     const bool alternatives = it.rel == Rel::Arrow && it.kind != Kind::Impl;
+    if (it.rel == Rel::Has) {
+      if (i >= toks.size()) return error(no, "missing anchors after '" + rs + "'");
+      bool afterBar = false;
+      for (; i < toks.size(); ++i) {
+        const Tok& k = toks[i];
+        if (k.isBar()) {
+          if (afterBar || it.groups.empty()) return error(no, "misplaced '|'");
+          afterBar = true;
+          continue;
+        }
+        if (!anchorOk(no, k)) return;
+        if (!afterBar) it.groups.emplace_back();
+        it.groups.back().push_back(k.text);
+        it.targets.push_back(k.text);
+        afterBar = false;
+      }
+      if (afterBar) return error(no, "missing anchor after '|'");
+      out.push_back(std::move(it));
+      return;
+    }
     if (i >= toks.size()) return error(no, "missing anchors after '" + rs + "'");
     if (toks.size() - i == 1 && !toks[i].quoted && toks[i].text == "none") {
       if (it.rel == Rel::Ge || it.rel == Rel::Has) return error(no, "'none' makes no sense after '" + rs + "'");
@@ -609,9 +710,16 @@ Verdict checkLocations(const Item& it, const std::vector<Loc>& actual, const Anc
       v.expected = "first: " + join(it.targets, " | ");
       v.ok = !actual.empty() && landsOnAny(actual.front(), it.targets, anchors);
     } else {
-      v.expected = "contains " + join(it.targets, " ");
-      v.ok = std::all_of(it.targets.begin(), it.targets.end(),
-                         [&](const std::string& n) { return anyLandsOn(actual, n, anchors); });
+      const std::vector<std::vector<std::string>> groups =
+          it.groups.empty() ? std::vector<std::vector<std::string>>{it.targets} : it.groups;
+      std::string exp;
+      v.ok = true;
+      for (auto& g : groups) {
+        exp += (exp.empty() ? "" : " ") + join(g, " | ");
+        if (std::none_of(g.begin(), g.end(), [&](const std::string& n) { return anyLandsOn(actual, n, anchors); }))
+          v.ok = false;
+      }
+      v.expected = "contains " + exp;
     }
     return v;
   }
@@ -671,6 +779,30 @@ Verdict checkRename(const Item& it, const std::map<std::string, std::string>& be
   if (!notRenamed.empty()) act += "not renamed: " + join(notRenamed, " ");
   if (!unexpected.empty()) act += std::string(act.empty() ? "" : "; ") + "also renamed: " + join(unexpected, " ");
   v.actual = v.ok ? "renamed as expected" : act;
+  return v;
+}
+
+Verdict checkRenameNoChange(const Item& it, bool answered, const std::string& err, size_t edits,
+                            const std::map<std::string, std::string>& before,
+                            const std::map<std::string, std::string>& after) {
+  Verdict v;
+  v.expected = it.refused ? "rename refused, nothing changed" : "nothing changed";
+  if (!answered) {
+    v.actual = "no answer within the time limit";
+    return v;
+  }
+  std::vector<std::string> changed;
+  for (auto& [n, tok] : before) {
+    auto a = after.find(n);
+    if (a == after.end() || a->second != tok)
+      changed.push_back(n + "(" + (a == after.end() ? "lost" : a->second) + ")");
+  }
+  const bool refusedOk = err.empty() ? false : edits == 0;
+  v.ok = changed.empty() && (!it.refused || refusedOk);
+  if (!changed.empty()) v.actual = "changed: " + join(changed, " ");
+  else if (it.refused && err.empty()) v.actual = "rename accepted (" + std::to_string(edits) + " edits)";
+  else if (it.refused && edits != 0) v.actual = "refused but " + std::to_string(edits) + " edits applied (" + err + ")";
+  else v.actual = err.empty() ? "nothing changed" : "nothing changed (" + err + ")";
   return v;
 }
 

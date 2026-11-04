@@ -363,7 +363,9 @@ class SemanticEngine {
   void adoptPending(uint64_t id);
   void reopenDocuments(LspClient& c);
   void resetClientState();
-  void setHealth(ClangdHealth::Phase phase, int crashes, const std::string& err = {});
+  // `onlyIfConsecutive` >= 0: apply only while the consecutive-crash count still has that value (a Running that was
+  // decided before a later crash was counted must not overwrite the Stopped / Restarting of that crash).
+  void setHealth(ClangdHealth::Phase phase, int crashes, const std::string& err = {}, int onlyIfConsecutive = -1);
   void startFastIndex();
   void saveFastIndex();
   void timerLoop();
@@ -458,6 +460,7 @@ class SemanticEngine {
   // Crash supervisor (D2). supMu_ guards everything below it; lifeMu_ serialises client launches (supervisor
   // and manual restart); the lock order is lifeMu_ -> supMu_ -> clientMu_.
   std::thread supThread_;
+  std::mutex healthCbMu_;  // serialises setHealth, so handlers see the states in the order they were set
   mutable std::mutex supMu_;
   std::condition_variable supCv_;
   std::mutex lifeMu_;

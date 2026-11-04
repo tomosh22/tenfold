@@ -389,6 +389,11 @@ To change it:
 * or `tenfold-cli vsconfig <folder> --list` and `tenfold-cli vsconfig <folder> --set "Release|x64"`, or edit
   `workspace.json` and restart.
 
+To see the commands a solution gives clangd, `tenfold-cli compdb Game.sln --config Debug --platform x64` prints the
+database to stdout; `-o <file>` writes it to a file. It does not write next to the solution on its own: a
+`compile_commands.json` in the workspace folder takes precedence over the `.sln` (see above) and would freeze the flags.
+Write the file somewhere else, or only into a folder you want to use that way.
+
 Changing it regenerates the compile database of that configuration (under `.tenfold/vs/`) and restarts clangd
 against it. Every configuration you visit keeps its own clangd index (the four most recently used are kept, see
 `maxVsConfigIndexes`), so find-references and rename only see what the active configuration compiles, and going back to

@@ -1389,6 +1389,30 @@ void Editor::gotoDeclaration(NavResult done) {
       });
 }
 
+void Editor::gotoTypeDefinition(NavResult done) {
+  if (!current_) {
+    if (done) done(Confidence::Approximate, {}, "no document");
+    return;
+  }
+  semantic_->gotoTypeDefinition(
+      *current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+        post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
+      });
+}
+
+void Editor::findImplementations(NavResult done) {
+  if (!current_) {
+    if (done) done(Confidence::Approximate, {}, "no document");
+    return;
+  }
+  semantic_->findImplementations(*current_, cursor_.pos,
+                                 [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+                                   post([c, locs = std::move(locs), err, done] {
+                                     if (done) done(c, locs, err);
+                                   });
+                                 });
+}
+
 void Editor::findReferences(NavResult done) {
   if (!current_) {
     if (done) done(Confidence::Approximate, {}, "no document");

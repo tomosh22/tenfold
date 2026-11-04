@@ -96,7 +96,7 @@ TextView* findView(Widget& w) {
 
 constexpr float kLh = 14, kCw = 8;
 constexpr int kW = 1000, kH = 600;
-constexpr int kWaitMs = 15000;
+constexpr int kWaitMs = 60000;  // a bound for failures only: every wait returns as soon as its condition holds
 
 Theme testTheme() {
   Theme t = Theme::darkDefault();
@@ -166,12 +166,15 @@ struct Env {
   }
   template <class F>
   bool until(F f, int ms = kWaitMs) {
-    for (int i = 0; i < ms / 5; ++i) {
+    // A wall-clock deadline: counting iterations made the limit scale with the frame time (a frame takes long under
+    // load or a sanitizer), so a slow machine waited many times kWaitMs and a loaded one still gave up early.
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+    for (;;) {
       frame();
       if (f()) return true;
+      if (std::chrono::steady_clock::now() >= deadline) return false;
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    return false;
   }
   Document* doc() { return ed->document(a); }
   TextView* view() { return findView(*bench); }
@@ -962,12 +965,13 @@ struct P4Env {
   }
   template <class F>
   bool until(F fn, int ms = kWaitMs) {
-    for (int i = 0; i < ms / 5; ++i) {
+    const auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);  // wall clock, see above
+    for (;;) {
       frame();
       if (fn()) return true;
+      if (std::chrono::steady_clock::now() >= deadline) return false;
       std::this_thread::sleep_for(std::chrono::milliseconds(5));
     }
-    return false;
   }
   Document* doc() { return ed->document(f); }
   std::string seg() { return bench->status().text("vcs"); }

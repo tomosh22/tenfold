@@ -1,0 +1,37 @@
+# Harness corpus (W9-FIX-D). Format: docs/TESTING.md. Every block is here because the harness once got it wrong.
+
+# ---- (a) rename / refs directly after `fast` lines act on the anchor they name, not on the last fast probe's caret ----
+# The pending fast probes (use_get, use_size) are compared with clangd first and move the caret; the rename below
+# must still rename `twice`, not `size` (the last probe).
+fast def use_get -> Widget_get
+fast def use_size -> Widget_size
+rename Widget_twice doubled
+  Widget_twice use_twice
+fast def use_size -> Widget_size
+refs Widget_get = Widget_get use_get
+
+# ---- (b) a rename that changes nothing, and one that must be refused ----
+rename Widget_size size
+  (none)
+rename Widget_size int !   # a keyword is not a name
+
+# ---- (c) sym: alternatives for the first result, and per-target alternatives for membership ----
+sym "Widget" -> Widget | Flags
+sym "Widget" ∋ Widget | Flags Widget
+sym "taken" ∋ taken | taken_def  # declaration or definition
+
+# ---- (d) a unary `~` is the operator; a destructor's `~` is not part of the identifier ----
+def use_not -> op_not
+def use_not_call -> op_not
+hover use_not ~ "operator~"
+def use_dtor -> Widget_dtor
+# Renaming the destructor renames the class; the destructor anchor reads `Gone`, not `~Gone`.
+rename Widget_dtor Gone
+  Widget Widget_dtor use_dtor
+
+# ---- (f) close: back to the file on disk, anchors of the closed file are where the disk has them ----
+open src/main.cpp
+edit src/main.cpp:1:1 "// edited\n"
+def use_get -> Widget_get
+close src/main.cpp
+def use_get -> Widget_get

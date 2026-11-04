@@ -34,6 +34,7 @@ void usage() {
   std::cerr
       << "usage: tenfold-cli <workspace-root> [options]\n"
          "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
+         "                         (without -o the compile commands are printed to stdout)\n"
          "       tenfold-cli vsconfig <workspace-root> [--list | --set Debug|x64]\n"
          "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
          "       tenfold-cli why <workspace-root> <file> [--clangd <path>] [--no-clangd] [--wait <ms>]\n"
@@ -41,7 +42,8 @@ void usage() {
          "       tenfold-cli log [<workspace-root>] [--tail N]   (prints the local log; no root: the user-level log)\n"
          "       tenfold-cli bench <workspace-root> [--file <rel path>:<line>:<col>] [--sym <query>]... [--runs N]\n"
          "                         [--no-clangd] [--clangd <path>] [--wait-index <ms>] [--json]\n"
-         "       tenfold-cli corpus <corpus-dir> [--json <file>] [--no-clangd] [--clangd <path>] [--timeout <s>]\n"
+         "       tenfold-cli corpus <corpus-dir> [--json <file>] [--no-clangd] [--clangd <path>] [--timeout <s>] "
+         "[--index-wait <s>]\n"
          "                         [--verbose] [--keep]   (checks <dir>/tenfold-expect.txt; docs/TESTING.md)\n"
          "       tenfold-cli --version\n"
          "options:\n"
@@ -218,10 +220,28 @@ int runCompdb(int argc, char** argv) {
   if (in.extension() == ".sln") cmds = compdb::fromSolution(in, vo, &err);
   else cmds = compdb::fromVcxproj(in, vo, &err);
   if (!err.empty()) std::cerr << err;
-  if (out.empty()) out = in.parent_path() / "compile_commands.json";
-  if (!CompileDatabase::save(cmds, out, &err)) {
+  // Without -o (or with `-o -`) the database goes to stdout, never next to the input: a compile_commands.json at a
+  // workspace root outranks the .sln for tenfold (and for clangd), and would silently replace the solution's flags.
+  const bool toStdout = out.empty() || out == "-";
+  fs::path target = out;
+  if (toStdout) {
+    std::error_code ec;
+    target =
+        fs::temp_directory_path(ec) /
+        ("tenfold-compdb-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + ".json");
+  }
+  if (!CompileDatabase::save(cmds, target, &err)) {
     std::cerr << err << "\n";
     return 1;
+  }
+  if (toStdout) {
+    std::ifstream f(target, std::ios::binary);
+    std::cout << f.rdbuf();
+    f.close();
+    std::error_code ec;
+    fs::remove(target, ec);
+    std::cerr << cmds.size() << " commands (use -o <file> to write them to a file)\n";
+    return 0;
   }
   std::cout << "wrote " << cmds.size() << " commands to " << out << "\n";
   return 0;
@@ -581,6 +601,13 @@ int runCorpusCmd(int argc, char** argv) {
     else if (a == "--timeout" && i + 1 < argc) {
       try {
         ro.timeoutSec = std::max(1, std::stoi(argv[++i]));
+      } catch (...) {
+        usage();
+        return 2;
+      }
+    } else if (a == "--index-wait" && i + 1 < argc) {
+      try {
+        ro.indexWaitSec = std::max(1, std::stoi(argv[++i]));
       } catch (...) {
         usage();
         return 2;

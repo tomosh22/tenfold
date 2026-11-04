@@ -796,7 +796,15 @@ TEST(term_scrollback_wheel_shift_page_keys_and_snap_to_bottom) {
   const std::string shown = Env::screenOf(v);
   env.type("more\n");
   CHECK_EQ(v->scrollOffset(), 0);  // typing snapped to the bottom
-  CHECK(env.waitHas("more"));
+  // The tty echoes "more" and `cat` prints its copy a moment later: wait for both, or the copy arrives while the
+  // keep-place part below counts lines and shifts the held view by one (seen under load).
+  const auto occurrences = [&](const std::string& needle) {
+    const std::string scr = Env::screenOf(v);
+    size_t n = 0;
+    for (size_t p = scr.find(needle); p != std::string::npos; p = scr.find(needle, p + 1)) ++n;
+    return n;
+  };
+  CHECK(env.waitFor([&] { return occurrences("more") >= 2; }));
   (void)off;
   (void)shown;
   // Keep-place: scroll up, then let output arrive.
@@ -805,6 +813,9 @@ TEST(term_scrollback_wheel_shift_page_keys_and_snap_to_bottom) {
   const uint64_t fed0 = v->session()->bytesFed();
   v->session()->write("x\n");  // echoed by the tty and printed by cat: scrolls the live screen
   CHECK(env.waitFor([&] { return v->session()->bytesFed() > fed0; }));
+  // Both lines (the echo, then cat's copy) must have arrived: the held view moved up by exactly two. Waiting for the
+  // offset instead of a fixed number of frames; the frames after it check that nothing more arrives.
+  CHECK(env.waitFor([&] { return v->scrollOffset() >= 2 * 3 + 2; }));
   for (int i = 0; i < 50; ++i) {
     env.frame();
     std::this_thread::sleep_for(std::chrono::milliseconds(2));

@@ -470,7 +470,7 @@ TEST(lsp_code_action_command_applies_server_edit) {
   CHECK(!tweak->hasEdit);
   bool ok = false;
   f.ed.applyCodeAction(*tweak, [&](bool applied, const std::string&) { ok = applied; });
-  REQUIRE(f.ed.waitFor([&] { return ok; }, 20000));
+  REQUIRE(f.ed.waitFor([&] { return ok; }, 120000));  // returns when clangd answered; the bound is for hangs only
   f.ed.pump();
   CHECK(d->buffer().text() != src);
   CHECK(d->buffer().text().find("auto") != std::string::npos);

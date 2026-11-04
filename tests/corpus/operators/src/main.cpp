@@ -50,7 +50,7 @@ int main() {
   // ---- enum operators
   Flags f = Flags::A /*@use_flags_or*/| Flags::B;
   Flags g = f /*@use_flags_and*/& Flags::B;
-  Flags h = /*@use_flags_not*/~(f);                              // ~(f): "~f" would be read as a destructor-name token by the corpus runner
+  Flags h = /*@use_flags_not*/~f;
   h /*@use_flags_or_eq*/|= Flags::A;
   // ---- smart-pointer style operators and the member they lead to
   Point3 pt{1, 2, 3};
