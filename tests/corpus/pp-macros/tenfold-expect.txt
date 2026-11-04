@@ -5,8 +5,8 @@
 
 # ---- fast tier ----
 fast def use_helper_sum -> helper_sum
-xfail fast def use_max_items -> MAX_ITEMS  # lexer index does not index #define names: no fast answer for any macro
-xfail fast def use_square -> SQUARE  # same
+fast def use_max_items -> MAX_ITEMS
+fast def use_square -> SQUARE
 xfail fast def use_Gadget -> Gadget  # names declared through macro arguments (DECLARE_CLASS(Gadget)) are not in the lexer index
 xfail fast def use_compute_b -> compute_b  # same: MAKE_FUNC(compute_b, ...)
 xfail fast def use_warm -> Hue_Warm  # same: DECLARE_ENUM(Hue, Warm, Cold)
@@ -15,7 +15,7 @@ fast def use_twice_arg -> twice_fn
 fast sym "helper_sum" -> helper_sum
 xfail fast sym "Gadget" ∋ Gadget  # same: not declared as a class in the lexer index
 # the lexer index does not know that this spelling is the function and not the macro
-xfail fast def use_clamp01_paren -> clamp01_fn  # the lexer index does not see the function declared as "int (clamp01)(int)" (parenthesised declarator)
+fast def use_clamp01_paren -> clamp01_fn
 # #undef / #define order is invisible to the lexer index
 xfail fast def use_level2 -> LEVEL_second  # fast index cannot order redefinitions
 fast def use_late_before -> var_late

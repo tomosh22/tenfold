@@ -7,7 +7,7 @@ fast def use_legacy_add -> legacy_add_def | legacy_add_decl
 fast def use_config_level -> config_level_fn
 fast def use_Config -> Config
 fast def use_Engine -> Engine
-xfail fast def use_Vec -> Vec  # fast tier answers the class, every constructor (in class and out of line): the word Vec is looked up, not the type
+fast def use_Vec -> Vec
 fast def use_Vec2i -> Vec2i
 fast def use_gen_last -> gen_last
 fast def use_gen_first -> gen_first

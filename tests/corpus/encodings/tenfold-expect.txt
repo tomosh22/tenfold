@@ -191,7 +191,7 @@ fast def use_id_fn -> id_fn_def | id_fn_decl
 fast def use_id_naive -> id_naive
 fast def use_id_kanji -> id_kanji
 fast def use_id_Groesse -> id_Groesse
-xfail fast def use_MAKRO -> MAKRO_decl  # fast tier does not index #define macros
+fast def use_MAKRO -> MAKRO_decl
 fast sym "fn_ünï" -> id_fn_def | id_fn_decl
 fast sym "Größe" -> id_Groesse
 fast sym "naïve" -> id_naive

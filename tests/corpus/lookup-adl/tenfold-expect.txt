@@ -7,7 +7,7 @@ xfail fast def use_draw_circle -> shape_draw_circle | shape_draw_circle_def  # f
 xfail fast def use_draw_square -> shape_draw_square | shape_draw_square_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
 xfail fast def use_draw_int -> global_draw | global_draw_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
 xfail fast def use_other_draw -> other_draw | other_draw_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
-xfail fast def use_dot -> hf_dot  # fast tier does not index friend functions defined inside a class (hidden friends): no symbol, no definition
+fast def use_dot -> hf_dot
 fast def use_scale_adl -> vec_scale | vec_scale_def
 fast def use_via_fb -> via_fb | via_fb_def
 xfail fast def use_Derived_f -> Derived_f_char  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
@@ -16,7 +16,7 @@ xfail fast def use_Base_f_qual -> Base_f_int | Base_f_double  # fast tier is nam
 fast def use_audit -> audit_def | audit_def2 | fr_audit
 fast sym "hf_none_zzz" -> none
 fast sym "Circle" ∋ Circle
-xfail fast sym "dot" ∋ hf_dot  # fast tier does not index friend functions defined inside a class (hidden friends): no symbol, no definition
+fast sym "dot" ∋ hf_dot
 fast sym "scale" ∋ vec_scale vec_scale_def
 
 # ---- ADL: free functions ----

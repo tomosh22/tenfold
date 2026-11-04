@@ -25,9 +25,15 @@ xfail fast def use_List_Node_get -> List_Node_get  # fast tier is name-only: ret
 xfail fast def use_Local_get -> Local_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
 fast def use_Flags_b -> Flags_b
 fast def use_Registry_max -> Registry_max
-xfail fast def use_Feet_to_Meters -> Feet_to_Meters  # fast tier does not index conversion operators (operator Meters): no symbol, no definition
+fast def use_Feet_to_Meters -> Feet_to_Meters
 xfail fast def use_Widget_size -> Widget_size  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_dtor_call -> Widget_dtor | Widget_dtor_def  # fast tier looks up the word under the caret, not '~Widget': returns the class, all constructors and the destructor
+fast def use_dtor_call -> Widget_dtor_def
+fast decl use_dtor_call -> Widget_dtor
+fast def Widget_dtor -> Widget_dtor_def
+fast decl Widget_dtor_def -> Widget_dtor
+# the caret on a constructor's name: constructors of that signature, not the class and not the other overloads' kin
+fast def Widget_ctor0 -> Widget_ctor0_def
+fast decl Widget_ctor0_def -> Widget_ctor0
 xfail fast def use_Derived_get -> Derived_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
 fast sym "Registry" ∋ Registry
 fast sym "Widget" ∋ Widget

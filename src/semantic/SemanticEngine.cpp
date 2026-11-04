@@ -1124,7 +1124,8 @@ SymbolLocation fromFast(const FastIndex::Match& m) {
 }
 }  // namespace
 
-std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Document& doc, Position pos) const {
+std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Document& doc, Position pos,
+                                                                   FastIndex::Want want) const {
   auto word = doc.buffer().wordAt(pos);
   std::vector<SymbolLocation> out;
   if (word.text.empty()) return out;
@@ -1133,6 +1134,7 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
   {
     const std::string& line = doc.buffer().line(doc.buffer().clamp(pos).line);
     int i = word.range.start.column;
+    if (i > 0 && line[static_cast<size_t>(i) - 1] == '~') --i;  // Name::~Name
     while (i >= 2 && line[static_cast<size_t>(i) - 1] == ':' && line[static_cast<size_t>(i) - 2] == ':') {
       i -= 2;
       int e = i;
@@ -1143,15 +1145,67 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
           line.substr(static_cast<size_t>(i), static_cast<size_t>(e - i)) + (qualifier.empty() ? "" : "::" + qualifier);
     }
   }
-  auto matches = fast_.lookup(word.text);
+  // What the word is: `~Name` is the destructor, `operator<op>` / `operator T` an operator function, a name after
+  // struct/class/union/enum a tag. (An operator token such as the `+` in `a + b` is not a word; it has no fast answer.)
+  const std::string& text = doc.buffer().line(doc.buffer().clamp(pos).line);
+  const size_t wStart = static_cast<size_t>(word.range.start.column), wEnd = static_cast<size_t>(word.range.end.column);
+  FastIndex::Shape shape;
+  shape.want = want;
+  size_t b = wStart;  // start of what precedes the word, blanks and /* comments */ skipped
+  for (;;) {
+    while (b > 0 && (text[b - 1] == ' ' || text[b - 1] == '\t')) --b;
+    if (b < 2 || text[b - 1] != '/' || text[b - 2] != '*') break;
+    const size_t open = text.rfind("/*", b - 2);
+    if (open == std::string::npos) break;
+    b = open;
+  }
+  std::string lookupName = word.text;
+  std::vector<FastIndex::Match> matches;
+  if (word.text == "operator") {
+    std::string op = operatorFunctionName(std::string_view(text).substr(std::min(wEnd, text.size())));
+    if (!op.empty()) lookupName = op;
+    matches = fast_.lookup(lookupName);
+  } else {
+    if (b > 0 && text[b - 1] == '~') matches = fast_.lookup("~" + word.text);  // a destructor, not the class
+    if (matches.empty()) {
+      matches = fast_.lookup(word.text);
+      size_t e = b;
+      while (e > 0 && (std::isalnum(static_cast<unsigned char>(text[e - 1])) || text[e - 1] == '_')) --e;
+      const std::string_view prev = std::string_view(text).substr(e, b - e);
+      shape.afterTagKeyword = prev == "struct" || prev == "class" || prev == "union" || prev == "enum";
+      // The caret on the name of a constructor (declaration or definition) means constructors, not the class.
+      for (const FastIndex::Match& m : matches) {
+        const Symbol& s = m.sym();
+        if (s.kind == SymbolKind::Constructor && s.line == word.range.start.line && s.col == word.range.start.column &&
+            m.file->file == doc.path()) {
+          shape.constructorOnly = true;
+          shape.constructorScope = s.scope;
+          shape.constructorArity = s.arity;
+          break;
+        }
+      }
+    }
+  }
+  std::vector<FastIndex::Match> kept;
   for (auto& m : matches) {
     if (!qualifier.empty()) {
       const std::string& sc = m.sym().scope;
       bool ok = sc == qualifier || sc.ends_with("::" + qualifier);
       if (!ok) continue;
     }
-    out.push_back(fromFast(m));
+    // A macro defined further down the same file cannot be what an earlier line means (a macro acts from its
+    // #define on): `int x = late; #define late 1` names a variable or nothing, not the macro.
+    if (m.sym().kind == SymbolKind::Macro && m.file->file == doc.path() && m.sym().line > word.range.start.line)
+      continue;
+    // A function-like macro is only a macro where a '(' follows its name.
+    if (m.sym().kind == SymbolKind::Macro && m.sym().arity >= 0) {
+      size_t a = wEnd;
+      while (a < text.size() && (text[a] == ' ' || text[a] == '\t')) ++a;
+      if (a >= text.size() || text[a] != '(') continue;
+    }
+    kept.push_back(std::move(m));
   }
+  for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
   // Same-file first, definitions first.
   std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {
     bool af = a.loc.file == doc.path(), bf = b.loc.file == doc.path();
@@ -1247,8 +1301,11 @@ void SemanticEngine::deliverWithBudget(
 void SemanticEngine::locationQuery(
     const char* what, const Document& doc, Position pos, LocationsCallback cb,
     std::function<int(LspClient&, const std::string&, Position, LspClient::Callback<std::vector<LspLocation>>)> issue) {
-  (void)what;
-  std::vector<SymbolLocation> approx = approximateDefinitions(doc, pos);
+  const std::string_view w = what;
+  std::vector<SymbolLocation> approx = approximateDefinitions(doc, pos,
+                                                              w == "definition"    ? FastIndex::Want::Definition
+                                                              : w == "declaration" ? FastIndex::Want::Declaration
+                                                                                   : FastIndex::Want::Any);
   std::string uri = doc.uri();
   Position sp = toServer(doc, pos);
   deliverWithBudget(std::move(approx), std::move(cb), [this, uri, sp, issue](auto done) {
