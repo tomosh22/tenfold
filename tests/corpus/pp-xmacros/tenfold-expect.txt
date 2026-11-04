@@ -1,11 +1,9 @@
 # pp-xmacros (W9c): X-macros. One list (a .def file or a list macro) expanded several times with different X.
 # Names spelled in the list are declared once and used by every expansion; pasted names (idx_Red, op_add) are declared
 # by the invocation of the per-item macro in the list.
-# ORDER MATTERS: go-to-definition landing in an X-macro list, and queries located inside a .def (it has no compile
-# command and is only ever #included), open that file in the editor; clangd then parses it standalone and its empty
-# dynamic index hides the .def's refs from rename and find-references. The blocks that need the background index run
-# before the .def files are opened; the last block shows the effect. Lines marked "#?" are disabled because their
-# answer differs between a clean clangd session and the editor session (docs/STRESS_RESULTS.md, finding P-3).
+# A .def has no compile command and is only #included; tenfold gives it the context of the translation unit that includes it
+# (the includer's text before the first #include of it, with the includer's flags), so opening it no longer hides the .def's
+# references from rename and find-references (docs/ARCHITECTURE.md, "Translation-unit context"). Line order no longer matters.
 
 # ---- fast tier ----
 fast def use_color_name -> color_name
@@ -39,7 +37,7 @@ hover use_Blue_1 ~ "Blue" "= 4"
 hover use_color_name ~ "color_name" "const char"
 hover use_idx_count ~ "idx_count"
 # every use is spelled in the .def, the case/table expansions refer to the same token: asked from a use site
-#? xfail refs use_Red_1 = xc_Red use_Red_1  # clangd: refs of an enumerator whose only other spellings are macro-arg tokens in an included .def omit the declaration   # DISABLED: flaky XFAIL/XPASS (index timing)
+#? xfail refs use_Red_1 = xc_Red use_Red_1   # DISABLED: clangd answers either way between runs (XFAIL in some, XPASS in others) for an enumerator whose other spellings are macro-argument tokens of an included .def; not an index-timing or TU-context effect
 refs Color >= Color use_Color_c use_Color_param use_Color_in_info
 refs color_name = color_name use_color_name
 refs ColorInfo_bits = ColorInfo_bits use_bits
@@ -90,37 +88,37 @@ sym "color_name" -> color_name
 sym "Red" ∋ xc_Red
 sym "idx_Blue" ∋ xcx_Blue
 sym "color_table" -> color_table
-#? sym "op_mul" ∋ xox_mul   # DISABLED: editor session returns nothing while a clean clangd session finds it; minimal repro in docs/STRESS_RESULTS.md (three go-to-definitions, then this)
+sym "op_mul" ∋ xox_mul
 sym "op_table" -> op_table
 sym "OpEntry" -> OpEntry
 sym "Rect" -> Rect
 sym "FIELDS" ∋ FIELDS
-#? sym "Triangle" -> xs_Triangle   # DISABLED: editor session returns nothing while a clean clangd session finds it; minimal repro in docs/STRESS_RESULTS.md (three go-to-definitions, then this)
-#? sym "Hexagon" ∋ xs_Hexagon   # DISABLED: editor session returns nothing while a clean clangd session finds it; minimal repro in docs/STRESS_RESULTS.md (three go-to-definitions, then this)
+sym "Triangle" -> xs_Triangle
+sym "Hexagon" ∋ xs_Hexagon
 
 # ---- rename on a clean session ----
-#? rename use_Red_1 Crimson   # DISABLED: editor session returns nothing while a clean clangd session finds it; minimal repro in docs/STRESS_RESULTS.md (three go-to-definitions, then this)
-#?  xc_Red use_Red_1
+xfail rename use_Red_1 Crimson  # clangd renames the use but not the token Red in the X(Red, ...) line of colors.def (a macro argument pasted/expanded elsewhere); the rename-safety check reports it
+  xc_Red use_Red_1
 rename color_name colour_label
   color_name use_color_name
-#? rename use_Triangle Tri   # DISABLED: editor session returns nothing while a clean clangd session finds it; minimal repro in docs/STRESS_RESULTS.md (three go-to-definitions, then this)
-#?  xs_Triangle use_Triangle use_Triangle_scope
+rename use_Triangle Tri
+  xs_Triangle use_Triangle use_Triangle_scope
 rename Rect_marker flag
   Rect_marker use_marker init_marker
 # the enumerator type is also named inside the #define bodies (Color::n); a rename that leaves them breaks the build
-#? rename Color Hue   # DISABLED: a clean clangd session renames all 8 spellings (incl. the Color:: in the #define X bodies); the editor session does not (state dependent)
-#?  Color use_Color_c use_Color_param use_Color_in_info Color_in_case Color_in_table
+xfail rename Color Hue  # clangd misses the two Color:: spellings inside the #define X bodies of colors.cpp; the rename-safety check reports them (STRESS_RESULTS P-3)
+  Color use_Color_c use_Color_param use_Color_in_info Color_in_case Color_in_table
 # the member is spelled once, in the list macro; renaming it must edit that token (and so also the ctor initialiser)
 xfail rename use_width w  # clangd renames the use only; the declaration token inside the FIELDS list macro is not edited
   fl_width use_width
 # (rename use_idx_Blue idx_Navy and rename use_op_add plus would have to change nothing: harness cannot express that)
 
 # ---- from here on the .def files are opened in the editor: queries located inside them ----
-# No compile command exists for a .def (it is only #included); clangd parses it standalone and finds nothing.
+# A .def has no compile command of its own; queries asked from inside it are answered in the context of its includer.
 xfail refs xc_Red = xc_Red use_Red_1  # clangd: .def has no TU, refs asked inside it are empty
 xfail refs xc_Green = xc_Green use_Green_1  # same
-xfail refs xs_Triangle = xs_Triangle use_Triangle use_Triangle_scope  # same
-# Once the .def is open, its refs/symbols disappear from every other query (static index shadowed by the empty dynamic one).
+refs xs_Triangle = xs_Triangle use_Triangle use_Triangle_scope
+# Once the .def is open its refs/symbols stay available (it is parsed in the context of its includer, not alone).
 open include/colors.def
 sym "Red" ∋ xc_Red
 xfail rename use_Red_1 Scarlet  # clangd: rename omits the colors.def declaration token (partial rename, silently)

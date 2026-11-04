@@ -181,7 +181,7 @@ rename clamp_decl clampTo
   clamp_decl clamp_def use_clamp
 
 # ---- definitions that land in the non-self-contained stack.tpp / algo.inl. Jumping there opens the file (as a click
-# would), and clangd then parses it standalone: from here on the lines above must not be repeated. Order matters.
+# would); tenfold gives it the context of stack.h (docs/ARCHITECTURE.md, TU context), so the lines above may be repeated.
 def use_made -> Stack_made_def
 def use_push -> Stack_push_rv_def
 def use_push_lv -> Stack_push_def
@@ -196,20 +196,17 @@ def use_map2 -> Stack_map_def
 def use_apply_each -> apply_each_def
 def use_clamp -> clamp_def
 
-# ---- LAST: queries anchored inside stack.tpp, which is not self-contained (it relies on stack.h being included first).
-# Opening it makes clangd parse it standalone: Stack is undeclared there, so names resolve to garbage and, as the open
-# document replaces the index shard, the references that used to be found in stack.tpp disappear. This must stay at
-# the end of the file so it cannot spoil the lines above.
-# Wait until clangd has finished the standalone parse of the open stack.tpp, so that the answers below are stable.
+# ---- queries anchored inside stack.tpp, which is not self-contained (it relies on stack.h being included first). Opened with
+# the text of stack.h before its #include as context, so names resolve and the file's references stay in the index.
 open include/tb/stack.tpp
-xfail def use_data_in_top -> Stack_data  # clangd parses the non-self-contained stack.tpp standalone: answers the namespace line
-xfail def use_made_in_push -> Stack_made_def  # same
-xfail def use_push_in_all -> Stack_push_def | Stack_push_rv_def  # same
-xfail refs Stack_top_decl >= Stack_top_decl Stack_top_def use_top use2_top  # same: with stack.tpp open its references are lost
-xfail refs Stack_map_decl >= Stack_map_decl Stack_map_def use_map1 use_map2  # same
-xfail rename Stack_push_all_decl pushMany  # same: the rename misses the definition in stack.tpp
+def use_data_in_top -> Stack_data
+def use_made_in_push -> Stack_made_def
+def use_push_in_all -> Stack_push_def | Stack_push_rv_def
+refs Stack_top_decl >= Stack_top_decl Stack_top_def use_top use2_top
+refs Stack_map_decl >= Stack_map_decl Stack_map_def use_map1 use_map2
+rename Stack_push_all_decl pushMany
   Stack_push_all_decl Stack_push_all_def use_push_all
-xfail rename Stack_top_c_def topConst2  # same: clangd refuses ("symbol is not a supported kind") when asked from inside the standalone stack.tpp
+rename Stack_top_c_def topConst2
   Stack_top_c_decl Stack_top_c_def use_top_c
 
 

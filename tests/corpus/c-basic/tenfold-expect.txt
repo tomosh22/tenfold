@@ -49,7 +49,7 @@ def use_node_td_sum -> node_td
 def use_node_td_c -> node_td
 def use_node_tag_main -> node_tag
 def use_node_tag_list -> node_tag
-decl use_node_tag_main -> node_tag_fwd
+decl use_node_tag_main -> node_tag_fwd | node_tag  # clangd answers the first declaration (typedef struct node node;) or, in about 1 run in 10 on a loaded machine, the definition: the canonical declaration of a tag comes from the AST or from the merged index
 typedef head_var -> node_tag | node_td
 hover use_node_td_main ~ "node"
 refs node_value = node_value use_value_push use_value_sum use_value_main

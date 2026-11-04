@@ -4,9 +4,13 @@
 #include <chrono>
 #include <fstream>
 #include <mutex>
+#include <set>
 #include <sstream>
+#include <tuple>
 
 #include "core/JsonUtil.h"
+#include "core/PathUtil.h"
+#include "core/TextEncoding.h"
 #include "semantic/FastIndexStore.h"
 
 namespace tf {
@@ -384,7 +388,23 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
     }
     cv_.notify_all();
   });
-  c->onIndexProgress([this](const IndexProgress&) { cv_.notify_all(); });
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    indexEnds_ = 0;
+    indexIdleSince_ = {};
+  }
+  c->onIndexProgress([this](const IndexProgress& p) {
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      if (p.active) {
+        indexIdleSince_ = {};
+      } else if (p.percentage == 100) {
+        ++indexEnds_;
+        indexIdleSince_ = std::chrono::steady_clock::now();
+      }
+    }
+    cv_.notify_all();
+  });
   c->onDiagnostics([this](const std::string& uri, int, std::vector<LspDiagnostic> ds) {
     std::function<void(const fs::path&, std::vector<Diagnostic>)> h;
     {
@@ -596,24 +616,32 @@ bool SemanticEngine::waitForFastIndex(int timeoutMs) const {
   return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] { return fastDone_.load(); });
 }
 
-bool SemanticEngine::waitForClangdIndex(int timeoutMs) const {
+bool SemanticEngine::waitForClangdIndex(int timeoutMs, int quietMs) const {
   auto c = client();
   if (!c) return false;
-  auto deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeoutMs);
+  using Clock = std::chrono::steady_clock;
+  const auto deadline = Clock::now() + std::chrono::milliseconds(timeoutMs);
+  const auto quiet = std::chrono::milliseconds(quietMs);
   std::unique_lock<std::mutex> lk(mu_);
   while (true) {
-    auto p = c->indexProgress();
-    if (p.percentage == 100 && !p.active) return true;
+    const IndexProgress p = c->indexProgress();
+    auto wakeAt = deadline;
+    if (p.percentage == 100 && !p.active && indexEnds_ > 0 && indexIdleSince_ != Clock::time_point{}) {
+      const auto settled = indexIdleSince_ + quiet;
+      if (Clock::now() >= settled) return true;
+      wakeAt = std::min(deadline, settled);
+    }
     if (!c->alive()) return false;
-    if (cv_.wait_until(lk, deadline) == std::cv_status::timeout) {
-      auto q = c->indexProgress();
-      return q.percentage == 100 && !q.active;
+    if (cv_.wait_until(lk, wakeAt) == std::cv_status::timeout && Clock::now() >= deadline) {
+      const IndexProgress q = c->indexProgress();
+      return q.percentage == 100 && !q.active && indexEnds_ > 0;
     }
   }
 }
 
 bool SemanticEngine::fileReady(const fs::path& file) const {
   std::lock_guard<std::mutex> lk(mu_);
+  if (unsent_.count(pathToUri(file))) return true;
   auto it = fileStatus_.find(pathToUri(file));
   return it != fileStatus_.end() && it->second == "idle";
 }
@@ -623,6 +651,7 @@ bool SemanticEngine::waitForFile(const fs::path& file, int timeoutMs) const {
   std::string uri = pathToUri(file);
   std::unique_lock<std::mutex> lk(mu_);
   return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] {
+    if (unsent_.count(uri)) return true;
     auto it = fileStatus_.find(uri);
     return it != fileStatus_.end() && it->second == "idle";
   });
@@ -713,8 +742,15 @@ void SemanticEngine::reopenDocuments(LspClient& c) {
     std::lock_guard<std::mutex> lk(mu_);
     for (auto& [uri, d] : openDocs_) docs.push_back(d);
   }
-  for (auto* d : docs) c.didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().textForLsp());
-  for (auto* d : docs) scheduleTokens(*d);
+  {
+    // A new server knows none of the translation-unit contexts given to the old one.
+    std::lock_guard<std::mutex> lk(tuMu_);
+    for (auto& [k, o] : tuOverrides_) c.setCompileCommand(o.file.string(), o.directory.string(), o.info.arguments);
+  }
+  for (auto* d : docs)
+    if (!unsent(d->uri())) c.didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().textForLsp());
+  for (auto* d : docs)
+    if (!unsent(d->uri())) scheduleTokens(*d);
 }
 
 bool SemanticEngine::restartClangd(std::string* error) {
@@ -968,7 +1004,8 @@ Encoding SemanticEngine::diskEncoding(const fs::path& file) const {
 // Server columns -> columns in tenfold's text. Open documents were sent as their own UTF-8 text, so utf-8 columns
 // already match and utf-16 ones are converted through the document's line. A file that is not open is read by
 // clangd as raw bytes: for a single-byte file (Windows-1252) the byte column becomes the column in the decoded text.
-Position SemanticEngine::posFromServer(const std::string& uri, Position p) const {
+Position SemanticEngine::posFromServer(const std::string& serverUri, Position p) const {
+  const std::string uri = remapUri(serverUri);
   auto c = client();
   if (!c || p.column <= 0) return p;
   const bool utf8 = c->offsetEncoding() == "utf-8";
@@ -996,17 +1033,21 @@ Position SemanticEngine::posFromServer(const std::string& uri, Position p) const
 
 Location SemanticEngine::fromServer(const LspLocation& l) const {
   Location out;
-  out.file = uriToPath(l.uri);
+  out.file = pathFromUri(l.uri);
   out.pos = posFromServer(l.uri, l.range.start);
   return out;
 }
 
 std::vector<SymbolLocation> SemanticEngine::fromServer(const std::vector<LspLocation>& ls, Confidence c) const {
   std::vector<SymbolLocation> out;
+  const bool mapped = tuMapped_.load(std::memory_order_acquire);
+  std::set<std::tuple<std::string, int, int>> seen;
   for (auto& l : ls) {
     SymbolLocation s;
     s.loc = fromServer(l);
     s.confidence = c;
+    // A copy of an includer's text (tuContext) reports the same place as the file itself: one answer, not two.
+    if (mapped && !seen.insert({pathKey(s.loc.file), s.loc.pos.line, s.loc.pos.column}).second) continue;
     out.push_back(std::move(s));
   }
   return out;
@@ -1038,7 +1079,10 @@ void SemanticEngine::didOpen(Document& doc) {
   fast_.updateFile(doc.path(), doc.buffer().text());
   // clangd gets the document as UTF-8 with the file's real line endings (a continued #define in a CRLF header
   // is not the same input to clang with LF; W9e finding 4). Line/column positions are the same either way.
-  if (auto c = clangd()) c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().textForLsp());
+  if (auto c = clangd()) {
+    if (provideTuContext(*c, doc))
+      c->didOpen(doc.uri(), languageIdFor(doc.path()), doc.version(), doc.buffer().textForLsp());
+  }
   scheduleTokens(doc);
 }
 
@@ -1073,6 +1117,7 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
   } else {
     fast_.updateFile(doc.path(), doc.buffer().text());
   }
+  if (unsent(doc.uri())) return;
   if (auto c = clangd()) {
     if (c->offsetEncoding() == "utf-8") {
       c->didChangeIncremental(
@@ -1086,23 +1131,394 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
 }
 
 void SemanticEngine::didSave(Document& doc) {
-  if (!isCodeDocument(ws_, doc)) return;
+  if (!isCodeDocument(ws_, doc) || unsent(doc.uri())) return;
   if (auto c = clangd()) c->didSave(doc.uri());
 }
 
 void SemanticEngine::didClose(Document& doc) {
+  const std::string uri = doc.uri();
+  bool busy = false;
   {
     std::lock_guard<std::mutex> lk(mu_);
-    openDocs_.erase(doc.uri());
-    fileStatus_.erase(doc.uri());
-    reindexGen_.erase(doc.uri());
+    openDocs_.erase(uri);
+    reindexGen_.erase(uri);
+    if (unsent_.erase(uri)) {
+      fileStatus_.erase(uri);
+      return;
+    }
+    auto st = fileStatus_.find(uri);
+    busy = st == fileStatus_.end() || st->second != "idle";
+    if (!busy) fileStatus_.erase(uri);
   }
   if (!isCodeDocument(ws_, doc)) return;
   {
     std::lock_guard<std::mutex> lk(tokMu_);
-    tokens_.erase(doc.uri());
+    tokens_.erase(uri);
   }
-  if (auto c = clangd()) c->didClose(doc.uri());
+  if (busy && clangd()) {
+    // Closing a document that clangd is still building (open, edit, save, close in a row is what a rename across
+    // files does) leaves clangd's scheduler wedged under load: its workers wait for a permit that is never
+    // released, and every later request stays "queued" (W9g G-2). Close it once it has gone idle.
+    closeWhenIdle(uri, std::chrono::steady_clock::now() + std::chrono::seconds(30));
+    return;
+  }
+  if (auto c = clangd()) c->didClose(uri);
+}
+
+void SemanticEngine::closeWhenIdle(const std::string& uri, std::chrono::steady_clock::time_point deadline) {
+  bool reopened = false, idle = false;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    reopened = openDocs_.count(uri) != 0;
+    auto st = fileStatus_.find(uri);
+    idle = st != fileStatus_.end() && st->second == "idle";
+    if (!reopened && (idle || std::chrono::steady_clock::now() >= deadline)) fileStatus_.erase(uri);
+  }
+  if (reopened) return;  // opened again meanwhile: the new didOpen is an update of the same document
+  if (!idle && std::chrono::steady_clock::now() < deadline) {
+    runLater(25, [this, uri, deadline] { closeWhenIdle(uri, deadline); });
+    return;
+  }
+  if (auto c = clangd()) c->didClose(uri);
+}
+
+// ---------------------------------------------------------------------------
+// Translation-unit context for included files (TuContext.h)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+std::string includeBaseName(const std::string& spelling) {
+  const size_t i = spelling.find_last_of("/\\");
+  return i == std::string::npos ? spelling : spelling.substr(i + 1);
+}
+
+// Stable (across runs and platforms) name for a prefix copy: FNV-1a over the key of the file and the line.
+std::string prefixFileName(const fs::path& file, int line) {
+  uint64_t h = 1469598103934665603ull;
+  for (unsigned char ch : pathKey(file) + ":" + std::to_string(line)) {
+    h ^= ch;
+    h *= 1099511628211ull;
+  }
+  char buf[20];
+  std::snprintf(buf, sizeof buf, "%08x", static_cast<unsigned>(h ^ (h >> 32)));
+  return std::string(buf) + "-" + file.filename().string() + ".h";
+}
+
+bool isSourceLikeExtension(const fs::path& p) {
+  std::string e = p.extension().string();
+  for (auto& ch : e) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  return e == ".c" || e == ".cpp" || e == ".cc" || e == ".cxx" || e == ".c++" || e == ".cp" || e == ".m" ||
+         e == ".mm" || e == ".cu";
+}
+
+}  // namespace
+
+bool SemanticEngine::unsent(const std::string& uri) const {
+  std::lock_guard<std::mutex> lk(mu_);
+  return unsent_.count(uri) != 0;
+}
+
+bool SemanticEngine::provideTuContext(LspClient& c, const Document& doc) {
+  const fs::path file = doc.path();
+  if (tu::isStandardHeaderExtension(file) || file.extension().empty()) return true;
+  const auto snap = compileCommands();  // alive for the whole call: the plan points into it
+  if (snap->empty()) return true;
+  std::unordered_map<std::string, const CompileCommand*> byFile;
+  byFile.reserve(snap->size());
+  for (const CompileCommand& cc : *snap) {
+    const fs::path f = cc.file.is_relative() ? cc.directory / cc.file : cc.file;
+    byFile.emplace(pathKey(f.lexically_normal()), &cc);
+  }
+  auto exact = [&](const fs::path& f) -> const CompileCommand* {
+    auto it = byFile.find(pathKey(f.lexically_normal()));
+    return it == byFile.end() ? nullptr : it->second;
+  };
+  if (exact(file)) return true;  // a translation unit of its own
+
+  tu::Env env;
+  env.commandFor = exact;
+  env.readText = [this](const fs::path& f, std::string& out) {
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      auto it = openDocs_.find(pathToUri(f));
+      if (it != openDocs_.end()) {
+        out = it->second->buffer().textForLsp();
+        return true;
+      }
+    }
+    std::error_code ec;
+    if (fs::file_size(f, ec) > (16u << 20)) return false;
+    std::string bytes;
+    if (!readRegularFile(f, bytes)) return false;
+    out = decodeFileBytes(bytes).text;
+    return true;
+  };
+  env.includersOf = [this](const fs::path& target) {
+    std::vector<fs::path> out;
+    const std::string name = target.filename().string();
+    for (const auto& fsyms : fast_.exportFiles()) {
+      for (const auto& inc : fsyms->includes) {
+        if (includeBaseName(inc) == name) {
+          out.push_back(fsyms->file);
+          break;
+        }
+      }
+    }
+    return out;
+  };
+  std::optional<tu::Plan> plan = tu::planContext(file, env);
+  if (!plan) return true;
+  if (plan->fragment) {
+    // Included inside a class body: parsed as a translation unit it ends in an unfinished class and its declarations
+    // never reach clangd's index, while the open document would replace the entries the includer's translation unit
+    // gave the background index. Not sending it keeps those; queries inside it get the fast tier.
+    std::lock_guard<std::mutex> lk(mu_);
+    unsent_.insert(doc.uri());
+    log("tu context: " + file.string() + " is included inside a class body; not sent to clangd");
+    return false;
+  }
+
+  const fs::path dir = ws_.cacheDir() / "tu";
+  std::error_code ec;
+  fs::create_directories(dir, ec);
+  std::vector<fs::path> prefixFiles;
+  std::map<std::string, fs::path> owners;
+  for (const auto& link : plan->links) {
+    const std::string name = prefixFileName(link.file, link.directive.line);
+    const fs::path pf = dir / name;
+    std::string current;
+    const bool same = readRegularFile(pf, current) && current == link.prefix;
+    if (!same) {
+      std::ofstream out(pf, std::ios::binary | std::ios::trunc);
+      out << link.prefix;
+    }
+    prefixFiles.push_back(pf);
+    owners[name] = link.file;
+  }
+  tu::CommandOptions co;
+  const std::string driver =
+      plan->root.arguments.empty() ? std::string() : fs::path(plan->root.arguments[0]).stem().string();
+  std::string lowerDriver = driver;
+  for (auto& ch : lowerDriver) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+  co.clMode = lowerDriver == "cl" || lowerDriver == "clang-cl";
+  std::string rootExt = plan->root.file.extension().string();
+  co.isC = rootExt == ".c";
+  co.headerLike = !isSourceLikeExtension(file);
+  TuOverride ov;
+  ov.file = file;
+  ov.directory = plan->root.directory;
+  ov.info.root = plan->root.file;
+  for (const auto& l : plan->links) ov.info.chain.push_back(l.file);
+  ov.info.arguments = tu::buildArguments(*plan, file, prefixFiles, co);
+  c.setCompileCommand(file.string(), ov.directory.string(), ov.info.arguments);
+  log("tu context: " + file.string() + " <- " + plan->root.file.string() + " (" + std::to_string(plan->links.size()) +
+      " include level" + (plan->links.size() == 1 ? "" : "s") + ")");
+  {
+    std::lock_guard<std::mutex> lk(tuMu_);
+    for (auto& [n, f] : owners) tuPrefixOwner_[n] = f;
+    tuOverrides_[pathKey(file)] = std::move(ov);
+    tuMapped_.store(true, std::memory_order_release);
+  }
+  return true;
+}
+
+std::optional<SemanticEngine::TuContextInfo> SemanticEngine::tuContext(const fs::path& file) const {
+  std::lock_guard<std::mutex> lk(tuMu_);
+  auto it = tuOverrides_.find(pathKey(file));
+  if (it == tuOverrides_.end()) return std::nullopt;
+  return it->second.info;
+}
+
+std::string SemanticEngine::remapUri(const std::string& uri) const {
+  if (!tuMapped_.load(std::memory_order_acquire)) return uri;
+  const fs::path p = uriToPath(uri);
+  if (p.parent_path().filename() != "tu") return uri;
+  std::lock_guard<std::mutex> lk(tuMu_);
+  auto it = tuPrefixOwner_.find(p.filename().string());
+  return it == tuPrefixOwner_.end() ? uri : pathToUri(it->second);
+}
+
+// ---------------------------------------------------------------------------
+// Rename safety
+// ---------------------------------------------------------------------------
+
+namespace {
+
+bool isIdentChar(unsigned char c) { return std::isalnum(c) || c == '_' || c >= 0x80; }
+
+// Calls fn(line, column) for every identifier token equal to `name` in `lines`, skipping comments, string and
+// character literals and the argument of #include.
+template <class Lines, class Fn>
+void forEachIdentifier(const Lines& lines, const std::string& name, Fn&& fn) {
+  bool inBlock = false;
+  for (size_t ln = 0; ln < lines.size(); ++ln) {
+    const std::string_view line = lines[ln];
+    size_t i = 0;
+    {
+      size_t k = 0;
+      while (k < line.size() && (line[k] == ' ' || line[k] == '\t')) ++k;
+      if (!inBlock && k < line.size() && line[k] == '#') {
+        size_t w = k + 1;
+        while (w < line.size() && (line[w] == ' ' || line[w] == '\t')) ++w;
+        if (line.compare(w, 7, "include") == 0 || line.compare(w, 6, "import") == 0) continue;
+      }
+    }
+    while (i < line.size()) {
+      if (inBlock) {
+        const size_t e = line.find("*/", i);
+        if (e == std::string_view::npos) break;
+        i = e + 2;
+        inBlock = false;
+        continue;
+      }
+      const char c = line[i];
+      if (c == '/' && i + 1 < line.size() && line[i + 1] == '/') break;
+      if (c == '/' && i + 1 < line.size() && line[i + 1] == '*') {
+        inBlock = true;
+        i += 2;
+        continue;
+      }
+      if (c == '"' || c == '\'') {
+        ++i;
+        while (i < line.size() && line[i] != c) i += line[i] == '\\' ? 2 : 1;
+        ++i;
+        continue;
+      }
+      if (isIdentChar(static_cast<unsigned char>(c)) && !std::isdigit(static_cast<unsigned char>(c))) {
+        size_t e = i;
+        while (e < line.size() && isIdentChar(static_cast<unsigned char>(line[e]))) ++e;
+        if (e - i == name.size() && line.compare(i, e - i, name) == 0) fn(static_cast<int>(ln), static_cast<int>(i));
+        i = e;
+        continue;
+      }
+      if (std::isdigit(static_cast<unsigned char>(c))) {
+        while (i < line.size() && (isIdentChar(static_cast<unsigned char>(line[i])) || line[i] == '\'')) ++i;
+        continue;
+      }
+      ++i;
+    }
+  }
+}
+
+std::vector<std::string> splitTextLines(const std::string& text) {
+  std::vector<std::string> out;
+  size_t b = 0;
+  for (size_t i = 0; i <= text.size(); ++i) {
+    if (i == text.size() || text[i] == '\n' || (text[i] == '\r' && !(i + 1 < text.size() && text[i + 1] == '\n'))) {
+      out.push_back(text.substr(b, i - b));
+      b = i + 1;
+    }
+  }
+  return out;
+}
+
+}  // namespace
+
+SemanticEngine::RenameCoverage SemanticEngine::renameCoverage(const std::string& oldName, const FileEdits& edits,
+                                                              const fs::path& origin, size_t maxReport,
+                                                              size_t maxFiles) const {
+  RenameCoverage res;
+  if (oldName.empty()) return res;
+  // The starts of the edits, per file.
+  std::map<std::string, std::set<std::pair<int, int>>> covered;
+  std::map<std::string, fs::path> candidates;  // pathKey -> path, in the order found
+  std::vector<fs::path> frontier;
+  auto add = [&](const fs::path& f) { return candidates.emplace(pathKey(f), f).second; };
+  for (const auto& [f, list] : edits) {
+    if (list.empty()) continue;
+    for (const auto& e : list) covered[pathKey(f)].insert({e.first.start.line, e.first.start.column});
+    if (add(f)) frontier.push_back(f);
+  }
+  if (!origin.empty() && add(origin)) frontier.push_back(origin);
+
+  // Include graph from the fast index: file -> spellings, and the files by base name.
+  const auto all = fast_.exportFiles();
+  std::unordered_map<std::string, std::vector<const FileSymbols*>> byBase;
+  std::unordered_map<std::string, const FileSymbols*> byKey;
+  for (const auto& f : all) {
+    byBase[f->file.filename().string()].push_back(f.get());
+    byKey[pathKey(f->file)] = f.get();
+  }
+  auto baseOf = [](const std::string& s) {
+    const size_t i = s.find_last_of("/\\");
+    return i == std::string::npos ? s : s.substr(i + 1);
+  };
+  // Up: files that include a candidate, three levels.
+  std::vector<fs::path> level = frontier;
+  for (int depth = 0; depth < 3 && !level.empty() && candidates.size() < maxFiles; ++depth) {
+    std::vector<fs::path> next;
+    for (const auto& target : level) {
+      for (const auto& f : all) {
+        bool hit = false;
+        for (const auto& inc : f->includes)
+          if (baseOf(inc) == target.filename().string() && tu::includeSpellingResolves(inc, f->file, target)) {
+            hit = true;
+            break;
+          }
+        if (hit && add(f->file)) next.push_back(f->file);
+        if (candidates.size() >= maxFiles) break;
+      }
+    }
+    level = std::move(next);
+  }
+  // Down: files included by an edited file, two levels (a header's class-body fragments live one level deeper).
+  std::vector<fs::path> below = frontier;
+  for (int depth = 0; depth < 2 && !below.empty(); ++depth) {
+    std::vector<fs::path> nextBelow;
+    for (const auto& top : below) {
+      auto it = byKey.find(pathKey(top));
+      if (it == byKey.end()) continue;
+      for (const auto& inc : it->second->includes) {
+        // Files the fast index does not scan (.def lists) are found next to the includer.
+        std::error_code nec;
+        const fs::path near = (top.parent_path() / inc).lexically_normal();
+        if (candidates.size() < maxFiles && fs::is_regular_file(near, nec) && add(near)) nextBelow.push_back(near);
+        auto b = byBase.find(baseOf(inc));
+        if (b == byBase.end()) continue;
+        for (const FileSymbols* c : b->second)
+          if (tu::includeSpellingResolves(inc, top, c->file) && candidates.size() < maxFiles && add(c->file))
+            nextBelow.push_back(c->file);
+      }
+    }
+    below = std::move(nextBelow);
+  }
+
+  size_t bytes = 0;
+  constexpr size_t kMaxBytes = 8u << 20;
+  for (const auto& [key, file] : candidates) {
+    std::vector<std::string> lines;
+    const Document* doc = nullptr;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      auto it = openDocs_.find(pathToUri(file));
+      if (it != openDocs_.end()) doc = it->second;
+    }
+    if (doc) {
+      lines.reserve(static_cast<size_t>(doc->buffer().lineCount()));
+      for (int i = 0; i < doc->buffer().lineCount(); ++i) lines.push_back(doc->buffer().line(i));
+    } else {
+      std::error_code ec;
+      const auto sz = fs::file_size(file, ec);
+      if (ec || bytes + sz > kMaxBytes) {
+        res.limited = true;
+        continue;
+      }
+      std::string raw;
+      if (!readRegularFile(file, raw)) continue;
+      bytes += raw.size();
+      lines = splitTextLines(decodeFileBytes(raw).text);
+    }
+    ++res.filesScanned;
+    const auto cov = covered.find(key);
+    forEachIdentifier(lines, oldName, [&](int line, int col) {
+      if (cov != covered.end() && cov->second.count({line, col})) return;
+      ++res.total;
+      if (res.missed.size() < maxReport) res.missed.push_back({file, {line, col}});
+    });
+  }
+  if (candidates.size() >= maxFiles) res.limited = true;
+  return res;
 }
 
 // ---------------------------------------------------------------------------
@@ -1244,19 +1660,75 @@ void SemanticEngine::deliverWithBudget(
   });
 }
 
+struct SemanticEngine::ReqGuard {
+  std::atomic<bool> done{false};
+  std::atomic<int> id{-1};
+};
+
+void SemanticEngine::armRequestTimeout(std::shared_ptr<ReqGuard> g, std::shared_ptr<LspClient> c, std::string what,
+                                       std::function<void(const std::string&)> fail) {
+  const int ms = opt_.requestTimeoutMs;
+  if (ms <= 0) return;
+  runLater(ms, [g, c, what = std::move(what), ms, fail = std::move(fail)] {
+    if (g->done.exchange(true)) return;
+    c->cancel(g->id.load());
+    fail("clangd did not answer " + what + " within " +
+         std::to_string(ms / 1000.0).substr(0, std::to_string(ms / 1000.0).find('.') + 2) +
+         " s; the request was cancelled");
+  });
+}
+
+void SemanticEngine::preferDefinitions(std::vector<SymbolLocation>& locs) const {
+  std::vector<SymbolLocation> out;
+  for (auto& l : locs) {
+    bool replaced = false;
+    if (auto fsyms = fast_.fileSymbols(l.loc.file)) {
+      for (const Symbol& s : fsyms->symbols) {
+        if (s.line != l.loc.pos.line || s.definition) continue;
+        if (s.kind != SymbolKind::Function && s.kind != SymbolKind::Method) continue;
+        for (auto& m : fast_.lookup(s.name)) {
+          const Symbol& d = m.sym();
+          if (!d.definition || d.scope != s.scope) continue;
+          if (d.kind != SymbolKind::Function && d.kind != SymbolKind::Method) continue;
+          out.push_back(fromFast(m));
+          out.back().confidence = l.confidence;
+          replaced = true;
+        }
+        break;
+      }
+    }
+    if (!replaced) out.push_back(std::move(l));
+  }
+  std::vector<SymbolLocation> uniq;
+  for (auto& l : out) {
+    bool dup = false;
+    for (auto& u : uniq) dup = dup || (u.loc.file == l.loc.file && u.loc.pos == l.loc.pos);
+    if (!dup) uniq.push_back(std::move(l));
+  }
+  locs = std::move(uniq);
+}
+
 void SemanticEngine::locationQuery(
     const char* what, const Document& doc, Position pos, LocationsCallback cb,
     std::function<int(LspClient&, const std::string&, Position, LspClient::Callback<std::vector<LspLocation>>)> issue) {
-  (void)what;
   std::vector<SymbolLocation> approx = approximateDefinitions(doc, pos);
   std::string uri = doc.uri();
   Position sp = toServer(doc, pos);
-  deliverWithBudget(std::move(approx), std::move(cb), [this, uri, sp, issue](auto done) {
+  const std::string what_ = what;
+  if (unsent(uri)) {  // the document is not known to clangd: only the fast tier can answer
+    return deliverWithBudget(std::move(approx), std::move(cb), [](auto done) {
+      done(std::vector<SymbolLocation>{}, std::string("clangd has no translation-unit context for this file"));
+    });
+  }
+  deliverWithBudget(std::move(approx), std::move(cb), [this, uri, sp, issue, what_](auto done) {
     auto c = clangd();
     if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
-    issue(*c, uri, sp, [this, done](std::vector<LspLocation> ls, const std::string& err) {
+    auto g = std::make_shared<ReqGuard>();
+    g->id = issue(*c, uri, sp, [this, done, g](std::vector<LspLocation> ls, const std::string& err) {
+      if (g->done.exchange(true)) return;
       done(fromServer(ls, Confidence::Authoritative), err);
     });
+    armRequestTimeout(g, c, what_, [done](const std::string& m) { done(std::vector<SymbolLocation>{}, m); });
   });
 }
 
@@ -1308,18 +1780,29 @@ void SemanticEngine::gotoTypeDefinition(const Document& doc, Position pos, Locat
   });
 }
 void SemanticEngine::findImplementations(const Document& doc, Position pos, LocationsCallback cb) {
-  locationQuery("implementation", doc, pos, std::move(cb), [](LspClient& c, const std::string& u, Position p, auto k) {
-    return c.implementation(u, p, std::move(k));
-  });
+  LocationsCallback wrapped = [this, cb = std::move(cb)](Confidence c, std::vector<SymbolLocation> locs,
+                                                         const std::string& err) {
+    if (c == Confidence::Authoritative && err.empty()) preferDefinitions(locs);
+    cb(c, std::move(locs), err);
+  };
+  locationQuery(
+      "implementation", doc, pos, std::move(wrapped),
+      [](LspClient& c, const std::string& u, Position p, auto k) { return c.implementation(u, p, std::move(k)); });
 }
 
 void SemanticEngine::findReferences(const Document& doc, Position pos, LocationsCallback cb) {
   // No approximate tier for references (a text search would be misleading); go straight to clangd.
   auto c = queryClient();
   if (!c) return cb(Confidence::Approximate, {}, "clangd not running");
-  c->references(doc.uri(), toServer(doc, pos), true, [this, cb](std::vector<LspLocation> ls, const std::string& err) {
-    cb(Confidence::Authoritative, fromServer(ls, Confidence::Authoritative), err);
-  });
+  if (unsent(doc.uri()))
+    return cb(Confidence::Authoritative, {}, "clangd has no translation-unit context for this file");
+  auto g = std::make_shared<ReqGuard>();
+  g->id = c->references(doc.uri(), toServer(doc, pos), true,
+                        [this, cb, g](std::vector<LspLocation> ls, const std::string& err) {
+                          if (g->done.exchange(true)) return;
+                          cb(Confidence::Authoritative, fromServer(ls, Confidence::Authoritative), err);
+                        });
+  armRequestTimeout(g, c, "find references", [cb](const std::string& m) { cb(Confidence::Authoritative, {}, m); });
 }
 
 void SemanticEngine::workspaceSymbols(const std::string& query, LocationsCallback cb) {
@@ -1422,8 +1905,8 @@ void SemanticEngine::documentSymbols(const Document& doc, LocationsCallback cb) 
 
 void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> cb) {
   if (auto c = clangd()) {
-    c->switchSourceHeader(doc.uri(), [cb](std::string uri, const std::string& err) {
-      cb(uri.empty() ? fs::path() : uriToPath(uri), err);
+    c->switchSourceHeader(doc.uri(), [this, cb](std::string uri, const std::string& err) {
+      cb(uri.empty() ? fs::path() : pathFromUri(uri), err);
     });
     return;
   }
@@ -1441,6 +1924,7 @@ void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> 
 // ---------------------------------------------------------------------------
 
 void SemanticEngine::hover(const Document& doc, Position pos, Callback<std::string> cb) {
+  if (unsent(doc.uri())) return cb("", "clangd has no translation-unit context for this file");
   if (auto c = queryClient()) {
     c->hover(doc.uri(), toServer(doc, pos), std::move(cb));
     return;
@@ -1486,10 +1970,14 @@ void SemanticEngine::rename(const Document& doc, Position pos, const std::string
                             Callback<std::map<fs::path, std::vector<std::pair<Range, std::string>>>> cb) {
   auto c = queryClient();
   if (!c) return cb({}, "clangd not running");
-  c->rename(doc.uri(), toServer(doc, pos), newName, [this, cb](Json edit, const std::string& err) {
+  if (unsent(doc.uri())) return cb({}, "clangd has no translation-unit context for this file");
+  auto g = std::make_shared<ReqGuard>();
+  g->id = c->rename(doc.uri(), toServer(doc, pos), newName, [this, cb, g](Json edit, const std::string& err) {
+    if (g->done.exchange(true)) return;
     if (!err.empty()) return cb({}, err);
     cb(editsFromServer(edit), {});
   });
+  armRequestTimeout(g, c, "rename", [cb](const std::string& m) { cb({}, m); });
 }
 
 void SemanticEngine::onDiagnostics(std::function<void(const fs::path&, std::vector<Diagnostic>)> h) {
@@ -1511,7 +1999,7 @@ std::shared_ptr<LspClient> SemanticEngine::requireClangd(const Callback<T>& cb) 
 FileEdits SemanticEngine::editsFromServer(const Json& edit) const {
   FileEdits out;
   auto addEdits = [&](const std::string& uri, const Json& edits) {
-    TextEditList& list = out[uriToPath(uri)];
+    TextEditList& list = out[pathFromUri(uri)];
     for (auto& e : edits) {
       Range r = rangeFromServer(uri, LspClient::rangeFromJson(e.value("range", Json::object())));
       list.push_back({r, e.value("newText", "")});
@@ -1522,6 +2010,21 @@ FileEdits SemanticEngine::editsFromServer(const Json& edit) const {
   if (edit.contains("documentChanges")) {
     for (auto& dc : edit["documentChanges"])
       if (dc.contains("textDocument")) addEdits(dc["textDocument"].value("uri", ""), dc.value("edits", Json::array()));
+  }
+  if (tuMapped_.load(std::memory_order_acquire)) {
+    // The same edit arrives twice when a file and the prefix copy of it (tuContext) both hold the symbol.
+    for (auto& [file, list] : out) {
+      std::sort(list.begin(), list.end(), [](const auto& a, const auto& b) {
+        return std::tie(a.first.start.line, a.first.start.column, a.first.end.line, a.first.end.column, a.second) <
+               std::tie(b.first.start.line, b.first.start.column, b.first.end.line, b.first.end.column, b.second);
+      });
+      list.erase(std::unique(list.begin(), list.end(),
+                             [](const auto& a, const auto& b) {
+                               return a.first.start == b.first.start && a.first.end == b.first.end &&
+                                      a.second == b.second;
+                             }),
+                 list.end());
+    }
   }
   return out;
 }
@@ -1744,7 +2247,7 @@ HierarchyItem SemanticEngine::hierarchyItemFromServer(const LspHierarchyItem& it
   out.kind = lspSymbolKindName(it.kind);
   out.range = rangeFromServer(it.uri, it.range);
   out.selection = rangeFromServer(it.uri, it.selectionRange);
-  out.loc = {uriToPath(it.uri), out.selection.start};
+  out.loc = {pathFromUri(it.uri), out.selection.start};
   out.server = it;
   return out;
 }

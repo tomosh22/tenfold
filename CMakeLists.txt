@@ -49,6 +49,7 @@ add_library(tenfold_core STATIC
   src/semantic/FastIndex.cpp
   src/semantic/FastIndexStore.cpp
   src/semantic/CompileCommands.cpp
+  src/semantic/TuContext.cpp
   src/semantic/XmlLite.cpp
   src/semantic/SemanticEngine.cpp
   src/workspace/Workspace.cpp
@@ -172,6 +173,7 @@ add_executable(tenfold-tests
   tests/test_term_pty.cpp
   tests/test_w8f_p4.cpp
   tests/test_corpus_parse.cpp
+  tests/test_tu_context.cpp
   tests/test_pathological.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)

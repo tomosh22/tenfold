@@ -11,8 +11,10 @@ namespace tf::ui {
 // Rename symbol (10x RenameSymbol / SubmitRenameSymbol, W8c): a small non-modal input box under the symbol at the
 // caret, pre-filled with the symbol's name and focused. Enter (the "popup" key context's SubmitRenameSymbol binding)
 // asks clangd for the rename (Editor::renameSymbol: edits across files, one undo step per file, open documents updated,
-// closed files written) and Escape or a click elsewhere cancels. There is no approximate tier: approximate renames
-// would be wrong (constraint 1.4), so without a running clangd the command says so and opens nothing.
+// closed files written; when the edit set misses places that still spell the old name nothing is changed and the box
+// comes back asking for a second Enter to rename anyway) and Escape or a click elsewhere cancels. There is no
+// approximate tier: approximate renames would be wrong (constraint 1.4), so without a running clangd the command says
+// so and opens nothing.
 class RenameInput {
  public:
   using Done = Editor::Done<Editor::RenameResult>;
@@ -25,6 +27,9 @@ class RenameInput {
 
   // Tests inject fakes: the rename backend and whether clangd is available (default: clangd initialised).
   void setRenameFn(RenameFn fn) { rename_ = std::move(fn); }
+  // The forced variant, used after the user confirmed a rename that may miss some uses (default: the editor's
+  // renameSymbol with force; without a fake `rename_` ... with one, `rename_` is called again).
+  void setForceRenameFn(RenameFn fn) { forceRename_ = std::move(fn); }
   void setAvailableFn(std::function<bool()> fn) { available_ = std::move(fn); }
   // Called after the box closed so the app can give the keys back to the editor.
   void onClosed(std::function<void()> fn) { closed_ = std::move(fn); }
@@ -40,10 +45,13 @@ class RenameInput {
 
  private:
   void close();
+  void showBox(const std::string& label, const std::string& text);
   void finish(const Editor::RenameResult& r, const std::string& err, const std::string& newName);
 
   PickerEnv& env_;
-  RenameFn rename_;
+  RenameFn rename_, forceRename_;
+  bool confirm_ = false;  // the box is up for "rename anyway?"; the next Enter with confirmName_ forces the rename
+  std::string confirmName_;
   std::function<bool()> available_;
   std::function<void()> closed_;
   Widget* box_ = nullptr;

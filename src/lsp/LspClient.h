@@ -210,6 +210,11 @@ class LspClient {
   int codeActions(const std::string& uri, Range r, Callback<std::vector<LspCodeAction>> cb);
   int executeCommand(const std::string& command, Json arguments, Callback<Json> cb);
   void didChangeWatchedFiles(const std::vector<LspFileEvent>& events);
+  // clangd extension (workspace/didChangeConfiguration, compilationDatabaseChanges): the compile command clangd uses
+  // for `file` from now on, in memory, taking precedence over the compile database. `command` is the whole command
+  // line including the driver. Takes effect before any later didOpen of the file.
+  void setCompileCommand(const std::string& file, const std::string& directory,
+                         const std::vector<std::string>& command);
   // Test hook: every file event sent with didChangeWatchedFiles so far (capped at 1000).
   std::vector<LspFileEvent> sentFileEvents() const;
   // Server -> client workspace/applyEdit. Runs on the reader thread. The request is answered {applied:true} right

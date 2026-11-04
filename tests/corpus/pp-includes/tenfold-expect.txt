@@ -21,7 +21,7 @@ xfail fast def use_dup_quoted -> dup_value_src  # same
 xfail fast def use_dup_reversed -> dup_value_inc2  # same
 xfail fast def use_branch_forced -> branch_forced  # fast index does not evaluate #ifdef/-include
 
-# ---- rename (before any query is located inside an .inl / .def / header-only file, which would open it standalone) ----
+# ---- rename ----
 # (a non-fast query must precede the first rename: right after a fast line the runner renames at the previous cursor)
 def use_guarded_fn -> guarded_fn
 rename GuardBox_v val
@@ -32,18 +32,18 @@ rename use_guarded_fn guarded_two
   guarded_fn use_guarded_fn
 rename peer_fn peer_two
   peer_fn use_peer_fn use_peer_in_inner
-#? rename next_b next_second   # DISABLED: editor session leaves use_next_b_in_a unrenamed, a clean clangd session renames it
-#?  next_b use_next_b use_next_b_in_a
+rename next_b next_second
+  next_b use_next_b use_next_b_in_a
 xfail rename use_dup_reversed dup_two  # clangd renames all three same-USR declarations and every use
   dup_value_inc2 use_dup_reversed
 rename use_forced_fn forced_two
   forced_fn use_forced_fn
 rename use_ForcedType ForcedKind
   ForcedType use_ForcedType
-#? rename use_size length   # DISABLED: editor session (after go-to-definition landed in the .inl) renames the use only; a clean clangd session renames both
-#?  Stack_size use_size
-#? rename use_top peek   # DISABLED: editor session (after go-to-definition landed in the .inl) leaves stack_impl.inl unrenamed; a clean clangd session renames all three
-#?  Stack_top Stack_top_def use_top
+rename use_size length
+  Stack_size use_size
+rename use_top peek
+  Stack_top Stack_top_def use_top
 rename Widget_id ident
   Widget_id use_Widget_id
 xfail rename use_box_double box_dbl  # clangd renames the use only; the name is spelled in "#define BOX_FN box_double", which is left, so the code stops compiling
@@ -70,7 +70,7 @@ def use_dup_quoted -> dup_value_src
 def use_dup_angle -> dup_value_inc1
 def use_dup_other -> dup_value_inc1
 def use_dup_reversed -> dup_value_inc2
-#? decl use_dup_angle -> dup_value_inc1   # DISABLED: non-deterministic: clangd picks one of the three merged declarations (observed inc1 and inc2 on different runs)
+#? decl use_dup_angle -> dup_value_inc1   # DISABLED (clangd, not timing): the three same-USR declarations are merged and clangd answers any one of them; observed inc1 and inc2
 #? decl use_dup_reversed -> dup_value_inc2   # DISABLED: same
 def use_next_a -> next_a
 def use_next_b -> next_b
@@ -140,8 +140,8 @@ xfail sym "dup_value" ∋ dup_value_src dup_value_inc1 dup_value_inc2  # clangd 
 sym "next_a" -> next_a
 sym "util_fn" -> util_fn
 xfail sym "impl_mode" ∋ mode_fast_impl mode_slow_impl  # clangd background index indexes a header once (by content digest): the declaration seen under the other macro state never reaches the index
-#? sym "FastOnly" -> FastOnly   # DISABLED: flaky (index timing): needs the background index to have reached mode.h
-#? sym "SlowOnly" -> SlowOnly   # DISABLED: flaky XPASS/XFAIL by index timing (the #else variant of mode.h is never indexed by a settled clangd)
+sym "FastOnly" -> FastOnly
+xfail sym "SlowOnly" -> SlowOnly  # the #else variant of mode.h is never indexed: clangd indexes a header in the macro state of the first translation unit that includes it
 sym "common_mode" -> mode_common
 sym "forced_fn" -> forced_fn
 sym "ForcedType" -> ForcedType
@@ -164,7 +164,7 @@ refs OnceBox_v = OnceBox_v use_OnceBox_v
 xfail refs dup_value_src = dup_value_src use_dup_quoted  # clangd merges the three dup_value() declarations (same USR) and returns the uses of all of them
 xfail refs dup_value_inc1 = dup_value_inc1 use_dup_angle use_dup_other  # clangd merges the three dup_value() declarations (same USR) and returns the uses of all of them
 xfail refs dup_value_inc2 = dup_value_inc2 use_dup_reversed  # clangd merges the three dup_value() declarations (same USR) and returns the uses of all of them
-#? refs next_b = next_b use_next_b use_next_b_in_a   # DISABLED: editor session returns 2 of 3 (use_next_b_in_a missing), a clean clangd session returns all 3; see docs/STRESS_RESULTS.md
+xfail refs next_b = next_b use_next_b use_next_b_in_a  # clangd: the use inside inc1/next.h (reached through #include_next) is missing from the references although rename finds it
 refs util_fn = util_fn use_util_rel use_util_root
 refs mode_common = mode_common use_common_fast use_common_slow
 refs FastOnly = FastOnly use_FastOnly

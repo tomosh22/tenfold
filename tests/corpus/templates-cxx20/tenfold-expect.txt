@@ -129,7 +129,7 @@ sym "ce_len" -> ce_len
 sym "Triple" -> Triple
 
 # ---- LAST: definitions that land in functions.tpp, which is not self-contained (it has no #include). Jumping into it
-# opens it, clangd parses it standalone and from then on loses what the earlier lines checked (see templates-basic).
+# opens it, tenfold gives it the context of its includer (see templates-basic).
 def use_square -> sq_def
 def use2_square -> sq_def
 def use_square_in_req -> sq_def
