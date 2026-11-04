@@ -111,8 +111,8 @@ database. It tries these in order and uses the first that applies:
    the Visual Studio ones; if nothing is produced, tenfold moves on to the next entry. A configure failure is logged.
    If your project is also a `.sln` and you want the solution's flags, set `"runCMake": false`.
 3. **A Visual Studio solution**: a `.sln` directly in the root folder (not in subfolders). tenfold evaluates the
-   `.vcxproj` files itself and writes `.tenfold/compile_commands.json` with `clang-cl` style commands for the active
-   configuration. All `.sln` files in the root are used. See [Visual Studio solutions](#visual-studio-solutions).
+   `.vcxproj` files itself and writes `.tenfold/vs/<configuration>/compile_commands.json` with `clang-cl` style
+   commands for the active configuration (one folder per configuration, each with its own clangd index). All `.sln` files in the root are used. See [Visual Studio solutions](#visual-studio-solutions).
 4. **A heuristic guess**: every source file compiled with `-std=c++20` (`cppStandard` in `workspace.json`), and
    `-I` for the smallest set of directories that makes the `#include` lines of the workspace resolve (found with the
    fast index). Good enough to start, wrong for anything that depends on defines, generated headers or a particular
@@ -377,8 +377,9 @@ projects itself, without MSBuild, and gives clangd the commands `cl.exe` would g
 `vsConfiguration` / `vsPlatform` in `.tenfold/workspace.json` (default `Debug` / `x64`). If the solution lists it, it is
 used; otherwise `Debug|x64` if the solution has it; otherwise the first configuration in the file (the engine logs the
 fallback). Each project is evaluated with the configuration *the solution maps it to* (so `Debug|x86` can mean
-`Debug|Win32` for a project); projects the solution does not build in that configuration are skipped, which also means
-their files get no entry in the database.
+`Debug|Win32` for a project). A project the solution maps but does not *build* in that configuration (an
+`.ActiveCfg` line without `.Build.0`) is still evaluated with the mapped configuration, as Visual Studio's IntelliSense
+does; a project the solution does not map at all is skipped and its files get no entry in the database.
 
 To change it:
 
@@ -388,7 +389,11 @@ To change it:
 * or `tenfold-cli vsconfig <folder> --list` and `tenfold-cli vsconfig <folder> --set "Release|x64"`, or edit
   `workspace.json` and restart.
 
-Changing it regenerates `.tenfold/compile_commands.json` and restarts clangd against it. **The build uses the same
+Changing it regenerates the compile database of that configuration (under `.tenfold/vs/`) and restarts clangd
+against it. Every configuration you visit keeps its own clangd index (the four most recently used are kept, see
+`maxVsConfigIndexes`), so find-references and rename only see what the active configuration compiles, and going back to
+a configuration you used before is quick. A header that only the previous configuration includes and that is still open
+is not given to the new clangd until you edit or reopen it. **The build uses the same
 setting**, so clangd and `msbuild` agree. (Selecting a configuration rewrites `workspace.json` with the keys tenfold
 knows; see [the caveat](#workspace-file-tenfoldworkspacejson).) The OPEN_QUESTIONS #2 default (Debug|x64) is a guess
 about which configuration you parse with in 10x.
@@ -422,8 +427,11 @@ about which configuration you parse with in 10x.
   if you need them).
 * Toolset files under `$(VCTargetsPath)` are never imported. The system headers (the MSVC STL, the Windows SDK) come
   from the compiler instead: tenfold finds `cl.exe` (from `VCToolsInstallDir`, `vswhere`, or the `msvcToolchain` setting
-  in `workspace.json`, which it saves once found) and starts clangd with `--query-driver` for it. If `cl.exe` is not
-  found the log says `cl.exe not found; set "msvcToolchain" in .tenfold/workspace.json`.
+  in `workspace.json`, which it saves once found) and starts clangd with `--query-driver` for it. On Windows, if `cl.exe`
+  is not found the log says `cl.exe not found; set "msvcToolchain" in .tenfold/workspace.json`. On Linux and macOS
+  (no MSVC) tenfold parses the project against **this machine's standard library** instead (the log says so once): your
+  defines, include directories and forced includes are kept, `<vector>` and friends resolve, but `-m32`/`-m64` are
+  dropped and the Windows SDK (`<windows.h>`) is not available.
 * Unreal Engine `.uproject` workspaces: not supported (UE's generated `.sln` and `compile_commands.json` work as any
   other).
 
@@ -1227,8 +1235,9 @@ Run `Help.ShowCompileCommand` on the file. Read the `Compile flags` line first, 
   something the evaluator could not resolve (an unknown property drops only its own entry) or that lives in a toolset
   file; compare with the project in Visual Studio. The `.vcxproj` limits are listed under
   [What is not](#visual-studio-solutions). The log has `vcxproj: ...` lines for projects it could not read.
-* *`'vector' file not found` or other standard-library and Windows SDK headers missing:* clangd gets the MSVC headers
-  from `cl.exe`. The report's `MSVC toolchain:` line shows which `cl.exe`, or `cl.exe not found`. Start tenfold from a
+* *`'vector' file not found` or other standard-library and Windows SDK headers missing:* on Windows clangd gets the
+  MSVC headers from `cl.exe`. (On Linux and macOS the host's standard library is used, see above; only the Windows SDK
+  is missing there.) The report's `MSVC toolchain:` line shows which `cl.exe`, or `cl.exe not found`. Start tenfold from a
   Developer Command Prompt (so `VCToolsInstallDir` is set) or set `msvcToolchain` in `workspace.json` to the full path
   of `cl.exe`, then restart.
 * *Whole folders missing from search and symbols:* the scan skips directories named exactly `build`, `out`, `bin` or

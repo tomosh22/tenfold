@@ -1026,21 +1026,81 @@ emitted as `clang-cl` commands, so clangd and the fast index see what `cl.exe` w
 **Configurations.** `readSolution` parses the projects, `GlobalSection(SolutionConfigurationPlatforms)` (the
 configuration list, file order) and `GlobalSection(ProjectConfigurationPlatforms)` (`.ActiveCfg` = the project's
 configuration/platform for a solution configuration, e.g. `Debug|x86` -> `Debug|Win32`; `.Build.0` = built there).
-`fromSolution` skips a project the solution does not build in the active configuration (no `.Build.0`, or no mapping
-at all) and evaluates the others with their mapped configuration/platform. A solution without those sections uses the
+`fromSolution` skips a project the solution does not map in the active configuration (no `.ActiveCfg` for it) and
+evaluates the others with their mapped configuration/platform, **built or not**: a project with an `.ActiveCfg` but no
+`.Build.0` line (not part of that configuration's *build*) still gets its own flags (W9-FIX-vs, P-16). Visual Studio's
+IntelliSense evaluates such a project with the mapped project configuration, because `.Build.0` only controls what
+`msbuild` compiles; the alternative (no entry) made clangd borrow another project's flags, which is never better. I
+could not verify this on a Windows machine; the evidence is VS's documented behaviour (Configuration Manager "Build"
+checkbox vs the configuration column) and that the alternative is arbitrary. `SolutionProjectConfiguration::build` still
+records the `.Build.0` line for consumers that care (the build). A solution without those sections uses the
 request as is. The active configuration is `Workspace::Settings::vsConfiguration` / `vsPlatform` (the existing
 `.tenfold/workspace.json` keys, shared with the build): an exact match in the solution, else `Debug|x64`, else the
 first listed configuration (`pickSolutionConfiguration`; the engine logs the fallback). API: `Workspace::
 vsConfigurations()`, `activeVsConfiguration()`, `setVsConfiguration("Debug|x64")` (validates, saves);
-`Editor::selectVsConfiguration(name, &err, applied)` additionally regenerates `.tenfold/compile_commands.json` on
-the engine worker and restarts clangd (even though the database stays at the same path), calling `applied` on the
-pump thread; CLI: `tenfold-cli vsconfig <root> [--set Debug|x64]`. The generated database is stamped
-(`.tenfold/compile_commands.stamp`: source and configuration; a heuristic database is stamped `heuristic`, which is how a
-warm start keeps reporting it, and a cached heuristic database is dropped when a solution or CMake project appears), so
-a hand-edited `workspace.json` is not served from a stale cache. `Workspace::saveSettings` merges into the existing
+`Editor::selectVsConfiguration(name, &err, applied)` additionally regenerates the configuration's compile database on
+the engine worker and restarts clangd against it, calling `applied` on the pump thread; CLI: `tenfold-cli vsconfig
+<root> [--set Debug|x64]`. A generated database is stamped (`compile_commands.stamp` next to it: source, configuration
+and toolchain mode for a solution; `heuristic` for a heuristic one, which is how a warm start keeps reporting it, and a
+cached heuristic database is dropped when a solution or CMake project appears), so a hand-edited `workspace.json` is not
+served from a stale cache. `Workspace::saveSettings` merges into the existing
 `workspace.json` (unknown keys survive), writes `workspace.json.tmp` and renames it, and refuses to touch a file that is
 not a JSON object. Edits to `.sln`, `.vcxproj`, `.props`, `.targets` and `Directory.Build.*` trigger a refresh like
 `compile_commands.json` does.
+
+**One compile database and one clangd index per configuration (W9-FIX-vs, P-15).** clangd keeps its background index in
+`<directory of the compile database it was started with>/.cache/clangd/index` (`--compile-commands-dir`), one index per
+project, whatever the flags of each entry. With a single `.tenfold/compile_commands.json` the index therefore outlived a
+configuration switch: the shards of the Debug translation units (and the declarations in `inc_Debug/cfg.h`, same USR as
+the Release declaration) stayed in the index the restarted clangd loaded, so find-references and rename touched the
+headers of configurations that were no longer active. Decision: a solution's database lives in
+`.tenfold/vs/<configuration>-<hash>/compile_commands.json` (name sanitised, 8-hex hash of the exact name so
+`Debug|x64` and `Debug_x64` never share), so each solution configuration has its own `.cache/clangd/index` and an index
+never mixes two configurations. Alternatives weighed: (a) delete the index on every switch (wrong answers impossible,
+but every switch re-indexes the whole project, which users do often and which is the slow part of a switch); (b) one
+index plus filtering results by the active configuration (clangd offers no such hook; tenfold would have to
+post-process every references/rename answer against the compile database, and rename edits come from clangd itself);
+(c) the per-configuration directory (chosen): no clangd change, correct by construction, and switching back to a
+configuration whose index is still valid reuses it (clangd re-indexes only files whose digest or compile command
+changed; the regenerated database is byte-for-byte the same for an unchanged project, so a switch back is a clangd
+restart plus a verification, not a re-index). Cost: disk, bounded by `SemanticEngine::Options::maxVsConfigIndexes`
+(default 4): when a configuration is selected, the least recently used other directories (by the stamp's mtime, which is
+touched on use) are deleted. The directory of the previous tenfold layout (`.tenfold/compile_commands.json` +
+`.tenfold/.cache/clangd/index`, which mixed configurations) is removed the first time a solution database is made.
+`Editor` does not watch the folders under `.tenfold/` (the regeneration would otherwise trigger itself).
+
+*Open documents.* clangd parses every open document on its own and adds it to its dynamic index, which shadows the
+background index. A header of the previous configuration that stays open in the editor (`inc_Debug/cfg.h` after
+`go to definition` landed there) would put its declaration back into the answers of the new configuration even with a
+clean index. At a configuration switch `SemanticEngine::reopenDocuments` therefore compares the include closure of the
+old and the new configuration (`compdb::filesReachableFrom`: units plus `#include`s resolved next to the includer and
+through the command's `-I`/`/I`/`-isystem`/`/imsvc` directories and forced includes, using the fast index's include
+lists, no preprocessing) and **parks** an open document that the old configuration compiled or included and the new
+one does not: it stays open in the editor but is not sent to the new clangd. Editing it or opening it again
+(`Editor::open` on an open document, which is what go-to-definition and the tab picker do) sends it, so a header the
+user works on is never left out for long. A document that neither configuration reaches (a header being written, a
+file outside the project) is never parked. The check is an over-approximation (`#if` is ignored), so it can keep a
+document that the new configuration does not really include, never park one that it does.
+
+**Host standard library fallback (`.sln` off Windows).** The commands are `clang-cl` commands for MSVC, and clangd finds
+MSVC's STL and the Windows SDK through `--query-driver` of `cl.exe` (below). Where no `cl.exe` can be found
+(`msvcToolchain`, `VCToolsInstallDir`, `vswhere`; that is every Linux and macOS machine) `<vector>` and `<cstdio>`
+resolved to nothing and every standard type was an error. The engine then asks `fromSolution` for the *host form*
+(`VcxprojOptions::hostTarget`, `compdb::toHostStdlibArgs`): same driver (`clang-cl`), same defines, include
+directories, forced includes, PCH forced include and options, but `--target=<host triple>` (clangd's Linux/macOS
+driver then adds the host's libstdc++/libc++ and libc include paths, as for any `clang++` command; macOS also gets
+`-isysroot` from `platformSystemFlags()`), `/std:c++N` written as `/clang:-std=c++N` (cl mode ignores `/std:` for a
+non-Windows target), `-m32`/`-m64` and the Windows ARM64 target dropped (the host has one architecture and no 32-bit
+standard library), `-fms-extensions` (so `__declspec`, `__int64`, `__stdcall` still parse) and
+`/D_MSC_VER=1933` (the version clang-cl reports; code under `#ifdef _MSC_VER` keeps taking the MSVC branch). Tried and
+rejected: `-fms-compatibility` on a Linux target (libstdc++ then fails on `__GCC_ATOMIC_TEST_AND_SET_TRUEVAL`), and the
+GCC driver (`clang++`), which would need every `/` option of the project translated. Consequences: `sizeof(void*)`
+and `_WIN64` follow the host/project defines, not the project's platform (a `Win32` configuration still gets no
+`_WIN64`, but pointers are 8 bytes); Windows SDK headers (`<windows.h>`) are not available. The fallback is logged once
+per session (`no MSVC toolchain (cl.exe) found: ...`), the stamp records `host:<triple>` as the mode (a changed
+`msvcToolchain` regenerates), and `Options::forceHostStdlibFallback` forces it for tests. **On Windows nothing
+changes**: the mode is decided at compile time (`_WIN32`) to be MSVC, the log line `cl.exe not found` stays, and
+`tenfold-cli compdb` always writes the MSVC form.
 
 **Evaluation order** follows MSBuild: pass 1 properties and imports in document order (environment variables are the
 lowest-priority properties; `Directory.Build.props` is imported where `Microsoft.Cpp.Default.props` sits, or at the top

@@ -1,0 +1,41 @@
+# vs-std: .sln mode WITH the standard library (Linux/macOS: the host's headers through the fallback of
+# docs/ARCHITECTURE.md "Host standard library fallback"; skipped on Windows, where the MSVC headers decide).
+# std::string/vector/map/optional/unique_ptr/iostream, a forced include, project defines, _MSC_VER branches,
+# and a Debug|x86 configuration (-m32 is dropped off Windows: the host has one architecture).
+
+config Debug|x64
+def use_make_store -> make_store_def
+def use_add -> Store_add_def
+def use_sorted -> Store_sorted_def
+def use_find -> Store_find_def
+def use_name -> Entry_name
+def use_score -> Entry_score
+def use_mode_name -> mode_name
+def use_forced_size -> forced_fn
+def use_entries_in_size -> Store_entries
+def use_entries_add -> Store_entries
+def use_score_sort -> Entry_score
+hover use_name ~ "name" "string"
+hover use_find ~ "find" "Entry"
+hover use_store_size ~ "size"
+hover use_auto_var ~ "size_t"
+refs Entry_score >= Entry_score use_score use_score_sort
+refs Store_entries = Store_entries use_entries_in_size use_entries_add use_entries_find use_entries_end use_entries_sorted
+refs Store_add = Store_add Store_add_def use_add use_add_b
+rename Store_add append
+  Store_add Store_add_def use_add use_add_b
+sym "Store" ∋ Store
+sym "make_store" -> make_store | make_store_def
+
+config Release|x64
+def use_mode_name -> mode_name_rel
+def use_forced_size -> forced_fn
+def use_add -> Store_add_def
+refs Entry_score >= Entry_score use_score use_score_sort
+hover use_name ~ "name" "string"
+
+config Debug|x86
+def use_mode_name -> mode_name
+def use_make_store -> make_store_def
+hover use_name ~ "name" "string"
+refs Store_entries = Store_entries use_entries_in_size use_entries_add use_entries_find use_entries_end use_entries_sorted

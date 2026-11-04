@@ -135,6 +135,13 @@ class SemanticEngine {
     // not running (fast tier only: an Approximate answer with the error "clangd not running") while clangd itself keeps
     // running and parsing. Switchable at any time with setFastOnlyQueries(); off in the product.
     bool fastOnlyQueries = false;
+    // Visual Studio solutions keep one compile database and one clangd background index per solution configuration
+    // (<root>/.tenfold/vs/<configuration>/), so an index never mixes the declarations of two configurations. At most
+    // this many are kept; the least recently used are deleted when a configuration is selected.
+    int maxVsConfigIndexes = 4;
+    // Test hook: pretend no MSVC toolchain was found even where one is (forces the host standard library fallback of
+    // .sln mode); the product decides by itself (off on Windows).
+    bool forceHostStdlibFallback = false;
   };
 
   // Lifecycle of the clangd child as the status bar shows it.
@@ -233,6 +240,9 @@ class SemanticEngine {
 
   // Document lifecycle (forwarded to clangd and the fast index).
   void didOpen(Document& doc);
+  // The user brought an already open document into use (Editor::open on it): a document parked at a Visual Studio
+  // configuration switch is sent to clangd again.
+  void activateDocument(Document& doc);
   void didChange(Document& doc, const Document::Change& change);
   void didSave(Document& doc);
   void didClose(Document& doc);
@@ -412,13 +422,15 @@ class SemanticEngine {
   mutable std::mutex clientMu_;
   std::shared_ptr<LspClient> clangd_;                                   // guarded by clientMu_
   std::shared_ptr<const std::vector<CompileCommand>> compileCommands_;  // guarded by mu_
+  void pruneVsConfigDirs(const std::filesystem::path& vsRoot, const std::filesystem::path& keep);
   std::shared_ptr<LspClient> client() const;  // current client regardless of initialisation state
   std::shared_ptr<LspClient> takeClient();    // detach the current client (caller stops it)
   std::atomic<bool> fastOnly_{false};
   // The client a query is sent to: clangd(), except while fast-only queries are switched on (then none).
   std::shared_ptr<LspClient> queryClient() const { return fastOnlyQueries() ? nullptr : clangd(); }
   std::string compdbSource_ = "none";
-  std::string clangdExe_, clangdSource_;  // guarded by mu_
+  std::atomic<bool> hostFallbackLogged_{false};  // the host standard library fallback is logged once
+  std::string clangdExe_, clangdSource_;         // guarded by mu_
   std::filesystem::path compdbPath_;
   std::vector<std::string> sharedFlags_;  // flags applied to every file via clangd config
 
@@ -482,6 +494,15 @@ class SemanticEngine {
 
   // Large open documents re-index lazily (see didChange): the generation of the pending re-index per uri (mu_).
   std::map<std::string, uint64_t> reindexGen_;
+  // Visual Studio configuration switch (guarded by mu_). An open header that only the previous configuration
+  // includes is "parked": not sent to the new clangd, whose index would otherwise gain the declarations of a header
+  // that is not part of the active configuration (clangd parses every open document on its own). Interacting with it
+  // again (editing, Editor::open) sends it. `switchFrom_` is the previous configuration's compile commands, held from
+  // the reconfigure until the restart consumes them.
+  std::set<std::string> parkedDocs_;
+  std::shared_ptr<const std::vector<CompileCommand>> switchFrom_;
+  std::string activeVsName_;
+  bool unparkIfParked(Document& doc);
 
   // Semantic token state per document uri (tokMu_): the previous result id + data for delta, debounce generation.
   struct TokenState {

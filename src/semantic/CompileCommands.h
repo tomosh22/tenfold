@@ -3,6 +3,7 @@
 #include <functional>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -60,7 +61,23 @@ struct VcxprojOptions {
   bool directoryBuildFiles = true;
   // Defines that MSBuild/cl add implicitly (_WIN32, _WIN64, _DEBUG, _DLL, _MT, UNICODE, _MBCS). See ARCHITECTURE.md.
   bool implicitDefines = true;
+  // Host fallback (no MSVC toolchain, e.g. a .sln opened on Linux/macOS): when set, every command is emitted for this
+  // target triple so clangd finds the host's standard library headers instead of the (missing) MSVC ones. The
+  // project's defines, include directories, forced includes and language standard are kept (`/std:` becomes
+  // `/clang:-std=`), `-m32`/`-m64` and the Windows ARM64 target are dropped (the host has one architecture), and
+  // `-fms-extensions` plus `/D_MSC_VER=1933` keep `__declspec`, `__int64` and `#ifdef _MSC_VER` branches working.
+  // Empty (the default, and always on Windows) = the clang-cl commands MSVC would see.
+  std::string hostTarget;
+  std::vector<std::string> hostExtraFlags;  // inserted right after the driver (e.g. -isysroot on macOS)
 };
+
+// The target triple of the machine tenfold runs on ("x86_64-pc-linux-gnu", "arm64-apple-darwin", ...), or "" when
+// there is no usable host fallback (Windows, unknown architecture).
+std::string hostTargetTriple();
+// Rewrites a clang-cl command line produced for MSVC into the host fallback form described at
+// VcxprojOptions::hostTarget. `args[0]` stays the driver.
+std::vector<std::string> toHostStdlibArgs(const std::vector<std::string>& args, const std::string& hostTarget,
+                                          const std::vector<std::string>& extraFlags = {});
 
 // A project listed in a .sln.
 struct SolutionProject {
@@ -74,7 +91,7 @@ struct SolutionProject {
 struct SolutionProjectConfiguration {
   std::string configuration;  // the project's own configuration / platform ("Debug", "Win32")
   std::string platform;
-  bool build = false;  // .Build.0 present: the project is part of the build in this configuration
+  bool build = false;  // .Build.0 present: the project is built in this configuration (IntelliSense does not need it)
 };
 struct SolutionInfo {
   std::filesystem::path path;
@@ -107,7 +124,9 @@ std::vector<std::filesystem::path> projectsInSolution(const std::filesystem::pat
 std::vector<CompileCommand> fromVcxproj(const std::filesystem::path& vcxproj, const VcxprojOptions& opt,
                                         std::string* error = nullptr);
 // Evaluate every project the solution builds in the configuration picked from `opt` (pickSolutionConfiguration),
-// each with its mapped project configuration/platform. Projects the solution does not build there are skipped.
+// each with its mapped project configuration/platform. A project with an `.ActiveCfg` mapping is evaluated with it
+// whether or not the solution builds it there (`.Build.0`), because that is what Visual Studio's IntelliSense does;
+// projects the solution does not map at all are skipped.
 std::vector<CompileCommand> fromSolution(const std::filesystem::path& sln, const VcxprojOptions& opt,
                                          std::string* error = nullptr);
 
@@ -130,6 +149,16 @@ std::vector<CompileCommand> heuristic(const std::filesystem::path& root,
                                       const std::vector<std::filesystem::path>& headers,
                                       const std::string& std = "c++20",
                                       const std::vector<std::string>& includePaths = {}, bool clDriver = false);
+
+// Which of `targets` (pathKey()s of files) are translation units of `cmds` or are #included, directly or through other
+// headers, by one of them. Include directives (`includesOf(file)`: the paths as written) are resolved the way a
+// compiler would for that command: next to the including file, then the -I / /I / -isystem / /imsvc directories (a
+// relative one from the command's directory); forced includes (/FI, -include) count as included by the unit. No
+// preprocessing: every #if branch counts, so the answer is "may be part of". Bounded work per call.
+std::set<std::string> filesReachableFrom(
+    const std::vector<CompileCommand>& cmds,
+    const std::function<std::vector<std::string>(const std::filesystem::path&)>& includesOf,
+    const std::set<std::string>& targets);
 
 // Flags a standalone clangd needs to find the system headers of this host
 // when a compile command does not carry them: "-isysroot <SDK>" on macOS

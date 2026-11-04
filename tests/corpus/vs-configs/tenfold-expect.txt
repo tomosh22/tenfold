@@ -1,7 +1,7 @@
 # vs-configs (W9c): one solution, two projects (core, app), four solution configurations:
 #   Debug|x64, Release|x64, Debug|x86 (solution x86 maps to the projects' Win32), Profile|x64 (custom configuration;
 #   app has no Profile configuration and is mapped to Release|x64 by the solution).
-# Everything is standard-library free (the .sln/clang-cl route on Linux has no standard headers).
+# Everything is standard-library free on purpose (same meaning on every platform; vs-std covers the standard library in .sln mode).
 # Per-configuration: PreprocessorDefinitions, ForcedIncludeFiles (Debug), AdditionalIncludeDirectories built from
 # $(Configuration) and $(Platform), ExcludedFromBuild conditions, implicit _DEBUG / _WIN64 defines, shared headers.
 
@@ -45,14 +45,14 @@ def use_core_twice_app -> core_twice
 def use_app_marker -> app_build_yes
 def use_leak_marker -> core_build_absent
 hover use_app_mode ~ "app_mode" "int"
-#? refs level_dbg >= level_dbg use_core_level   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? refs level_dbg >= level_dbg use_core_level   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 refs cfg_debug = cfg_debug use_cfg_value
 refs arch_x64 = arch_x64 use_arch_name
 refs app_mode_debug = app_mode_debug use_app_mode
-#? refs log_plain >= log_plain use_log_app   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "core_level" -> level_dbg   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "cfg_value" -> cfg_debug   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "arch_name" -> arch_x64   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? refs log_plain >= log_plain use_log_app   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "core_level" -> level_dbg   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "cfg_value" -> cfg_debug   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "arch_name" -> arch_x64   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 sym "app_mode" -> app_mode_debug
 sym "runtime_kind" -> rt_debug
 fast sym "x64_only_fn" ∋ x64_only_fn
@@ -63,8 +63,8 @@ def use_dbg_forced -> dbg_forced
 def use_FORCED_TAG -> FORCED_TAG
 hover use_FORCED_TAG ~ "#define FORCED_TAG 1"
 sym "dbg_helper" ∋ dbg_helper_def
-#? sym "dbg_forced" -> dbg_forced   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? refs dbg_helper_decl >= dbg_helper_decl use_dbg_helper   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? sym "dbg_forced" -> dbg_forced   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? refs dbg_helper_decl >= dbg_helper_decl use_dbg_helper   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 rename use_cfg_value cfg_get_Debug
   cfg_debug use_cfg_value
 
@@ -96,21 +96,21 @@ def use_core_twice_app -> core_twice
 def use_app_marker -> app_build_yes
 def use_leak_marker -> core_build_absent
 hover use_app_mode ~ "app_mode" "int"
-#? refs level_rel >= level_rel use_core_level   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-xfail refs cfg_release = cfg_release use_cfg_value  # clangd: the index still holds the declarations of the configurations visited earlier (same USR): they are returned too
+#? refs level_rel >= level_rel use_core_level   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+refs cfg_release = cfg_release use_cfg_value
 refs arch_x64 = arch_x64 use_arch_name
 refs app_mode_release = app_mode_release use_app_mode
-#? refs log_fancy >= log_fancy use_log_app   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "core_level" -> level_rel   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "cfg_value" -> cfg_release   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "arch_name" -> arch_x64   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? refs log_fancy >= log_fancy use_log_app   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "core_level" -> level_rel   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "cfg_value" -> cfg_release   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "arch_name" -> arch_x64   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 sym "app_mode" -> app_mode_release
 sym "runtime_kind" -> rt_release
 fast sym "x64_only_fn" ∋ x64_only_fn
 fast sym "dbg_helper" ∋ dbg_helper_def
-xfail rename use_cfg_value cfg_get_Release  # clangd: renames the other configurations' cfg.h declarations as well (stale index entries from earlier configurations)
+rename use_cfg_value cfg_get_Release
   cfg_release use_cfg_value
-#? sym "dbg_forced" -> none   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? sym "dbg_forced" -> none   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 
 # ================= Debug|x86 =================
 config Debug|x86
@@ -140,14 +140,14 @@ def use_core_twice_app -> core_twice
 def use_app_marker -> app_build_yes
 def use_leak_marker -> core_build_absent
 hover use_app_mode ~ "app_mode" "int"
-#? refs level_dbg >= level_dbg use_core_level   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-xfail refs cfg_debug = cfg_debug use_cfg_value  # clangd: the index still holds the declarations of the configurations visited earlier (same USR): they are returned too
-xfail refs arch_win32 = arch_win32 use_arch_name  # clangd: the index still holds the declarations of the configurations visited earlier (same USR): they are returned too
+#? refs level_dbg >= level_dbg use_core_level   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+refs cfg_debug = cfg_debug use_cfg_value
+refs arch_win32 = arch_win32 use_arch_name
 refs app_mode_debug = app_mode_debug use_app_mode
-#? refs log_plain >= log_plain use_log_app   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "core_level" -> level_dbg   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "cfg_value" -> cfg_debug   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "arch_name" -> arch_win32   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? refs log_plain >= log_plain use_log_app   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "core_level" -> level_dbg   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "cfg_value" -> cfg_debug   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "arch_name" -> arch_win32   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 sym "app_mode" -> app_mode_debug
 sym "runtime_kind" -> rt_debug
 fast sym "x64_only_fn" ∋ x64_only_fn
@@ -158,9 +158,9 @@ def use_dbg_forced -> dbg_forced
 def use_FORCED_TAG -> FORCED_TAG
 hover use_FORCED_TAG ~ "#define FORCED_TAG 1"
 sym "dbg_helper" ∋ dbg_helper_def
-#? sym "dbg_forced" -> dbg_forced   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? refs dbg_helper_decl >= dbg_helper_decl use_dbg_helper   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-xfail rename use_cfg_value cfg_get_Debug32  # clangd: renames the other configurations' cfg.h declarations as well (stale index entries from earlier configurations)
+#? sym "dbg_forced" -> dbg_forced   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? refs dbg_helper_decl >= dbg_helper_decl use_dbg_helper   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+rename use_cfg_value cfg_get_Debug32
   cfg_debug use_cfg_value
 
 # ================= Profile|x64 =================
@@ -191,18 +191,18 @@ def use_core_twice_app -> core_twice
 def use_app_marker -> app_build_yes
 def use_leak_marker -> core_build_absent
 hover use_app_mode ~ "app_mode" "int"
-#? refs level_prof >= level_prof use_core_level   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-xfail refs cfg_profile = cfg_profile use_cfg_value  # clangd: the index still holds the declarations of the configurations visited earlier (same USR): they are returned too
-xfail refs arch_x64 = arch_x64 use_arch_name  # clangd: the index still holds the declarations of the configurations visited earlier (same USR): they are returned too
+#? refs level_prof >= level_prof use_core_level   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+refs cfg_profile = cfg_profile use_cfg_value
+refs arch_x64 = arch_x64 use_arch_name
 refs app_mode_release = app_mode_release use_app_mode
-#? refs log_fancy >= log_fancy use_log_app   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "core_level" -> level_prof   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "cfg_value" -> cfg_profile   # DISABLED: depends on background-index timing and on which configurations were visited earlier
-#? sym "arch_name" -> arch_x64   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? refs log_fancy >= log_fancy use_log_app   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "core_level" -> level_prof   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "cfg_value" -> cfg_profile   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
+#? sym "arch_name" -> arch_x64   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)
 sym "app_mode" -> app_mode_release
 sym "runtime_kind" -> rt_release
 fast sym "x64_only_fn" ∋ x64_only_fn
 fast sym "dbg_helper" ∋ dbg_helper_def
-xfail rename use_cfg_value cfg_get_Profile  # clangd: renames the other configurations' cfg.h declarations as well (stale index entries from earlier configurations)
+rename use_cfg_value cfg_get_Profile
   cfg_profile use_cfg_value
-#? sym "dbg_forced" -> none   # DISABLED: depends on background-index timing and on which configurations were visited earlier
+#? sym "dbg_forced" -> none   # DISABLED: depends on background-index timing, and on an open header being parsed standalone (its #if branch then follows the fallback flags, not the configuration)

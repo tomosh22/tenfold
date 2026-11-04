@@ -123,7 +123,7 @@ TEST(vs_solution_lists_configurations_and_mapping) {
   CHECK_EQ(m->configuration, "Debug");
   CHECK_EQ(m->platform, "Win32");  // solution "x86" is the project's "Win32"
   CHECK(m->build);
-  // Tests is mapped (ActiveCfg) in Release but has no Build.0: not built there.
+  // Tests is mapped (ActiveCfg) in Release but has no Build.0: not built there (IntelliSense still evaluates it).
   auto t = info.mapping(info.projects[2], {"Release", "x64"});
   REQUIRE(t.has_value());
   CHECK(!t->build);
@@ -134,7 +134,7 @@ TEST(vs_solution_lists_configurations_and_mapping) {
   CHECK(info.mapping(app, {"debug", "X64"}).has_value());
 }
 
-TEST(vs_solution_skips_projects_that_are_not_built) {
+TEST(vs_solution_evaluates_mapped_projects_and_skips_unmapped_ones) {
   auto files = [](const std::vector<CompileCommand>& cmds) {
     std::set<std::string> projects;
     for (auto& c : cmds) projects.insert(c.directory.filename().string());
@@ -144,10 +144,17 @@ TEST(vs_solution_skips_projects_that_are_not_built) {
   auto dx64 = multi("Debug", "x64", &err);
   CHECK_EQ(err, "");
   CHECK(files(dx64) == (std::set<std::string>{"App", "Lib", "Tests", "Tools"}));
+  // Tests: ActiveCfg without Build.0 (P-16). Visual Studio does not build it in Release but its IntelliSense still
+  // evaluates the files with the mapped project configuration, so the files get their own flags.
   auto rx64 = multi("Release", "x64");
-  CHECK(files(rx64) == (std::set<std::string>{"App", "Lib", "Tools"}));  // Tests: ActiveCfg without Build.0
+  CHECK(files(rx64) == (std::set<std::string>{"App", "Lib", "Tests", "Tools"}));
+  {
+    const auto& t = need(rx64, "Tests/tests.cpp");
+    CHECK(has(t.arguments, "/DTESTS"));  // the project's own flags, evaluated as Release|x64
+    CHECK(has(t.arguments, "/D_WIN64"));
+  }
   auto dx86 = multi("Debug", "x86");
-  CHECK(files(dx86) == (std::set<std::string>{"App", "Lib", "Tests"}));  // Tools: not in the x86 configurations
+  CHECK(files(dx86) == (std::set<std::string>{"App", "Lib", "Tests"}));  // Tools: no mapping in the x86 configurations
   // The mapped project platform is what the project is evaluated with.
   const auto& lib = need(dx86, "Lib/lib.cpp");
   CHECK(has(lib.arguments, "-m32"));
@@ -637,7 +644,8 @@ TEST(vs_editor_switches_configuration_end_to_end) {
     CHECK_EQ(st.compdbSource, "vcxproj");
     auto before = ed.semantic().compileCommands();
     const auto& b = need(*before, "App/src/main.cpp").arguments;
-    CHECK(has(b, "/DSHEET_DEFINE") && has(b, "/MDd") && has(b, "-m64"));
+    CHECK(has(b, "/DSHEET_DEFINE") && has(b, "/MDd") &&
+          has(b, "/D_WIN64"));  // (-m64 is dropped by the host fallback off Windows)
     CHECK(forFile(*before, "Tests/tests.cpp") != nullptr);
 
     CHECK(!ed.selectVsConfiguration("Nope|x64", &err));
@@ -652,16 +660,16 @@ TEST(vs_editor_switches_configuration_end_to_end) {
     const auto& r = need(*after, "App/src/main.cpp").arguments;
     CHECK(has(r, "/DNDEBUG") && has(r, "/MT"));
     CHECK(!has(r, "/DSHEET_DEFINE"));
-    CHECK(forFile(*after, "Tests/tests.cpp") == nullptr);  // not built in Release
+    CHECK(forFile(*after, "Tests/tests.cpp") != nullptr);  // ActiveCfg without Build.0: still evaluated (P-16)
     CHECK_EQ(ed.activeVsConfiguration().name(), "Release|x64");
     CHECK(readFile(root / ".tenfold/workspace.json").find("\"Release\"") != std::string::npos);
 
-    // x86 maps the projects to Win32 and drops Tools.
+    // x86 maps the projects to Win32 and drops Tools (no mapping for it in the x86 configurations).
     applied = false;
     CHECK(ed.selectVsConfiguration("Debug|x86", &err, [&] { applied = true; }));
     CHECK(ed.waitFor([&] { return applied; }, 30000));
     auto x86 = ed.semantic().compileCommands();
-    CHECK(has(need(*x86, "Lib/lib.cpp").arguments, "-m32"));
+    CHECK(!has(need(*x86, "Lib/lib.cpp").arguments, "/D_WIN64"));  // 32-bit (-m32 on MSVC hosts)
     CHECK(forFile(*x86, "Tools/tool.c") == nullptr);
   }
   // A new session reads the persisted choice; a hand-edited workspace.json invalidates the cached database.
@@ -670,7 +678,7 @@ TEST(vs_editor_switches_configuration_end_to_end) {
     std::string err;
     REQUIRE(ed.start(&err));
     CHECK_EQ(ed.activeVsConfiguration().name(), "Debug|x86");
-    CHECK(has(need(*ed.semantic().compileCommands(), "Lib/lib.cpp").arguments, "-m32"));
+    CHECK(!has(need(*ed.semantic().compileCommands(), "Lib/lib.cpp").arguments, "/D_WIN64"));
   }
   std::ofstream(root / ".tenfold/workspace.json") << R"({"vsConfiguration": "Release", "vsPlatform": "x64"})";
   {
