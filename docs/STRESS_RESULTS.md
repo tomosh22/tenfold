@@ -17,6 +17,14 @@ Design and limits: `docs/ARCHITECTURE.md`, "Translation-unit context for include
 | W9g G-2: rename request never answered | **fixed (cause found)** | clangd's scheduler wedges when a document is closed while it is still being built (open, edit, save, close in a row, as every cross-file rename does); `didClose` now waits for `idle` (`SemanticEngine::closeWhenIdle`). Reproduced with `pp-includes` x12 in parallel (5 of 12 stuck, 0 of 12 after). Also: every user-facing request has a watchdog (`Options::requestTimeoutMs`, 25 s) that cancels with `$/cancelRequest` and answers with an error. Not checked on the 3k-file generated project |
 | W9g G-1: `impl` answers the declaration after the header was opened | **mitigated** | `preferDefinitions` swaps a declaration for the out-of-line definition the fast index knows |
 
+Verification: `tenfold-corpus-tests` (all 29 corpora) 5 consecutive Release runs on a machine with load average 16-48: no `FAIL`
+and no `XPASS` in the last 5 (an earlier set of 5 showed the pre-fix wedge twice and one `decl` flake, `c-basic:52`, whose
+expectation now accepts the tag's forward declaration or its definition); `tenfold-tests` Release 550/550 (one unrelated
+timing flake, `pathological_churn_while_indexing`, passed alone); `tenfold-ui-tests` Release and gcc ASan+UBSan 471/471;
+ASan `tenfold-tests` 549/550 (`crash_handler_writes_report` fails in this build only: compiled with
+`-fno-sanitize-recover=undefined` UBSan aborts the crash helper before the handler writes its report; it passes in a build
+without that flag, and has nothing to do with this change).
+
 ## Corpus findings: name lookup and OOP (W9d)
 
 Six hand-written projects under `tests/corpus/`, expectations written from the C++ rules (what a correct IDE must answer),
