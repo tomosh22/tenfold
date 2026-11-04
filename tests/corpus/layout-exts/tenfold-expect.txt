@@ -28,12 +28,12 @@ def use_x -> Vec_x
 def use_y -> Vec_y
 def use_scale -> scale_def
 decl use_scale -> scale_decl | scale_def  # flaky in clangd: with scale.inl open and indexed standalone it answers the inline definition, otherwise types.hh; both accepted
-xfail def use_dot_in_len2 -> Vec_dot_def | Vec_dot_decl  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
-xfail def use_x_in_dot -> Vec_x  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
-xfail def use_y_in_dot -> Vec_y  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
-xfail refs Vec_x = Vec_x use_x use_x_in_dot use_wx  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+def use_dot_in_len2 -> Vec_dot_def | Vec_dot_decl
+def use_x_in_dot -> Vec_x
+def use_y_in_dot -> Vec_y
+xfail refs Vec_x = Vec_x use_x use_x_in_dot use_wx  # still wrong with the TU context: clangd reports the constructor-initialiser and member-use tokens of vec.tpp with an extra "near" location (exactness); not caused by standalone parsing
 refs Vec_x >= Vec_x use_x use_wx
-xfail refs Vec_y = Vec_y use_y use_y_in_dot  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+xfail refs Vec_y = Vec_y use_y use_y_in_dot  # still wrong with the TU context: clangd reports the constructor-initialiser and member-use tokens of vec.tpp with an extra "near" location (exactness); not caused by standalone parsing
 refs Vec_y >= Vec_y use_y
 refs scale_decl >= scale_decl scale_def use_scale
 hover use_scale ~ "scale" "int"
@@ -53,14 +53,14 @@ def use_step -> Engine_step_def
 decl use_step -> Engine_step_decl
 def use_step_in_run -> Engine_step_def
 def use_state_main -> Engine_state_field
-xfail def use_state_in_step -> Engine_state_field  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+def use_state_in_step -> Engine_state_field
 def use_state_in_run -> Engine_state_field
-xfail refs Engine_state_field = Engine_state_field use_state_main use_state_in_step use_state_in_run  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+refs Engine_state_field = Engine_state_field use_state_main use_state_in_step use_state_in_run
 refs Engine_state_field >= Engine_state_field use_state_main use_state_in_run
-xfail refs Engine_step_decl >= Engine_step_decl Engine_step_def use_step use_step_in_run  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+refs Engine_step_decl >= Engine_step_decl Engine_step_def use_step use_step_in_run
 refs Engine_step_decl >= Engine_step_decl use_step use_step_in_run
 hover use_run ~ "run" "int"
-xfail rename Engine_state_field state  # the header is not self-contained (it needs the class/template declared by the header that includes it), clangd parses the open file standalone, cannot resolve the names, and the standalone parse also replaces that file's references in the index
+rename Engine_state_field state
   Engine_state_field use_state_main use_state_in_step use_state_in_run
 sym "Engine" ∋ Engine
 

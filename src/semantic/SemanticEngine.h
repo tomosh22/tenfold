@@ -1,5 +1,6 @@
 #pragma once
 #include <atomic>
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <filesystem>
@@ -7,6 +8,8 @@
 #include <map>
 #include <memory>
 #include <mutex>
+#include <optional>
+#include <set>
 #include <string>
 #include <thread>
 #include <unordered_map>
@@ -16,6 +19,7 @@
 #include "lsp/LspClient.h"
 #include "semantic/CompileCommands.h"
 #include "semantic/FastIndex.h"
+#include "semantic/TuContext.h"
 #include "workspace/Workspace.h"
 
 namespace tf {
@@ -109,10 +113,14 @@ class SemanticEngine {
     std::string clangdPath;               // empty -> resolve from settings / PATH
     std::vector<std::string> clangdArgs;  // extra args
     int clangdBudgetMs = 250;             // wait this long before showing approximate results
-    int indexThreads = 0;                 // 0 -> hardware concurrency
-    bool persistFastIndex = true;         // load/save <root>/.tenfold/fastindex.bin (FastIndexStore)
-    int fastIndexSaveSeconds = 60;        // periodic save interval while the index is dirty
-    std::filesystem::path logDir;         // empty -> <root>/.tenfold
+    // A user-facing request (go to definition / declaration / type / implementations, references, rename) that clangd
+    // has not answered after this long is cancelled ($/cancelRequest) and its callback gets an error: tenfold never
+    // waits forever for a clangd that dropped a request (W9g G-2). 0 disables.
+    int requestTimeoutMs = 25000;
+    int indexThreads = 0;           // 0 -> hardware concurrency
+    bool persistFastIndex = true;   // load/save <root>/.tenfold/fastindex.bin (FastIndexStore)
+    int fastIndexSaveSeconds = 60;  // periodic save interval while the index is dirty
+    std::filesystem::path logDir;   // empty -> <root>/.tenfold
     std::function<void(const std::string&)> log;
     bool traceLsp = false;
     int semanticTokensDebounceMs = 150;  // after didOpen / didChange (only while onSemanticTokens has a handler)
@@ -178,8 +186,12 @@ class SemanticEngine {
   void stop();
   Status status() const;
   bool waitForFastIndex(int timeoutMs) const;
-  bool waitForClangdIndex(int timeoutMs) const;
-  bool waitForFile(const std::filesystem::path& file, int timeoutMs) const;  // clangd AST ready
+  // True once clangd's background index has finished at least one pass and then stayed idle for `quietMs`. The bare
+  // "progress end" is not a barrier: clangd announces it before the merged index it queries is rebuilt and may start
+  // another pass right after (more files enqueued, shards loaded lazily), so a query made at that instant sees a
+  // partial index (W9c: sym "op_mul" answered nothing; W9d: the lookup-namespaces rename flake under load).
+  bool waitForClangdIndex(int timeoutMs, int quietMs = 300) const;
+  bool waitForFile(const std::filesystem::path& file, int timeoutMs) const;  // clangd AST ready (true: not sent at all)
   bool fileReady(const std::filesystem::path& file) const;
   // See Options::fastOnlyQueries. Thread-safe.
   void setFastOnlyQueries(bool on) { fastOnly_.store(on, std::memory_order_relaxed); }
@@ -278,6 +290,36 @@ class SemanticEngine {
   // (the server already has their text). Thread-safe.
   void watchedFileChanged(const std::filesystem::path& file, int type);
 
+  // --- translation-unit context for included files (TuContext.h) ---
+  // A file that is only ever #included (.tpp .ipp .inl .def, unity-build parts) has no compile command and is not
+  // self-contained. When such a document is opened the engine finds a translation unit that includes it and gives
+  // clangd a compile command that replays what the compiler had seen at the #include (the includer chain's text up
+  // to the directive is forced in as a copy under <cache>/tu/), so the file is parsed in context instead of alone.
+  struct TuContextInfo {
+    std::filesystem::path root;                // the compile database entry the command was derived from
+    std::vector<std::filesystem::path> chain;  // includers from `root` down to the file's direct includer
+    std::vector<std::string> arguments;        // the compile command given to clangd
+  };
+  // The context given to clangd for `file`, if it needed and got one.
+  std::optional<TuContextInfo> tuContext(const std::filesystem::path& file) const;
+
+  // --- rename safety ---
+  // clangd renames what its index knows. When the index is missing a file (a non-self-contained file parsed alone,
+  // a translation unit not indexed yet) the rename leaves spellings of the old name behind and the code stops
+  // compiling. This looks for them: every identifier token `oldName` (outside comments and literals) in the files
+  // that were edited, the files that #include them (up to three levels) and the files they #include (two levels,
+  // which is where .tpp / .inl / .def members of an edited header live) that is not at the start of an edit.
+  // Cheap (a lexical scan of at most `maxFiles` files / 8 MB) and approximate in the safe direction: a same-named
+  // unrelated symbol is reported too. Must run on the thread that owns the documents.
+  struct RenameCoverage {
+    std::vector<Location> missed;  // at most maxReport places
+    size_t total = 0;              // all places found
+    size_t filesScanned = 0;
+    bool limited = false;  // a scan limit was hit: there may be more
+  };
+  RenameCoverage renameCoverage(const std::string& oldName, const FileEdits& edits, const std::filesystem::path& origin,
+                                size_t maxReport = 20, size_t maxFiles = 300) const;
+
   FastIndex& fastIndex() { return fast_; }
   // Thread-safe snapshots. The compile database is published as an immutable vector swapped under mu_, so a
   // reader keeps a consistent view while the worker re-prepares it. clangd() returns the running, initialised
@@ -318,6 +360,22 @@ class SemanticEngine {
   void symbolLoop();
   void workspaceSymbolsBudgeted(const std::string& query, std::vector<SymbolLocation> approx, LocationsCallback cb);
   void log(const std::string& msg) const;
+
+  // Request watchdog (Options::requestTimeoutMs): `fail(message)` runs once if the request has not completed in time.
+  struct ReqGuard;
+  void armRequestTimeout(std::shared_ptr<ReqGuard> g, std::shared_ptr<LspClient> c, std::string what,
+                         std::function<void(const std::string&)> fail);
+  // Replaces a declaration in `locs` by the out-of-line definition of the same function the fast index knows (W9g G-1).
+  void preferDefinitions(std::vector<SymbolLocation>& locs) const;
+
+  // Translation-unit context (see tuContext()). Called before a document is sent to clangd.
+  // Returns false when the document must NOT be sent to clangd (a fragment of a class body, see TuContext.h).
+  bool provideTuContext(LspClient& c, const Document& doc);
+  bool unsent(const std::string& uri) const;
+  void closeWhenIdle(const std::string& uri, std::chrono::steady_clock::time_point deadline);
+  // A location clangd reports inside one of our prefix copies belongs to the file it was copied from (same lines).
+  std::string remapUri(const std::string& uri) const;
+  std::filesystem::path pathFromUri(const std::string& uri) const { return uriToPath(remapUri(uri)); }
 
   // Encoding conversion helpers.
   Position toServer(const Document& doc, Position p) const;
@@ -444,6 +502,22 @@ class SemanticEngine {
   TokenStats tokenStats_;
   std::function<void(const std::filesystem::path&, int, std::vector<TokenSpan>)> tokenHandler_;
   std::function<void(const std::string&, FileEdits)> applyEditHandler_;
+
+  // Translation-unit context state (tuMu_ is a leaf lock).
+  struct TuOverride {
+    std::filesystem::path file, directory;
+    TuContextInfo info;
+  };
+  mutable std::mutex tuMu_;
+  std::map<std::string, TuOverride> tuOverrides_;               // pathKey(file) -> command sent to clangd
+  std::map<std::string, std::filesystem::path> tuPrefixOwner_;  // prefix file name -> file it was copied from
+  std::atomic<bool> tuMapped_{false};                           // tuPrefixOwner_ is not empty
+
+  // Background-index progress as seen by this engine (mu_): completed passes ("end" reports) of the current clangd
+  // and when it last went idle (default time_point while a pass runs).
+  std::set<std::string> unsent_;  // uris of open documents deliberately not sent to clangd (mu_)
+  int indexEnds_ = 0;
+  std::chrono::steady_clock::time_point indexIdleSince_{};
 
   std::map<std::string, std::string> fileStatus_;    // uri -> clangd state
   std::map<std::string, const Document*> openDocs_;  // uri -> doc (for encoding conversion)

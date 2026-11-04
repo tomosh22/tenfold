@@ -749,6 +749,17 @@ int LspClient::executeCommand(const std::string& command, Json arguments, Callba
                     std::move(cb));
 }
 
+void LspClient::setCompileCommand(const std::string& file, const std::string& directory,
+                                  const std::vector<std::string>& command) {
+  Json cmd = Json::array();
+  for (auto& a : command) cmd.push_back(a);
+  Json change = {{"workingDirectory", directory}, {"compilationCommand", std::move(cmd)}};
+  Json changes = Json::object();
+  changes[file] = std::move(change);
+  conn_.notify("workspace/didChangeConfiguration",
+               Json{{"settings", Json{{"compilationDatabaseChanges", std::move(changes)}}}});
+}
+
 void LspClient::didChangeWatchedFiles(const std::vector<LspFileEvent>& events) {
   if (events.empty()) return;
   Json changes = Json::array();

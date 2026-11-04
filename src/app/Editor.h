@@ -203,8 +203,18 @@ class Editor {
     std::vector<std::filesystem::path> updated;  // open documents that were edited
     std::vector<std::filesystem::path> written;  // closed files that were edited and saved
     std::vector<std::filesystem::path> unsaved;  // closed files that could not be saved (left open and dirty)
+    // Rename safety (SemanticEngine::renameCoverage): places that still spell the old name in the edited files, the
+    // files that include them and the files they include, and are not part of the edit set. The rename may leave code
+    // that no longer compiles there (or they are an unrelated symbol of the same name).
+    std::vector<Location> missed;  // at most 20
+    size_t missedTotal = 0;
+    // True when nothing was changed because `missed` is not empty and the rename was not forced.
+    bool needsConfirmation = false;
   };
-  void renameSymbol(Position at, const std::string& newName, Done<RenameResult> done);
+  // Without `force` a rename whose edit set misses known spellings of the old name is NOT applied: `done` gets a
+  // result with needsConfirmation set and the places in `missed`; ask the user and call again with force = true.
+  // With force the edits are applied as usual and `missed` still reports the places.
+  void renameSymbol(Position at, const std::string& newName, Done<RenameResult> done, bool force = false);
   // The edit half of a rename: applies `edits` as described above. Fails (empty result, `error` set) when a file cannot
   // be opened, with nothing changed; `error` also carries the reason when some closed files could not be saved.
   RenameResult applyRenameEdits(const FileEdits& edits, std::string* error = nullptr);

@@ -551,11 +551,16 @@ void Runner::runRename(const Item& it, ItemResult& r) {
   auto st = std::make_shared<State>();
   const auto t = Clock::now();
   ed_->semantic().setFastOnlyQueries(false);
-  ed_->renameSymbol(ed_->cursor().pos, it.query, [st](const Editor::RenameResult& res, const std::string& e) {
-    st->res = res;
-    st->err = e;
-    st->done = true;
-  });
+  // force: the corpus judges the edit set itself; the rename-safety warning (places the edit set missed) is
+  // reported in the note of the line (a rename that "misses nothing" has none).
+  ed_->renameSymbol(
+      ed_->cursor().pos, it.query,
+      [st](const Editor::RenameResult& res, const std::string& e) {
+        st->res = res;
+        st->err = e;
+        st->done = true;
+      },
+      true);
   ed_->waitFor([&] { return st->done; }, queryTimeout());
   ed_->semantic().setFastOnlyQueries(haveClangd_);
   r.ms = msSince(t);
@@ -581,6 +586,16 @@ void Runner::runRename(const Item& it, ItemResult& r) {
     for (auto& [n, an] : after) tokensAfter[n] = tokenAt(afterLines[an.file], an);
     v = checkRename(it, tokensBefore, tokensAfter);
     if (!st->err.empty()) v.actual += " (" + st->err + ")";
+    if (st->res.missedTotal) {
+      std::string where;
+      for (size_t i = 0; i < st->res.missed.size() && i < 6; ++i) {
+        SymbolLocation sl;
+        sl.loc = st->res.missed[i];
+        where += (i ? ", " : "") + toLoc(sl).file + ":" + std::to_string(sl.loc.pos.line + 1);
+      }
+      r.note += "rename warning: " + std::to_string(st->res.missedTotal) +
+                " other spelling(s) of the old name are not in the edit set (" + where + "). ";
+    }
   }
 
   // Restore the corpus: open documents get their old text back; files the rename wrote and closed are rewritten
@@ -600,6 +615,12 @@ void Runner::runRename(const Item& it, ItemResult& r) {
         writeFile(p, rawBefore[f]);
         ed_->semantic().fileChanged(p);
         ed_->semantic().watchedFileChanged(p, 2);
+        // clangd's background index does not follow disk writes (no watcher, no progress report); it re-reads a file
+        // when the file is opened. Open and close it so the restored text is what the index holds again.
+        if (haveClangd_ && ed_->open(p)) {
+          ed_->semantic().waitForFile(p, std::min(60000, remainingMs()));
+          ed_->close(p);
+        }
       }
     }
   }

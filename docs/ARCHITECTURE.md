@@ -286,6 +286,88 @@ data. Everything is converted to byte columns like the other queries and the
   Editor's FileWatcher events (created / changed / deleted, renames as
   delete + create) for files that are not open in a Document.
 
+## Translation-unit context for included files, rename safety, index readiness (W9-FIX-B)
+
+**The problem.** A file that is only ever `#include`d (`.tpp` `.ipp` `.inl` `.def`, an X-macro list, a unity-build part
+`beta.cpp` included by `build_unity.cpp`) has no compile command and is not self-contained. When tenfold `didOpen`s it
+(go to definition landed there, a rename edited it, the user opened it) clangd parses it **alone**: the names of the
+header are undeclared, definitions resolve to nothing, and, worse, the open document's dynamic index replaces that file's
+entries in the merged index (`MergedIndex` drops static symbols/references whose file the dynamic index owns), so find
+references and rename lose every use inside the file and a rename silently leaves code that no longer compiles
+(STRESS_RESULTS W9b F6/F7, W9c P-3/P-9/P-10/P-14, W9e 11/13/14).
+
+**Choice.** Give the file the context of a translation unit that includes it, instead of not opening it. Not opening it
+would keep the background index intact but leave queries *inside* the file with the fast tier only, and clangd cannot answer
+for a file it has not been sent. clangd has no "parse this header as part of that TU" (its own heuristics for headers borrow
+the flags of a similar file, never the text that precedes the `#include`), so tenfold reproduces the text:
+
+1. `SemanticEngine::provideTuContext` runs before a document is sent to clangd. Candidates: no compile database entry, extension
+   not one of `.h .hh .hpp .hxx .h++ .hp .cuh` and not extensionless (clangd's header heuristics keep those).
+2. `tu::planContext` (`src/semantic/TuContext.*`, pure, unit tested) does a breadth-first search up the `#include` graph (includes
+   as written, from the fast index; verified against the includer's current text, the editor buffer when open) to the nearest
+   file that has a compile command: the shortest chain `main.cpp -> stack.h -> stack.tpp`. For every file of the chain it keeps
+   the text **before** the `#include` line plus one `#endif` per `#if` still open: the "prefix". Line and column numbers of the
+   prefix are those of the original. If the orphan itself includes a file of the chain (a self-contained `.inl`), it brings its
+   own context and is left alone. Nothing includes it: left alone.
+3. The prefixes are written to `<cache>/tu/<hash>-<name>.h` and clangd gets, via `workspace/didChangeConfiguration`
+   (`compilationDatabaseChanges`, in memory, applies to the open document and to the background index), the root's command
+   with the main file replaced by the orphan, `-x c++-header` (`-x c++` for `.cpp` unity parts), and `-include <prefix>
+   -iquote <dir of the includer>` per chain file. A unity part therefore sees `build_unity.cpp`'s flags and, through the
+   prefix, the earlier parts; `clang-cl` commands get `/FI` `/I` `/TP`. An X-macro list is parsed in the context of the
+   **first** `#include` of it (the first expansion).
+4. Everything clangd then reports in a prefix copy is mapped back to the original (`remapUri`: `fromServer`, `posFromServer`,
+   `editsFromServer`, hierarchy items; identical locations and identical edits are de-duplicated), so users never see
+   `.tenfold/tu`. The overrides are kept per file and re-sent to a restarted clangd before the documents are re-opened.
+
+Limits: the prefix is built when the orphan is opened (an unsaved edit of the includer afterwards is picked up at the next
+open); a file included from several places is parsed in the context of the first chain found (as clangd does for headers);
+an `#include` inside a class or namespace leaves it open at the end of the orphan, clangd reports "expected }" there.
+`SemanticEngine::tuContext(file)` returns what a file was given (tests, diagnostics).
+
+**Rename safety.** `Editor::renameSymbol` asks `SemanticEngine::renameCoverage(oldName, edits, origin)`: a lexical scan (no
+comments, strings or `#include` lines) for the old identifier in the edited files, the files that include them (3 levels, fast
+index include graph) and the files they include (two levels; at most 300 files / 8 MB) that is not at the start of an edit.
+If anything is found and the call was not forced, **nothing is applied**: the result has `needsConfirmation`, `missed`
+(<= 20 places) and `missedTotal`. The UI (`RenameInput`) shows the first places in the status line and re-opens the box
+("may miss N uses; Enter again to force"); a second Enter applies the edits (`renameSymbol(..., force=true)`). The corpus
+runner forces and reports the places in the note of the rename line ("rename warning"). A same-named unrelated symbol is
+reported too (the check errs on the side of asking).
+
+**Request watchdog and the cause of "a rename that is never answered" (W9g G-2).** Reproduced with `pp-includes` run 12 times
+in parallel on a loaded machine: after a `rename` the next request stays "queued" for good (about 1 run in 3 before the fix,
+none in 12 after). Thread dump of the wedged clangd: no thread runs; the `ASTWorker` / preamble threads of several files wait
+on one semaphore on the stack of clangd's `main` (the scheduler's concurrency barrier), whose permits are never released. The
+trigger is on tenfold's side: a document is **closed while clangd is still building it**. A rename across files opens the files
+it edits, edits, saves and closes them in a row (`Editor::applyRenameEdits`; the corpus restore does the same), and
+`didClose` of a file whose update is still queued or running leaks a permit. `SemanticEngine::didClose` therefore holds the
+`didClose` back until clangd reported the file `idle` (`closeWhenIdle`, polled every 25 ms, at most 30 s; the close is dropped
+if the file was opened again meanwhile, the new `didOpen` is an update of the open document). The same hang happens with the
+translation-unit context switched off, so it is not caused by it.
+
+Independently, `SemanticEngine::Options::requestTimeoutMs` (25 s): definition, declaration, type definition, implementations,
+references and rename that clangd has not answered are cancelled with `$/cancelRequest` and their callback gets "clangd did
+not answer ... ; the request was cancelled"; a late reply is ignored. All callbacks are asynchronous, so the UI never waits.
+`implementations` answers that are in-class declarations are replaced by the out-of-line definition of the same
+function that the fast index knows (`preferDefinitions`; W9g G-1: clangd answers the declaration once the header is open).
+
+**Index readiness.** What the investigation found, against clangd 22.1.1:
+
+* The first `$/progress end` is not a barrier. It can precede the rebuild of the merged index that queries use (on a loaded
+  machine a `workspace/symbol` made right after the report found a symbol 130 ms later), and another pass can start right
+  after it. `waitForClangdIndex(timeout, quietMs = 300)` now needs one completed pass **and** 300 ms of continuous idle
+  (the engine counts the `end` reports of the current clangd and remembers when it went idle).
+* clangd's background index follows **no** disk change: `didChangeWatchedFiles` and `didSave` of a closed file re-index nothing
+  and report nothing; a file is re-read when it is *opened* (silently, no progress events), and a header's entries only change
+  when a translation unit that includes it is re-read. So there is no signal to wait for after a rename wrote files; the
+  runner re-opens the closed files it restored and closes them again so that translation units catch up, and the corpora do
+  not depend on a rewritten header being fresh (a name used by a later `rename` is never the one an earlier `rename` renamed).
+* Most of what looked like index timing was **shadowing**: the `.def` / `.tpp` / unity part that a `def` line navigated into was
+  opened standalone and its empty dynamic index removed the static entries declared in it (the delta-debugged W9c repro:
+  `def use_op_mul` opens `ops.def`, then `sym "op_mul"` finds nothing). With the translation-unit context the repro is
+  stable and the `#?` lines of `pp-xmacros` / `pp-includes` that were disabled for it are enabled again.
+* Requests are answered in order per document, so a query after an `edit` sees the edit; the "dynamic index lags an edit"
+  remark of W9d is the AST-then-index handoff inside clangd (a `workspace/symbol` right after `didChange`), not a tenfold race.
+
 ## Why clangd, and how it stays fast
 
 clangd *is* the Clang frontend, so correctness on templates / `auto` /

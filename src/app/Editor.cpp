@@ -2168,22 +2168,34 @@ Editor::RenameResult Editor::applyRenameEdits(const FileEdits& edits, std::strin
   return res;
 }
 
-void Editor::renameSymbol(Position at, const std::string& newName, Done<RenameResult> done) {
+void Editor::renameSymbol(Position at, const std::string& newName, Done<RenameResult> done, bool force) {
   TF_NEED_DOC(RenameResult, done)
   const fs::path file = current_->path();
   const int version = current_->version();
-  semantic_->rename(*current_, at, newName, [this, file, version, done](FileEdits edits, const std::string& err) {
-    post([this, file, version, done, edits = std::move(edits), err] {
-      if (!done) return;
-      if (!err.empty()) return done({}, err);
-      Document* d = document(file);
-      if (!d || d->version() != version) return done({}, "document changed while renaming");
-      if (edits.empty()) return done({}, "clangd returned no edits");
-      std::string e;
-      const RenameResult res = applyRenameEdits(edits, &e);
-      done(res, e);
-    });
-  });
+  const std::string oldName = current_->buffer().wordAt(at).text;
+  semantic_->rename(*current_, at, newName,
+                    [this, file, version, done, oldName, force](FileEdits edits, const std::string& err) {
+                      post([this, file, version, done, oldName, force, edits = std::move(edits), err] {
+                        if (!done) return;
+                        if (!err.empty()) return done({}, err);
+                        Document* d = document(file);
+                        if (!d || d->version() != version) return done({}, "document changed while renaming");
+                        if (edits.empty()) return done({}, "clangd returned no edits");
+                        const auto cov = semantic_->renameCoverage(oldName, edits, file);
+                        if (!cov.missed.empty() && !force) {
+                          RenameResult held;
+                          held.missed = cov.missed;
+                          held.missedTotal = cov.total;
+                          held.needsConfirmation = true;
+                          return done(held, {});
+                        }
+                        std::string e;
+                        RenameResult res = applyRenameEdits(edits, &e);
+                        res.missed = cov.missed;
+                        res.missedTotal = cov.total;
+                        done(res, e);
+                      });
+                    });
 }
 
 #undef TF_NEED_DOC

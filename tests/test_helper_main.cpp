@@ -13,7 +13,8 @@
 //         --die-mode=exit|segv   how (default exit)
 //         --die-launches=K       only the first K launches die (default: all)
 //         --die-on-init-launches=K  the first K launches die right after answering initialize
-//         --hang-method=M        never answer requests of method M
+//         --status-after-open-ms=N report fileStatus building, then idle N ms after each didOpen
+//         --hang-method=M[,M2]   never answer requests of method M (or M2)
 //         --init-delay-ms=N      sleep before answering initialize
 #include <chrono>
 #include <csignal>
@@ -183,6 +184,18 @@ int runFake(int argc, char** argv) {
       d.version = td.value("version", 0);
       d.text = td.value("text", "");
       logLine("open " + td["uri"].get<std::string>() + " v" + std::to_string(d.version));
+      if (opt.count("status-after-open-ms")) {
+        // Report "building" at once and "idle" after the delay, like clangd's fileStatus extension.
+        send({{"jsonrpc", "2.0"},
+              {"method", "textDocument/clangd.fileStatus"},
+              {"params", {{"uri", td["uri"]}, {"state", "parsing includes"}}}});
+        std::this_thread::sleep_for(std::chrono::milliseconds(num("status-after-open-ms", 0)));
+        send({{"jsonrpc", "2.0"},
+              {"method", "textDocument/clangd.fileStatus"},
+              {"params", {{"uri", td["uri"]}, {"state", "idle"}}}});
+      }
+    } else if (method == "textDocument/didClose") {
+      logLine("close " + params["textDocument"]["uri"].get<std::string>());
     } else if (method == "textDocument/didChange") {
       Doc& d = docs[params["textDocument"]["uri"].get<std::string>()];
       d.version = params["textDocument"].value("version", d.version);
@@ -199,7 +212,8 @@ int runFake(int argc, char** argv) {
       logLine("request " + method);
       ++requests;
       if (dying && requests >= num("die-after-requests", 1)) die(dieMode);
-      if (opt.count("hang-method") && opt["hang-method"] == method) continue;
+      if (opt.count("hang-method") && ("," + opt["hang-method"] + ",").find("," + method + ",") != std::string::npos)
+        continue;
       if (method == "textDocument/hover") {
         auto it = docs.find(params["textDocument"]["uri"].get<std::string>());
         std::string value = "unknown document";

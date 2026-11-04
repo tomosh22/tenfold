@@ -98,6 +98,24 @@ trailing comment. `A`, `B`, `C` are anchors.
 Lines are executed **in order**; `config`, `open` and `edit` change the state for everything after them. Put `fast`
 lines first if you want their latency measured cold (clangd has parsed nothing yet).
 
+### Determinism: what a corpus line may rely on (W9-FIX-B)
+
+* **Opening a file no longer changes other answers.** A file that is only `#include`d (`.tpp` `.ipp` `.inl` `.def`, a unity
+  part) is opened with the translation-unit context of its includer, so a `def` that lands in one, an `open` of one, or a
+  rename that edits one does not hide that file's references from later lines (it used to; corpora were ordered around it).
+  A file included inside a class body is not sent to clangd at all and answers from the index. Do not reorder lines for
+  this reason any more. `#?` ("disabled, not deterministic") is for lines whose answer is chosen by clangd arbitrarily
+  (e.g. one of several merged declarations), never for "depends on what was opened before".
+* **The index barrier.** The runner waits once per project (and after `config`) for `SemanticEngine::waitForClangdIndex`:
+  one finished background pass plus 300 ms idle. clangd's background index reads no disk change (it re-reads a file only
+  when the file is opened, without a progress report), so a corpus must not depend on the index reflecting a file the
+  corpus rewrote; the rename restore re-opens and closes the files it rewrote, which is as close as the protocol gets.
+* **Rename lines report the rename-safety check.** A rename whose edit set misses spellings of the old name still fails on
+  the anchors it expects; the runner forces the rename and adds `rename warning: N other spelling(s) ... (file:line)` to the
+  line's note, which is how an `xfail rename` documents what clangd left behind.
+* Stability bar: every corpus is run 5 times in a row (also on a loaded machine) with no `FAIL` or `XPASS`; a flaky line is
+  fixed or converted, not retried.
+
 ## How an expectation is judged
 
 **Tiers.** Both tiers are queried through the same code the UI uses: `Editor::gotoDefinition`, `gotoDeclaration`,

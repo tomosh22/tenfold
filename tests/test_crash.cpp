@@ -68,6 +68,7 @@ struct Fx {
   struct Config {
     std::vector<std::string> fakeArgs;
     int initialMs = 60, maxMs = 400, maxCrashes = 5, healthyMs = 600000;
+    int requestTimeoutMs = 25000;
   };
 
   explicit Fx(const Config& c) {
@@ -86,6 +87,7 @@ struct Fx {
     o.semantic.restartBackoffMaxMs = c.maxMs;
     o.semantic.restartMaxFastCrashes = c.maxCrashes;
     o.semantic.restartHealthyMs = c.healthyMs;
+    o.semantic.requestTimeoutMs = c.requestTimeoutMs;
     o.log = [](const std::string& m) {
       if (std::getenv("TENFOLD_TEST_VERBOSE")) std::cerr << "    [engine] " << m << "\n";
     };
@@ -212,6 +214,74 @@ TEST(crash_midrequest_errors_then_restarts_and_reopens_documents) {
   CHECK(contains(r5.text, "UNSAVED AGAIN int b;"));
   f.ed->pump();
   CHECK(f.ed->clangdStatusText().empty());
+}
+
+// W9g G-2: a request clangd never answers is cancelled after requestTimeoutMs and fails with a message; the engine
+// stays usable (other requests are answered), nothing waits forever.
+TEST(request_timeout_cancels_a_request_clangd_never_answers) {
+  Fx::Config c;
+  c.fakeArgs = {"--hang-method=textDocument/definition,textDocument/rename"};
+  c.requestTimeoutMs = 400;
+  Fx f(c);
+  REQUIRE(f.ok);
+  REQUIRE(f.openAndEdit());
+  Document* d = f.ed->document(f.file);
+  REQUIRE(d != nullptr);
+  auto def = std::make_shared<std::atomic<int>>(0);
+  auto ren = std::make_shared<std::atomic<int>>(0);
+  auto defErr = std::make_shared<std::string>();
+  auto t0 = Clock::now();
+  f.ed->semantic().gotoDefinition(*d, {1, 4},
+                                  [def, defErr](Confidence c, std::vector<SymbolLocation>, const std::string& e) {
+                                    if (c == Confidence::Authoritative || !e.empty()) {
+                                      *defErr = e;
+                                      *def = 1;
+                                    }
+                                  });
+  f.ed->semantic().rename(*d, {1, 4}, "zz", [ren](auto, const std::string& e) { *ren = e.empty() ? 1 : 2; });
+  while ((def->load() == 0 || ren->load() == 0) && Clock::now() - t0 < std::chrono::seconds(8))
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));  // the callbacks run on the engine's timer thread
+  CHECK(Clock::now() - t0 < std::chrono::seconds(8));
+  CHECK_EQ(ren->load(), 2);
+  CHECK(defErr->find("did not answer") != std::string::npos);
+  // The server is still there for requests it does answer.
+  auto r = f.hover(1);
+  CHECK(r.done);
+  CHECK(r.error.empty());
+}
+
+// W9g G-2: a document clangd is still building is not closed under it (open, edit, save, close in a row wedged
+// clangd's scheduler); the didClose goes out once the file is idle, and not at all if the file was opened again.
+TEST(close_waits_until_clangd_has_finished_the_document) {
+  Fx::Config c;
+  c.fakeArgs = {"--status-after-open-ms=300"};
+  Fx f(c);
+  REQUIRE(f.ok);
+  auto closes = [&] {
+    std::ifstream in(f.log);
+    std::string l;
+    int n = 0;
+    while (std::getline(in, l))
+      if (l.rfind("close ", 0) == 0) ++n;
+    return n;
+  };
+  REQUIRE(f.ed->open(f.file) != nullptr);
+  f.ed->close(f.file);  // right after the open: clangd is still "parsing"
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  CHECK_EQ(closes(), 0);  // held back
+  auto t0 = Clock::now();
+  while (closes() == 0 && Clock::now() - t0 < std::chrono::seconds(10)) {
+    f.ed->pump();
+    std::this_thread::sleep_for(std::chrono::milliseconds(20));
+  }
+  CHECK_EQ(closes(), 1);  // sent once idle
+  // Opened again before it went idle: the close is dropped (the new didOpen updates the open document).
+  REQUIRE(f.ed->open(f.file) != nullptr);
+  f.ed->close(f.file);
+  REQUIRE(f.ed->open(f.file) != nullptr);
+  std::this_thread::sleep_for(std::chrono::milliseconds(900));
+  f.ed->pump();
+  CHECK_EQ(closes(), 1);
 }
 
 #ifndef _WIN32

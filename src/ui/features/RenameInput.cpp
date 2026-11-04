@@ -120,8 +120,13 @@ bool RenameInput::open() {
   }
   old_ = w.text;
   at_ = w.range.start;
+  showBox("Rename " + old_ + " to", old_);
+  return true;
+}
+
+void RenameInput::showBox(const std::string& label, const std::string& text) {
   auto* view = dynamic_cast<TextView*>(env_.root.focused());
-  auto box = std::make_unique<RenameBox>("Rename " + old_ + " to", [this] { cancel(); });
+  auto box = std::make_unique<RenameBox>(label, [this] { cancel(); });
   RenameBox* raw = box.get();
   box_ = env_.root.addChild(std::move(box));
   input_ = raw->input;
@@ -129,12 +134,12 @@ bool RenameInput::open() {
   if (view) anchor = view->caretRect(at_);
   else anchor = {env_.root.bounds().x + 40, env_.root.bounds().y + 40, 1, 14};
   raw->showAt(anchor);
-  input_->setText(old_, true);
+  input_->setText(text, true);
   input_->setFocus();
-  return true;
 }
 
 void RenameInput::cancel() {
+  confirm_ = false;
   if (box_) close();
 }
 
@@ -161,19 +166,37 @@ bool RenameInput::submit() {
     env_.say("\"" + name + "\" is not a valid identifier");  // the box stays open for a correction
     return true;
   }
+  const bool force = confirm_ && name == confirmName_;
+  confirm_ = false;
   close();
   busy_ = true;
   env_.say("Renaming " + old + " to " + name + "...");
   auto cb = [this, name, alive = std::weak_ptr<int>(alive_)](const Editor::RenameResult& r, const std::string& err) {
     if (!alive.expired()) finish(r, err, name);
   };
-  if (rename_) rename_(at, name, cb);
-  else env_.editor.renameSymbol(at, name, cb);
+  if (force && forceRename_) forceRename_(at, name, cb);
+  else if (rename_) rename_(at, name, cb);
+  else env_.editor.renameSymbol(at, name, cb, force);
   return true;
 }
 
 void RenameInput::finish(const Editor::RenameResult& r, const std::string& err, const std::string& newName) {
   busy_ = false;
+  if (r.needsConfirmation) {
+    std::string where;
+    for (size_t i = 0; i < r.missed.size() && i < 3; ++i)
+      where += (i ? ", " : "") + r.missed[i].file.filename().string() + ":" + std::to_string(r.missed[i].pos.line + 1);
+    if (r.missedTotal > 3) where += ", ...";
+    env_.say(
+        "Rename of " + old_ + " NOT applied yet: " + std::to_string(r.missedTotal) + " other spelling" +
+        (r.missedTotal == 1 ? "" : "s") + " of it (" + where +
+        ") are not in clangd's edit set and may stop compiling. Press Enter again to rename anyway, Escape to cancel");
+    confirm_ = true;
+    confirmName_ = newName;
+    showBox("Rename " + old_ + " to (may miss " + std::to_string(r.missedTotal) + " uses; Enter again to force)",
+            newName);
+    return;
+  }
   const size_t files = r.updated.size() + r.written.size() + r.unsaved.size();
   if (files == 0) {
     env_.say("Rename failed: " + (err.empty() ? std::string("no edits") : err));
@@ -183,6 +206,8 @@ void RenameInput::finish(const Editor::RenameResult& r, const std::string& err, 
                     (r.edits == 1 ? "" : "s") + " in " + std::to_string(files) + " file" + (files == 1 ? "" : "s");
   if (!r.written.empty()) msg += ", " + std::to_string(r.written.size()) + " written to disk";
   if (!r.unsaved.empty()) msg += "; could not save " + std::to_string(r.unsaved.size()) + " (" + err + ")";
+  if (r.missedTotal)
+    msg += "; WARNING: " + std::to_string(r.missedTotal) + " other spelling(s) of " + old_ + " were not renamed";
   env_.say(msg);
 }
 

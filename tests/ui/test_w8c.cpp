@@ -429,6 +429,58 @@ TEST(w8c_rename_box_prefills_enter_submits_escape_cancels_and_enter_never_types)
   CHECK_EQ(env.msg(), std::string("No symbol at the caret to rename"));
 }
 
+// W9-FIX-B rename safety: an edit set that misses spellings of the old name is not applied; the box comes back and a
+// second Enter forces the rename.
+TEST(w8c_rename_that_misses_uses_asks_before_applying) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "int alpha = 1;\nint b = alpha;\n"); });
+  env.fakeUi();
+  std::vector<Env::RenameCall> forced;
+  env.app->renameInput().setForceRenameFn(
+      [&](Position at, const std::string& name, RenameInput::Done d) { forced.push_back({at, name, std::move(d)}); });
+  env.open("a.cpp");
+  env.caret(1, 11);
+  env.key(Key('R'), ModCtrl);
+  REQUIRE(env.app->renameInput().isOpen());
+  env.type("gamma");
+  env.key(Key::Enter);
+  REQUIRE_EQ(env.renames.size(), 1u);
+  Editor::RenameResult held;
+  held.needsConfirmation = true;
+  held.missedTotal = 2;
+  held.missed = {Location{env.dir / "a.tpp", {3, 4}}, Location{env.dir / "b.inl", {0, 1}}};
+  env.renames[0].done(held, "");
+  env.frame();
+  CHECK(env.msg().find("NOT applied") != std::string::npos);
+  CHECK(env.msg().find("a.tpp:4") != std::string::npos);
+  REQUIRE(env.app->renameInput().isOpen());  // asking again
+  CHECK_EQ(env.app->renameInput().input()->text(), std::string("gamma"));
+  CHECK(forced.empty());
+  env.key(Key::Enter);  // confirmed
+  CHECK(!env.app->renameInput().isOpen());
+  CHECK_EQ(env.renames.size(), 1u);
+  REQUIRE_EQ(forced.size(), 1u);
+  CHECK_EQ(forced[0].name, std::string("gamma"));
+  Editor::RenameResult res;
+  res.edits = 2;
+  res.updated = {env.dir / "a.cpp"};
+  res.missedTotal = 2;
+  forced[0].done(res, "");
+  CHECK(env.msg().find("WARNING: 2 other spelling") != std::string::npos);
+
+  // Escape on the second box abandons the rename; a changed name starts over unforced.
+  env.caret(0, 5);
+  env.key(Key('R'), ModCtrl);
+  env.type("delta");
+  env.key(Key::Enter);
+  REQUIRE_EQ(env.renames.size(), 2u);
+  env.renames[1].done(held, "");
+  env.frame();
+  REQUIRE(env.app->renameInput().isOpen());
+  env.key(Key::Escape);
+  CHECK(!env.app->renameInput().isOpen());
+  CHECK_EQ(forced.size(), 1u);
+}
+
 TEST(w8c_rename_without_clangd_says_so_and_has_no_fast_tier_fallback) {
   Env env([](const fs::path& d) { writeFile(d / "a.cpp", "int alpha = 1;\n"); });  // clangd disabled
   env.open("a.cpp");
