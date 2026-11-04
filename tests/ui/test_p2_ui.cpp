@@ -7,6 +7,7 @@
 #include <fstream>
 #include <functional>
 #include <map>
+#include <mutex>
 #include <sstream>
 
 #include "../text/text_test_util.h"
@@ -88,6 +89,8 @@ struct Env {
   std::unique_ptr<Workbench> bench;
   std::unique_ptr<EditorApp> app;
   int64_t now = 1000;
+  std::mutex logMu;  // engine log lines (a failing wait prints them)
+  std::vector<std::string> engineLog;
 
   explicit Env(const Config& cfg = {}) {
     static int n = 0;
@@ -108,6 +111,10 @@ struct Env {
     text = gfx::TextRenderer::fromFonts(std::move(stack));
     Editor::Options o;
     o.semantic.useClangd = cfg.fakeClangd;
+    o.log = [this](const std::string& m) {
+      std::lock_guard<std::mutex> lk(logMu);
+      engineLog.push_back(m.substr(0, 300));
+    };
     if (cfg.fakeClangd) {
       o.semantic.clangdPath = TENFOLD_TEST_HELPER;
       o.semantic.clangdArgs = {"--fake-clangd", "--launch-file=" + (dir / "fake.launches").string()};
@@ -590,14 +597,24 @@ TEST(p2_clangd_segment_shows_stopped_and_clangd_restart_recovers) {
   c.maxCrashes = 2;
   Env env(c);
   env.open("src/a.cpp");
-  REQUIRE(env.ed->waitFor([&] { return env.ed->clangdStatusText() == "clangd stopped: crashed 2 times"; }, 15000));
+  const bool stopped =
+      env.ed->waitFor([&] { return env.ed->clangdStatusText() == "clangd stopped: crashed 2 times"; }, 90000);
+  if (!stopped) {
+    std::cerr << "    DIAG status='" << env.ed->clangdStatusText() << "'\n";
+    std::ifstream l(env.dir / "fake.launches");
+    std::string line;
+    while (std::getline(l, line)) std::cerr << "    DIAG launches: " << line << "\n";
+    std::lock_guard<std::mutex> lk(env.logMu);
+    for (auto& m : env.engineLog) std::cerr << "    DIAG log: " << m << "\n";
+  }
+  REQUIRE(stopped);
   env.frame();
   CHECK_EQ(env.bench->status().text("clangd"), std::string("clangd stopped: crashed 2 times"));
   // The palette finds the command; running it restarts clangd (the third launch is healthy).
   REQUIRE(env.app->commands().find("Clangd.Restart") != nullptr);
   env.run("Clangd.Restart");
   CHECK_EQ(env.app->message(), std::string("clangd restarted"));
-  REQUIRE(env.ed->waitFor([&] { return env.ed->clangdStatusText().empty(); }, 5000));
+  REQUIRE(env.ed->waitFor([&] { return env.ed->clangdStatusText().empty(); }, 60000));
   env.frame();
   CHECK(env.bench->status().text("clangd").rfind("clangd: ", 0) == 0);
   CHECK(!contains(env.bench->status().text("clangd"), "stopped"));

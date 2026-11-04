@@ -29,6 +29,7 @@
 #include <fcntl.h>
 #include <io.h>
 #else
+#include <sys/mman.h>
 #include <sys/resource.h>
 #endif
 
@@ -40,6 +41,22 @@ using tf::Json;
 
 namespace {
 
+// A real SIGSEGV with a fault address, taken by the kernel and not by the compiler's checks: a store through a null
+// pointer is caught by UBSan (-fsanitize=null) and ends the process before the crash handler runs. Here the store goes
+// to a mapped page without access rights (POSIX); Windows has no UBSan in the builds that run this.
+[[noreturn]] void segfault() {
+#ifndef _WIN32
+  void* page = ::mmap(nullptr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+  if (page != MAP_FAILED) {
+    volatile int* p = static_cast<volatile int*>(page);
+    *p = 1;
+  }
+#endif
+  volatile int* q = nullptr;
+  *q = 1;
+  std::_Exit(1);
+}
+
 int runCrash(int argc, char** argv) {
   if (argc < 4) return 2;
   if (!tf::installCrashHandler(argv[2])) return 3;
@@ -47,9 +64,7 @@ int runCrash(int argc, char** argv) {
   if (how == "abort") std::abort();
   if (how == "fpe") std::raise(SIGFPE);
   if (how == "ill") std::raise(SIGILL);
-  volatile int* p = nullptr;
-  *p = 1;
-  return 0;
+  segfault();
 }
 
 struct Doc {
@@ -91,8 +106,7 @@ void send(const Json& msg) {
     struct rlimit rl = {0, 0};
     ::setrlimit(RLIMIT_CORE, &rl);  // no core files from the tests
 #endif
-    volatile int* p = nullptr;
-    *p = 1;
+    segfault();
   }
   std::fflush(stdout);
   std::_Exit(1);

@@ -790,11 +790,16 @@ void SemanticEngine::setPoster(std::function<void(std::function<void()>)> poster
   poster_ = std::move(poster);
 }
 
-void SemanticEngine::setHealth(ClangdHealth::Phase phase, int crashes, const std::string& err) {
+void SemanticEngine::setHealth(ClangdHealth::Phase phase, int crashes, const std::string& err, int onlyIfConsecutive) {
   ClangdHealth snap;
   std::function<void(const ClangdHealth&)> h;
+  // The supervisor thread (crash handling) and the document thread (adoptPending) both set the health. Taking the
+  // snapshot under supMu_ but calling the handler outside any lock let a late "Running" overtake the "Stopped" of a
+  // crash that was handled in between, leaving the UI without the stopped status.
+  std::lock_guard<std::mutex> order(healthCbMu_);
   {
     std::lock_guard<std::mutex> lk(supMu_);
+    if (onlyIfConsecutive >= 0 && consecutive_ != onlyIfConsecutive) return;
     health_.phase = phase;
     health_.crashes = crashes;
     health_.lastError = err;
@@ -930,7 +935,7 @@ void SemanticEngine::adoptPending(uint64_t id) {
     crashes = consecutive_;
   }
   log("clangd restarted: " + nc->serverVersion());
-  setHealth(ClangdHealth::Phase::Running, crashes);
+  setHealth(ClangdHealth::Phase::Running, crashes, {}, crashes);
   if (!nc->alive()) noteCrash(nc);  // died while the documents were being re-sent
 }
 

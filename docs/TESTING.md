@@ -475,6 +475,6 @@ regression inputs, then fuzzes every target for 30 s with seed 1; findings are u
   deserialises: a harness that only waits for "no crash" would miss wrong answers and would never get past the
   checksum.
 * Windows: the driver uses fork and POSIX signals; `tests/fuzz` is skipped there.
-* Known environment difference: under gcc with `-fsanitize=undefined` the unit test `crash_handler_writes_report`
-  fails in its "segv" case (UBSan's null check reports the helper's deliberate null store and exits before the SIGSEGV
-  handler runs). The `asan` preset uses clang; this was only seen with gcc, and the fuzz job does not run that test.
+* `crash_handler_writes_report` builds under gcc with `-fsanitize=address,undefined` too: the helper crashes with a store
+  to a `PROT_NONE` page (a real SIGSEGV with a fault address) because a null store is caught by UBSan's null check and
+  ends the process before the SIGSEGV handler runs.
