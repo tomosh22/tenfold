@@ -40,6 +40,10 @@ struct Symbol {
   int col = 0;   // 0-based byte column of the name token
   bool definition = true;
   bool isTemplate = false;
+  // Number of declared parameters of a function / method / constructor (default arguments count, `(void)` is 0),
+  // -1 when not a function or unknown. Used to pair a prototype with its definition; capped at kMaxArity. For a macro:
+  // -1 object-like, the parameter count for a function-like macro.
+  int8_t arity = -1;
   std::string qualified() const { return scope.empty() ? name : scope + "::" + name; }
 };
 
@@ -61,6 +65,13 @@ struct FileSymbols {
 std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes = nullptr,
                                    bool isC = false);
 bool isCSourceFile(const std::filesystem::path& file);
+// Canonical spelling of an operator function name, given the source text that follows the `operator` keyword:
+// "+" -> "operator+", "()" -> "operator()", " new[]" -> "operator new[]", " const char*()" -> "operator const char*"
+// (a space only between two word-like tokens). The extractor names operator functions and conversion operators this
+// way; the approximate-answer path builds the same name for a caret on a written `operator` so the two agree.
+// Empty when `text` does not start like an operator-function-id.
+std::string operatorFunctionName(std::string_view textAfterKeyword);
+constexpr int kMaxArity = 62;
 
 class FastIndex {
  public:
@@ -118,6 +129,28 @@ class FastIndex {
   void prepareSearch() const;
   // Exact (case-sensitive) name lookup, definitions first.
   std::vector<Match> lookup(std::string_view name) const;
+
+  // What the caller wants out of a name lookup (see shapeAnswer).
+  enum class Want { Any, Definition, Declaration };
+  struct Shape {
+    Want want = Want::Any;
+    // The word is written right after `struct` / `class` / `union` / `enum`: a tag is meant, not a typedef of the
+    // same name.
+    bool afterTagKeyword = false;
+    // The caret is on the name of a constructor declaration / definition: only constructors of that scope are meant.
+    bool constructorOnly = false;
+    std::string constructorScope;
+    int constructorArity = -1;  // with constructorOnly: only the constructors with this many parameters (-1 = any)
+  };
+  // Narrows a by-name lookup the way a declaration-aware tool would, using only what the lexer index knows:
+  //  * a class name is the class, not its constructors (unless `constructorOnly`);
+  //  * a typedef and a struct/class/union/enum tag of the same name and scope: the typedef for a plain use, the tag
+  //    after the tag keyword;
+  //  * a function / method / constructor / variable that has both prototypes and definitions: Want::Definition keeps
+  //    the definitions that are paired with a prototype of the same name, scope and arity, drops those prototypes;
+  //    Want::Declaration drops the definitions that have such a prototype (the definition alone when there is none).
+  // The order of the remaining matches is kept. Name, scope and arity only: the index has no overload resolution.
+  static std::vector<Match> shapeAnswer(std::vector<Match> matches, const Shape& shape);
   std::shared_ptr<const FileSymbols> fileSymbols(const std::filesystem::path& file) const;
 
   size_t fileCount() const;

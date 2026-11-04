@@ -10,7 +10,7 @@ fast def bas_step_11_12_use3 -> bas_step_11_12_def0
 fast def bas_record_24_use0 -> bas_record_24_def0
 fast hover bas_record_24_use0 ~ "bas_record"
 xfail fast def stamp_37_use0 -> stamp_37_def0  # fast tier is name-only: the word 'stamp' has 8 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def BAS_JOB_15_43_use14 -> BAS_JOB_15_43_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def BAS_JOB_15_43_use14 -> BAS_JOB_15_43_def0 
 xfail fast def bas_encode_20_48_use7 -> bas_encode_20_48_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast def bas_base_27_56_use0 -> bas_base_27_56_def0
 fast sym "bas_size_28_t" -> bas_size_28_t_57_def0
@@ -26,8 +26,8 @@ fast sym "Size38" -> Size38_135_def0
 fast def Size38_135_use2 -> Size38_135_def0
 fast def Id39_136_use0 -> Id39_136_def0
 fast hover Id39_136_use0 ~ "Id39"
-xfail fast def UTIL_SCHEDULE_40_164_use3 -> UTIL_SCHEDULE_40_164_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def UTIL_TARIFF_41_165_use1 -> UTIL_TARIFF_41_165_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def UTIL_SCHEDULE_40_164_use3 -> UTIL_SCHEDULE_40_164_def0 
+fast def UTIL_TARIFF_41_165_use1 -> UTIL_TARIFF_41_165_def0 
 xfail fast def bindBalance45_169_use0 -> bindBalance45_169_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast sym "rotateAudit" -> rotateAudit_171_decl0 | rotateAudit_171_def0
 fast def rotateAudit_171_use2 -> rotateAudit_171_decl0 | rotateAudit_171_def0
@@ -70,7 +70,7 @@ fast def mem_invoice_state_436_use0 -> mem_invoice_state_436_def0
 fast def mem_fetch_entry_453_use0 -> mem_fetch_entry_453_decl0 | mem_fetch_entry_453_def0
 fast def mem_chain113_l5_484_use0 -> mem_chain113_l5_484_def0
 fast hover mem_chain113_l5_484_use0 ~ "mem_chain113_l5"
-xfail fast def LOGGING_ENDPOINT_117_497_use1 -> LOGGING_ENDPOINT_117_497_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def LOGGING_ENDPOINT_117_497_use1 -> LOGGING_ENDPOINT_117_497_def0 
 xfail fast def norm_514_use0 -> norm_514_def0  # fast tier is name-only: the word 'norm' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 fast sym "mark_ledger" -> mark_ledger_546_decl0
 xfail fast def value_574_use2 -> value_574_def0  # fast tier is name-only: the word 'value' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
@@ -102,7 +102,7 @@ fast def lis_cap_156_733_use0 -> lis_cap_156_733_def0
 fast def lis_table158_data_751_use10 -> lis_table158_data_751_decl0 | lis_table158_data_751_def0
 fast sym "lis_table158_fn_0" -> lis_table158_fn_0_752_decl0 | lis_table158_fn_0_752_def0
 fast def lis_table158_fn_0_752_use3 -> lis_table158_fn_0_752_decl0 | lis_table158_fn_0_752_def0
-xfail fast def LIS_SCALE_163_778_use0 -> LIS_SCALE_163_778_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def LIS_SCALE_163_778_use0 -> LIS_SCALE_163_778_def0 
 fast sym "lis_region2" -> lis_region2_783_def0
 fast def lis_region2_783_use0 -> lis_region2_783_def0
 fast hover lis_region2_783_use0 ~ "lis_region2"
@@ -116,9 +116,9 @@ fast sym "lis_real_200_t" -> lis_real_200_t_877_def0
 fast def lis_real_200_t_877_use1 -> lis_real_200_t_877_def0
 fast hover lis_real_200_t_877_use1 ~ "lis_real_200_t"
 fast def lis_apply_socket_887_use1 -> lis_apply_socket_887_decl0 | lis_apply_socket_887_def0
-xfail fast def LIS_QUEUE_202_902_use0 -> LIS_QUEUE_202_902_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def LIS_DECLARE_FN_204_904_use2 -> LIS_DECLARE_FN_204_904_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def LIS_SCALE_211_914_use0 -> LIS_SCALE_211_914_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def LIS_QUEUE_202_902_use0 -> LIS_QUEUE_202_902_def0 
+fast def LIS_DECLARE_FN_204_904_use2 -> LIS_DECLARE_FN_204_904_def0 
+fast def LIS_SCALE_211_914_use0 -> LIS_SCALE_211_914_def0 
 xfail fast def lis_apply_215_918_use0 -> lis_apply_215_918_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast def TiledInvoice_Max_977_use0 -> TiledInvoice_Max_977_def0
 xfail fast def scale_983_use0 -> scale_983_def0  # fast tier is name-only: the word 'scale' has 7 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
@@ -141,7 +141,7 @@ fast def markPayment_1054_use7 -> markPayment_1054_def0
 fast sym "encodeSession" -> encodeSession_1055_def0
 fast def encodeSession_1055_use3 -> encodeSession_1055_def0
 fast hover encodeSession_1055_use3 ~ "encodeSession"
-xfail fast def MODEL_CUSTOMER_244_1074_use0 -> MODEL_CUSTOMER_244_1074_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def MODEL_CUSTOMER_244_1074_use0 -> MODEL_CUSTOMER_244_1074_def0 
 fast def Job_1081_use1 -> Job_1081_def0
 fast sym "BasicTenant" -> BasicTenant_1104_def0
 fast def BasicTenant_1104_use1 -> BasicTenant_1104_def0

@@ -4,7 +4,7 @@
 # `impl` answers: clangd reports an override at its definition when it has an out-of-line one (Rect::area in rect.cpp).
 
 # ---- fast tier ----
-xfail fast def use_Engine -> Engine  # fast tier conflates the class with its constructors and destructor (all named Engine)
+fast def use_Engine -> Engine
 fast def use_Counter_count -> Counter_count
 xfail fast def use_Bag_size -> Bag_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
 fast def use_duck_walk -> Walker_walk

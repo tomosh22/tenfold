@@ -4,9 +4,9 @@
 # use to the template's pattern, from a call to the template function that is called).
 
 # ---- fast tier ----
-xfail fast def use_Stack -> Stack  # fast tier returns the class and its constructor / destructor declarations (same word)
-xfail fast def use_Pair -> Pair  # fast tier also returns the constructor Pair(A, B)
-xfail fast def use_Wrap -> Wrap  # fast tier also returns the constructor template Wrap(It, It)
+fast def use_Stack -> Stack
+fast def use_Pair -> Pair
+fast def use_Wrap -> Wrap
 fast def use_Stack -> Stack | Stack_ctor_decl | Stack_dtor_decl
 fast def use_Vec_t -> Vec_t
 fast def use_Holder -> Holder

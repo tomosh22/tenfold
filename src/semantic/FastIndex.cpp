@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cctype>
 #include <chrono>
 #include <fstream>
 #include <mutex>
@@ -44,6 +45,79 @@ const char* symbolKindName(SymbolKind k) {
 // ---------------------------------------------------------------------------
 namespace {
 
+// Operator function names. `toks[pos...]` are the tokens after an `operator` keyword; returns the canonical name and
+// sets *consumed to the number of tokens that belong to it (operator-function-id or conversion-function-id, up to but
+// excluding the parameter list). A space separates two word-like tokens only, so the name does not depend on how the
+// source is spaced: `operator+`, `operator()`, `operator new[]`, `operator Meters`, `operator const char*`,
+// `operator""_km`.
+bool wordLikeToken(const Token& t) {
+  return t.kind == Tok::Identifier || t.kind == Tok::Keyword || t.kind == Tok::Number;
+}
+
+std::string operatorNameFrom(const std::vector<Token>& toks, size_t pos, size_t* consumed) {
+  std::string name = "operator";
+  bool lastWord = true;
+  size_t k = pos;
+  auto isP = [&](size_t i, std::string_view p) {
+    return i < toks.size() && toks[i].kind == Tok::Punct && toks[i].text == p;
+  };
+  auto add = [&](const Token& t) {
+    const bool w = wordLikeToken(t);
+    if (w && lastWord) name += ' ';
+    name += t.text;
+    lastWord = w;
+    ++k;
+  };
+  if (k < toks.size()) {
+    const Token& t = toks[k];
+    if (isP(k, "(") && isP(k + 1, ")")) {
+      add(t);
+      add(toks[k]);
+    } else if (isP(k, "[") && isP(k + 1, "]")) {
+      add(t);
+      add(toks[k]);
+    } else if (t.kind == Tok::Keyword && (t.text == "new" || t.text == "delete")) {
+      add(t);
+      if (isP(k, "[") && isP(k + 1, "]")) {
+        add(toks[k]);
+        add(toks[k]);
+      }
+    } else if (t.kind == Tok::Punct && t.text != "(" && t.text != ")" && t.text != "{" && t.text != "}" &&
+               t.text != ";" && t.text != "::") {
+      add(t);
+    } else if (t.kind == Tok::String) {  // user-defined literal: operator"" _km
+      add(t);
+      if (k < toks.size() && toks[k].kind == Tok::Identifier) add(toks[k]);
+    } else {  // conversion function: the type up to the parameter list
+      int angle = 0;
+      while (k < toks.size() && toks[k].kind != Tok::End) {
+        const Token& u = toks[k];
+        if (u.kind == Tok::Punct) {
+          if (u.text == "<") ++angle;
+          else if (u.text == ">") angle = std::max(0, angle - 1);
+          else if (u.text == ">>") angle = std::max(0, angle - 2);
+          else if (angle == 0 && (u.text == "(" || u.text == ")" || u.text == ";" || u.text == "{" || u.text == "}"))
+            break;
+        }
+        add(u);
+      }
+    }
+  }
+  *consumed = k - pos;
+  return name;
+}
+
+}  // namespace
+
+std::string operatorFunctionName(std::string_view textAfterKeyword) {
+  std::vector<Token> toks = CppLexer(textAfterKeyword).all();
+  size_t n = 0;
+  std::string name = operatorNameFrom(toks, 0, &n);
+  return n == 0 ? std::string() : name;
+}
+
+namespace {
+
 class Extractor {
  public:
   explicit Extractor(std::string_view src, std::vector<std::string>* includes, bool isC)
@@ -83,12 +157,46 @@ class Extractor {
     }
     return s;
   }
+  // The qualified scope with the class-like scopes at its end removed (where a hidden friend lives).
+  std::string scopeOutsideClasses() const {
+    size_t n = scopes_.size();
+    while (n > 0 && (scopes_[n - 1].kind == SymbolKind::Class || scopes_[n - 1].kind == SymbolKind::Struct ||
+                     scopes_[n - 1].kind == SymbolKind::Union))
+      --n;
+    std::string s;
+    for (size_t i = n > kMaxScopeComponents ? n - kMaxScopeComponents : 0; i < n; ++i) {
+      if (!s.empty()) s += "::";
+      s += scopes_[i].name;
+    }
+    return s;
+  }
+
+  // Number of parameters of the list whose '(' is token `open` and ')' token `close`: top-level commas plus one;
+  // `()` and `(void)` are 0. Template arguments are tracked loosely (`std::map<int, int> m` is one parameter).
+  int countParams(size_t open, size_t close) const {
+    if (close <= open + 1 || close >= toks_.size()) return 0;
+    if (close == open + 2 && toks_[open + 1].is("void")) return 0;
+    int n = 1, depth = 0, angle = 0;
+    for (size_t k = open + 1; k < close; ++k) {
+      const Token& t = toks_[k];
+      if (t.kind != Tok::Punct) continue;
+      if (t.text == "(" || t.text == "[" || t.text == "{") ++depth;
+      else if (t.text == ")" || t.text == "]" || t.text == "}") depth = std::max(0, depth - 1);
+      else if (t.text == "<" && k > open + 1 && toks_[k - 1].kind == Tok::Identifier) ++angle;
+      else if (t.text == ">") angle = std::max(0, angle - 1);
+      else if (t.text == ">>") angle = std::max(0, angle - 2);
+      else if (t.text == "," && depth == 0 && angle == 0) ++n;
+    }
+    return std::min(n, kMaxArity);
+  }
+
   bool inClass() const {
     return !scopes_.empty() && (scopes_.back().kind == SymbolKind::Class || scopes_.back().kind == SymbolKind::Struct ||
                                 scopes_.back().kind == SymbolKind::Union);
   }
 
-  void emit(const Token& nameTok, std::string name, SymbolKind kind, bool definition, std::string scope = "\x01") {
+  void emit(const Token& nameTok, std::string name, SymbolKind kind, bool definition, std::string scope = "\x01",
+            int arity = -1) {
     if (name.empty()) return;  // a declarator cut off after "::" (`int a::,`) has no name to index
     Symbol s;
     s.name = std::move(name);
@@ -98,6 +206,7 @@ class Extractor {
     s.col = nameTok.col;
     s.definition = definition;
     s.isTemplate = pendingTemplate_;
+    s.arity = static_cast<int8_t>(arity > kMaxArity ? kMaxArity : arity);
     out_.push_back(std::move(s));
   }
 
@@ -222,6 +331,10 @@ class Extractor {
           if (atP("[")) advance();
           return;
         }
+        if (t.is("~") && tok(1).kind == Tok::Identifier) {  // a destructor declared in its class: "~Name"
+          parseDeclaration();
+          return;
+        }
         advance();
         return;
       case Tok::Keyword:
@@ -263,7 +376,15 @@ class Extractor {
           return;
         }  // extern "C" {
         if (t.is("friend")) {
-          skipStatement();
+          if (!inClass()) {
+            skipStatement();
+            pendingTemplate_ = false;
+            return;
+          }
+          advance();
+          friend_ = true;
+          parseDeclaration();
+          friend_ = false;
           pendingTemplate_ = false;
           return;
         }
@@ -287,7 +408,8 @@ class Extractor {
   }
 
   void handleDirective() {
-    std::string_view text = tok().text;
+    const Token dir = tok();
+    std::string_view text = dir.text;
     advance();
     size_t p = 1;
     while (p < text.size() && (text[p] == ' ' || text[p] == '\t')) ++p;
@@ -301,17 +423,68 @@ class Extractor {
       }
       return;
     }
-    if (text.substr(p, 6) == "define") {
-      p += 6;
-      while (p < text.size() && (text[p] == ' ' || text[p] == '\t')) ++p;
-      size_t e = p;
-      while (e < text.size() && (std::isalnum(static_cast<unsigned char>(text[e])) || text[e] == '_')) ++e;
-      if (e > p) {
-        Token nameTok = toks_[i_ - 1];
-        nameTok.col += static_cast<int>(p);
-        emit(nameTok, std::string(text.substr(p, e - p)), SymbolKind::Macro, true, "");
+    if (text.substr(p, 6) == "define" && (p + 6 >= text.size() || !isIdentChar(text[p + 6]))) defineMacro(dir, p + 6);
+  }
+
+  static bool isIdentChar(char c) {
+    return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$' || static_cast<unsigned char>(c) >= 0x80;
+  }
+
+  // `#define NAME` / `#define NAME(params)`: indexes NAME as a Macro at its own position. Between `define` and the name
+  // there may be blanks, comments (the corpus anchors are `/*@x*/` comments) and backslash-newline continuations; the
+  // name's line and column are tracked across them. Everything after the name (the replacement list) is ignored.
+  void defineMacro(const Token& dir, size_t p) {
+    const std::string_view text = dir.text;
+    int line = dir.line;
+    size_t lineStart = 0;                       // offset in `text` where the current line starts
+    int colBase = dir.col;                      // column of text[lineStart]
+    auto newlineAt = [&](size_t k) -> size_t {  // length of the line break at k, else 0
+      if (text[k] == '\n') return 1;
+      if (text[k] == '\r') return (k + 1 < text.size() && text[k + 1] == '\n') ? 2 : 1;
+      return 0;
+    };
+    auto breakLine = [&](size_t len) {
+      p += len;
+      ++line;
+      lineStart = p;
+      colBase = 0;
+    };
+    while (p < text.size()) {
+      const char c = text[p];
+      if (c == ' ' || c == '\t' || c == '\f' || c == '\v') {
+        ++p;
+      } else if (c == '\\' && p + 1 < text.size() && newlineAt(p + 1)) {
+        breakLine(1 + newlineAt(p + 1));
+      } else if (c == '/' && p + 1 < text.size() && text[p + 1] == '*') {
+        p += 2;
+        while (p < text.size() && !(text[p] == '*' && p + 1 < text.size() && text[p + 1] == '/')) {
+          if (size_t n = newlineAt(p)) breakLine(n);
+          else ++p;
+        }
+        p = std::min(p + 2, text.size());
+      } else {
+        break;
       }
     }
+    size_t e = p;
+    if (e < text.size() && !std::isdigit(static_cast<unsigned char>(text[e]))) {
+      while (e < text.size() && isIdentChar(text[e])) ++e;
+    }
+    if (e == p) return;
+    Token nameTok = dir;
+    nameTok.line = line;
+    nameTok.col = colBase + static_cast<int>(p - lineStart);
+    // arity: -1 for an object-like macro, the parameter count (0 for `()`) for a function-like one, which is a
+    // macro use only when a '(' follows (a bare `name` is not).
+    int arity = -1;
+    if (e < text.size() && text[e] == '(') {
+      const size_t close = text.find(')', e);
+      std::string_view params =
+          text.substr(e + 1, close == std::string_view::npos ? std::string_view::npos : close - e - 1);
+      const bool blank = params.find_first_not_of(" \t\r\n\\") == std::string_view::npos;
+      arity = blank ? 0 : 1 + static_cast<int>(std::count(params.begin(), params.end(), ','));
+    }
+    emit(nameTok, std::string(text.substr(p, e - p)), SymbolKind::Macro, true, "", arity);
   }
 
   // Reads a (possibly qualified, possibly template-id) name: A::B<T>::C
@@ -327,26 +500,10 @@ class Extractor {
       if (at(Tok::Identifier) || (atKw("operator"))) {
         if (atKw("operator")) {
           lastTok = tok();
-          name += "operator";
           advance();
-          // operator symbol(s) or conversion type
-          if (atP("(") && tok(1).is(")")) {
-            name += "()";
-            advance(2);
-          } else if (atP("[") && tok(1).is("]")) {
-            name += "[]";
-            advance(2);
-          } else if (at(Tok::Punct)) {
-            while (at(Tok::Punct) && !atP("(") && !atP("<")) {
-              name += std::string(tok().text);
-              advance();
-            }
-          } else {
-            while (!at(Tok::End) && !atP("(")) {
-              name += std::string(tok().text);
-              advance();
-            }
-          }
+          size_t used = 0;
+          name += operatorNameFrom(toks_, i_, &used);
+          advance(used);
           return true;
         }
         lastTok = tok();
@@ -375,6 +532,16 @@ class Extractor {
       }
       return any;
     }
+  }
+
+  // Position of the last "::" that separates a qualifier from the declared name, npos if none. The text of an operator
+  // name may contain "::" itself (`operator std::string`), so only a "::" before the `operator` keyword counts.
+  static size_t qualifierEnd(const std::string& n) {
+    for (size_t o = n.find("operator"); o != std::string::npos; o = n.find("operator", o + 1)) {
+      if (o == 0) return std::string::npos;
+      if (n[o - 1] == ':') return n.rfind("::", o - 1);
+    }
+    return n.rfind("::");
   }
 
   void parseNamespace() {
@@ -467,6 +634,33 @@ class Extractor {
     parseDeclaration();
   }
 
+  // At the '{' of an enum body: indexes the enumerators (scope `enumScope`) and consumes through the closing '}'.
+  void parseEnumerators(const std::string& enumScope) {
+    advance();  // {
+    while (!at(Tok::End) && !atP("}")) {
+      skipAttributes();
+      if (at(Tok::Identifier)) {
+        emit(tok(), std::string(tok().text), SymbolKind::Enumerator, true, enumScope);
+        advance();
+      }
+      // skip initializer up to ',' or '}'
+      int d = 0;
+      while (!at(Tok::End)) {
+        if (atP("(") || atP("{") || atP("[")) ++d;
+        else if (atP(")") || atP("]")) --d;
+        else if (atP("}")) {
+          if (d == 0) break;
+          --d;
+        } else if (atP(",") && d == 0) {
+          advance();
+          break;
+        }
+        advance();
+      }
+    }
+    if (atP("}")) advance();
+  }
+
   void parseEnum() {
     advance();  // enum
     bool scoped = false;
@@ -492,30 +686,7 @@ class Extractor {
     }
     if (hasName) emit(nameTok, name, SymbolKind::Enum, true);
     std::string enumScope = scoped && hasName ? (scopeName().empty() ? name : scopeName() + "::" + name) : scopeName();
-    advance();  // {
-    // enumerators
-    while (!at(Tok::End) && !atP("}")) {
-      skipAttributes();
-      if (at(Tok::Identifier)) {
-        emit(tok(), std::string(tok().text), SymbolKind::Enumerator, true, enumScope);
-        advance();
-      }
-      // skip initializer up to ',' or '}'
-      int d = 0;
-      while (!at(Tok::End)) {
-        if (atP("(") || atP("{") || atP("[")) ++d;
-        else if (atP(")") || atP("]")) --d;
-        else if (atP("}")) {
-          if (d == 0) break;
-          --d;
-        } else if (atP(",") && d == 0) {
-          advance();
-          break;
-        }
-        advance();
-      }
-    }
-    if (atP("}")) advance();
+    parseEnumerators(enumScope);
     // trailing "} name;" for anonymous enums or variables: swallow to ';'
     while (!at(Tok::End) && !atP(";")) {
       if (at(Tok::Identifier) && (tok(1).is(";") || tok(1).is(",") || tok(1).is("="))) {
@@ -528,18 +699,48 @@ class Extractor {
 
   void parseTypedef() {
     advance();  // typedef
-    // typedef struct {...} Name;  / typedef struct Tag {...} Name; / typedef T Name; / typedef void (*Fn)(int);
-    size_t startIdx = i_;
-    std::vector<Token> idents;
+    // typedef struct {...} Name;  / typedef struct Tag {...} Name; / typedef enum {A, B} Name; / typedef T Name;
+    // / typedef void (*Fn)(int);
+    // The name of the typedef is the last identifier outside braces and parentheses (or the one in `(*Fn)`). A tag
+    // with a body (`struct Tag {`, `enum Tag {`) is indexed too, and so are the enumerators of an enum body, which
+    // matters most for the anonymous `typedef enum { A, B } Name;` of C. Members of struct bodies are not indexed.
+    std::vector<Token> idents, names;  // identifiers of the current declarator; the finished declarators' names
     Token fnPtrName{};
     bool haveFnPtr = false;
     int brace = 0, paren = 0;
     while (!at(Tok::End)) {
-      if (atP("{")) {
-        if (brace == 0 && (tok(-0).kind != Tok::End)) {
-          // Anonymous/inline struct body inside typedef: index its members with a placeholder scope.
-          // Find the tag name (identifier before '{', if any) for the member scope.
+      if (brace == 0 && paren == 0 && atKw("enum")) {
+        advance();
+        if (atKw("class") || atKw("struct")) advance();
+        skipAttributes();
+        Token tagTok{};
+        bool hasTag = false;
+        if (at(Tok::Identifier)) {
+          tagTok = tok();
+          hasTag = true;
+          advance();
         }
+        if (atP(":")) {  // underlying type
+          advance();
+          while (!at(Tok::End) && !atP("{") && !atP(";")) advance();
+        }
+        if (atP("{")) {
+          if (hasTag) emit(tagTok, std::string(tagTok.text), SymbolKind::Enum, true);
+          parseEnumerators(scopeName());
+        }
+        continue;
+      }
+      if (brace == 0 && paren == 0 && (atKw("struct") || atKw("union") || atKw("class"))) {
+        const SymbolKind k = atKw("struct")  ? SymbolKind::Struct
+                             : atKw("union") ? SymbolKind::Union
+                                             : SymbolKind::Class;
+        if (tok(1).kind == Tok::Identifier && tok(2).is("{")) {
+          emit(tok(1), std::string(tok(1).text), k, true);
+          advance(2);  // the tag is not the typedef name
+          continue;
+        }
+      }
+      if (atP("{")) {
         ++brace;
       } else if (atP("}")) {
         --brace;
@@ -553,6 +754,9 @@ class Extractor {
         --paren;
       } else if (atP(";") && brace == 0 && paren == 0) {
         break;
+      } else if (atP(",") && brace == 0 && paren == 0) {  // `typedef struct {...} S, *SP;`: one name per declarator
+        if (!idents.empty()) names.push_back(idents.back());
+        idents.clear();
       } else if (at(Tok::Identifier) && brace == 0 && paren == 0) {
         idents.push_back(tok());
       } else if (atP("<") && brace == 0 && paren == 0) {
@@ -561,11 +765,11 @@ class Extractor {
       }
       advance();
     }
-    (void)startIdx;
     if (haveFnPtr) {
       emit(fnPtrName, std::string(fnPtrName.text), SymbolKind::Typedef, true);
-    } else if (!idents.empty()) {
-      emit(idents.back(), std::string(idents.back().text), SymbolKind::Typedef, true);
+    } else {
+      if (!idents.empty()) names.push_back(idents.back());
+      for (const Token& n : names) emit(n, std::string(n.text), SymbolKind::Typedef, true);
     }
     if (atP(";")) advance();
     pendingTemplate_ = false;
@@ -675,8 +879,16 @@ class Extractor {
       }
       if (t.kind == Tok::Punct) {
         if (t.is("(")) {
-          if (!haveName) {  // "(*fp)(int)" style or macro garbage: skip group
-            skipBalanced("(", ")");
+          if (!haveName) {
+            if (typeTokens > 0 && tok(1).kind == Tok::Identifier && tok(2).is(")") && tok(3).is("(")) {
+              // "int (name)(int v)": a parenthesised declarator (used to keep a function-like macro from expanding).
+              lastName = std::string(tok(1).text);
+              lastNameTok = tok(1);
+              haveName = true;
+              advance(3);
+              continue;
+            }
+            skipBalanced("(", ")");  // "(*fp)(int)" style or macro garbage: skip group
             continue;
           }
           if (typeTokens == 0 && !inClass() && lastName.find("::") == std::string::npos && !lastName.starts_with("~") &&
@@ -689,7 +901,9 @@ class Extractor {
           }
           // Function: parameters
           const int nameLine = lastNameTok.line;
+          const size_t parenOpen = i_;
           skipBalanced("(", ")");
+          const int arity = countParams(parenOpen, i_ - 1);
           // Macro-invocation heuristic: next token on a later line and not a valid continuation.
           if (tok().line > std::max(nameLine, startLine) && !isDeclTerminatorAfterParams() && !atP("{")) {
             if (typeTokens == 0) {
@@ -740,7 +954,7 @@ class Extractor {
           SymbolKind kind = SymbolKind::Function;
           std::string scope = scopeName();
           std::string unq = lastName;
-          size_t q = lastName.rfind("::");
+          size_t q = qualifierEnd(lastName);
           if (q != std::string::npos && q > 0) {
             unq = lastName.substr(q + 2);
             std::string qual = lastName.substr(0, q);
@@ -760,13 +974,24 @@ class Extractor {
             std::string cls = sq == std::string::npos ? scope : scope.substr(sq + 2);
             if (unq == cls || unq == "~" + cls) kind = SymbolKind::Constructor;
           }
-          if (definition) {
-            emit(lastNameTok, unq, kind, true, scope);
+          if (friend_) {
+            // `friend` declarations name a function of the enclosing namespace. Only a definition inside the class (a
+            // hidden friend, found by ADL only) is indexed: a plain `friend void f();` repeats a declaration made
+            // elsewhere. The function belongs to the innermost enclosing non-class scope, not to the class.
+            if (definition) {
+              emit(lastNameTok, unq, SymbolKind::Function, true, scopeOutsideClasses(), arity);
+              skipBalanced("{", "}");
+              if (atP(";")) advance();
+            } else if (atP(";")) {
+              advance();
+            }
+          } else if (definition) {
+            emit(lastNameTok, unq, kind, true, scope, arity);
             skipBalanced("{", "}");
             // "} ;" after a function body is harmless; also handles "}" of lambda-less bodies.
             if (atP(";")) advance();
           } else {
-            emit(lastNameTok, unq, kind, !sawPureOrDefault && false, scope);
+            emit(lastNameTok, unq, kind, !sawPureOrDefault && false, scope, arity);
             if (atP(";")) advance();
           }
           pendingTemplate_ = false;
@@ -820,6 +1045,16 @@ class Extractor {
           pendingTemplate_ = false;
           return;
         }
+        if (t.is("~") && tok(1).kind == Tok::Identifier) {  // destructor name: "~Name" (like Name::~Name out of line)
+          if (haveName) ++typeTokens;
+          std::string nm;
+          Token lt{};
+          readQualifiedName(nm, lt);
+          lastName = nm;
+          lastNameTok = lt;
+          haveName = true;
+          continue;
+        }
         if (t.is("*") || t.is("&") || t.is("&&") || t.is("::")) {
           ++typeTokens;
           advance();
@@ -855,6 +1090,7 @@ class Extractor {
   std::vector<Scope> scopes_;
   std::vector<Symbol> out_;
   bool pendingTemplate_ = false;
+  bool friend_ = false;  // parseDeclaration is reading what follows `friend` inside a class
   std::vector<std::string>* includes_ = nullptr;
 };
 
@@ -1116,6 +1352,83 @@ size_t FastIndex::fileCount() const {
 size_t FastIndex::symbolCount() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   return symbolCount_;
+}
+
+namespace {
+bool isFunctionKind(SymbolKind k) {
+  return k == SymbolKind::Function || k == SymbolKind::Method || k == SymbolKind::Constructor;
+}
+bool isTagKind(SymbolKind k) {
+  return k == SymbolKind::Class || k == SymbolKind::Struct || k == SymbolKind::Union || k == SymbolKind::Enum;
+}
+// Identity of the entity a symbol declares as far as the index can tell: scope, name and, for functions, arity.
+// Empty for kinds that are not paired (types, namespaces, macros, enumerators).
+std::string pairKey(const Symbol& s) {
+  char group;
+  if (isFunctionKind(s.kind)) group = 'f';
+  else if (s.kind == SymbolKind::Variable || s.kind == SymbolKind::Field) group = 'v';
+  else return {};
+  std::string k = s.scope;
+  k += '\x01';
+  k += s.name;
+  k += '\x01';
+  k += group;
+  k += std::to_string(static_cast<int>(s.arity));
+  return k;
+}
+}  // namespace
+
+std::vector<FastIndex::Match> FastIndex::shapeAnswer(std::vector<Match> m, const Shape& shape) {
+  if (m.size() < 2) return m;
+  auto dropIf = [&](auto&& pred) { std::erase_if(m, [&](const Match& x) { return pred(x.sym()); }); };
+  // Constructors.
+  if (shape.constructorOnly) {
+    bool any = false;
+    auto isIt = [&](const Symbol& s) {
+      return s.kind == SymbolKind::Constructor && s.scope == shape.constructorScope &&
+             (shape.constructorArity < 0 || s.arity == shape.constructorArity);
+    };
+    for (auto& x : m) any = any || isIt(x.sym());
+    if (any) dropIf([&](const Symbol& s) { return !isIt(s); });
+  } else {
+    bool typeName = false;
+    for (auto& x : m) typeName = typeName || isTagKind(x.sym().kind) || x.sym().kind == SymbolKind::Typedef;
+    if (typeName) dropIf([](const Symbol& s) { return s.kind == SymbolKind::Constructor; });
+  }
+  // typedef vs tag of the same name in the same scope.
+  {
+    std::unordered_set<std::string> tagScopes, typedefScopes;
+    for (auto& x : m) {
+      if (isTagKind(x.sym().kind)) tagScopes.insert(x.sym().scope);
+      else if (x.sym().kind == SymbolKind::Typedef) typedefScopes.insert(x.sym().scope);
+    }
+    if (shape.afterTagKeyword) {
+      if (!tagScopes.empty())
+        dropIf([&](const Symbol& s) { return s.kind == SymbolKind::Typedef && tagScopes.count(s.scope); });
+    } else if (!typedefScopes.empty()) {
+      dropIf([&](const Symbol& s) { return isTagKind(s.kind) && typedefScopes.count(s.scope); });
+    }
+  }
+  // Prototype and definition of the same function / variable.
+  if (shape.want != Want::Any && m.size() > 1) {
+    std::unordered_set<std::string> keys;
+    const bool wantDef = shape.want == Want::Definition;
+    for (auto& x : m) {
+      const Symbol& s = x.sym();
+      if (s.definition == wantDef) {  // the side that is kept; the other side is dropped when it has such a partner
+        std::string k = pairKey(s);
+        if (!k.empty()) keys.insert(std::move(k));
+      }
+    }
+    if (!keys.empty()) {
+      dropIf([&](const Symbol& s) {
+        if (s.definition == wantDef) return false;
+        std::string k = pairKey(s);
+        return !k.empty() && keys.count(k) > 0;
+      });
+    }
+  }
+  return m;
 }
 
 std::shared_ptr<const FileSymbols> FastIndex::fileSymbols(const std::filesystem::path& file) const {

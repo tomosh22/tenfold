@@ -7,6 +7,12 @@ xfail fast def use_plus -> vec_plus | vec_plus_def  # fast tier: an operator tok
 xfail fast def use_lit_km -> lit_km  # fast tier: a literal's suffix is not looked up
 fast def use_arrow_sum -> Point3_sum
 fast sym "operator" ∋ vec_minus
+# a written `operator bool` / `operator double` (the operator-function-id with a name) is a word the fast tier resolves;
+# operator TOKENS (`a + b`, `x[i]`, `os << v`) and literal suffixes stay out of scope for the fast tier (no word).
+fast def use_to_bool -> vec_to_bool_def
+fast def use_to_double -> vec_to_pair_def
+fast decl use_to_double -> vec_to_pair
+fast decl use_to_bool -> vec_to_bool
 
 # ---- binary / unary / compound operators ----
 def use_pluseq -> vec_pluseq_def

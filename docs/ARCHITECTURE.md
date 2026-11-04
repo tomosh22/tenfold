@@ -210,6 +210,53 @@ output only when clangd is absent.
 result and records both ends of the jump in the navigation history. With
 several results it does not jump; the front end shows a picker.
 
+### What the fast tier indexes, and how its answer is shaped (W9-FIX-C1)
+
+The fast tier is `CppLexer` + the `Extractor` in `src/semantic/FastIndex.cpp`: no preprocessing, no types, no scopes
+below class / namespace level. It records `Symbol{name, scope, kind, line, col, definition, isTemplate, arity}` and
+answers by *word*: `approximateDefinitions` takes the identifier under the caret, looks the name up and shapes the list.
+
+*Indexed* (besides namespaces, classes, functions, methods, variables, fields, enumerators, typedefs and aliases):
+
+| construct | symbol |
+|---|---|
+| `#define NAME` / `#define NAME(a, b)` | `Macro` at the name (also behind `# define`, a `/* comment */` or a backslash-newline after `define`); `arity` is -1 for an object-like macro, the parameter count for a function-like one (which counts as a use only when a `(` follows). No `#if` evaluation: every branch is indexed. A macro defined further down the *same* file is not offered for an earlier line. |
+| `friend T f(...) { ... }` in a class (hidden friend) | `Function` in the enclosing *namespace* scope (not the class). A plain `friend` declaration or `friend class X;` adds nothing. |
+| `operator T()`, `operator+`, `operator()`, `operator new[]`, `operator""_km` | named canonically (`operator Meters`, `operator+`, `operator()`, `operator new[]`, `operator""_km`; a space only between two word-like tokens; `operatorFunctionName()` builds the same name from text), positioned on the `operator` keyword. A caret on a written `operator` word is looked up under that name. **Operator tokens themselves (`a + b`, `x[i]`, `os << v`) and literal suffixes (`2.5_km`) have no fast answer** (a punctuator is not a word; resolving it needs the operand types); clangd answers. |
+| `typedef enum { A, B } T;` | the enumerators (scope = enclosing scope), `typedef enum Tag {` also the `Enum`; `typedef struct Tag {` the `Struct`; one `Typedef` per declarator (`} S, *SP;`). Members of a typedef'd struct body are still not indexed. |
+| `~Name` in a class | named `~Name` (as `Name::~Name` out of line already was), kind `Constructor` (special member). |
+| `int (name)(int)` | a function (parenthesised declarator). |
+
+*Not indexed:* names declared through macro arguments (`DECLARE_CLASS(Gadget)`, `X(Red, 1)` in a `.def` list,
+`SHAPE(Triangle, 3)`). Which argument is the declared name, and of which kind, is a property of the macro body; a rule
+"first plain identifier of a namespace-scope macro invocation" would add a symbol for every `TEST(a, b)`,
+`REGISTER(x)`, `static_assert`-like call in the workspace, answer them for unrelated words, and still miss
+`DECLARE_ENUM(Hue, Warm, Cold)` (the second argument) and pasted names (`idx_##name`). The lexer-only tier has no
+safe way to tell; clangd (which expands the macros) answers these. `.def` / `.inc` files are scanned like headers but
+contain nothing the extractor recognises.
+
+*Answer shaping* (`FastIndex::shapeAnswer`, applied after the lookup and the `A::B::` qualifier filter; the order of the
+remaining matches is kept):
+
+* **Prototype and definition.** `gotoDefinition` keeps the definition of a function / method / constructor / variable
+  that has a prototype of the same *scope + name + arity* and drops that prototype; `gotoDeclaration` does the
+  opposite (prototypes win over the definitions they pair with). With no partner (only a definition, or only a
+  prototype, or a different arity) whatever exists is answered. `arity` is the parameter count (default arguments
+  count, `(void)` is 0; stored in 6 bits of the persisted flags byte, so `Symbol` did not grow). Overloads of the same
+  arity are not told apart; two `static` functions of the same name in different files are both answered (that is
+  scope-aware resolution, the next fast-tier task).
+* **Class name.** A name that is a class / struct / union / enum / typedef is answered without its constructors. With
+  the caret *on the name of a constructor* (declaration or definition) the constructors with that arity in that class
+  are answered instead.
+* **`~Name`.** The destructors (`~Name` lookup); a class with no declared destructor falls back to the class.
+* **Typedef and tag.** `typedef struct node node;` plus `struct node {...}`: a use outside `struct` / `class` /
+  `union` / `enum` answers the typedef, a name written after such a keyword (a `/* comment */` in between is skipped)
+  answers the tag. Only a typedef and a tag of the *same scope* compete.
+* Hover, type definition and implementation keep the unshaped (`Want::Any`) list apart from the three rules above.
+
+The persisted store (`FastIndexStore`) keeps the arity in bits 2-7 of the flags byte; `kExtractorSalt` is 3 (the
+fingerprint also covers a probe of the extractor output, so any change of what it emits invalidates old stores).
+
 ## clangd-only features (A9)
 
 Semantic tokens, inlay hints, folding ranges, document highlights, call and

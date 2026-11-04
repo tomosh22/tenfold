@@ -41,8 +41,8 @@ fast def table18_fn_0_131_use0 -> table18_fn_0_131_decl0 | table18_fn_0_131_def0
 fast hover table18_fn_0_131_use0 ~ "table18_fn_0"
 fast sym "table18_fn_11" -> table18_fn_11_142_decl0 | table18_fn_11_142_def0
 fast def table18_fn_11_142_use1 -> table18_fn_11_142_decl0 | table18_fn_11_142_def0
-xfail fast def MATH_JOINT_19_143_use1 -> MATH_JOINT_19_143_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def MATH_SCRIPT_20_144_use0 -> MATH_SCRIPT_20_144_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def MATH_JOINT_19_143_use1 -> MATH_JOINT_19_143_def0 
+fast def MATH_SCRIPT_20_144_use0 -> MATH_SCRIPT_20_144_def0 
 xfail fast def bindLight25_149_use0 -> bindLight25_149_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast def kStep27_156_use0 -> kStep27_156_def0
 xfail fast def level_174_use2 -> level_174_def0  # fast tier is name-only: the word 'level' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
@@ -53,8 +53,8 @@ fast hover ActiveBuffer_Default_197_use0 ~ "ActiveBuffer_Default"
 xfail fast def Buffer_208_use11 -> Buffer_208_def0  # fast tier is name-only: the word 'Buffer' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 xfail fast def phase_216_use0 -> phase_216_def0  # fast tier is name-only: the word 'phase' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 xfail fast def Info_221_use0 -> Info_221_def0  # fast tier is name-only: the word 'Info' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def CORE_MESH_43_238_use4 -> CORE_MESH_43_238_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def CORE_SCALE_45_240_use4 -> CORE_SCALE_45_240_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def CORE_MESH_43_238_use4 -> CORE_MESH_43_238_def0 
+fast def CORE_SCALE_45_240_use4 -> CORE_SCALE_45_240_def0 
 fast sym "Material" -> Material_277_def0
 fast def Material_277_use0 -> Material_277_def0
 xfail fast def save_317_use0 -> save_317_def0  # fast tier is name-only: the word 'save' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
@@ -72,8 +72,8 @@ fast def splitTerrain_432_use1 -> splitTerrain_432_decl0 | splitTerrain_432_def0
 xfail fast def stamp_436_use2 -> stamp_436_def0  # fast tier is name-only: the word 'stamp' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 xfail fast def Base_452_use3 -> Base_452_def0  # fast tier is name-only: the word 'Base' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 xfail fast def empty_473_use0 -> empty_473_def0  # fast tier is name-only: the word 'empty' has 6 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def MEMORY_TWEEN_84_480_use2 -> MEMORY_TWEEN_84_480_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def MEMORY_DECLARE_FN_88_484_use0 -> MEMORY_DECLARE_FN_88_484_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def MEMORY_TWEEN_84_480_use2 -> MEMORY_TWEEN_84_480_def0 
+fast def MEMORY_DECLARE_FN_88_484_use0 -> MEMORY_DECLARE_FN_88_484_def0 
 xfail fast def combineVector89_485_use0 -> combineVector89_485_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 xfail fast def flushBody90_486_use0 -> flushBody90_486_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast def kStep91_500_use1 -> kStep91_500_def0
@@ -94,8 +94,8 @@ fast def Handle102_571_use0 -> Handle102_571_def0
 fast hover Handle102_571_use0 ~ "Handle102"
 fast sym "Shader" -> Shader_586_def0
 fast def Shader_586_use0 -> Shader_586_def0
-xfail fast def CONTAINER_SCENE_108_622_use0 -> CONTAINER_SCENE_108_622_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
-xfail fast def CONTAINER_DECLARE_FN_111_625_use0 -> CONTAINER_DECLARE_FN_111_625_def0  # fast tier does not index macros (W9c P-1): no answer for a #define
+fast def CONTAINER_SCENE_108_622_use0 -> CONTAINER_SCENE_108_622_def0 
+fast def CONTAINER_DECLARE_FN_111_625_use0 -> CONTAINER_DECLARE_FN_111_625_def0 
 fast def kTable113_627_use10 -> kTable113_627_decl0 | kTable113_627_def0
 fast hover kTable113_627_use10 ~ "kTable113"
 fast sym "table113_fn_0" -> table113_fn_0_628_decl0 | table113_fn_0_628_def0

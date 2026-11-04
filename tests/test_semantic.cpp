@@ -183,9 +183,13 @@ TEST(semantic_fast_only_navigation_and_back) {
   auto o = f.gotoDef(main, "use_length_sq", "length_sq");
   REQUIRE(!o.calls.empty());
   CHECK(o.calls.back().first == Confidence::Approximate);
-  // The fast index knows two length_sq symbols (decl + def) - approximate but useful.
-  CHECK_EQ(o.calls.back().second.size(), 2u);
-  // Ambiguous -> the editor does not auto-jump.
+  // The fast index knows two length_sq symbols (declaration + out-of-line definition), pairs them by name, scope and
+  // arity, and answers the definition for "go to definition": one result, so the editor jumps.
+  REQUIRE(o.calls.back().second.size() == 1u);
+  CHECK(o.calls.back().second[0].definition);
+  CHECK(samePath(f.ed.cursor().file, hdr));
+  CHECK_EQ(f.ed.cursor().pos.line, markLine(hdr, "Vec2_length_sq_def"));
+  CHECK(f.ed.back());
   CHECK(samePath(f.ed.cursor().file, main));
   // Unambiguous: Vec2f alias.
   auto o2 = f.gotoDef(main, "decl_v", "Vec2f");

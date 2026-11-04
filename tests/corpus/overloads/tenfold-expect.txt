@@ -6,7 +6,7 @@
 xfail fast def use_b_f_dbl -> b_f_dbl | b_f_dbl_def  # fast tier ignores the b:: qualifier and returns every function named f (9 results)
 xfail fast def use_c_f -> c_f_str | c_f_str_def  # same: unqualified word lookup of f
 xfail fast def use_draw_sprite -> draw_sprite_friend  # fast index has no entry for the inline hidden friend draw(Sprite): it answers with the other draw()
-xfail fast sym "draw" ∋ draw_sprite_friend  # same root cause: friend function definitions inside a class are not indexed by the lexer index
+fast sym "draw" ∋ draw_sprite_friend
 fast sym "draw" ∋ draw_point draw_point_def
 xfail fast def use_ar1 -> ar1_decl | ar1_def  # fast tier cannot resolve overloads: returns all area() overloads
 xfail fast def use_who_r -> who_r  # fast tier returns every who() overload

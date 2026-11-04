@@ -287,7 +287,8 @@ class SemanticEngine {
   std::shared_ptr<LspClient> clangd() const;
 
   // Approximate lookups (also used by the UI for instant "peek" popups).
-  std::vector<SymbolLocation> approximateDefinitions(const Document& doc, Position pos) const;
+  std::vector<SymbolLocation> approximateDefinitions(const Document& doc, Position pos,
+                                                     FastIndex::Want want = FastIndex::Want::Any) const;
   std::vector<SymbolLocation> approximateSymbols(const std::string& query, size_t limit = 200) const;
   // While clangd's background index is incomplete it can only see the current
   // TU, so "go to definition" of a function defined in another .cpp stops at

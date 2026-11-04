@@ -23,8 +23,9 @@ constexpr char kMagic[8] = {'T', 'F', 'F', 'I', 'D', 'X', 0, 1};
 constexpr size_t kHeaderSize = 48;
 constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1;
 constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4;
-constexpr uint32_t kExtractorSalt = 2;  // 2: BOM skipped, lone CR ends lines, C keywords for .c  // bump by hand for
-                                        // changes the probe below cannot observe
+constexpr uint32_t kExtractorSalt = 3;  // 3: arity in the flags byte, operator names, macros behind comments, friends,
+                                        // typedef bodies. 2: BOM skipped, lone CR ends lines, C keywords for .c
+                                        // bump by hand for changes the probe below cannot observe
 
 uint64_t hashBytes(const char* p, size_t n) {
   uint64_t h = 0x9E3779B97F4A7C15ull ^ n;
@@ -126,6 +127,7 @@ uint32_t FastIndexStore::extractorFingerprint() {
       put<int32_t>(blob, s.col);
       put<uint8_t>(blob, static_cast<uint8_t>(s.definition));
       put<uint8_t>(blob, static_cast<uint8_t>(s.isTemplate));
+      put<int8_t>(blob, s.arity);
     }
     for (auto& i : inc) {
       blob += i;
@@ -167,7 +169,8 @@ std::string FastIndexStore::serialize(const Entries& files) {
       put<int32_t>(body, s.line);
       put<int32_t>(body, s.col);
       put<uint8_t>(body, static_cast<uint8_t>(s.kind));
-      put<uint8_t>(body, static_cast<uint8_t>((s.definition ? 1 : 0) | (s.isTemplate ? 2 : 0)));
+      // bit 0 definition, bit 1 template, bits 2..7 arity + 1 (0 = not a function / unknown)
+      put<uint8_t>(body, static_cast<uint8_t>((s.definition ? 1 : 0) | (s.isTemplate ? 2 : 0) | ((s.arity + 1) << 2)));
     }
     for (auto& inc : f->includes) put<uint32_t>(body, intern(inc));
   }
@@ -287,6 +290,7 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         s.kind = static_cast<SymbolKind>(kind);
         s.definition = flags & 1;
         s.isTemplate = flags & 2;
+        s.arity = static_cast<int8_t>((flags >> 2) - 1);
       }
       fs->includes.resize(ninc);
       for (auto& inc : fs->includes) {
