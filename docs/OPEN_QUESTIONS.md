@@ -338,3 +338,19 @@ Decided without a user decision because the alternative was the editor terminati
   with the buffer as raw bytes: for a Windows-1252 or UTF-16 file the gutter marks every non-ASCII line (and for a CR-only
   file the whole file) as changed. The fix is the same decode (`decodeFileBytes`) and `TextBuffer`'s line rule applied to
   the base text.
+
+## W9 detail: Visual Studio configurations (W9-FIX-vs)
+
+Nothing here blocks the work; these are the assumptions to confirm.
+
+* **A project the solution maps but does not build (`.ActiveCfg` without `.Build.0`) is evaluated for navigation** with
+  the mapped project configuration, which is what Visual Studio's IntelliSense does as far as I know (the "Build"
+  checkbox of the Configuration Manager does not hide a project from IntelliSense). Not verified on a Windows machine
+  with Visual Studio. If wrong, the change is one line in `compdb::fromSolution` (`map->build`).
+* **Indexes kept per configuration: 4.** Each visited configuration keeps a clangd background index under
+  `.tenfold/vs/<configuration>/.cache` (size of one project index; hundreds of MB on a big solution). The limit is
+  `SemanticEngine::Options::maxVsConfigIndexes` (not yet a `workspace.json` key). Say if it should be a setting or
+  smaller by default.
+* **Off Windows the `.sln` route uses the host's standard library**, with `-m32`/`-m64` dropped, `_MSC_VER=1933` defined
+  and `-fms-extensions` on. Verified with libstdc++ on Linux; macOS (libc++, `-isysroot`) is wired the same way but was
+  not run. The Windows SDK (`<windows.h>`) stays unavailable there.

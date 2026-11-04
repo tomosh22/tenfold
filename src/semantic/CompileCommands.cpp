@@ -15,6 +15,7 @@
 #include <nlohmann/json.hpp>
 
 #include "core/JsonUtil.h"
+#include "core/PathUtil.h"
 #include "core/Platform.h"
 #include "semantic/XmlLite.h"
 
@@ -1318,8 +1319,156 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
     a.push_back(isC ? "/TC" : "/TP");
     a.push_back("/c");
     a.push_back(cmd.file.generic_string());
-    cmd.arguments = std::move(a);
+    cmd.arguments = opt.hostTarget.empty() ? std::move(a) : toHostStdlibArgs(a, opt.hostTarget, opt.hostExtraFlags);
     out.push_back(std::move(cmd));
+  }
+  return out;
+}
+
+std::set<std::string> filesReachableFrom(const std::vector<CompileCommand>& cmds,
+                                         const std::function<std::vector<std::string>(const fs::path&)>& includesOf,
+                                         const std::set<std::string>& targets) {
+  std::set<std::string> found;
+  if (targets.empty()) return found;
+  constexpr size_t kMaxVisits = 400000;
+  size_t visits = 0;
+  // Units that share include directories and forced includes share one walk.
+  struct Group {
+    std::vector<fs::path> dirs, forced, roots;
+  };
+  std::map<std::string, Group> groups;
+  std::error_code ec;
+  for (auto& c : cmds) {
+    Group g;
+    auto absDir = [&](const std::string& d) {
+      fs::path p = hostPath(d);
+      return (p.is_absolute() ? p : c.directory / p).lexically_normal();
+    };
+    auto absFile = absDir;
+    const auto& a = c.arguments;
+    for (size_t i = 1; i < a.size(); ++i) {
+      const std::string& x = a[i];
+      auto value = [&](const char* flag, bool* took) -> std::string {
+        const size_t n = std::strlen(flag);
+        if (x.compare(0, n, flag) != 0) return {};
+        *took = true;
+        if (x.size() > n) return x.substr(n);
+        return i + 1 < a.size() ? a[++i] : std::string();
+      };
+      bool took = false;
+      std::string v;
+      for (const char* f : {"-I", "/I", "-isystem", "/imsvc", "-idirafter", "-iquote"}) {
+        v = value(f, &took);
+        if (took) break;
+      }
+      if (took) {
+        if (!v.empty()) g.dirs.push_back(absDir(v));
+        continue;
+      }
+      if (x == "-include" && i + 1 < a.size()) {
+        g.forced.push_back(absFile(a[++i]));
+      } else if (x.compare(0, 3, "/FI") == 0 && x.size() > 3) {
+        g.forced.push_back(absFile(x.substr(3)));
+      }
+    }
+    fs::path file = c.file.is_absolute() ? c.file : c.directory / c.file;
+    g.roots.push_back(file.lexically_normal());
+    std::string key;
+    for (auto& d : g.dirs) key += d.generic_string() + '\n';
+    key += '\x01';
+    for (auto& f : g.forced) key += f.generic_string() + '\n';
+    auto& slot = groups[key];
+    if (slot.dirs.empty() && slot.forced.empty()) {
+      slot.dirs = std::move(g.dirs);
+      slot.forced = std::move(g.forced);
+    }
+    slot.roots.push_back(std::move(g.roots[0]));
+  }
+  for (auto& [key, g] : groups) {
+    std::set<std::string> seen;
+    std::vector<fs::path> stack;
+    auto push = [&](const fs::path& p) {
+      const std::string k = pathKey(p);
+      if (!seen.insert(k).second) return;
+      if (targets.count(k)) found.insert(k);
+      stack.push_back(p);
+    };
+    for (auto& r : g.roots) push(r);
+    for (auto& f : g.forced) {
+      if (fs::is_regular_file(f, ec)) push(f);
+    }
+    while (!stack.empty() && found.size() < targets.size() && visits < kMaxVisits) {
+      const fs::path cur = stack.back();
+      stack.pop_back();
+      ++visits;
+      for (const std::string& inc : includesOf(cur)) {
+        if (inc.empty()) continue;
+        const fs::path rel = hostPath(inc);
+        fs::path hit;
+        const fs::path beside = (cur.parent_path() / rel).lexically_normal();
+        if (fs::is_regular_file(beside, ec)) {
+          hit = beside;
+        } else {
+          for (auto& d : g.dirs) {
+            fs::path cand = (d / rel).lexically_normal();
+            if (fs::is_regular_file(cand, ec)) {
+              hit = std::move(cand);
+              break;
+            }
+          }
+        }
+        if (!hit.empty()) push(hit);
+      }
+    }
+    if (found.size() == targets.size() || visits >= kMaxVisits) break;
+  }
+  return found;
+}
+
+std::string hostTargetTriple() {
+#if defined(_WIN32)
+  return {};
+#elif defined(__APPLE__) && defined(__aarch64__)
+  return "arm64-apple-darwin";
+#elif defined(__APPLE__) && defined(__x86_64__)
+  return "x86_64-apple-darwin";
+#elif defined(__linux__) && defined(__x86_64__)
+  return "x86_64-pc-linux-gnu";
+#elif defined(__linux__) && defined(__aarch64__)
+  return "aarch64-unknown-linux-gnu";
+#else
+  return {};
+#endif
+}
+
+std::vector<std::string> toHostStdlibArgs(const std::vector<std::string>& in, const std::string& hostTarget,
+                                          const std::vector<std::string>& extraFlags) {
+  std::vector<std::string> out;
+  if (in.empty()) return out;
+  out.push_back(in[0]);
+  out.push_back("--target=" + hostTarget);
+  for (auto& f : extraFlags) out.push_back(f);
+  out.push_back("-fms-extensions");
+  bool hasMscVer = false;
+  for (size_t i = 1; i < in.size(); ++i)
+    if (in[i] == "/D_MSC_VER" || in[i].rfind("/D_MSC_VER=", 0) == 0) hasMscVer = true;
+  if (!hasMscVer) out.push_back("/D_MSC_VER=1933");  // clang-cl's own default compatibility version (19.33)
+  for (size_t i = 1; i < in.size(); ++i) {
+    const std::string& a = in[i];
+    // cl-mode `/std:` is only honoured for Windows MSVC targets; the GCC spelling goes through /clang:.
+    static const std::pair<const char*, const char*> kStd[] = {
+        {"/std:c++14", "c++14"}, {"/std:c++17", "c++17"}, {"/std:c++20", "c++20"}, {"/std:c++latest", "c++2b"},
+        {"/std:c11", "c11"},     {"/std:c17", "c17"},     {"/std:clatest", "c2x"}};
+    bool mapped = false;
+    for (auto& [from, to] : kStd)
+      if (a == from) {
+        out.push_back(std::string("/clang:-std=") + to);
+        mapped = true;
+        break;
+      }
+    if (mapped) continue;
+    if (a == "-m32" || a == "-m64" || a.rfind("--target=", 0) == 0) continue;
+    out.push_back(a);
   }
   return out;
 }
@@ -1337,7 +1486,9 @@ std::vector<CompileCommand> fromSolution(const fs::path& sln, const VcxprojOptio
   for (auto& p : info.projects) {
     if (!p.isVcxproj()) continue;
     auto map = info.mapping(p, active);
-    if (!map || !map->build) continue;  // not part of this configuration's build
+    // No mapping at all: the project does not exist in this solution configuration. An ActiveCfg without Build.0 is
+    // "not built" but still evaluated with the mapped configuration (Visual Studio's IntelliSense does the same).
+    if (!map || map->configuration.empty()) continue;
     fs::path path = fs::weakly_canonical(p.path, ec);
     if (!fs::is_regular_file(path, ec)) {
       err += "missing project " + path.string() + "\n";

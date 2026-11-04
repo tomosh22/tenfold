@@ -46,7 +46,13 @@ generated compile database, clangd logs) never touch the repository. `--keep` pr
 ## Writing a corpus
 
 1. Make `tests/corpus/<name>/` with the sources and whatever tells tenfold how to compile them:
-* a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this),
+* a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this). Off Windows there is no MSVC toolchain, so
+tenfold parses `.sln` projects against the host's own standard library (docs/ARCHITECTURE.md "Host standard library
+fallback"): a `.sln` corpus may use `<vector>`, `<string>` ... there (`tests/corpus/vs-std` does), but then it depends on
+the host's headers and carries a `tenfold-corpus-linux-only` marker (skipped on Windows, where the MSVC STL decides).
+The older `.sln` corpora (`vs-configs`, `vs-props`, `templates-config`, `c-vcxproj`) stay standard-library free so they
+mean the same on every platform. Every configuration you `config` into gets its own compile database and clangd index
+under `.tenfold/vs/` in the scratch copy.
 * or a `compile_commands.json` (git ignores that file name by default; `.gitignore` has an exception for
 `tests/corpus/`). Use relative paths or `@CORPUS_ROOT@` in it: the runner replaces that text with the scratch copy's
 path in every `compile_commands.json` it copies. `"directory": "@CORPUS_ROOT@"`, `"file": "@CORPUS_ROOT@/src/a.cpp"`.
@@ -201,7 +207,7 @@ Where `docs/IMPLEMENTATION_PLAN.md` (W9) left room, the harness does this:
     anchor columns are byte offsets of that text (for UTF-8 files: of the file as stored). A UTF-8 BOM stays in line 1 and
     its three bytes count in the columns of line 1 (clangd's do too). Symbolic links are copied as links and are neither
     followed nor scanned, so their targets' anchors appear once; `tests/corpus/symlinks` needs a checkout that creates
-    symlinks and is skipped on Windows (marker file `tenfold-corpus-linux-only`).
+    symlinks and is skipped on Windows (marker file `tenfold-corpus-linux-only`; `tests/corpus/vs-std` has one too).
 14. An exception thrown by the engine while an expectation runs makes that line a `FAIL` (note `exception: ...`); the run
     and the report continue.
 

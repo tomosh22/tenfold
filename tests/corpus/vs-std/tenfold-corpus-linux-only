@@ -1,0 +1,1 @@
+The standard library comes from the host in .sln mode only off Windows (no MSVC toolchain, see docs/ARCHITECTURE.md "Host standard library fallback"): the corpus test skips this project on Windows, where the MSVC headers decide.

@@ -110,7 +110,8 @@ TEST(compile_info_vcxproj_lists_the_entry_and_the_active_configuration) {
     CHECK(rel.listed);
     CHECK(has(rel.argv, "/DNDEBUG"));
     CHECK(!has(rel.argv, "/DSHEET_DEFINE"));
-    CHECK(!ed.compileCommandInfo(root / "Tests/tests.cpp").listed);  // Tests is not built in Release
+    // Tests is mapped but not built in Release (ActiveCfg without Build.0): IntelliSense still evaluates it.
+    CHECK(ed.compileCommandInfo(root / "Tests/tests.cpp").listed);
   }
   std::error_code ec;
   fs::remove_all(root, ec);

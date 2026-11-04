@@ -47,7 +47,7 @@ sym "level_value" -> level_three
 sym "sheet_kind" -> sheet_debug
 def use_feature_impl -> feature_debug
 hover use_feature_impl ~ "feature_impl"
-#? sym "feature_impl" -> feature_debug   # DISABLED: history dependent: features_Debug/feature.h of an earlier configuration stays in the index and can rank first
+sym "feature_impl" -> feature_debug
 fast sym "release_only" ∋ release_only_fn
 
 # ================= Release|x64 =================
@@ -82,7 +82,7 @@ sym "level_value" -> level_one
 sym "sheet_kind" -> sheet_release
 def use_feature_impl -> feature_release
 hover use_feature_impl ~ "feature_impl"
-#? sym "feature_impl" -> feature_release   # DISABLED: history dependent: features_Debug/feature.h of an earlier configuration stays in the index and can rank first
+sym "feature_impl" -> feature_release
 def use_level_in_release_only -> level_one
 fast sym "release_only" ∋ release_only_fn
 sym "release_only" ∋ release_only_fn
@@ -103,14 +103,14 @@ def use_level_in_gen_a -> level_nine
 def use_sheet_in_gen_b -> sheet_debug
 hover use_level_value ~ "level_value" "int"
 hover use_feature_marker ~ "feature_marker"
-xfail def use_level_plugin -> level_three  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
+def use_level_plugin -> level_three
 def use_sheet_plugin -> sheet_debug
 def use_common_plugin -> common_yes
 def use_dirbuild_plugin -> dirbuild_yes
 def use_fast_plugin -> fast_no
-xfail def use_pproj_marker -> proj_plugin_yes  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
-xfail def use_pbuild_marker -> plugin_build_yes  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
-xfail def use_pextra_marker -> pextra_no  # tenfold: plugin has ActiveCfg=Debug|x64 but no Build.0 in Debug|x86; VS still evaluates it for IntelliSense, tenfold skips it and clangd borrows the engine flags
+def use_pproj_marker -> proj_plugin_yes
+def use_pbuild_marker -> plugin_build_yes
+def use_pextra_marker -> pextra_no
 def use_special_marker -> special_yes
 def use_special_only -> special_only_fn
 refs level_nine >= level_nine use_level_value
@@ -119,7 +119,7 @@ sym "level_value" -> level_nine
 sym "sheet_kind" -> sheet_debug
 def use_feature_impl -> feature_debug
 hover use_feature_impl ~ "feature_impl"
-#? sym "feature_impl" -> feature_debug   # DISABLED: history dependent: features_Debug/feature.h of an earlier configuration stays in the index and can rank first
+sym "feature_impl" -> feature_debug
 fast sym "release_only" ∋ release_only_fn
 
 # ================= Profile|x64 =================

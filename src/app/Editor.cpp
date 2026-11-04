@@ -204,7 +204,9 @@ bool Editor::start(std::string* error) {
   // so a regenerated compile_commands.json is noticed.
   if (watcher_) {
     fs::path dir = semantic_->status().compdbPath.parent_path();
-    if (!dir.empty() && dir != ws_.cacheDir() && dir != ws_.root() && ws_.isIgnoredDir(dir))
+    const std::string inCache = dir.lexically_relative(ws_.cacheDir()).generic_string();
+    const bool underCache = !inCache.empty() && inCache.rfind("..", 0) != 0 && inCache != ".";
+    if (!dir.empty() && dir != ws_.cacheDir() && !underCache && dir != ws_.root() && ws_.isIgnoredDir(dir))
       watcher_->addDirectory(dir);
   }
   return ok;
@@ -274,7 +276,10 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
   // The stored path keeps the caller's spelling (first open wins); only the
   // lookup key is canonicalised and normalised, so cursor/history paths round-trip.
   fs::path path = pathIn.is_absolute() ? pathIn : ws_.root() / pathIn;
-  if (Document* d = document(path)) return d;
+  if (Document* d = document(path)) {
+    if (semantic_) semantic_->activateDocument(*d);
+    return d;
+  }
   if (!bookmarksLoaded_) {  // first document: bring the persisted bookmarks in (a missing file is fine)
     bookmarksLoaded_ = true;
     bookmarks_.load(ws_.cacheDir() / "bookmarks.json", ws_.root());
@@ -739,8 +744,15 @@ std::string Editor::CompileCommandInfo::text(int width) const {
   putArgs(os, "Fallback flags (files the database does not cover):", fallbackFlags, width);
   if (!msvcToolchain.empty())
     putField(os, "MSVC toolchain:", msvcToolchain + " (cl.exe for clangd --query-driver)", width);
-  else if (source == "vcxproj")
-    putField(os, "MSVC toolchain:", "cl.exe not found; set msvcToolchain in .tenfold/workspace.json", width);
+  else if (source == "vcxproj") {
+    const bool host =
+        std::any_of(argv.begin(), argv.end(), [](const std::string& a) { return a.rfind("--target=", 0) == 0; });
+    putField(os, "MSVC toolchain:",
+             host ? "cl.exe not found; this machine's standard library is used instead (the --target= in the command). "
+                    "Set msvcToolchain in .tenfold/workspace.json to use MSVC's headers"
+                  : "cl.exe not found; set msvcToolchain in .tenfold/workspace.json",
+             width);
+  }
   if (!clangdExe.empty()) putField(os, "clangd:", clangdExe + " (" + clangdSource + ")", width);
   if (!clangdVersion.empty()) putField(os, "clangd version:", clangdVersion, width);
   putField(os, "clangd state:", clangdRunning ? "running" : (clangdStatus.empty() ? "not running" : clangdStatus),

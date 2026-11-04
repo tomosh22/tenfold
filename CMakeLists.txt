@@ -140,6 +140,7 @@ add_executable(tenfold-tests
   tests/test_fastindexstore.cpp
   tests/test_compdb.cpp
   tests/test_vcxproj.cpp
+  tests/test_vs_configs.cpp
   tests/test_semantic.cpp
   tests/test_process.cpp
   tests/test_paths.cpp
