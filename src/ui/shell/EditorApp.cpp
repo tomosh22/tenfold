@@ -1275,6 +1275,27 @@ void EditorApp::bindTerminalCommands() {
       if (id < 0) setMessage("Terminal: " + err, kMessageMs);
       return true;
     });
+  // VS-TERM: copy / paste of the focused terminal (keys from the key map, context "terminal").
+  registry_.bind("Terminal.Copy", [this](const CommandContext&, std::string_view) {
+    auto* tv = dynamic_cast<TerminalView*>(root_.focused());
+    return tv && tv->copySelection(false);
+  });
+  registry_.bind("Terminal.Paste", [this](const CommandContext&, std::string_view) {
+    auto* tv = dynamic_cast<TerminalView*>(root_.focused());
+    if (!tv) return false;
+    tv->paste();
+    return true;
+  });
+  // VS-TERM: "Open in Terminal" on an explorer node: a terminal in that folder (a file: its folder).
+  registry_.bind("Terminal.OpenAt", [this](const CommandContext&, std::string_view arg) {
+    closePickers();
+    std::filesystem::path dir = pathFromUtf8(std::string(arg));
+    std::error_code ec;
+    if (!dir.empty() && !std::filesystem::is_directory(dir, ec)) dir = dir.parent_path();
+    std::string err;
+    if (terminals_->create(TerminalPanel::Kind::Shell, &err, dir) < 0) setMessage("Terminal: " + err, kMessageMs);
+    return true;
+  });
 }
 
 // The focused terminal sends nearly every key to its program. These are the strokes that still run app commands: the
@@ -1302,6 +1323,7 @@ bool EditorApp::terminalSkipsShell(const KeyChord& chord) const {
 const char* EditorApp::activeContext() const {
   if (root_.modal()) return "picker";
   if (rename_ && rename_->isOpen()) return "popup";  // the rename box: Enter is SubmitRenameSymbol
+  if (dynamic_cast<TerminalView*>(root_.focused())) return "terminal";
   return dynamic_cast<TextView*>(root_.focused()) ? "editor" : "global";
 }
 
@@ -1838,7 +1860,8 @@ bool EditorApp::explorerMenu(Widget& target, float x, float y, bool keyboard, Co
   if (!n.path.empty()) {
     items.push_back(MenuItem::sep());
     std::vector<MenuEntry> entries = {{"File.ShowInFolder", "Open Containing Folder", false, n.path},
-                                      {"File.CopyPath", "Copy Full Path", false, n.path}};
+                                      {"File.CopyPath", "Copy Full Path", false, n.path},
+                                      {"Terminal.OpenAt", "Open in Terminal", false, n.path}};
     std::string ext = std::filesystem::path(n.path).extension().string();
     for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (isFile && (ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx"))

@@ -109,6 +109,37 @@ TEST(pty_split_command_and_default_shell) {
 #endif
 }
 
+// VS-TERM (M3): the default shell of the integrated terminal, as a pure function.
+TEST(pty_terminal_shell_choice_windows_prefers_pwsh_then_powershell) {
+  const auto has = [](bool pwsh) { return [pwsh](const std::string& n) { return pwsh && n == "pwsh.exe"; }; };
+  CHECK_EQ(Pty::chooseTerminalShell(true, has(true), "/bin/zsh"), "pwsh.exe");
+  CHECK_EQ(Pty::chooseTerminalShell(true, has(false), "/bin/zsh"), "powershell.exe");
+  CHECK_EQ(Pty::chooseTerminalShell(true, nullptr, ""), "powershell.exe");
+  bool asked = false;
+  Pty::chooseTerminalShell(
+      true,
+      [&](const std::string& n) {
+        asked = true;
+        return n == "pwsh.exe";
+      },
+      "");
+  CHECK(asked);
+  // Elsewhere $SHELL, else /bin/sh; PATH is not consulted.
+  bool consulted = false;
+  const auto spy = [&](const std::string&) {
+    consulted = true;
+    return true;
+  };
+  CHECK_EQ(Pty::chooseTerminalShell(false, spy, "/usr/bin/fish"), "/usr/bin/fish");
+  CHECK_EQ(Pty::chooseTerminalShell(false, spy, ""), "/bin/sh");
+  CHECK(!consulted);
+  CHECK(!Pty::defaultTerminalShell().empty());
+#ifndef _WIN32
+  CHECK(Pty::programOnPath("sh"));
+  CHECK(!Pty::programOnPath("definitely-not-a-program-tenfold"));
+#endif
+}
+
 #ifndef _WIN32
 
 TEST(pty_echo_input_and_exit) {

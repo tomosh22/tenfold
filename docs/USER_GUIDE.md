@@ -703,13 +703,14 @@ tests.)
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
 | `vcs.p4vPath` | (empty) | string | The program `PerforceShowInP4v` starts; empty means `p4v` from `PATH`. |
-| `terminal.command` | `cmd.exe` | string | The program `NewTerminal` / `ShowTerminal` open, with arguments, split like a command line (double quotes group). 10x: TerminalCommand (cmd.exe). Off Windows `cmd.exe` means `$SHELL`, else `/bin/sh`. |
+| `terminal.command` | (empty) | string | The program `NewTerminal` / `ShowTerminal` open, with arguments, split like a command line (double quotes group). 10x: TerminalCommand (10x default `cmd.exe`). Empty (tenfold's default, like Visual Studio's PowerShell default profile) means `pwsh.exe` if it is on `PATH`, else `powershell.exe` on Windows, and `$SHELL`, else `/bin/sh` elsewhere. A value you set is always used as written; off Windows `cmd.exe` still means `$SHELL`. |
 | `terminal.claudeCommand` | `claude` | string | The program of `ClaudeCodeTerminal`. 10x: ClaudeTerminalCommand. |
 | `terminal.cursorCommand` | `cmd /c agent` | string | The program of `CursorTerminal`. 10x: CursorTerminalCommand. Off Windows a leading `cmd /c` is dropped (`agent`). |
 | `terminal.font` | (empty) | font | Terminal font as `family or path[, size in pt]`, looked up like `font.editor`. Empty means the editor font. 10x: TerminalFont. |
 | `terminal.fontSize` | `0` | float | Terminal font size in points. 0 means the editor font size (including View.ZoomIn / ZoomOut; a terminal with its own font or size does not zoom). 10x: TerminalFontSize. |
 | `terminal.scrollbackLines` | `10000` | int | Lines of scrollback kept per terminal (the alternate screen of full-screen programs has none). Takes effect for new terminals; shrinking it on a running terminal trims it at once. tenfold only. |
 | `terminal.closeOnExit` | `false` | bool | `true` closes a terminal's tab as soon as its program exits. `false` keeps the final screen and a `[process exited with code N]` line until you close the tab. tenfold only. |
+| `terminal.ctrlCCopiesSelection` | `false` | bool | `false` (Visual Studio): Control C always sends ^C to the program, with or without a selection. `true`: Control C copies (and clears) the selection when there is one, like Windows Terminal; without a selection it is still ^C. tenfold only. |
 <!-- settings:end -->
 
 The default file also notes that undo grouping (`undoGrouping`, `undoGroupPauseMs`) does not live here but in
@@ -1193,8 +1194,12 @@ instead). Terminals are not restored at the next start.
 
 Keys go to the program, except the app's tab and panel keys (Control PageUp/PageDown, Control Tab, Alt+arrows, Control F4 ...), the
 terminal commands, the command palette and the window toggles. Copy: select with the mouse (double click = word, triple =
-line), then Control C (copies and clears the selection; without a selection Control C is ^C), Control Shift C or Control Insert.
-Paste: Control V, Control Shift V, Shift Insert or a right click without a selection (a right click with a selection copies it).
+line), then Control Shift C or Control Insert (key map command `Terminal.Copy`). Control C always goes to the program as ^C, with or
+without a selection, and Control V as its literal control character (Visual Studio 2022; `terminal.ctrlCCopiesSelection = true` makes
+Control C copy a selection). Paste: Control Shift V, Shift Insert (`Terminal.Paste`) or a right click, which pastes and never copies a
+selection. The copy and paste keys are bindings of the key context `terminal` in the key map, so you can rebind them in your
+`KeyMappings.10x_settings` (for example `Control Shift X: Terminal.Copy`). "Open in Terminal" in the explorer's right-click menu opens a
+terminal in that folder (for a file, the file's folder); `NewTerminal` starts in the workspace root.
 Scrollback: mouse wheel, Shift PageUp/PageDown, the scrollbar; typing scrolls back to the bottom. Hold Shift to select while a
 program is tracking the mouse. Colours come from the theme (`color.terminalBackground`, `terminalForeground`, `terminalCursor`,
 `terminalSelection`, `terminalAnsi0` ... `terminalAnsi15`; `vs-dark` defines them). Settings: `terminal.*` in the table above.

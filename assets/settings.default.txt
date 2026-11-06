@@ -110,7 +110,7 @@ vcs.p4vPath =
 # CursorTerminalCommand (cmd /c agent), TerminalFont and TerminalFontSize; command lines are split like a shell command
 # line (double quotes group). Off Windows, 10x's Windows defaults are translated: `cmd.exe` means $SHELL (else /bin/sh)
 # and a leading `cmd /c` is dropped. terminal.font empty = the editor font; terminal.fontSize 0 = the editor font size.
-terminal.command = cmd.exe
+terminal.command =
 terminal.claudeCommand = claude
 terminal.cursorCommand = cmd /c agent
 terminal.font =
@@ -119,3 +119,7 @@ terminal.fontSize = 0
 # when its program exits (false: the tab keeps the final screen and "[process exited with code N]").
 terminal.scrollbackLines = 10000
 terminal.closeOnExit = false
+# tenfold only, Visual Studio's terminal behaviour (docs/VS_BEHAVIOUR.md sec. 12): Ctrl+C always sends ^C to the program
+# (copy is Ctrl+Shift+C / Ctrl+Insert, paste Ctrl+Shift+V / Shift+Insert / right click). true: Ctrl+C copies (and
+# clears) the selection when there is one, like Windows Terminal; with no selection it is still ^C.
+terminal.ctrlCCopiesSelection = false

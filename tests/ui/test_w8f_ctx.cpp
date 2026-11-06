@@ -9,6 +9,7 @@
 #include <thread>
 
 #include "../text/text_test_util.h"
+#include "term/Pty.h"
 #include "test_vcs_util.h"
 #include "ui/commands/CommandNames.h"
 #include "ui/gfx/PngWrite.h"
@@ -18,6 +19,7 @@
 #include "ui/settings/Theme.h"
 #include "ui/shell/EditorApp.h"
 #include "ui/widgets/ContextMenu.h"
+#include "ui/widgets/TerminalView.h"
 #include "ui/widgets/TextView.h"
 #include "ui_test.h"
 
@@ -953,4 +955,60 @@ TEST(ctxmenu_tree_shift_f10_opens_the_menu_of_the_selected_node_at_its_row) {
   REQUIRE(env.menu() != nullptr);
   env.send(keyEv(Key::Enter));  // the first item: Open
   CHECK_EQ(env.ed->currentDocument()->path().filename().string(), std::string("main.cpp"));
+}
+
+// VS-TERM (M4): "Open in Terminal" on an explorer node opens a terminal in that folder (a file: its folder).
+TEST(ctxmenu_tree_open_in_terminal_uses_the_node_s_folder) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  TreeEnv env;
+  env.app->terminalPanel()->wake = [] {};  // no SDL window in these tests
+  Settings st;
+  st.loadTexts("terminal.command = /bin/sh -c \"echo CWD=$(pwd -P); sleep 60\"\n", "");
+  env.app->applySettings(st);
+  auto screenOf = [&](TerminalView* v) {
+    std::string out;
+    for (int r = 0; r < v->session()->screen().rows(); ++r) out += v->visibleRowText(r) + "\n";
+    return out;
+  };
+  auto cwdOf = [&](int id) -> std::string {
+    TerminalView* v = env.app->terminalPanel()->view(id);
+    std::string sc;
+    for (int i = 0; i < 5000 && sc.find("CWD=") == std::string::npos; ++i) {
+      env.frame();
+      sc = screenOf(v);
+      std::this_thread::sleep_for(std::chrono::milliseconds(2));
+    }
+    const size_t p = sc.find("CWD=");
+    if (p == std::string::npos) return "(no CWD line)";
+    return sc.substr(p + 4, sc.find('\n', p) - p - 4);
+  };
+  // A file node: the terminal starts in the file's folder, not the workspace root.
+  int row = env.rowNamed("main.cpp");
+  REQUIRE(row >= 0);
+  const fs::path file = pathFromUtf8(env.tree().model().node(env.tree().rows()[static_cast<size_t>(row)].node).path);
+  env.rightClickRow(row);
+  REQUIRE(env.has("Open in Terminal"));
+  env.clickItem("Open in Terminal");
+  auto ids = env.app->terminalPanel()->terminals();
+  REQUIRE_EQ(ids.size(), static_cast<size_t>(1));
+  CHECK_EQ(cwdOf(ids.back()), fs::canonical(file.parent_path()).string());
+  CHECK(fs::canonical(file.parent_path()) != fs::canonical(env.dir));
+  // A folder node: its own folder.
+  row = env.rowNamed("App");
+  REQUIRE(row >= 0);
+  fs::path node = pathFromUtf8(env.tree().model().node(env.tree().rows()[static_cast<size_t>(row)].node).path);
+  std::error_code ec;
+  const fs::path expect = fs::is_directory(node, ec) ? node : node.parent_path();
+  env.rightClickRow(row);
+  env.clickItem("Open in Terminal");
+  ids = env.app->terminalPanel()->terminals();
+  REQUIRE_EQ(ids.size(), static_cast<size_t>(2));
+  CHECK_EQ(cwdOf(ids.back()), fs::canonical(expect).string());
+  // NewTerminal still starts in the workspace root.
+  env.app->runCommand("Terminal.New");
+  ids = env.app->terminalPanel()->terminals();
+  REQUIRE_EQ(ids.size(), static_cast<size_t>(3));
+  CHECK_EQ(cwdOf(ids.back()), fs::canonical(env.dir).string());
+#endif
 }

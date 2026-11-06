@@ -83,7 +83,8 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"terminal.font", SettingType::Font},
                                              {"terminal.fontSize", SettingType::Float},
                                              {"terminal.scrollbackLines", SettingType::Int},
-                                             {"terminal.closeOnExit", SettingType::Bool}};
+                                             {"terminal.closeOnExit", SettingType::Bool},
+                                             {"terminal.ctrlCCopiesSelection", SettingType::Bool}};
   return s;
 }
 
