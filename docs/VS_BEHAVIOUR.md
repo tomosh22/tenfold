@@ -54,6 +54,11 @@ paste use the document ending; status bar shows LF/CRLF/CR; commands switch betw
 
 ### 1.3 Proposed tenfold change (line endings) - one task
 
+**Implemented (W10-LE).** Items 1-6 and 8 are in; item 7 (`.editorconfig`) is skipped because tenfold reads no
+`.editorconfig`. The choices where this document says "unknown" (which line supplies the ending, the mixed label, the dialog
+pre-selection, what a status-bar click does) are listed in docs/OPEN_QUESTIONS.md, "W10 detail: line endings like Visual
+Studio". The text below is the original proposal.
+
 1. **Per-line terminators.** Replace the single `lineEnding_` + `mixed_` model by a per-line terminator (e.g. a parallel
    `std::vector<uint8_t>` of {none, LF, CRLF, CR, (NEL, LS, PS optional)}, or a run-length list). Load sets it from the
    file; save writes each line's own terminator; edits that split/join lines maintain it (join keeps the later line's

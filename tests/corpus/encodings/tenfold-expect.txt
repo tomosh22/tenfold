@@ -330,3 +330,24 @@ def ed_mb_use -> ed_mb_target
 refs ed_mb_use = ed_mb_target ed_mb_use
 hover ed_mb_use ~ "ed_mb_other" "int"
 def use_mb_f2_in -> mb_f2
+
+# ================= unsaved edits in a file with mixed endings (new lines take the ending of the line they are typed on) =================
+# mixed.cpp: line 1 CRLF, line 2 LF; mixed.h: lines 1 CRLF, 2 LF, 3 CRLF, line 4 has no ending. The edits insert whole lines
+# in front of an LF line, a CRLF line and the last line; the anchors below must move with them and clangd must still agree.
+open src/mixed.cpp
+edit src/mixed.cpp:2:1 "int /*@ed_mxa_def*/ed_mxa(int v) { return v; }\nint ed_mxa_user() { return /*@ed_mxa_use*/ed_mxa(1); }\n"
+def ed_mxa_use -> ed_mxa_def
+refs ed_mxa_use = ed_mxa_def ed_mxa_use
+hover ed_mxa_use ~ "ed_mxa" "int"
+def use_mx_fn_in -> mx_fn_def
+def use_mx_other_in -> mx_other_def
+edit src/mixed.cpp:1:1 "int /*@ed_mxb_def*/ed_mxb(int v) { return v; }\nint ed_mxb_user() { return /*@ed_mxb_use*/ed_mxb(1); }\n"
+def ed_mxb_use -> ed_mxb_def
+refs ed_mxb_use = ed_mxb_def ed_mxb_use
+def ed_mxa_use -> ed_mxa_def
+def use_mx_fn_in -> mx_fn_def
+open include/mixed.h
+edit include/mixed.h:4:1 "int /*@ed_mxc_decl*/ed_mxc(int v);\nint ed_mxc_user() { return /*@ed_mxc_use*/ed_mxc(2); }\n"
+def ed_mxc_use -> ed_mxc_decl
+refs ed_mxc_use = ed_mxc_decl ed_mxc_use
+def use_mx_last -> mx_last_def

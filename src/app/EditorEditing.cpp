@@ -134,6 +134,8 @@ void Editor::runLineEdits(std::vector<Document::BatchEdit> edits, const CaretFn&
   std::vector<Range> old;
   old.reserve(edits.size());
   for (const auto& e : edits) old.push_back(e.range);
+  for (Document::BatchEdit& e : edits)
+    e.text = withDocBreaks(doc, doc.buffer().clamp(e.range.start).line, std::move(e.text));
   doc.beginGroup(carets_);
   inEdit_ = true;
   const std::vector<Range> now = doc.replaceMany(std::move(edits));
@@ -267,7 +269,8 @@ void Editor::typeText(const std::string& text) {
     bool skip = false;
     if (!s.empty()) {
       if (wrap) {  // wrap the selection and keep it selected
-        e.text = std::string(1, c) + b.textInRange(e.range) + closerOf(c);
+        e.text = std::string(1, c) + b.textInRangeRaw(e.range) + closerOf(c);
+        e.literal = true;
         e.anchorOffset = s.reversed() ? e.text.size() - 1 : 1;
         e.headOffset = s.reversed() ? 1 : e.text.size() - 1;
       }
@@ -418,9 +421,10 @@ void Editor::toggleBlockComment() {
       r = {{r.start.line, static_cast<int>(from)}, {r.start.line, static_cast<int>(to)}};
       whole = true;
     }
-    const std::string t = b.textInRange(r);
+    const std::string t = b.textInRangeRaw(r);
     CaretEdit e;
     e.range = r;
+    e.literal = true;
     if (t.size() >= 4 && t.compare(0, 2, "/*") == 0 && endsWith(t, "*/")) e.text = t.substr(2, t.size() - 4);
     else e.text = "/*" + t + "*/";
     if (!whole) {  // the result stays selected
@@ -447,7 +451,8 @@ void Editor::duplicate() {
     CaretEdit e;
     if (!s.empty()) {  // the copy goes right behind the selection and becomes the selection
       e.range = {r.end, r.end};
-      e.text = b.textInRange(r);
+      e.text = b.textInRangeRaw(r);
+      e.literal = true;
       e.anchorOffset = s.reversed() ? e.text.size() : 0;
       e.headOffset = s.reversed() ? 0 : e.text.size();
     } else if (usedLines.insert(s.head.line).second) {  // the line below, caret at the same column
@@ -567,7 +572,31 @@ bool Editor::gotoLine(int line, int column, std::string* error) {
   return gotoLocation({current_->path(), {l, c}}, error, "line " + std::to_string(l + 1));
 }
 
-void Editor::setLineEnding(Document& doc, LineEnding e) { doc.setLineEnding(e); }
+LineEnding Editor::newLineEndingAt(const Document& doc, int line) const {
+  if (!editing_.replicateNewLine) return editing_.defaultLineEnding;
+  return doc.buffer().endingForNewLine(line, editing_.defaultLineEnding);
+}
+
+std::string Editor::withDocBreaks(const Document& doc, int line, std::string text) const {
+  if (TextBuffer::countBreaks(text) == 0) return text;
+  return TextBuffer::withLineEnding(text, newLineEndingAt(doc, line));
+}
+
+void Editor::setLineEnding(Document& doc, LineEnding e) {
+  const bool cur = &doc == current_;
+  if (cur) breakTyping();
+  doc.beginGroup(cur ? carets_ : std::vector<Selection>{});
+  const bool was = inEdit_;
+  inEdit_ = true;
+  doc.convertLineEndings(e);
+  inEdit_ = was;
+  doc.endGroup(cur ? carets_ : std::vector<Selection>{});
+}
+
+bool Editor::saveWithLineEnding(Document& doc, LineEnding e, std::string* error) {
+  setLineEnding(doc, e);
+  return save(doc, error);
+}
 
 // ---------------------------------------------------------------------------
 // 10x editing commands (W8a)
@@ -641,7 +670,8 @@ void Editor::changeSelectionCase(bool upper) {
     CaretEdit e;
     e.range = s.range();
     if (!s.empty()) {
-      e.text = b.textInRange(e.range);
+      e.text = b.textInRangeRaw(e.range);
+      e.literal = true;
       const std::string before = e.text;
       for (char& c : e.text) {
         const unsigned char u = static_cast<unsigned char>(c);

@@ -58,6 +58,13 @@ editor.reloadExternalChanges = auto
 # New files, search and zoom (10x DefaultLineEnding, AutoNameUntitledFiles, InternetSearchCommand).
 # defaultLineEnding: line ending of a new untitled file, CRLF or LF (10x's default is CRLF; any other text is CRLF).
 editor.defaultLineEnding = CRLF
+# Line endings follow Visual Studio: every line keeps its own ending, Enter copies the ending of the line it is
+# typed on (replicateNewLine; false = always defaultLineEnding), pasted text keeps its own line breaks
+# (pasteKeepsLineBreaks; false = they become the ending Enter would use), and a file with mixed endings asks
+# "Do you want to normalize the line endings?" when it is opened (checkLineEndings).
+editor.replicateNewLine = true
+editor.pasteKeepsLineBreaks = true
+editor.checkLineEndings = true
 # autoNameUntitledFiles: an untitled file takes its name from the first word typed in it (the name is only a
 # suggestion for the Save As prompt until the file is saved).
 editor.autoNameUntitledFiles = false

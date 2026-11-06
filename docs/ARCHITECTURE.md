@@ -776,7 +776,7 @@ The UI is a client of `Editor::vcs()` only (hunks, base lines, `fileStatus`, `re
   `VcsManager::revertFile`), `Vcs.DiffFileExternal`, `Vcs.RefreshStatus`, `Vcs.CheckOut` (the explicit form of
   Perforce's auto-checkout: `VcsManager::checkOut`, a small additive engine call that runs the provider's
   `beforeFirstEdit` now and marks the open document as checked out so its first edit does not repeat it).
-* **External diff tool** (`DiffTool`): writes the committed text (document's line ending) and the buffer to
+* **External diff tool** (`DiffTool`): writes the committed text (document's dominant line ending) and the buffer (a mixed buffer with its dominant ending, so the tool lists text differences only) to
   `<temp>/tenfold-diff/<run>/{base,current}/<file name>` (original name and extension), starts the tool through
   `tf::Process` and keeps the object (never killed on exit; on Windows the job object still ends the child with the
   editor) with `tick()` collecting it. `vcs.diffTool` empty = auto: p4merge from PATH (Windows: `p4merge.exe`, then
@@ -852,8 +852,8 @@ off; call it from the settings wiring).
 
 ## Text model
 
-`TextBuffer` stores lines without terminators, remembers the dominant line
-ending (LF, CRLF or CR) for saving, and exposes `replace(Range, text)` returning the inserted range and
+`TextBuffer` stores lines without terminators, remembers each line's own terminator (LF, CRLF or CR; see "Encodings and
+line endings"), and exposes `replace(Range, text)` returning the inserted range and
 line delta (what undo, the navigation history and LSP incremental sync
 need). Columns are UTF-8 byte offsets; `utf8ToUtf16Column` and the reverse
 exist for protocol conversion. `Document` adds path, version, dirty flag,
@@ -868,21 +868,40 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   well-formed UTF-16 is decoded (the BOM is dropped from the text); anything else is **Windows-1252** (all 256
   bytes map to one code point each, the five undefined ones to the C1 controls), so *every* byte string loads, never
   throws, and converts back byte for byte. `Document::encoding()` records the result.
-* *Saving* writes the buffer in `Document::encoding()` with the buffer's line ending: an unchanged file with a uniform
-  line ending is written byte for byte. A character the file's code page cannot hold (an edit adds `U+2260` to a
-  Windows-1252 file) makes `saveToDisk` write the file as UTF-8, switch `encoding()` to Utf8 and set `saveNote()`,
-  which `Editor` logs as a warning; nothing the user typed is lost and nothing is refused (OPEN_QUESTIONS, "W9
-  detail: encodings").
-* *Line endings.* A line ends at `\r\n`, `\n` or a lone `\r` (clang's rule) in `TextBuffer::setText` and in text passed
-  to `replace()` / `replaceMany()`, in the fast lexer, in find-in-files (`TextSearch`, `ReplaceInFiles`) and in the
-  corpus anchor scanner. `lineEnding()` is the dominant ending (ties: LF, then CRLF); `mixedLineEndings()` tells that
-  the file had several, and `textForDisk()` writes the dominant one for every line, so a mixed file is *normalised* when
-  it is saved (the model keeps one ending per document, not per line).
+* *Saving* writes the buffer in `Document::encoding()` with every line's own terminator: an unchanged file, mixed or
+  not, is written byte for byte, and an edited mixed file stays mixed (Visual Studio does not normalise on save). A
+  character the file's code page cannot hold (an edit adds `U+2260` to a Windows-1252 file) makes `saveToDisk` write
+  the file as UTF-8, switch `encoding()` to Utf8 and set `saveNote()`, which `Editor` logs as a warning; nothing the
+  user typed is lost and nothing is refused (OPEN_QUESTIONS, "W9 detail: encodings"; replaced by a refusal in a later
+  change).
+* *Line endings (W10, like Visual Studio: docs/VS_BEHAVIOUR.md section 1).* A line ends at `\r\n`, `\n` or a lone `\r`
+  (clang's rule) in `TextBuffer::setText` and in text passed to `replace()` / `replaceMany()`, in the fast lexer, in
+  find-in-files (`TextSearch`, `ReplaceInFiles`), in `vcs::splitLines` and in the corpus anchor scanner. NEL / LS / PS
+  are not line ends (clang and clangd do not treat them as such, columns would diverge): VS does, a documented
+  deviation. **Every line keeps its own terminator.** Representation: `base_` (the ending of every line while the
+  document is uniform: no per-line storage, the usual case) and, as soon as a second kind appears, `ends_`, one byte
+  per line parallel to `lines_` (the last entry is unused: the last line has no terminator). `replace()` interprets the
+  breaks of the inserted text literally (CRLF, LF, CR) and stores them; the new last line of an edit keeps the old
+  last line's terminator, so joining two lines keeps the later one's. `lineEnding()` is the dominant ending (ties: LF,
+  then CRLF; cached counts), `mixedLineEndings()` tells whether the terminators differ, `textForDisk()` writes what is
+  stored. `Document` records undo text with `textInRangeRaw` (real breaks), so undo restores a mixed file byte for
+  byte; `Document::convertLineEndings(e)` rewrites only the terminators that differ, as one undo step (the load
+  dialog's Yes, the status bar menu and Save with Line Endings all use it; the line structure does not change, so
+  carets stay). The `Editor` decides which ending a *new* break gets: `newLineEndingAt(doc, line)` is Visual Studio's
+  `ReplicateNewLineCharacter` (the terminator of the caret line; the last line has none, so the line before it; a document
+  without any break uses `editing().defaultLineEnding`; `replicateNewLine=false` always does). Every Editor edit
+  path (typing, Enter, line commands, LSP text edits, `replaceRange`) converts the breaks of its text with it
+  (`withDocBreaks`, `applyCaretEdits`); text that is copied from the buffer (comment toggling, duplicate selection,
+  wrap in brackets, case change) and pasted text (`insertText(text, literal=true)`, when `pasteKeepsLineBreaks`) is
+  inserted literally. Copy puts `selectedTextRaw()` (real breaks) on the clipboard. `Editor::open` reports a document
+  read from disk with mixed endings to `onInconsistentLineEndings` (setting `checkLineEndings`); the UI's
+  `LineEndingPrompt` shows VS's dialog. `.editorconfig` `end_of_line` is not read (tenfold reads no `.editorconfig`).
 * *Text for clangd.* `didOpen` / full-sync / `reopenDocuments` send `TextBuffer::textForLsp()`: UTF-8 with the
-  document's real line endings (a CRLF file is sent with CRLF, so the buffer clangd parses is the file on disk;
-  W9e finding 4), and incremental changes get their new text converted the same way. CR-only documents are sent with
-  LF, because clangd's LSP layer finds lines at `\n` only (positions, edits) while clang's preprocessor also ends them
-  at a lone `\r`. Line numbers and columns are identical for every ending.
+  document's real line endings (CRLF lines are sent with CRLF, LF lines with LF, so for the usual files the buffer
+  clangd parses is the file on disk; W9e finding 4), and incremental changes get their new text converted the same way
+  (`TextBuffer::lspText`). A lone CR is sent as LF, because clangd's LSP layer finds lines at `\n` only (positions,
+  edits) while clang's preprocessor also ends them at a lone `\r`. Line numbers and columns are identical for every
+  ending.
 * *Positions from clangd.* For an open document clangd saw the same UTF-8 text, so columns map directly. For a
   Windows-1252 file that is not open, clangd reads the raw bytes from disk and its byte columns are converted
   (`SemanticEngine::posFromServer`, `diskEncoding`). Known gap: a Windows-1252 file that is open in tenfold but whose
@@ -939,7 +958,7 @@ edits at every caret and forms ONE undo step; the behaviours that could differ f
 `bracketSelectedText`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`, `commentBlockUsesLineComments`; the UI fills them from the `editor.*`
 settings, OPEN_QUESTIONS #8). The struct's defaults are 10x's documented defaults (B8b: nothing auto-closes, tab
 indent, no detection, selections are bracketed); the engine tests pin the behaviours they test explicitly. Two entry
-points exist for text: `insertText` stays raw (paste, completion, tests) and `typeText` is what the view calls for typed
+points exist for text: `insertText` gives the breaks of its text the document's line ending, unless it is a paste (`literal`), and `typeText` is what the view calls for typed
 characters (auto-close per pair kind, typing over the closer that is already there and Backspace between an empty pair,
 both only for a pair kind whose auto-close is on; wrapping a selection with `( [ {` per `bracketSelectedText`, with quotes
 per `autoCloseQuotes`; `}` as the first non-blank character dedenting to the line of the `{` it closes; everything else
@@ -1960,8 +1979,8 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   (false), `editor.commentBlockUsesLineComments` (true). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
   lines indents them. Files are decoded to UTF-8 on load and encoded again on save (see "Encodings and line endings"
-  in the text model; the status bar shows the line ending, `CR` for classic Mac files; `Editor.LineEndingLF` /
-  `Editor.LineEndingCRLF` switch the line ending written on save).
+  in the text model; the status bar shows the line ending, `CR` for classic Mac files; a click on it, `Editor.LineEndingLF` /
+  `LineEndingCRLF` / `LineEndingCR` convert the document, `File.SaveWithLineEndings` converts and saves).
 
 #### Code folding (W8f, `src/ui/view/FoldModel.*`, `WrapLayout`, `TextView`)
 

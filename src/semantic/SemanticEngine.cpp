@@ -1272,9 +1272,7 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
   if (unparkIfParked(doc)) return;  // sent whole, with this change in it
   if (auto c = clangd()) {
     if (c->offsetEncoding() == "utf-8") {
-      c->didChangeIncremental(
-          doc.uri(), doc.version(),
-          {{change.removed, TextBuffer::withLineEnding(change.newText, doc.buffer().lspLineEnding())}});
+      c->didChangeIncremental(doc.uri(), doc.version(), {{change.removed, TextBuffer::lspText(change.newText)}});
     } else {
       c->didChangeFull(doc.uri(), doc.version(), doc.buffer().textForLsp());
     }

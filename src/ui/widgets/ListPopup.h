@@ -46,7 +46,8 @@ class ListPopup : public Widget {
 
   InputLine* input() const { return input_; }
   void setMaxVisibleRows(int n);
-  void setTitle(std::string s);   // header text of an input-less popup (left)
+  void setTitle(std::string s);  // header text of an input-less popup (left)
+  const std::string& title() const { return title_; }
   void setStatus(std::string s);  // dim text right of the input / title ("verifying...")
   void setEmptyText(std::string s) { empty_ = std::move(s); }
   void setPreviewEnabled(bool on);  // reserves the right pane (even while empty)

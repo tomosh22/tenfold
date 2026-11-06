@@ -64,11 +64,30 @@ size_t countBreaks(std::string_view t) {
   for (size_t at = bf.next(0, len); at != std::string_view::npos; at = bf.next(at + len, len)) ++n;
   return n;
 }
+
+LineEnding kindOf(std::string_view t, size_t at, size_t len) {
+  return len == 2 ? LineEnding::CRLF : t[at] == '\n' ? LineEnding::LF : LineEnding::CR;
+}
+
+// Every break of `t` is of kind `e`.
+bool allBreaksAre(std::string_view t, LineEnding e) {
+  size_t len = 0;
+  BreakFinder bf(t);
+  for (size_t at = bf.next(0, len); at != std::string_view::npos; at = bf.next(at + len, len))
+    if (kindOf(t, at, len) != e) return false;
+  return true;
+}
 }  // namespace
+
+int TextBuffer::countBreaks(std::string_view text) { return static_cast<int>(tf::countBreaks(text)); }
 
 void TextBuffer::setText(std::string_view text) {
   lines_.clear();
-  size_t crlf = 0, lf = 0, cr = 0;
+  ends_.clear();
+  statsValid_ = false;
+  baseSet_ = false;
+  bool have = false;
+  LineEnding first = LineEnding::LF;
   size_t start = 0, len = 0;
   BreakFinder bf(text);
   while (true) {
@@ -78,15 +97,84 @@ void TextBuffer::setText(std::string_view text) {
       break;
     }
     lines_.emplace_back(text.substr(start, at - start));
-    if (len == 2) ++crlf;
-    else if (text[at] == '\n') ++lf;
-    else ++cr;
+    const LineEnding k = kindOf(text, at, len);
+    if (k != first || !have) {  // rare: the first break, or a different kind
+      if (!have) {
+        have = true;
+        first = k;
+      } else if (ends_.empty()) {
+        ends_.assign(lines_.size() - 1, first);  // the lines before this one all ended with `first`
+      }
+    }
+    if (!ends_.empty()) ends_.push_back(k);
     start = at + len;
   }
-  mixed_ = (crlf != 0) + (lf != 0) + (cr != 0) > 1;
-  if (crlf > lf && crlf >= cr) lineEnding_ = LineEnding::CRLF;
-  else if (cr > lf && cr > crlf) lineEnding_ = LineEnding::CR;
-  else lineEnding_ = LineEnding::LF;
+  if (!ends_.empty()) ends_.push_back(first);  // the last line: unused
+  base_ = first;
+  if (!ends_.empty()) base_ = lineEnding();
+}
+
+const TextBuffer::EndingCounts& TextBuffer::stats() const {
+  if (statsValid_) return stats_;
+  stats_ = {};
+  if (ends_.empty()) {
+    const int n = lineCount() - 1;
+    (base_ == LineEnding::CRLF ? stats_.crlf : base_ == LineEnding::CR ? stats_.cr : stats_.lf) = n;
+  } else {
+    size_t c[3] = {0, 0, 0};
+    for (size_t i = 0; i + 1 < ends_.size(); ++i) ++c[static_cast<size_t>(ends_[i])];
+    stats_.lf = static_cast<int>(c[0]);
+    stats_.crlf = static_cast<int>(c[1]);
+    stats_.cr = static_cast<int>(c[2]);
+  }
+  statsValid_ = true;
+  return stats_;
+}
+
+TextBuffer::EndingCounts TextBuffer::endingCounts() const { return stats(); }
+
+LineEnding TextBuffer::lineEnding() const {
+  const EndingCounts& c = stats();
+  if (c.total() == 0) return base_;
+  if (c.crlf > c.lf && c.crlf >= c.cr) return LineEnding::CRLF;
+  if (c.cr > c.lf && c.cr > c.crlf) return LineEnding::CR;
+  return LineEnding::LF;
+}
+
+void TextBuffer::setLineEnding(LineEnding e) {
+  base_ = e;
+  baseSet_ = true;
+  ends_.clear();
+  statsValid_ = false;
+}
+
+void TextBuffer::compact() {
+  if (ends_.empty() || mixedLineEndings()) return;
+  base_ = lineEnding();
+  ends_.clear();
+  ends_.shrink_to_fit();
+}
+
+bool TextBuffer::mixedLineEndings() const {
+  if (ends_.empty()) return false;
+  const EndingCounts& c = stats();
+  return (c.crlf != 0) + (c.lf != 0) + (c.cr != 0) > 1;
+}
+
+LineEnding TextBuffer::endingAfter(int i) const {
+  const int n = lineCount();
+  i = std::clamp(i, 0, n - 1);
+  if (i + 1 < n) return endOf(static_cast<size_t>(i));
+  return i > 0 ? endOf(static_cast<size_t>(i) - 1) : lineEnding();
+}
+
+LineEnding TextBuffer::endingForNewLine(int line, LineEnding fallback) const {
+  if (lineCount() == 1) return baseSet_ ? base_ : fallback;
+  return endingAfter(line);
+}
+
+void TextBuffer::materializeEnds() {
+  if (ends_.empty()) ends_.assign(lines_.size(), base_);
 }
 
 std::string TextBuffer::text() const {
@@ -100,20 +188,35 @@ std::string TextBuffer::text() const {
 }
 
 std::string TextBuffer::textForDisk() const {
-  if (lineEnding_ == LineEnding::LF) return text();
-  const char* sep = lineEnding_ == LineEnding::CRLF ? "\r\n" : "\r";
+  if (ends_.empty() && base_ == LineEnding::LF) return text();
   std::string out;
   out.reserve(byteSize() + lines_.size());
   for (size_t i = 0; i < lines_.size(); ++i) {
-    if (i) out += sep;
     out += lines_[i];
+    if (i + 1 < lines_.size()) out += terminatorText(endOf(i));
   }
   return out;
 }
 
 std::string TextBuffer::textForLsp() const {
-  if (lineEnding_ == LineEnding::CR) return text();
-  return textForDisk();
+  if (ends_.empty() && base_ != LineEnding::CRLF) return text();
+  std::string out;
+  out.reserve(byteSize() + lines_.size());
+  for (size_t i = 0; i < lines_.size(); ++i) {
+    out += lines_[i];
+    if (i + 1 < lines_.size()) out += endOf(i) == LineEnding::CRLF ? std::string_view("\r\n") : "\n";
+  }
+  return out;
+}
+
+std::string TextBuffer::lspText(std::string_view text) {
+  std::string out(text);
+  for (size_t i = 0; i < out.size(); ++i)
+    if (out[i] == '\r') {
+      if (i + 1 < out.size() && out[i + 1] == '\n') ++i;
+      else out[i] = '\n';
+    }
+  return out;
 }
 
 std::string TextBuffer::withLineEnding(std::string_view text, LineEnding e) {
@@ -187,9 +290,23 @@ std::string TextBuffer::textInRange(Range r) const {
   return out;
 }
 
+std::string TextBuffer::textInRangeRaw(Range r) const {
+  r.start = clamp(r.start);
+  r.end = clamp(r.end);
+  if (r.end < r.start) std::swap(r.start, r.end);
+  if (r.start.line == r.end.line) return textInRange(r);
+  std::string out = lines_[static_cast<size_t>(r.start.line)].substr(static_cast<size_t>(r.start.column));
+  for (int i = r.start.line; i < r.end.line; ++i) {
+    out += terminatorText(endOf(static_cast<size_t>(i)));
+    if (i + 1 < r.end.line) out += lines_[static_cast<size_t>(i) + 1];
+  }
+  out += lines_[static_cast<size_t>(r.end.line)].substr(0, static_cast<size_t>(r.end.column));
+  return out;
+}
+
 namespace {
-// Splits `text` into lines at "\r\n", "\n" and lone '\r'; appends to `out`.
-void splitInto(std::string_view text, std::vector<std::string>& out) {
+// Splits `text` into lines at "\r\n", "\n" and lone '\r'; appends to `out` (and the kind of each break to `kinds`).
+void splitInto(std::string_view text, std::vector<std::string>& out, std::vector<LineEnding>& kinds) {
   size_t start = 0, len = 0;
   BreakFinder bf(text);
   while (true) {
@@ -199,8 +316,21 @@ void splitInto(std::string_view text, std::vector<std::string>& out) {
       return;
     }
     out.emplace_back(text.substr(start, at - start));
+    kinds.push_back(kindOf(text, at, len));
     start = at + len;
   }
+}
+
+size_t extra0(const std::vector<TextBuffer::Edit>& edits) {
+  size_t extra = 0;
+  for (const TextBuffer::Edit& e : edits) extra += countBreaks(e.text);
+  return extra;
+}
+
+bool allEqual(const std::vector<LineEnding>& v, LineEnding e) {
+  for (LineEnding k : v)
+    if (k != e) return false;
+  return true;
 }
 
 // Where the end of `text` lands when it is inserted at `start`.
@@ -232,8 +362,13 @@ TextBuffer::EditResult TextBuffer::replace(Range r, std::string_view text) {
   }
 
   std::vector<std::string> pieces;
-  splitInto(text, pieces);
+  std::vector<LineEnding> kinds;
+  splitInto(text, pieces, kinds);
   const size_t m = pieces.size(), o = el - sl + 1;
+  if (ends_.empty() && !kinds.empty()) {
+    if (lines_.size() == 1 && !baseSet_) base_ = kinds[0];  // no break yet: the first one decides
+    if (!allEqual(kinds, base_)) ends_.assign(lines_.size(), base_);
+  }
   res.inserted = {r.start,
                   {r.start.line + static_cast<int>(m) - 1,
                    static_cast<int>((m == 1 ? static_cast<size_t>(r.start.column) : 0) + pieces.back().size())}};
@@ -258,6 +393,21 @@ TextBuffer::EditResult TextBuffer::replace(Range r, std::string_view text) {
   if (m < o)
     lines_.erase(lines_.begin() + static_cast<std::ptrdiff_t>(sl + m),
                  lines_.begin() + static_cast<std::ptrdiff_t>(el + 1));
+  if (!ends_.empty()) {  // the new lines get the breaks of the inserted text; the last keeps the old last line's
+    statsValid_ = false;
+    kinds.push_back(ends_[el]);
+    const auto at = static_cast<std::ptrdiff_t>(sl);
+    const size_t reuse = std::min(m, o);
+    std::copy(kinds.begin(), kinds.begin() + static_cast<std::ptrdiff_t>(reuse), ends_.begin() + at);
+    if (m > o)
+      ends_.insert(ends_.begin() + at + static_cast<std::ptrdiff_t>(o), kinds.begin() + static_cast<std::ptrdiff_t>(o),
+                   kinds.end());
+    if (m < o)
+      ends_.erase(ends_.begin() + at + static_cast<std::ptrdiff_t>(m),
+                  ends_.begin() + at + static_cast<std::ptrdiff_t>(o));
+  } else {
+    statsValid_ = false;
+  }
   return res;
 }
 
@@ -296,10 +446,21 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
     return results;
   }
 
+  if (ends_.empty()) {
+    for (const Edit& e : edits)
+      if (!allBreaksAre(e.text, base_)) {
+        ends_.assign(lines_.size(), base_);
+        break;
+      }
+  }
+  statsValid_ = false;
+  const bool track = !ends_.empty();
+  std::vector<LineEnding> oe;
+  const size_t extra = extra0(edits);
+  if (track) oe.reserve(lines_.size() + extra);
+
   // General case: build the new line vector once, moving untouched lines. `cur` is the line under construction;
   // (curLine, curCol) is the first old byte not yet consumed.
-  size_t extra = 0;
-  for (const Edit& e : edits) extra += countBreaks(e.text);
   std::vector<std::string> out;
   out.reserve(lines_.size() + extra);
   std::string cur;
@@ -313,6 +474,9 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
       cur.clear();
       out.insert(out.end(), std::move_iterator(lines_.begin() + static_cast<std::ptrdiff_t>(curLine + 1)),
                  std::move_iterator(lines_.begin() + static_cast<std::ptrdiff_t>(sl)));
+      if (track)
+        oe.insert(oe.end(), ends_.begin() + static_cast<std::ptrdiff_t>(curLine),
+                  ends_.begin() + static_cast<std::ptrdiff_t>(sl));
       curLine = sl;
       curCol = 0;
     }
@@ -329,6 +493,7 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
       cur.append(text.substr(start, at - start));
       out.push_back(std::move(cur));
       cur.clear();
+      if (track) oe.push_back(kindOf(text, at, blen));
       start = at + blen;
     }
     curLine = static_cast<size_t>(r.end.line);
@@ -338,6 +503,10 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
   out.push_back(std::move(cur));
   out.insert(out.end(), std::move_iterator(lines_.begin() + static_cast<std::ptrdiff_t>(curLine + 1)),
              std::move_iterator(lines_.end()));
+  if (track) {
+    oe.insert(oe.end(), ends_.begin() + static_cast<std::ptrdiff_t>(curLine), ends_.end());
+    ends_ = std::move(oe);
+  }
   lines_ = std::move(out);
   return results;
 }

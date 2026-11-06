@@ -238,12 +238,22 @@ void registerEditorCommands(CommandRegistry& r) {
           c.editor->removeBookmarksInFile();
           return true;
         });
-  for (bool crlf : {false, true})
-    addEd(r, crlf ? "Editor.LineEndingCRLF" : "Editor.LineEndingLF", crlf ? "Line Endings: CRLF" : "Line Endings: LF",
-          [crlf](const CommandContext& c, std::string_view) {
-            c.editor->setLineEnding(*c.editor->currentDocument(), crlf ? LineEnding::CRLF : LineEnding::LF);
-            return true;
-          });
+  // The status bar's line-ending menu: converts every line break of the document (one undo step, document modified).
+  struct EolCmd {
+    const char* id;
+    const char* name;
+    LineEnding e;
+  };
+  for (const EolCmd& ec : {EolCmd{"Editor.LineEndingLF", "Line Endings: Unix (LF)", LineEnding::LF},
+                           EolCmd{"Editor.LineEndingCRLF", "Line Endings: Windows (CR LF)", LineEnding::CRLF},
+                           EolCmd{"Editor.LineEndingCR", "Line Endings: Macintosh (CR)", LineEnding::CR}})
+    addEd(r, ec.id, ec.name, [e = ec.e](const CommandContext& c, std::string_view) {
+      c.editor->setLineEnding(*c.editor->currentDocument(), e);
+      return true;
+    });
+  // Advanced Save Options (Line endings list): bound by the UI, which owns the list popup.
+  r.add({"File.SaveWithLineEndings", "Save with Line Endings...", nullptr,
+         [](const CommandContext& c) { return hasEditor(c); }});
 
   // --- debugger (C2c): Visual Studio's commands; they queue work on the DebugSession (asynchronous, errors reach
   // lastError and the status bar) and edit the breakpoint store, which the session syncs to the backend ---

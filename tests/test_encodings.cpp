@@ -200,12 +200,12 @@ TEST(textbuffer_lone_cr_is_a_line_break) {
   CHECK_EQ(t.textForDisk(), "a\r");
 }
 
-TEST(textbuffer_crlf_lf_and_cr_mixed_keep_the_dominant_ending) {
+TEST(textbuffer_crlf_lf_and_cr_mixed_keep_each_lines_ending_and_report_the_dominant_one) {
   TextBuffer m("a\r\nb\r\nc\nd\re");
   CHECK_EQ(m.lineCount(), 5);
   CHECK(m.lineEnding() == LineEnding::CRLF);
   CHECK(m.mixedLineEndings());
-  CHECK_EQ(m.textForDisk(), "a\r\nb\r\nc\r\nd\r\ne");  // normalised to the dominant ending (documented)
+  CHECK_EQ(m.textForDisk(), "a\r\nb\r\nc\nd\re");  // no normalisation: every line keeps its own ending (W10)
   TextBuffer lf("a\nb\nc\r\nd\r");
   CHECK(lf.lineEnding() == LineEnding::LF);
   CHECK(lf.mixedLineEndings());

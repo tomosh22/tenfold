@@ -309,6 +309,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/TerminalSession.cpp
     src/ui/features/TerminalPanel.cpp
     src/ui/features/ExternalChanges.cpp
+    src/ui/features/LineEndingPrompt.cpp
     src/ui/features/UnsavedPrompt.cpp
     src/ui/features/ParserCommands.cpp
     src/ui/features/RenameInput.cpp
@@ -396,6 +397,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_vcs_ui.cpp
     tests/ui/test_config_ui.cpp
     tests/ui/test_p2_ui.cpp
+    tests/ui/test_line_endings_ui.cpp
     tests/ui/test_w8b.cpp
     tests/ui/test_w8a_commands.cpp
     tests/ui/test_w8c.cpp

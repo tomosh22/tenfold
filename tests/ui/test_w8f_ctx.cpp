@@ -597,7 +597,7 @@ TEST(ctxmenu_status_bar_segments_have_menus) {
   REQUIRE(eol.w > 0);
   env.rightClick(eol.x + 2, eol.y + 2);
   REQUIRE(env.menu() != nullptr);
-  CHECK(env.has("Windows (CRLF)") && env.has("Unix (LF)"));
+  CHECK(env.has("Windows (CR LF)") && env.has("Unix (LF)") && env.has("Macintosh (CR)"));
   env.clickItem("Unix (LF)");
   CHECK(env.ed->currentDocument()->buffer().lineEnding() == LineEnding::LF);
   // A segment without a menu (the message area when empty / the workspace name) shows none.

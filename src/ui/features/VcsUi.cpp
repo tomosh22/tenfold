@@ -202,15 +202,12 @@ bool VcsUi::diffExternal() {
   r.file = d->path();
   r.title = relName(d->path());
   r.baseText = joinLines(*base, 0, base->size());
-  if (d->buffer().lineEnding() == LineEnding::CRLF) {
-    std::string crlf;
-    for (char c : r.baseText) {
-      if (c == '\n') crlf += '\r';
-      crlf += c;
-    }
-    r.baseText = std::move(crlf);
-  }
-  r.currentText = d->buffer().textForDisk();
+  r.baseText = TextBuffer::withLineEnding(r.baseText, d->buffer().lineEnding());
+  // The base lines carry no terminators (the gutter compares lines only), so a mixed buffer is shown with its dominant
+  // ending too: the external tool then lists differences in the text, not in the line endings.
+  r.currentText = d->buffer().mixedLineEndings()
+                      ? TextBuffer::withLineEnding(d->buffer().textForDisk(), d->buffer().lineEnding())
+                      : d->buffer().textForDisk();
   r.baseLabel = v.providerName() == "perforce" ? "#have" : "@HEAD";
   r.currentLabel = d->dirty() ? " (unsaved)" : " (working copy)";
   const DiffTool::Launched l = tool_.launch(r, cfg_);

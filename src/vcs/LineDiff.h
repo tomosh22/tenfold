@@ -11,8 +11,9 @@ namespace tf {
 // Line diff between a base text (the committed / have revision) and the live buffer.
 //
 // Texts are lines WITHOUT terminators, split exactly like TextBuffer::setText: "a\nb\n" is {"a","b",""} (so there is
-// always at least one line), a '\r' directly before a '\n' is dropped. Comparing two texts that went through this
-// split is therefore independent of the line-ending convention (core.autocrlf) of either side.
+// always at least one line); a line ends at CRLF, LF or a lone CR. Comparing two texts that went through this
+// split is therefore independent of the line-ending convention (core.autocrlf) of either side and of the per-line
+// endings of a mixed file: a line whose only difference is its terminator is never a changed line.
 std::vector<std::string> splitLines(std::string_view text);
 // `count` lines starting at `first`, joined with '\n' (no trailing terminator).
 std::string joinLines(const std::vector<std::string>& lines, size_t first, size_t count);
