@@ -152,7 +152,7 @@ How the interface shows which is which:
 | Symbol search (Ctrl+,), the result lists for several definitions and for references | Rows are greyed and the badge says `verifying...` while clangd is still working, or `approximate (reason)` when no authoritative answer will follow (for example no clangd). | Rows in normal text; the selected row stays selected when the list is swapped. |
 | Completion | Greyed items and a side note `approximate (clangd not running)`. | Normal items with their return type and documentation. |
 | Hover | A line `approximate (clangd not running)` under the text. | Text from clangd. |
-| Go to Definition / Declaration (F12, Ctrl+F12) with a single answer | **No mark.** tenfold jumps at once, even on an approximate answer. If the authoritative answer is a different place it jumps again. Both jumps are in the navigation history, so Back returns. | The same jump, once. |
+| Go to Definition / Declaration (F12, Ctrl+F12) with a single answer | **No mark.** tenfold jumps at once, even on an approximate answer. If the authoritative answer is a different place it jumps again. Both jumps are in the navigation history, so Back returns. **Exception:** a lone approximate answer that clangd may turn into a choice (a name that is a `typedef` / alias, or a class used like a constructor call such as `Widget(2)`) is not acted on: the status bar says `waiting for clangd`, and tenfold jumps or shows the chooser when clangd answers (or jumps to the approximate answer if clangd fails). | The same jump, once; or the chooser (see [Choosing the target](#go-to-definition-choosing-the-target)). |
 | Status bar | `clangd: off` (not running), `clangd: starting`, `clangd: indexing 42%`, `clangd: ready`; while clangd is being restarted or has given up the engine's own text replaces these: `clangd restarting (2)...`, `clangd stopped: crashed 5 times`; `fast index: indexing` then `fast index: N files`. | |
 
 Find References and the clangd-only features (diagnostics, semantic colours of identifiers, signature help) have
@@ -231,12 +231,38 @@ row accepts it, a click outside closes it.
 | **Ctrl+Shift+H** (`ReplaceInFiles`; tenfold `Search.ReplaceInFiles`) | Replace in files: the find-in-files query (same options and globs) plus a **replace field** (Tab switches fields). The matches are a checklist grouped by file; each row shows the line with the old text struck and the replacement after it, so the list is the preview. **Insert** checks / unchecks the row (a file row: all its matches), **Alt+T** all / none, a click on the box too. **Enter** replaces the checked matches: open documents are edited in place (one undo step per document, left unsaved), files that are not open are rewritten on disk after **one confirmation** (Enter again; Escape goes back). The replacement is literal text (no `$1`), and a match whose line changed since the search is skipped and counted in the message. |
 | **F4** / **Shift F4** (`GotoNextResult` / `GotoPrevResult`) | Next / previous result of the last search or build, whichever started last: a find-in-files result (wrapping, even after the popup is closed; files with matches get marks on the scrollbar) or, after a build, an error or warning with a source location (as **F8** / **Shift F8**, which always walk the build). |
 | `View.ShowDiagnostics` (no default key; command palette) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. |
-| **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list. |
+| **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list. Through a `using` declaration, a `typedef` / alias and on a constructor call the list is a small **chooser at the caret** (below). |
 | **Alt O** (`CppParser.ToggleSourceHeader`) | Switch between header and source (clangd's answer, else by file name). |
 | **Ctrl+G** (`Editor.GotoLine`) | Go to line: `42` or `42:7` (line:column, 1-based). Numbers past the end go to the last line. Recorded in the history. |
 | **Ctrl+F** / **Ctrl+H** | Find / replace in the current file (see [Editing](#editing)). |
 | **Ctrl+Alt+B** | Breakpoint list (see [Debugging](#debugging-through-visual-studio)). |
 | `Editor.ListBookmarks` (no default key; command palette) | Bookmark list (see [Editing](#editing)). |
+
+### Go to definition: choosing the target
+
+Some names stand for more than one thing you may want to see. For these F12 (and the middle-mouse
+`GotoSymbolDefinitionUnderMouse`) does not jump at once but opens a small **chooser** next to the caret. Every row has the
+kind of the target (`class Widget`, `constructor Widget(int)`), the source line, and `file:line`:
+
+| You press F12 on | The chooser lists | Selected |
+| --- | --- | --- |
+| a name introduced by a **using-declaration** (`using ns::f;` then `f()`; `using ns::Type;` then `Type t;`) | `using-declaration`, then the entity (`function ns::f(int)`) | the entity |
+| a **typedef / alias / alias template** (`typedef Foo Bar; Bar x;`, `using Bar = Foo;`, `template <class T> using Vec = Holder<T>;`) | every alias on the way, nearest first (`alias B3 → B2`, `typedef B2 → B1`, `typedef B1 → Foo`), then the real entity (`struct Foo`) | the entity |
+| a **constructor call**: `Widget(2)`, `Widget{2}`, `Widget w(2);`, `Widget w{2};`, `new Widget(2)`, a base or delegating `: Widget(1)` | `class Widget`, then the constructor that is called (`constructor Widget(int)`; the overload the compiler picks, at its definition) | the constructor |
+| a call of an **inherited** constructor (`using Base::Base;`, then `Derived d(1)`) | `struct Derived`, then the constructor that was resolved (`constructor Base(int) (inherited)`) | that constructor |
+
+Keys: **Up / Down** move, **Enter** jumps (it is a navigation jump, so **Back** returns), **Escape** closes it and nothing
+moves; a click on a row jumps. Only the keyboard is needed.
+
+Not a choice, so F12 jumps at once as before: a name with a single meaning, a `typedef` of a builtin type (`typedef int
+myint`; the status bar shows `typedef myint → int`), a class with **no written constructor** (the implicit one: tenfold
+jumps to the class and the status bar says `... (implicit constructor)`), and aggregate initialisation (`Plain p{1, 2}`
+calls no constructor). F12 on a declaration itself (the name of a constructor, the alias being declared) is unchanged.
+
+The chooser needs clangd. Without it the instant answer is the entity or the class, as before. While clangd is still
+working, a lone answer that might become a choice waits for it (status bar: `waiting for clangd`) instead of jumping and
+then asking; if clangd fails, tenfold jumps to the instant answer.
+
 
 Hover: rest the mouse on an identifier for 400 ms. Diagnostics under the mouse are shown first (the last build's
 message for that spot follows, marked `build`), then clangd's hover text. Completion opens at the caret after `.`,

@@ -48,8 +48,8 @@ def use_trace -> trace_on
 def use_trace_b -> trace_off
 def use_checks -> ndebug_no
 def use_checks_b -> ndebug_yes
-def use_MaybeInt -> maybe_int_opt
-def use_MaybeInt_b -> maybe_int_opt
+def use_MaybeInt >= maybe_int_opt  # the alias and std::optional (a system header: not an anchor)
+def use_MaybeInt_b >= maybe_int_opt
 hover use_trace ~ "trace_name" "std::string"
 hover use_trace_b ~ "trace_name" "std::string"
 hover use_MaybeInt ~ "MaybeInt"

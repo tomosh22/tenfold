@@ -50,6 +50,11 @@ class ListPopup : public Widget {
   void setStatus(std::string s);  // dim text right of the input / title ("verifying...")
   void setEmptyText(std::string s) { empty_ = std::move(s); }
   void setPreviewEnabled(bool on);  // reserves the right pane (even while empty)
+  // A small popup next to a spot (the caret) instead of the centred one: below `r`, or above it when there is no room
+  // below, kept inside the window. `clearAnchor` goes back to the centred popup.
+  void setAnchor(RectF r);
+  void clearAnchor();
+  bool anchored() const { return anchored_; }
   void setPreview(ListPreview p);
   bool previewEnabled() const { return preview_; }
   const ListPreview& previewContent() const { return previewContent_; }
@@ -102,7 +107,8 @@ class ListPopup : public Widget {
   InputLine* input_ = nullptr;
   std::vector<ListRow> rows_;
   int selected_ = -1, first_ = 0, hover_ = -1, maxRows_ = 12;
-  bool preview_ = false, closedFired_ = false;
+  bool preview_ = false, closedFired_ = false, anchored_ = false;
+  RectF anchor_;
   std::string title_, status_, empty_ = "No results";
   ListPreview previewContent_;
   std::function<void(const std::string&)> query_;

@@ -156,7 +156,9 @@ class Editor {
 
   // --- semantic commands (results arrive via post(), i.e. on the pump thread) ---
   // If the result is a single unambiguous location the editor jumps there and
-  // then calls `done`. With several candidates it does not jump; the UI picks.
+  // then calls `done`. With several candidates it does not jump; the UI picks. gotoDefinition's targets may carry a
+  // SymbolLocation::label (a choice through a using-declaration / alias, on a constructor call: W10-CHOOSE); a lone
+  // approximate answer flagged `refinable` is held back until clangd has answered (see deliverDefinition).
   using NavResult = std::function<void(Confidence, const std::vector<SymbolLocation>&, const std::string& error)>;
   void gotoDefinition(NavResult done);
   // Definition of the symbol at `pos` of `doc` (the symbol under the mouse), not at the caret. Jumps like
@@ -545,6 +547,8 @@ class Editor {
   void refreshBuildSystem(bool forceRestart = false, std::function<void()> done = {});
   std::optional<BuildMessage> stepBuildMessage(int dir, std::string* error);
   void addBuildMessage(BuildMessage m);
+  void deliverDefinition(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done,
+                         const Location* origin, std::shared_ptr<void> runState);
   void autoJump(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done,
                 const Location* origin = nullptr);
   // Wraps `done` so it runs on the pump thread.

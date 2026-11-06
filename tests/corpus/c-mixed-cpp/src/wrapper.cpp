@@ -2,7 +2,7 @@
 
 namespace media {
 
-/*@Codec_ctor_def*/Codec::Codec(int level) {
+Codec::/*@Codec_ctor_def*/Codec(int level) {
     codec_opts opts = { level, /*@use_cpp_notify_cb*/cpp_notify, nullptr };
     handle_ = /*@use_codec_new*/codec_new(&opts);
 }

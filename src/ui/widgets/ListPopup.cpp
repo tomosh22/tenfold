@@ -42,6 +42,13 @@ RectF ListPopup::popupRect() const {
   const float cell = root()->text().cellWidth(), margin = 16;
   const float w = std::min(b.w - 2 * margin, cell * (preview_ ? 120 : 80));
   const float h = std::min(b.h - 2 * margin, headerHeight() + rowHeight() * maxRows_ + theme().verticalPad);
+  if (anchored_) {
+    const float x = std::max(b.x + margin, std::min(anchor_.x, b.x + b.w - w - margin));
+    float y = anchor_.y + anchor_.h + 2;
+    if (y + h > b.y + b.h - margin) y = anchor_.y - h - 2;
+    y = std::max(b.y + margin, std::min(y, b.y + b.h - h - margin));
+    return {x, y, w, h};
+  }
   return {b.x + (b.w - w) / 2, b.y + std::min(b.h * 0.12f, std::max(0.0f, b.h - h - margin)), w, h};
 }
 
@@ -73,6 +80,17 @@ void ListPopup::onLayout() {
   const RectF p = popupRect();
   const float pad = theme().padding, sw = status_.empty() ? 0 : root()->text().measure(status_) + pad;
   input_->layout({p.x + pad, p.y + theme().verticalPad, std::max(0.0f, p.w - 2 * pad - sw), input_->preferredHeight()});
+}
+
+void ListPopup::setAnchor(RectF r) {
+  anchor_ = r;
+  anchored_ = true;
+  if (root()) root()->requestLayout();
+}
+
+void ListPopup::clearAnchor() {
+  anchored_ = false;
+  if (root()) root()->requestLayout();
 }
 
 void ListPopup::setMaxVisibleRows(int n) {

@@ -12,7 +12,7 @@ fast hover use_make_default_shape ~ "make_default_shape"
 fast def use_length_sq -> Vec2_length_sq_def
 
 # ---- definition, declaration, type definition ----
-def use_Vec2f -> Vec2f
+def use_Vec2f = Vec2f Vec2 default Vec2
 def use_length_sq -> Vec2_length_sq_def
 decl use_length_sq -> Vec2_length_sq_decl
 def use_wx -> Vec2_x

@@ -1,8 +1,9 @@
 # oop-ctors: constructors (default, explicit, delegating, copy, move, inherited with `using Base::Base`), destructors,
 # conversion operators, enums vs enum classes with the same enumerators, bit-fields, unions, static members defined in a
 # .cpp, nested / local classes with the same names (Node, get, size), range-for over a custom container.
-# Open question: a click on the *type name* of `Widget(2)` / `new Widget(5)` / a mem-initializer: C++ says a constructor
-# is called, clangd answers the class. Both are accepted (`Widget | Widget_ctor_int`) rather than guessing.
+# A click on the *type name* of `Widget(2)` / `new Widget(5)` / a mem-initializer calls a constructor; clangd answers the
+# class. The user decided (W10-CHOOSE) to choose between the class and the constructor, so those lines check the whole
+# list (`=`) and which entry the chooser selects (`default`).
 
 # ---- fast tier ----
 fast def use_Registry_instance -> Registry_instance | Registry_instance_def
@@ -68,15 +69,25 @@ def Derived_dtor -> Derived_dtor_def
 decl Derived_dtor_def -> Derived_dtor
 
 # ---- constructor calls, delegating / inherited constructors ----
-def use_deleg -> Widget | Widget_ctor_int
-def use_deleg_wh -> Widget | Widget_ctor_int
-def use_new_int -> Widget | Widget_ctor_int
-def use_temp_int -> Widget | Widget_ctor_int
-def use_temp_wh -> Widget | Widget_ctor_wh
-def use_Base_init -> Base | Base_ctor_int
-def use_Derived_init -> Derived | Base_ctor_int
-def use_Derived_temp -> Derived | Base_ctor_int
-def use_Derived_temp2 -> Derived | Base_ctor_ii
+def use_deleg = Widget Widget_ctor_int_def default Widget_ctor_int_def  # `: Widget(1)` delegates to Widget(int)
+def use_deleg_wh = Widget Widget_ctor_int_def default Widget_ctor_int_def  # `: Widget(w * h)`
+def use_new_int = Widget Widget_ctor_int_def default Widget_ctor_int_def  # new Widget(5)
+def use_temp_int = Widget Widget_ctor_int_def default Widget_ctor_int_def  # Widget(2)
+def use_temp_wh = Widget Widget_ctor_wh_def default Widget_ctor_wh_def  # Widget(2, 3): the overload with two parameters
+def use_var_int = Widget Widget_ctor_int_def default Widget_ctor_int_def  # Widget k(6);
+def use_var_brace = Widget Widget_ctor_int_def default Widget_ctor_int_def  # Widget j{4};
+def use_temp_brace = Widget Widget_ctor_int_def default Widget_ctor_int_def  # Widget{7}
+def use_Base_init = Base Base_ctor_int default Base_ctor_int  # `: Base(0)` (inline constructor: its declaration is its definition)
+def use_Derived_init = Derived Base_ctor_int default Base_ctor_int  # `: Derived(v)`: the inherited Base(int), not the using-declaration
+def use_Derived_temp = Derived Base_ctor_int default Base_ctor_int
+def use_Derived_temp2 = Derived Base_ctor_ii default Base_ctor_ii
+def use_Sprocket_default = Sprocket Sprocket_ctor default Sprocket_ctor  # a written `= default` constructor is a constructor
+def use_Sprocket_int = Sprocket Sprocket_ctor_int default Sprocket_ctor_int
+# no written constructor: the class is the single target (the editor jumps; it says "implicit constructor")
+def use_Gadget_temp = Gadget
+def use_Gadget_var = Gadget
+# aggregate initialisation calls no constructor
+def use_Plain_brace = Plain
 def use_make -> Widget_make_def
 decl use_make -> Widget_make
 def use_dtor_call -> Widget_dtor_def

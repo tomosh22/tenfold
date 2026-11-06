@@ -35,8 +35,8 @@ def use_cpp_only_c -> cpp_only_c_def
 decl use_cpp_only_c -> cpp_only_c_decl
 
 # ---- types shared by C and C++ ----
-def use_codec_td_main -> codec_td
-def use_codec_td_member -> codec_td
+def use_codec_td_main = codec_td codec_tag_def default codec_tag_def
+def use_codec_td_member = codec_td codec_tag_def default codec_tag_def
 def use_count_c -> codec_count
 def use_opts_cb_c -> opts_cb
 def use_level_main -> opts_level
@@ -48,7 +48,7 @@ hover use_codec_td_main ~ "codec"
 hover use_level_main ~ "level" "int"
 
 # ---- C++ class wrapping the handle ----
-def use_Codec -> Codec | Codec_ctor | Codec_ctor_def
+def use_Codec = Codec Codec_ctor_def default Codec_ctor_def
 def use_Codec_run -> Codec_run_def
 decl use_Codec_run -> Codec_run
 def use_ICodec -> ICodec

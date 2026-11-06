@@ -18,8 +18,8 @@ fast sym "config_level" -> config_level_fn
 fast sym "far_sum" -> far_user
 
 # ---- .hh / .inl / .tpp ----
-def use_Vec2i -> Vec2i
-def use_Vec -> Vec
+def use_Vec2i = Vec2i Vec Vec_ctor_def default Vec_ctor_def  # `Vec2i v(1, 2)`: the alias, the template it names, the constructor called
+def use_Vec = Vec Vec_ctor_def default Vec_ctor_def
 def use_dot -> Vec_dot_def
 decl use_dot -> Vec_dot_decl
 def use_len2 -> Vec_len2_def

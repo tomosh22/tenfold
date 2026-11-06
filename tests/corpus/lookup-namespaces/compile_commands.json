@@ -4,4 +4,6 @@
 {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/anon_a.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/anon_a.cpp"]},
 {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/anon_b.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/anon_b.cpp"]},
 {"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/use.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/use.cpp"]}
+,
+{"directory":"@CORPUS_ROOT@","file":"@CORPUS_ROOT@/src/alias_use.cpp","arguments":["clang++","-std=c++20","-I@CORPUS_ROOT@/include","-c","@CORPUS_ROOT@/src/alias_use.cpp"]}
 ]

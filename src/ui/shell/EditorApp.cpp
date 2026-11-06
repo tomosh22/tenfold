@@ -1338,6 +1338,10 @@ void EditorApp::showNavResults(uint64_t token, const std::string& title, size_t 
   navResults_->close();
   if (!err.empty()) setMessage(err, kMessageMs);
   else if (locs.empty() && c == Confidence::Authoritative) setMessage("No results", kMessageMs);
+  else if (locs.size() == 1 && c == Confidence::Approximate && locs[0].refinable)
+    setMessage(title + ": waiting for clangd (an alias or a constructor call may offer a choice)", kMessageMs);
+  else if (locs.size() == 1 && !locs[0].label.empty())  // a single target that has something to say
+    setMessage(title + ": " + locs[0].label, kMessageMs);
 }
 
 void EditorApp::setMessage(const std::string& text, int ttlMs, bool pending) {
@@ -1513,6 +1517,9 @@ void EditorApp::runCommandId(const std::string& written, const std::string& arg,
     // itself for a single definition/declaration, so only References lists one location.
     const uint64_t token = ++navToken_;
     navResults_->close();
+    navResults_->clearAnchor();  // a chooser appears at the caret
+    if (auto* tv = dynamic_cast<TextView*>(root_.focused()))
+      navResults_->setAnchor(tv->caretRect(editor_.cursor().pos));
     const Command* c = registry_.find(cmdId);
     const std::string title = c ? c->name : cmdId;
     const size_t minResults = cmdId == "Editor.FindReferences" ? 1 : 2;
@@ -1653,6 +1660,7 @@ void EditorApp::bindParserCommands() {
           setMessage("No symbol under the mouse", kMessageMs);
           return true;
         }
+        navResults_->setAnchor(view->caretRect(pos));  // the chooser appears at the symbol that was clicked
         c.editor->gotoDefinitionAt(*view->document(), pos, c.onNavResult);
         return true;
       },
