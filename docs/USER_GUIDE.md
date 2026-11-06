@@ -261,7 +261,15 @@ message for that spot follows, marked `build`), then clangd's hover text. Comple
 ## Editing
 
 The text model is UTF-8. A file that is not valid UTF-8 opens as Windows-1252 (Latin-1 / "ANSI") or, with a BOM, as UTF-16,
-and is saved back in the same encoding (a character it cannot hold makes the save write UTF-8 and logs a warning). Line
+and is saved back in the same encoding. If the text holds a character that encoding cannot hold (a Windows-1252 file
+with `漢` or an emoji in it; UTF-16 can hold everything except stray bytes), tenfold **refuses to save**: nothing is written, the
+file stays modified, and a dialog lists the offending characters (the character itself, its `U+XXXX` code point and
+`line, column`; the first eight, then "and N more") and says which encoding cannot hold them. **Enter** (or a click) on a
+character jumps to it, **Escape** closes the dialog; remove or replace the characters and save again. The same happens
+for Save All (the other files are still saved), when you close a tab or quit and answer Save (the tab stays open, the
+quit is cancelled), and when a rename writes closed files (they stay open and modified). Replace in Files does not write
+a closed Windows-1252 file when the replacement text has such a character, and says so. There is no command to change a
+file's encoding yet. Line
 endings LF, CRLF and classic Mac CR are recognised; the most frequent one is written on save (`Editor.LineEndingLF` /
 `Editor.LineEndingCRLF` convert; they have no default key).
 

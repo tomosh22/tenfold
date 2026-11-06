@@ -29,7 +29,8 @@ decided by the user). Each has a default we implement until answered.
 ## User decisions of 2026-11-06 (these override the defaults written further down)
 
 * **Characters the file's encoding cannot hold:** show the user the character(s) (each one, with its line and column and
-  its code point) and **refuse to save**. Replaces the W9-FIX-ENC default "save as UTF-8".
+  its code point) and **refuse to save**. Replaces the W9-FIX-ENC default "save as UTF-8". *Implemented (W10-ENC), see
+  "W9 detail: encodings, line endings and the BOM".*
 * **Line endings:** handle them **the same way as Visual Studio** (load, display, typing new lines, mixed endings, the
   consistency check, save). Replaces the W9-FIX-ENC default "normalise to the dominant ending on save".
 * **Go to definition through a `using` declaration or a `typedef` / alias:** let the user **choose** between the
@@ -332,19 +333,38 @@ Decided without a user decision because the alternative was the editor terminati
   BOM-less UTF-16/32: such a file loads as Windows-1252, i.e. readable only as far as its ASCII goes, but it never
   fails and is written back byte for byte. There is no "reopen with encoding" command and the status bar does not
   show the encoding yet.
-* **Saving.** The file is written in the encoding it was read in; the BOM of UTF-8/UTF-16 files is kept. If an edit
-  adds a character the encoding cannot represent (only Windows-1252 has this), the file is **saved as UTF-8**, a
-  warning is logged (`Document::saveNote()`), and the document is UTF-8 from then on. The alternative, refusing to
-  save until the character is removed, was rejected because it can leave a user unable to save. A prompt would be
-  the 10x/Visual Studio answer and needs UI.
+* **Saving.** The file is written in the encoding it was read in; the BOM of UTF-8/UTF-16 files is kept. If the text
+  holds a character that encoding cannot represent, the save is **refused** (user decision of 2026-11-06, implemented
+  by W10-ENC; this replaced the W9-FIX-ENC default of writing UTF-8 instead). Nothing is written, the document stays
+  dirty and keeps its encoding, and the user gets a dialog (`SaveRefusedDialog`) that shows each offending character
+  as text with its `U+XXXX`, `line:column`, says that the file was not saved and why (the file's encoding), and
+  jumps to the selected character on Enter (`Editor::gotoLocation`); the first 8 are listed, then "and M more"
+  (all are counted; the engine keeps the first 200). A status-bar message says the same in one line. What can be
+  refused: Windows-1252 cannot hold anything outside its 256 characters (so `漢`, an emoji, `≠` are refused
+  while `€` and `é` are fine); UTF-16 holds every Unicode scalar value (surrogate pairs), so only text that is not
+  UTF-8 at all is refused there: a stray byte or an encoded lone surrogate (`ED A0 80`), which would otherwise
+  silently become U+FFFD; UTF-8 never refuses (it writes such bytes as they are). It applies to every path that
+  writes a document: File.Save, File.SaveAll (the other documents are still saved, the refused ones are listed
+  together), Save As of an untitled document (the document stays untitled), the save on closing a tab and on quit
+  (nothing is closed or quit; the other dirty documents are still saved), and renames that write closed files (the
+  file stays open and dirty, `RenameResult::refused`). Replace in files on a **closed** Windows-1252 file converts the
+  replacement to Windows-1252 and, if it contains an unencodable character, does not write that file and reports it
+  (`ReplaceInFilesResult::refused`; the characters are placed at the matches, columns of the decoded file); open
+  documents are edited in memory and are refused when they are saved. The corpus harness restores files byte for byte
+  from raw copies and never goes through `Document::saveToDisk`, so it cannot hit this. There is no auto-save and no
+  save-before-build in tenfold yet; when they come they must use `Editor::save` and show the same dialog.
+  **There is no command to change a document's encoding** (`Document::setEncoding` exists, nothing calls it), so the
+  only way out of a refusal is to edit the text; "Save with encoding..." / "Reopen with encoding..." would be the
+  next step (Visual Studio has both) and was not added here.
 * **Line endings.** A line ends at CRLF, LF or a lone CR. A document has one ending (the most frequent; ties LF, then
   CRLF) written for every line, so a file with mixed endings is normalised when saved; saving is not triggered by
   opening. Per-line preservation would need a parallel per-line array in `TextBuffer`; say if mixed files must
   survive a save untouched. The status bar shows `CR` for classic Mac files; the line-ending commands only
   switch between LF and CRLF.
 * **Find in files / replace in files** still search the raw bytes of a file: for a Windows-1252 file the match text is
-  not valid UTF-8 and its columns are raw byte columns, and a replacement is inserted as UTF-8. Decoding there is a
-  follow-up.
+  not valid UTF-8 and its columns are raw byte columns. Replacing in a closed Windows-1252 file converts the
+  replacement to Windows-1252 first (and refuses unencodable characters, see "Saving"); a UTF-16 file is never
+  written by replace in files. Decoding the search itself is a follow-up.
 * **Locations in open Windows-1252 files.** clangd's answers that come from data computed on the raw disk bytes (a
   stale preamble of another file, the background index) carry raw byte columns, while the open document is decoded;
   such a location can be a few columns off in a line with non-ASCII bytes before the symbol, until clangd reparses.

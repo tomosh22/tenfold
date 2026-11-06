@@ -794,12 +794,18 @@ bool Editor::moveToMatchingBracket() {
   return moved;
 }
 
-bool Editor::saveAll(std::string* error) {
+bool Editor::saveAll(std::string* error, std::vector<SaveRefusal>* refused) {
   bool ok = true;
   for (Document* d : documents()) {
     if (!d->dirty()) continue;
     std::string err;
-    if (save(*d, &err)) continue;
+    UnencodableReport rep;
+    if (save(*d, &err, &rep)) continue;
+    if (!rep.empty() && refused) {  // reported through `refused` instead of `error`
+      refused->push_back({d->path(), std::move(rep)});
+      ok = false;
+      continue;
+    }
     if (ok && error) *error = err.empty() ? "cannot save " + d->path().filename().string() : err;
     ok = false;
   }

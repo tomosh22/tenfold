@@ -7,16 +7,24 @@ constexpr size_t kListed = 10;
 }
 
 bool UnsavedPrompt::saveAll(const std::vector<std::filesystem::path>& paths) {
+  std::vector<SaveRefusal> refused;
   for (const auto& path : paths) {
     Document* d = env_.editor.document(path);
     if (!d || !d->dirty()) continue;
     std::string err;
-    if (env_.editor.save(*d, &err)) continue;
+    UnencodableReport rep;
+    if (env_.editor.save(*d, &err, &rep)) continue;
+    if (!rep.empty()) {  // a character the file's encoding cannot hold: the rest is still saved, the dialog lists these
+      refused.push_back({path, std::move(rep)});
+      continue;
+    }
     env_.say("Cannot save " + relativePath(env_.editor.workspace().root(), path) + ": " +
              (err.empty() ? std::string("unknown error") : err));
     return false;  // stop at the first failure: the user fixes it (check out the file) and tries again
   }
-  return true;
+  if (refused.empty()) return true;
+  env_.refused(std::move(refused));  // nothing proceeds: the close / quit is cancelled for these documents
+  return false;
 }
 
 void UnsavedPrompt::ask(const std::vector<std::filesystem::path>& paths, Proceed proceed) {

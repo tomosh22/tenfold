@@ -869,10 +869,21 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   bytes map to one code point each, the five undefined ones to the C1 controls), so *every* byte string loads, never
   throws, and converts back byte for byte. `Document::encoding()` records the result.
 * *Saving* writes the buffer in `Document::encoding()` with the buffer's line ending: an unchanged file with a uniform
-  line ending is written byte for byte. A character the file's code page cannot hold (an edit adds `U+2260` to a
-  Windows-1252 file) makes `saveToDisk` write the file as UTF-8, switch `encoding()` to Utf8 and set `saveNote()`,
-  which `Editor` logs as a warning; nothing the user typed is lost and nothing is refused (OPEN_QUESTIONS, "W9
-  detail: encodings").
+  line ending is written byte for byte. A character the encoding cannot hold is **refused** (W10-ENC, user decision of
+  2026-11-06): `Document::saveToDisk` first calls `findUnencodable()` (`collectUnencodable` in `core/TextEncoding.h`
+  scans every line; an `UnencodableReport` holds the first 200 characters as code point, text, line and byte column,
+  and counts all). If it finds any, `saveToDisk` returns false with the sentence in `error` and the report in its
+  `refused` argument, writes nothing, and the document stays dirty and in its encoding. UTF-8 never refuses; UTF-16
+  refuses only bytes that are not UTF-8 (stray bytes, encoded lone surrogates); Windows-1252 refuses everything outside
+  its repertoire. `encodeText` itself also fails on those. `Editor::save(doc, &error, &refused)`, `saveAs` and
+  `saveAll(&error, &refusals)` pass the report up (`SaveRefusal` = file + report; `saveAll` saves the other documents
+  and lists the refused ones), `applyRenameEdits` collects `RenameResult::refused`, and `replaceMatchesInFile`
+  (closed files; it converts the replacement to Windows-1252 for such a file and writes nothing when it cannot)
+  fills `ReplaceInFilesResult::refused`. The UI funnels every refusal through `PickerEnv::saveRefused`, which
+  `EditorApp` turns into the status-bar message and `SaveRefusedDialog` (characters as text, `U+XXXX`, `line:column`,
+  first 8 and "and M more", Enter goes there through `gotoLocation`); the save on close / quit keeps the document
+  open (`UnsavedPrompt::saveAll` returns false after saving the rest). The old `saveNote()` and the silent switch to
+  UTF-8 are gone. No command changes a document's encoding yet (OPEN_QUESTIONS, "W9 detail: encodings").
 * *Line endings.* A line ends at `\r\n`, `\n` or a lone `\r` (clang's rule) in `TextBuffer::setText` and in text passed
   to `replace()` / `replaceMany()`, in the fast lexer, in find-in-files (`TextSearch`, `ReplaceInFiles`) and in the
   corpus anchor scanner. `lineEnding()` is the dominant ending (ties: LF, then CRLF); `mixedLineEndings()` tells that

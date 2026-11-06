@@ -48,6 +48,7 @@ std::string replaceMatchesInText(std::string_view text, std::vector<SearchMatch>
     }
     out.append(text.substr(done, at - done));
     out += replacement;
+    local.appliedAt.emplace_back(m.line, m.column);
     done = at + static_cast<size_t>(m.length);
     ++local.replaced;
   }
@@ -55,12 +56,13 @@ std::string replaceMatchesInText(std::string_view text, std::vector<SearchMatch>
   if (counts) {
     counts->replaced += local.replaced;
     counts->stale += local.stale;
+    counts->appliedAt.insert(counts->appliedAt.end(), local.appliedAt.begin(), local.appliedAt.end());
   }
   return out;
 }
 
 bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& matches, const std::string& replacement,
-                          ReplaceCounts* counts, std::string* error) {
+                          ReplaceCounts* counts, std::string* error, UnencodableReport* refused) {
   auto fail = [&](const std::string& m) {
     if (error) *error = m;
     return false;
@@ -73,8 +75,46 @@ bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& 
     ss << in.rdbuf();
     text = ss.str();
   }
+  const Encoding enc = isValidUtf8(text) ? Encoding::Utf8 : decodeFileBytes(text).encoding;
+  std::string rep = replacement;  // in the file's own encoding
+  if (enc == Encoding::Windows1252) {
+    if (!encodeText(replacement, enc, rep)) {
+      // Find out where it would have gone (the matches that are still valid), then leave the file alone.
+      ReplaceCounts probe;
+      replaceMatchesInText(text, matches, std::string(), &probe);
+      if (counts) counts->stale += probe.stale;
+      if (probe.replaced == 0) return true;  // nothing to replace, so nothing to refuse
+      UnencodableReport bad;
+      bad.encoding = enc;
+      std::vector<size_t> starts{0};  // line starts, by replaceMatchesInText's rule (CRLF, LF, lone CR)
+      for (size_t i = 0; i < text.size(); ++i)
+        if (text[i] == '\n' || (text[i] == '\r' && !(i + 1 < text.size() && text[i + 1] == '\n')))
+          starts.push_back(i + 1);
+      for (const auto& [line, column] : probe.appliedAt) {
+        // Matches are raw byte columns; in Windows-1252 every byte is one character, so decode the line start.
+        const size_t from = starts[static_cast<size_t>(line)];
+        const int col =
+            static_cast<int>(decodeAs(std::string_view(text).substr(from, static_cast<size_t>(column)), enc).size());
+        UnencodableReport one;
+        one.encoding = enc;
+        collectUnencodable(replacement, line, one);
+        for (UnencodableChar c : one.chars) {
+          c.column = col;
+          ++bad.total;
+          if (bad.chars.size() < kMaxUnencodableListed) bad.chars.push_back(std::move(c));
+        }
+        bad.total += one.total - one.chars.size();
+      }
+      if (refused) *refused = bad;
+      return fail(file.filename().string() + " was not changed: " + describeUnencodable(bad) +
+                  " (the replacement text)");
+    }
+  } else if (enc != Encoding::Utf8) {
+    return fail(file.filename().string() + " was not changed: it is " + encodingName(enc) +
+                ", which find in files does not read");
+  }
   ReplaceCounts local;
-  const std::string out = replaceMatchesInText(text, matches, replacement, &local);
+  const std::string out = replaceMatchesInText(text, matches, rep, &local);
   if (counts) {
     counts->replaced += local.replaced;
     counts->stale += local.stale;

@@ -34,10 +34,16 @@ struct PickerEnv {
   LineSource lines;
   std::function<int64_t()> clock;                   // monotonic ms (the app's event clock)
   std::function<void(const std::string&)> message;  // status-bar message (may be empty)
-  bool preview = true;                              // setting picker.preview
+  // Saves the engine refused because the file's encoding cannot hold a character: the app shows SaveRefusedDialog
+  // (the characters, why, go to the first one) and a status-bar message. May be empty (headless).
+  std::function<void(std::vector<SaveRefusal>)> saveRefused;
+  bool preview = true;  // setting picker.preview
   PickerEnv(RootWidget& r, Editor& e) : root(r), editor(e), lines(e) {}
   void say(const std::string& m) const {
     if (message) message(m);
+  }
+  void refused(std::vector<SaveRefusal> r) const {
+    if (!r.empty() && saveRefused) saveRefused(std::move(r));
   }
 };
 

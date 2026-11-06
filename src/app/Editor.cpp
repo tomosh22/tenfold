@@ -316,7 +316,7 @@ bool Editor::close(const fs::path& path) {
   return true;
 }
 
-bool Editor::save(Document& doc, std::string* error) {
+bool Editor::save(Document& doc, std::string* error, UnencodableReport* refused) {
   if (doc.isUntitled()) {
     if (error) *error = "it has no file name yet";
     return false;
@@ -353,8 +353,14 @@ bool Editor::save(Document& doc, std::string* error) {
       return false;
     }
   }
-  if (!doc.saveToDisk(error)) return false;
-  noteSaveEncoding(doc);
+  UnencodableReport rep;
+  if (!doc.saveToDisk(error, &rep)) {
+    if (!rep.empty()) {
+      noteSaveRefused(doc, rep);
+      if (refused) *refused = std::move(rep);
+    }
+    return false;
+  }
   saveBookmarks();
   saveBreakpoints();
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
@@ -376,7 +382,7 @@ Document* Editor::newUntitled(LineEnding lineEnding) {
   }
 }
 
-bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error) {
+bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error, UnencodableReport* refused) {
   auto fail = [&](const std::string& m) {
     if (error) *error = m;
     return false;
@@ -393,11 +399,15 @@ bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error) {
   if (it == docs_.end() || it->second.get() != &doc) return fail("not an open document");
   const fs::path oldPath = doc.path();
   doc.setPath(path);
-  if (!doc.saveToDisk(error)) {
-    doc.setPath(oldPath);  // cannot happen with a path that was just checked, but never leave a half-renamed document
+  UnencodableReport rep;
+  if (!doc.saveToDisk(error, &rep)) {
+    doc.revertToUntitled(oldPath);  // never leave a half-renamed document: still untitled, nothing written
+    if (!rep.empty()) {
+      noteSaveRefused(doc, rep);
+      if (refused) *refused = std::move(rep);
+    }
     return false;
   }
-  noteSaveEncoding(doc);
   auto owned = std::move(it->second);
   docs_.erase(it);
   const std::string key = docKey(path);
@@ -413,9 +423,9 @@ bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error) {
   return true;
 }
 
-// A save that had to switch the file's encoding to UTF-8 (a character the old code page cannot hold) is logged.
-void Editor::noteSaveEncoding(const Document& doc) {
-  if (!doc.saveNote().empty() && opt_.log) opt_.log("warning: " + doc.saveNote());
+// A refused save (a character the file's encoding cannot hold) is logged.
+void Editor::noteSaveRefused(const Document& doc, const UnencodableReport& rep) {
+  if (opt_.log) opt_.log("warning: " + doc.path().filename().string() + " was not saved: " + describeUnencodable(rep));
 }
 
 bool Editor::reloadFromDisk(Document& doc, std::string* error) {
@@ -1974,8 +1984,11 @@ Editor::ReplaceInFilesResult Editor::replaceInFiles(const std::vector<SearchMatc
     if (document(slot.first)) continue;
     ReplaceCounts c;
     std::string e;
-    if (!replaceMatchesInFile(slot.first, slot.second, replacement, &c, &e)) {
+    UnencodableReport rep;
+    if (!replaceMatchesInFile(slot.first, slot.second, replacement, &c, &e, &rep)) {
       res.errors.push_back(e);
+      res.stale += c.stale;
+      if (!rep.empty()) res.refused.push_back({slot.first, std::move(rep)});
       continue;
     }
     res.replaced += c.replaced;
@@ -2192,11 +2205,15 @@ Editor::RenameResult Editor::applyRenameEdits(const FileEdits& edits, std::strin
     if (!nd) continue;
     if (std::find(wasClosed.begin(), wasClosed.end(), f) == wasClosed.end()) {
       res.updated.push_back(f);
-    } else if (save(*nd, &saveError)) {
-      close(f);
-      res.written.push_back(f);
     } else {
-      res.unsaved.push_back(f);
+      UnencodableReport rep;
+      if (save(*nd, &saveError, &rep)) {
+        close(f);
+        res.written.push_back(f);
+      } else {
+        res.unsaved.push_back(f);
+        if (!rep.empty()) res.refused.push_back({nd->path(), std::move(rep)});
+      }
     }
   }
   editing_.trimTrailingWhitespace = trim;
