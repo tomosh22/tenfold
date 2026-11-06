@@ -55,6 +55,9 @@ struct PaintContext {
   void text(float x, float y, std::string_view s, Color c, const RectF& clip) {
     textRenderer.drawText(x, y, s, c, clip);
   }
+  void textItalic(float x, float y, std::string_view s, Color c, const RectF& clip) {
+    textRenderer.drawTextItalic(x, y, s, c, clip);
+  }
   float measure(std::string_view s) const { return textRenderer.measure(s); }
   float lineHeight() const { return textRenderer.lineHeight(); }
 };

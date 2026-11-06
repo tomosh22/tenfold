@@ -120,18 +120,43 @@ void TextRenderer::record(const std::vector<Color>& palette, const RectF& clip) 
       if (q.color.r == color.r && q.color.g == color.g && q.color.b == color.b && q.color.a == color.a) p = &q;
     if (!p) p = &pending_.emplace_back(Pending{color, {}});
     for (uint32_t k = run.firstQuad; k < run.firstQuad + run.count; ++k) {
-      GlyphQuad q = tmp_.quads[k];
-      if (q.x1 <= clip.x || q.x0 >= cx1 || q.y1 <= clip.y || q.y0 >= cy1) continue;
-      auto trim = [](float& a0, float& a1, float& t0, float& t1, float lo, float hi) {
-        const float span = a1 - a0, k = (t1 - t0) / span;
-        if (a0 < lo) t0 += (lo - a0) * k, a0 = lo;
-        if (a1 > hi) t1 -= (a1 - hi) * k, a1 = hi;
-      };
-      trim(q.x0, q.x1, q.u0, q.u1, clip.x, cx1);
-      trim(q.y0, q.y1, q.v0, q.v1, clip.y, cy1);
-      p->quads.push_back(q);
+      const GlyphQuad whole = tmp_.quads[k];
+      // Synthetic italic (there is no italic face): the glyph is cut into horizontal bands, each shifted sideways in
+      // proportion to its height above the baseline, which approximates a shear without a new shader.
+      const int bands = italic_ ? kItalicBands : 1;
+      for (int band = 0; band < bands; ++band) {
+        GlyphQuad q = whole;
+        if (bands > 1) {
+          const float h = whole.y1 - whole.y0, vh = whole.v1 - whole.v0;
+          q.y0 = whole.y0 + h * static_cast<float>(band) / bands;
+          q.y1 = whole.y0 + h * static_cast<float>(band + 1) / bands;
+          q.v0 = whole.v0 + vh * static_cast<float>(band) / bands;
+          q.v1 = whole.v0 + vh * static_cast<float>(band + 1) / bands;
+          const float mid = (q.y0 + q.y1) / 2;
+          const float shift = std::round((italicBase_ - mid) * kItalicSlant);  // above the baseline leans right
+          q.x0 += shift;
+          q.x1 += shift;
+        }
+        if (q.x1 <= clip.x || q.x0 >= cx1 || q.y1 <= clip.y || q.y0 >= cy1) continue;
+        auto trim = [](float& a0, float& a1, float& t0, float& t1, float lo, float hi) {
+          const float span = a1 - a0, k = (t1 - t0) / span;
+          if (a0 < lo) t0 += (lo - a0) * k, a0 = lo;
+          if (a1 > hi) t1 -= (a1 - hi) * k, a1 = hi;
+        };
+        trim(q.x0, q.x1, q.u0, q.u1, clip.x, cx1);
+        trim(q.y0, q.y1, q.v0, q.v1, clip.y, cy1);
+        p->quads.push_back(q);
+      }
     }
   }
+}
+
+void TextRenderer::drawTextItalic(float x, float y, std::string_view utf8, Color color, const RectF& clip) {
+  const FontMetrics& m = fonts_.metrics();
+  italicBase_ = y + std::round((lineHeight() - (m.ascender + m.descender)) / 2 + m.ascender);
+  italic_ = true;
+  drawText(x, y, utf8, color, clip);
+  italic_ = false;
 }
 
 bool TextRenderer::flushText(Renderer& r) {

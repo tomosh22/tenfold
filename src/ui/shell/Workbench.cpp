@@ -7,6 +7,7 @@
 #include <nlohmann/json.hpp>
 
 #include "core/JsonUtil.h"
+#include "core/PathUtil.h"
 #include "ui/features/VcsState.h"
 #include "ui/shell/DocumentView.h"
 
@@ -163,6 +164,7 @@ std::unique_ptr<Panel> Workbench::makePanel() {
   };
   raw->onCloseRequested = [this](int id) { requestCloseTab(id); };
   raw->tabs().onBeginDragOut = [this](int id, float x, float y) { beginTabDrag(id, x, y); };
+  raw->tabs().onDoubleClick = [this](int id) { promoteTab(id); };
   return p;
 }
 
@@ -599,6 +601,7 @@ int Workbench::openFile(const fs::path& path, Panel* in) {
   int id = findTab(p, *d);
   if (id < 0) id = addTabTo(p, *d, false);
   else p->setActive(id);
+  promoteTab(id);  // opening a file by name keeps it open
   setActivePanel(p);
   noteRecent(d->path());
   return id;
@@ -629,6 +632,13 @@ bool Workbench::isLastViewOfDirty(int id) const {
   for (const auto& [other, t] : tabs_)
     if (other != id && t.path == it->second.path) return false;
   return true;
+}
+
+std::vector<int> Workbench::tabsOf(const fs::path& file) const {
+  std::vector<int> out;
+  for (const auto& [id, t] : tabs_)
+    if (t.path == file) out.push_back(id);
+  return out;
 }
 
 bool Workbench::requestCloseTab(int id) {
@@ -667,6 +677,7 @@ int Workbench::openDocument(Document& d, Panel* in) {
   int id = findTab(p, d);
   if (id < 0) id = addTabTo(p, d, false);
   else p->setActive(id);
+  promoteTab(id);
   setActivePanel(p);
   noteRecent(d.path());
   return id;
@@ -685,6 +696,7 @@ void Workbench::documentRenamed(const fs::path& from, const fs::path& to) {
 bool Workbench::closeTab(int id, bool discard) {
   Panel* p = panelOf(id);
   if (!p) return false;
+  if (id == previewId_) previewId_ = -1;
   if (widgetTabs_.erase(id)) {  // a widget tab: no document behind it
     p->removeTab(id);           // destroys the widget (a terminal kills its process tree here)
     cycle_ = {};
@@ -700,7 +712,7 @@ bool Workbench::closeTab(int id, bool discard) {
   p->removeTab(id);
   tabs_.erase(id);
   cycle_ = {};
-  noteClosed(path, caret);
+  if (!quietClose_) noteClosed(path, caret);  // a replaced preview tab is not "recently closed"
   releaseDocument(path, discard);
   if (discard || !editor_.document(path)) missing_.erase(path.generic_string());
   if (p == active_) showActiveTab();
@@ -781,6 +793,7 @@ bool Workbench::moveTabImpl(int id, Panel* dst, int index) {
   } else {
     auto content = src->removeTab(id);
     dst->addTab(id, info.title, std::move(content), info.pinned);
+    if (info.preview) dst->tabs().setPreview(id, true);
     dst->tabs().setDirty(id, info.dirty);
     if (index >= 0) dst->tabs().moveTab(id, index);
   }
@@ -933,8 +946,12 @@ bool Workbench::revealDocument(Document& d) {
         p = q;
         break;
       }
-  if (id < 0) id = addTabTo(p, d, false);
-  else p->setActive(id);
+  if (id < 0) {
+    id = addTabTo(p, d, false);
+    if (wantsPreview(d)) makePreview(id);
+  } else {
+    p->setActive(id);
+  }
   if (p != active_) {
     active_ = p;
     requestLayout();
@@ -953,6 +970,11 @@ void Workbench::sync() {
     }
   }
   if (cur) lastCaret_[cur->path().generic_string()] = editor_.cursor().pos;
+  if (previewId_ >= 0) {  // an edit makes the preview tab a normal tab
+    const Document* pd = docOf(previewId_);
+    if (!pd) previewId_ = -1;
+    else if (pd->dirty()) promoteTab(previewId_);
+  }
   for (Panel* p : panels())
     for (const auto& t : p->tabs().tabs())
       if (Document* d = docOf(t.id)) {
@@ -1010,6 +1032,68 @@ void Workbench::refreshStatus() {
   }
   status_->setText("fastindex", st.fastIndexDone ? "fast index: " + std::to_string(st.fastFiles) + " files"
                                                  : "fast index: indexing");
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// Preview tab (VS-TABS T2)
+// ---------------------------------------------------------------------------------------------------------------
+
+void Workbench::setPreviewSettings(bool enabled, bool fromFindResults) {
+  previewEnabled_ = enabled;
+  previewFromFind_ = fromFindResults;
+  if (!enabled) promoteTab(previewId_);
+}
+
+bool Workbench::wantsPreview(const Document& d) const {
+  if (!previewEnabled_ || d.isUntitled()) return false;
+  if (previewNext_) return true;
+  // The debugger stepping into a file that was not open (Editor::gotoLocation "debugger" from DebugSession).
+  const auto& st = editor_.debug().currentStatement();
+  return st && editor_.debug().mode() == DebugMode::Break && pathsEqual(st->file, d.path());
+}
+
+void Workbench::makePreview(int id) {
+  if (id == previewId_) return;
+  Panel* p = panelOf(id);
+  if (!p) return;
+  if (const int old = previewId_; old >= 0) {  // a new preview replaces the old one
+    previewId_ = -1;
+    if (Panel* q = panelOf(old)) {
+      const Document* od = docOf(old);
+      if (od && od->dirty()) {
+        q->tabs().setPreview(old, false);  // cannot happen after sync(), but never close edits
+      } else {
+        quietClose_ = true;
+        closeTab(old);
+        quietClose_ = false;
+      }
+    }
+  }
+  p->tabs().setPreview(id, true);
+  previewId_ = id;
+}
+
+void Workbench::promoteTab(int id) {
+  if (id < 0 || id != previewId_) return;
+  previewId_ = -1;
+  if (Panel* p = panelOf(id)) p->tabs().setPreview(id, false);
+}
+
+void Workbench::promoteFile(const fs::path& file) {
+  if (previewId_ >= 0 && tabPath(previewId_) == file) promoteTab(previewId_);
+}
+
+void Workbench::withPreview(bool preview, const std::function<void()>& navigate) {
+  previewNext_ = preview && previewEnabled_;
+  navigate();
+  sync();
+  previewNext_ = false;
+}
+
+bool Workbench::gotoAsPreview(const Location& loc, std::string* err, const std::string& label) {
+  bool ok = false;
+  withPreview(true, [&] { ok = editor_.gotoLocation(loc, err, label); });
+  return ok;
 }
 
 // ---------------------------------------------------------------------------------------------------------------

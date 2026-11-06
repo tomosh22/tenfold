@@ -257,6 +257,9 @@ Control Insert: Terminal.Copy
 Control Shift V: Terminal.Paste
 Shift Insert: Terminal.Paste
 
+# --- Tabs (Visual Studio's Window > Restore Closed Tab; 10x binds RestoreRecentlyClosedFile to Control Shift T) ---
+Control K, Control Z: RestoreRecentlyClosedFile
+
 # --- Semantic navigation ---
 F12: GotoSymbolDefinition
 Control F12: Editor.GotoDeclaration

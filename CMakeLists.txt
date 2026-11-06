@@ -314,6 +314,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/ExternalChanges.cpp
     src/ui/features/LineEndingPrompt.cpp
     src/ui/features/UnsavedPrompt.cpp
+    src/ui/features/SwitchPanel.cpp
     src/ui/features/ParserCommands.cpp
     src/ui/features/RenameInput.cpp
     src/ui/features/FunctionPicker.cpp
@@ -413,6 +414,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_misc.cpp
     tests/ui/test_w8f_term.cpp
     tests/ui/test_pathological_ui.cpp
+    tests/ui/test_vs_tabs.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

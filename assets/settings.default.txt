@@ -57,9 +57,22 @@ editor.commentBlockUsesLineComments = true
 # false: it prompts); 10x documents nothing about files changed on disk, that default is a guess.
 # confirmUnsaved: closing the last tab of a modified file, closing the window and App.Quit ask Save / Don't Save / Cancel.
 editor.confirmUnsaved = true
-# reloadExternalChanges: auto (reload a file that changed on disk unless it has unsaved edits, then ask), prompt (always
-# ask) or never (leave the buffer alone, only say so in the status bar).
-editor.reloadExternalChanges = auto
+# Files changed on disk (VS-TABS T9, Visual Studio's Tools > Options > Environment > Documents). detectExternalChanges:
+# notice a file that changed behind the editor's back (off: say nothing, keep the buffer). reloadUnlessUnsaved: reload a
+# document without asking unless it has unsaved changes (off, as in Visual Studio: ask "The file X has been modified
+# outside of the source editor. Do you want to reload it?" for every change; a document with unsaved changes always asks).
+editor.detectExternalChanges = true
+editor.reloadUnlessUnsaved = false
+# reloadExternalChanges is the older single setting (auto | prompt | never). Left empty it does nothing; when set it
+# wins over the two above: auto = detect + reloadUnlessUnsaved, prompt = detect only, never = do not reload (the status
+# bar says so).
+editor.reloadExternalChanges =
+
+# Tab well (VS-TABS T2, Visual Studio's "Allow new files to be opened in the preview tab" / "Preview selected files in
+# Find Results"): a single click on a file in the explorer, a click on a find or reference result and the debugger
+# stepping into an unopened file open it in the one italic preview tab at the right end of the strip.
+tabs.previewTab = true
+tabs.previewFromFindResults = true
 
 # New files, search and zoom (10x DefaultLineEnding, AutoNameUntitledFiles, InternetSearchCommand).
 # defaultLineEnding: line ending of a new untitled file, CRLF or LF (10x's default is CRLF; any other text is CRLF).

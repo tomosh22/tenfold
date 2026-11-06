@@ -10,7 +10,10 @@ namespace tf::ui {
 // A horizontal strip of tabs. Tabs are identified by caller-chosen int ids.
 //
 // Behaviour (OPEN_QUESTIONS #5 defaults):
-//  * Pinned tabs always come first, have no close button and are never closed by middle-click.
+//  * Pinned tabs always come first, have no close button and are never closed by middle-click. Moves and drags never
+//    cross the pinned / unpinned boundary (VS-TABS, T11).
+//  * A preview tab (setPreview, at most one is expected; the owner enforces it) is kept at the right end of the strip,
+//    drawn italic (Theme::tabPreviewActive / tabPreviewInactive when set), cannot be pinned and cannot be reordered.
 //  * Left press activates (activate callback), press+release on the "x" or middle-click closes (close callback; the
 //    strip never removes a tab by itself, the owner calls removeTab). A dirty tab shows "●" in the close slot until the
 //    pointer is over the slot.
@@ -32,14 +35,19 @@ class TabStrip : public Widget {
     bool dirty = false;
     bool pinned = false;
     VcsMark vcs = VcsMark::None;
+    bool preview = false;  // the one preview tab (VS-TABS): italic, always last, never pinned, becomes a tab on promote
   };
 
-  std::function<void(int id)> onActivate, onClose;
+  std::function<void(int id)> onActivate, onClose, onDoubleClick;  // onDoubleClick: left double click on a tab
   std::function<void(int id, int newIndex)> onReorder;
   std::function<void(int id, float x, float y)> onBeginDragOut;
 
   // Pinned tabs are inserted after the last pinned tab, others are appended. The first tab becomes active.
-  void addTab(int id, std::string title, bool pinned = false);
+  // `preview` tabs go to the very end, other unpinned tabs before a preview tab.
+  void addTab(int id, std::string title, bool pinned = false, bool preview = false);
+  // Marks / unmarks the preview tab. Marking moves the tab to the right end and unpins it; unmarking keeps its place.
+  void setPreview(int id, bool preview);
+  int previewId() const;  // -1 when there is none
   // Removes the tab; if it was active the most recently used remaining tab becomes active.
   void removeTab(int id);
   bool setActive(int id);  // false for an unknown id

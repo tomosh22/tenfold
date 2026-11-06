@@ -58,6 +58,8 @@ class TextRenderer {
   // `y` is the top of the line box (lineHeight() tall). Tabs/control chars follow TextLayout rules.
   float measure(std::string_view utf8) const;
   void drawText(float x, float y, std::string_view utf8, Color color, const RectF& clip);
+  // As drawText, slanted to the right (synthetic italic: the glyph bands are shifted, there is no italic face).
+  void drawTextItalic(float x, float y, std::string_view utf8, Color color, const RectF& clip);
   // As drawText with per-byte-range colours (B2b syntax colouring): `spans` (sorted, non-overlapping, see ColorSpan)
   // index into `palette`; uncovered bytes use palette[defaultColor]. Runs of one colour share a recorded batch.
   void drawSpans(float x, float y, std::string_view utf8, const std::vector<ColorSpan>& spans,
@@ -85,6 +87,10 @@ class TextRenderer {
   };
   std::vector<Pending> pending_;
   uint32_t pendingGen_ = 0;
+  static constexpr int kItalicBands = 4;
+  static constexpr float kItalicSlant = 0.2f;
+  bool italic_ = false;
+  float italicBase_ = 0;
   LineLayout tmp_;
   void record(const std::vector<Color>& palette, const RectF& clip);
 };

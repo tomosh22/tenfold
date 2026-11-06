@@ -539,6 +539,7 @@ bool TreeView::onEvent(const InputEvent& e) {
       const bool onArrow = model_.node(node).expandable() && filter_.empty() && ui::contains(arrowRect(row), e.x, e.y);
       if (onArrow) toggle(node);
       else if (e.clicks >= 2) activateOrToggle(node);
+      else if (onClicked) onClicked(node);
       return true;
     }
     case InputType::Wheel: setScrollY(scrollY_ - e.dy * 3 * rowHeight()); return true;

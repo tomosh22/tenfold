@@ -2135,8 +2135,10 @@ remain.
 ### Safety and visibility (P2, `src/ui/features/{UnsavedPrompt,ExternalChanges,CommandPalette}.*`, `Workbench`, `EditorApp`)
 
 * **Unsaved changes** (`UnsavedPrompt`): a modal `ListPopup` without an input (the revert confirmation's shape): title
-  "Save changes to a.cpp?" and the rows Save / Don't Save / Cancel; with several dirty documents "Save changes to N
-  documents?", Save All / Don't Save / Cancel and the document names as dim rows below. Enter takes the first row, Escape
+  "Save changes to a.cpp?" and the rows Save / Don't Save / Cancel; with two or more dirty documents (VS-TABS T6) Visual
+  Studio's list dialog "Save changes to the following items?": one toggle row per document (`ListRow::toggle`, "[x] src/a.cpp",
+  Space / Enter / click flips it via `ListPopup::onToggle`), then Yes / No / Cancel (Yes starts selected). Yes saves the checked
+  documents and reports `proceed(true)` when some were left unchecked, so the caller closes those without saving. Enter takes the first row, Escape
   and a click outside are Cancel. Save goes through `Editor::save` per document and stops at the first failure: the error
   ("Cannot save src/a.cpp: file is read-only ...") goes to the status bar, nothing proceeds, documents already written stay
   saved. Three entry points: `Workbench::requestCloseTab` (the tab's x and middle click through `Panel::onCloseRequested`,
@@ -2147,17 +2149,30 @@ remain.
   `EditorApp::requestQuit()` (App.Quit, and the window's close event: `src/ui_app/main.cpp` calls it instead of quitting
   directly) lists every dirty document of the Editor, tabs or not; `quitRequested()` turns true only when the user agreed
   or nothing is dirty. Setting `editor.confirmUnsaved` (default on) switches all three off; the tab close then parks the
-  document as before. `File.Save` is bound in EditorApp to report the engine's reason instead of "Save failed".
+  document as before. `File.Save` is bound in EditorApp to report the engine's reason instead of "Save failed". The bulk closes
+  (`Workbench.CloseOtherTabs`, `CloseAllButPinned`, `CloseAllDocuments`, `ClosePanel`) go through `EditorApp::closeTabs`: the
+  dirty documents whose every view is among the tabs to close are asked about at once, then every tab is closed with
+  `closeTab(id, discard)`.
 * **External changes** (`ExternalChanges`): owns the single `Editor::onExternalChange` slot (pump thread = UI thread).
-  Mode from `editor.reloadExternalChanges` (`auto` | `prompt` | `never`; unknown text is `auto`). `auto` + clean document:
+  Policy from `editor.detectExternalChanges` / `editor.reloadUnlessUnsaved` and the optional legacy override
+  `editor.reloadExternalChanges` (`ExternalChanges::resolvePolicy`; VS-TABS T9). Reload-unless-unsaved + clean document:
   `Editor::reloadFromDisk` at once (only the differing lines are replaced, so carets, scroll and history entries follow the
-  engine's rules; a message names the file). Otherwise the file is queued and a prompt (Reload [(lose my changes) when
-  dirty] / Keep my version, the latter the default for a dirty document) opens from `tick` when no other modal is up; a
-  prompt that another popup closed (`closePickers`) is asked again, Escape means Keep. The engine notifies once per distinct
+  engine's rules; a message names the file). Otherwise the file is queued and Visual Studio's prompt ("The file X has been modified outside of the source editor. Do you
+  want to reload it?": Yes / Yes to All / No / No to All, No the default for a dirty document; Yes to All reloads the other
+  queued clean files, No to All drops the queue) opens from `tick` when no other modal is up; a
+  prompt that another popup closed (`closePickers`) is asked again, Escape means No. The engine notifies once per distinct
   on-disk content, so Keep does not nag. Deleted files are not reported by the engine (`checkExternalChange` ignores
   unreadable files), so `tick` polls `std::filesystem::exists` of every open document once a second:
   `Workbench::setFileMissing` appends " (deleted)" to the tab titles and `Workbench::refreshStatus` fills the `disk` segment
   ("deleted on disk"); the buffer stays and saving recreates the file.
+* **Tab well** (VS-TABS; `TabStrip`, `Workbench`, `SwitchPanel`): `SwitchPanel` (Ctrl+Tab) is a modal `ListPopup` of the active
+  panel's `TabStrip::mruOrder()`; `EditorApp` keeps `cycling_` while Ctrl is held and commits on the Ctrl release. The preview tab is
+  `TabStrip::Tab::preview` (always the last tab, never pinned, not reorderable, drawn with `TextRenderer::drawTextItalic`, a
+  synthetic slant: glyph quads cut into four bands shifted sideways) plus `Workbench::previewId_`. `Workbench::withPreview`
+  runs a navigation (`Editor::gotoLocation` ...) and `sync()`; `revealDocument` makes the tab it creates the preview tab when
+  `previewNext_` is set or the debugger is in Break mode at that file; `makePreview` closes the previous preview quietly (not
+  "recently closed"); `sync()` promotes it when its document is dirty, `TabStrip::onDoubleClick`, `openFile` and the explorer's
+  open promote it. `PickerEnv::bench` + `openResult` let result lists preview on a mouse click only.
 * **clangd visibility**: `Workbench::refreshStatus` shows `Editor::clangdStatusText()` in the `clangd` segment when it is
   not empty (restarting / stopped), else the on/off/starting/indexing/ready text. The `flags` segment (declared after
   `clangd`; EditorApp binds its click to `Help.ShowCompileCommand`) reads `SemanticEngine::status().compdbSource` (a cheap

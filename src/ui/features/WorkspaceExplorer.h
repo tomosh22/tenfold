@@ -28,9 +28,11 @@ struct ProjectContents {
 // Workbench's left side dock under the name "Explorer". A workspace with a .sln shows the solution -> solution
 // folders -> projects -> the project's files (grouped by the .vcxproj.filters filters when the file exists, else by
 // the folders on disk); any other workspace shows its folder tree from the workspace scan (so the scan's ignore rules
-// apply). Enter / double click on a file opens it through Editor::gotoLocation. A file's version-control state is the
-// tab marker's (vcsTabMark). The model is rebuilt (debounced) when the file lists change, when the solution or a
-// project / filters file changes on disk and while the panel is open only; expansion and selection survive.
+// apply). Enter / double click on a file opens it through Editor::gotoLocation (a normal tab); a single click opens it
+// in the preview tab (Workbench::withPreview, VS-TABS T2) and leaves the keys in the tree. A file's version-control
+// state is the tab marker's (vcsTabMark). The model is rebuilt (debounced) when the file lists change, when the
+// solution or a project / filters file changes on disk and while the panel is open only; expansion and selection
+// survive.
 class WorkspaceExplorer {
  public:
   struct Hooks {
@@ -74,6 +76,7 @@ class WorkspaceExplorer {
 
  private:
   void opened(int node);
+  void previewed(int node);
   Position caretFor(const std::filesystem::path& file) const;
   uint64_t inputStamp() const;
 

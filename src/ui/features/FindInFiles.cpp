@@ -70,7 +70,7 @@ void FindInFiles::open(const std::string& initialQuery) {
   p->setMaxVisibleRows(22);
   p->setEmptyText("Type to search the workspace");
   p->onQuery([this](const std::string&) { queryChanged(); });
-  p->onAccept([this](int row) { accept(row); });
+  p->onAccept([this, raw = p.get()](int row) { accept(row, raw->acceptedByMouse()); });
   p->onClosed([this] {
     if (popup_ && !popup_->input()->text().empty()) text_ = popup_->input()->text();
     popup_ = nullptr;
@@ -325,12 +325,14 @@ void FindInFiles::setMarkers() {
   }
 }
 
-void FindInFiles::accept(int row) {
+void FindInFiles::accept(int row, bool clicked) {
   if (row < 0 || row >= static_cast<int>(rowMatch_.size())) return;
   cur_ = rowMatch_[static_cast<size_t>(row)];
-  std::string err;
   const SearchMatch& m = all_[order_[static_cast<size_t>(cur_)]];
-  if (!env_.editor.gotoSearchMatch(m, &err)) env_.say("Cannot open " + m.file.string() + ": " + err);
+  openResult(env_, clicked, [&] {
+    std::string err;
+    if (!env_.editor.gotoSearchMatch(m, &err)) env_.say("Cannot open " + m.file.string() + ": " + err);
+  });
 }
 
 bool FindInFiles::step(bool forward) {

@@ -25,6 +25,9 @@ color.tabStripBackground = #2D2D30
 color.tabActive = #007ACC
 color.tabInactive = #2D2D30
 color.tabHover = #3E3E40
+# Preview (provisional) tab, VS-TABS: active = VS purple, inactive = the normal inactive tab.
+color.tabPreviewActive = #68217A
+color.tabPreviewInactive = #2D2D30
 # VS accent blue (light variant) so the 2px line under the blue active tab stays visible; also search-hit text.
 color.tabAccent = #1C97EA
 color.tabInsert = #007ACC

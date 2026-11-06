@@ -567,7 +567,7 @@ TEST(ctxmenu_tab_menu_close_all_but_this_and_close) {
   CHECK_EQ(env.tabCount(), static_cast<size_t>(0));
 }
 
-TEST(ctxmenu_close_others_keeps_modified_tabs_open) {
+TEST(ctxmenu_close_others_asks_about_modified_tabs_and_cancel_keeps_them_open) {
   Env env;
   env.bench->openFile("b.cpp");
   env.bench->sync();
@@ -578,8 +578,9 @@ TEST(ctxmenu_close_others_keeps_modified_tabs_open) {
   const RectF ra = env.panel()->tabs().tabRect(a);
   env.rightClick(ra.x + 10, ra.y + 5);
   env.clickItem("Close All But This");
+  REQUIRE(env.app->unsavedPrompt().isOpen());        // VS-TABS T6: one modified document, the per-file prompt
+  env.key(Key::Escape);                              // Cancel
   CHECK_EQ(env.tabCount(), static_cast<size_t>(2));  // nothing was lost
-  CHECK(env.app->message().find("modified") != std::string::npos);
 }
 
 TEST(ctxmenu_status_bar_segments_have_menus) {

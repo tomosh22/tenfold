@@ -106,6 +106,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     : root_(root), editor_(editor), bench_(bench), pickerEnv_(root, editor) {
   pickerEnv_.clock = [this] { return now_; };
   pickerEnv_.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
+  pickerEnv_.bench = bench_;
   symbols_ = std::make_unique<SymbolSearch>(pickerEnv_);
   navResults_ = std::make_unique<NavResultPicker>(pickerEnv_);
   find_ = std::make_unique<FindInFiles>(pickerEnv_);
@@ -142,6 +143,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   functions_ = std::make_unique<FunctionPicker>(pickerEnv_);
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
+  if (bench_) switch_ = std::make_unique<SwitchPanel>(pickerEnv_, *bench_);
   saveAs_ = std::make_unique<SaveAsPrompt>(pickerEnv_);
   saveRefused_ = std::make_unique<SaveRefusedDialog>(pickerEnv_);
   pickerEnv_.saveRefused = [this](std::vector<SaveRefusal> r) {  // the file's encoding cannot hold a character
@@ -264,6 +266,7 @@ EditorApp::~EditorApp() {
   vcsUi_.reset();     // unhooks VcsManager::onError, closes its confirmation
   perforceUi_.reset();
   closePickers();  // their callbacks point into this object
+  switch_.reset();
   palette_.reset();
   external_.reset();     // unhooks Editor::onExternalChange
   lineEndings_.reset();  // unhooks Editor::onInconsistentLineEndings
@@ -433,7 +436,10 @@ void EditorApp::applySettings(const Settings& s) {
     if (searchCommand_.empty()) searchCommand_ = "https://www.google.com/search?q=";
     autoNameUntitled_ = s.getBool("editor.autoNameUntitledFiles");
   }
-  external_->setMode(ExternalChanges::parseMode(s.getString("editor.reloadExternalChanges")));
+  external_->setPolicy(ExternalChanges::resolvePolicy(s.getBool("editor.detectExternalChanges"),
+                                                      s.getBool("editor.reloadUnlessUnsaved"),
+                                                      s.getString("editor.reloadExternalChanges")));
+  if (bench_) bench_->setPreviewSettings(s.getBool("tabs.previewTab"), s.getBool("tabs.previewFromFindResults"));
   vcsUi_->applySettings(s);
   if (terminals_) terminals_->applySettings(s, scale_);
   if (explorer_) explorer_->setTrackActiveFile(s.getBool("explorer.trackActiveFile"));
@@ -456,6 +462,7 @@ void EditorApp::closePickers() {
   functions_->close();
   palette_->close();
   unsaved_->close();
+  if (switch_) switch_->close();
   saveAs_->close();
   saveRefused_->close();
   external_->close();
@@ -914,8 +921,10 @@ void EditorApp::bindUiCommands() {
     registry_.bind(fwd ? "Workbench.CycleMruNext" : "Workbench.CycleMruPrev",
                    [this, fwd](const CommandContext&, std::string_view) {
                      if (!bench_->activePanel()) return false;
-                     bench_->cycleMru(bench_->activePanel(), fwd);
-                     cycling_ = true;  // ends when Ctrl is released
+                     // VS-TABS T1: a switch panel; releasing Ctrl commits the selected tab.
+                     if (!switch_->isOpen()) closePickers();
+                     switch_->step(fwd);
+                     cycling_ = switch_->isOpen() && (strokeMods_ & ModCtrl) != 0;
                      return true;
                    });
   registry_.bind("Workbench.ReopenClosedTab", [this](const CommandContext&, std::string_view) {
@@ -974,8 +983,8 @@ void EditorApp::bindUiCommands() {
         return true;
       },
       hasActiveTab);
-  // W8f: CloseAllOtherTabs / CloseAllButPinnedTabs close without asking, except tabs that hold the last view of a
-  // modified document: those stay open (closing them is a decision for the user, tab by tab).
+  // CloseAllOtherTabs / CloseAllButPinnedTabs, Close All and Close Panel ask once for the modified documents they
+  // would close: one list dialog, or the per-file prompt for a single one (VS-TABS T6).
   registry_.bind(
       "Workbench.CloseOtherTabs",
       [this](const CommandContext&, std::string_view) {
@@ -994,6 +1003,32 @@ void EditorApp::bindUiCommands() {
         for (const auto& t : bench_->activePanel()->tabs().tabs())
           if (!t.pinned) ids.push_back(t.id);
         closeTabs(ids);
+        return true;
+      },
+      hasActiveTab);
+  registry_.bind(
+      "Workbench.CloseAllDocuments",  // Visual Studio's Window > Close All Documents: every document tab, pinned ones
+                                      // too
+      [this](const CommandContext&, std::string_view) {
+        std::vector<int> ids;
+        for (Panel* p : bench_->panels())
+          for (const auto& t : p->tabs().tabs())
+            if (!bench_->isWidgetTab(t.id)) ids.push_back(t.id);
+        closeTabs(ids);
+        return true;
+      },
+      hasActiveTab);
+  registry_.bind(
+      "Workbench.ClosePanel",  // closes the active panel's document tabs, then the panel (unless it is the only one)
+      [this](const CommandContext&, std::string_view) {
+        Panel* p = bench_->activePanel();
+        std::vector<int> ids;
+        for (const auto& t : p->tabs().tabs())
+          if (!bench_->isWidgetTab(t.id)) ids.push_back(t.id);
+        closeTabs(ids, [this, p] {
+          const auto ps = bench_->panels();
+          if (ps.size() > 1 && std::find(ps.begin(), ps.end(), p) != ps.end()) bench_->closePanel(p);
+        });
         return true;
       },
       hasActiveTab);
@@ -1349,7 +1384,8 @@ bool EditorApp::terminalSkipsShell(const KeyChord& chord) const {
                                                    "View.ZoomIn",
                                                    "View.ZoomOut"};
   for (const KeyBinding& b : keys_.bindings()) {
-    if ((b.context != "global" && b.context != "terminal") || b.chords.empty() || !(b.chords[0] == chord)) continue;
+    // A chord's first stroke (Control K, Control Z) belongs to the program in a terminal.
+    if ((b.context != "global" && b.context != "terminal") || b.chords.size() != 1 || !(b.chords[0] == chord)) continue;
     const std::string id = resolveCommandName(b.command).id;
     if (id.rfind("Terminal.", 0) == 0 || id.rfind("Workbench.", 0) == 0 || exact.count(id)) return true;
   }
@@ -1444,11 +1480,17 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (terminals_ && (e.type == InputType::FocusGained || e.type == InputType::FocusLost))
     terminals_->setWindowFocused(e.type == InputType::FocusGained);
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
-    if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the Ctrl+Tab cycle is over
+    if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the switch panel commits
       cycling_ = false;
+      if (switch_) switch_->commit();
       if (bench_) bench_->endMruCycle();
     }
   }
+  if (switch_ && switch_->isOpen() && e.type == InputType::KeyDown && e.key == Key::Tab && !(e.mods & ModCtrl)) {
+    switch_->step(!(e.mods & ModShift));  // the panel was opened without Ctrl held (command palette)
+    return true;
+  }
+  if (e.type == InputType::KeyDown) strokeMods_ = e.mods;
   KeyChord chord;
   if (e.type == InputType::KeyDown && e.key != Key::Unknown)  // a lone modifier press is not a stroke
     chord = chordFromKey(e.key, e.mods);
@@ -1855,13 +1897,29 @@ bool EditorApp::openContextMenuForFocus() {
   return showContextMenu(std::move(req.items), req.anchor, true);
 }
 
-void EditorApp::closeTabs(const std::vector<int>& ids) {
-  int kept = 0;
-  for (int id : ids) {
-    if (bench_->isLastViewOfDirty(id)) ++kept;
-    else bench_->closeTab(id);
+void EditorApp::closeTabs(const std::vector<int>& ids, std::function<void()> done) {
+  // Documents with unsaved changes whose every view is among the tabs being closed (VS-TABS T6).
+  std::vector<std::filesystem::path> dirty;
+  if (confirmUnsaved_)
+    for (int id : ids) {
+      if (bench_->isWidgetTab(id)) continue;
+      const std::filesystem::path path = bench_->tabPath(id);
+      const Document* d = editor_.document(path);
+      if (!d || !d->dirty() || std::find(dirty.begin(), dirty.end(), path) != dirty.end()) continue;
+      bool all = true;
+      for (int other : bench_->tabsOf(path)) all = all && std::find(ids.begin(), ids.end(), other) != ids.end();
+      if (all) dirty.push_back(path);
+    }
+  auto close = [this, ids, done = std::move(done)](bool discard) {
+    for (int id : ids) bench_->closeTab(id, discard);
+    if (done) done();
+  };
+  if (dirty.empty()) {
+    close(false);
+    return;
   }
-  if (kept) setMessage(std::to_string(kept) + " modified tab(s) left open", kMessageMs);
+  closePickers();
+  unsaved_->ask(dirty, close);
 }
 
 // The explorer tree's menu (W8f): the node under the pointer, or the selected one from the keyboard. Commands take the

@@ -19,22 +19,31 @@ Contents: [Installing](#installing) - [Opening a workspace](#opening-a-workspace
 
 tenfold has no autosave and no crash recovery of buffers, so the prompts below are the only safety net.
 
-* **Quitting asks.** Control Q (`Exit`, tenfold `App.Quit`) and closing the window list the documents with unsaved edits and offer
-  **Save All / Don't Save / Cancel** (one document: **Save / Don't Save / Cancel**). Enter is Save, Escape is Cancel.
-  If a save fails (a read-only Perforce file, for example) tenfold stays open and the status bar says why. This includes
-  edited documents that no longer have a tab.
+* **Quitting asks.** Control Q (`Exit`, tenfold `App.Quit`) and closing the window ask about the documents with unsaved
+  edits. One document: **Save / Don't Save / Cancel**. Several: one list dialog, like Visual Studio's, **"Save changes to the
+  following items?"**, with a row per document (all checked; Space, Enter or a click on a row toggles it) and
+  **Yes / No / Cancel** below. **Yes** saves the checked items (unchecked ones are closed without saving), **No** closes without
+  saving, **Cancel** (Escape) aborts. If a save fails (a read-only Perforce file, for example) or the file's encoding cannot
+  hold a character, nothing is closed: tenfold stays open, the status bar says why (the encoding case also shows the
+  characters). This includes edited documents that no longer have a tab. The same list appears for **Close All Documents**
+  (`Workbench.CloseAllDocuments`, command palette), **Close Panel** (`Workbench.ClosePanel`), **Close All But This** and
+  **Close All But Pinned** when they would close several modified documents; with one it is the per-file prompt.
 * **Closing a tab asks** when it is the last view of a document with unsaved edits (the tab's x, middle click or
   `Workbench.CloseTab`, Control F4 = `CloseFile`). Don't Save closes the document and drops the edits. A second view of the same document (a
   split) closes without asking.
-* **Files that change on disk are reloaded** when they have no unsaved edits (a checkout, a branch switch or a code
-  generator rewrote them); carets, scroll position and navigation history keep their place. A file with unsaved edits
-  asks **Reload (lose my changes) / Keep my version** (Keep is the default choice). A file deleted on disk keeps its
-  buffer; its tab says `(deleted)` and the status bar `deleted on disk`.
+* **Files that change on disk ask** (a checkout, a branch switch or a code generator rewrote them): "The file X has been
+  modified outside of the source editor. Do you want to reload it?" with **Yes / Yes to All / No / No to All**. A file
+  with unsaved edits always asks (the default choice is No; Yes loses the edits). Yes to All also reloads the other
+  changed files that wait and have no unsaved edits, No to All keeps them all. Carets, scroll position and navigation
+  history keep their place on a reload. With `editor.reloadUnlessUnsaved = true` a file without unsaved edits is reloaded
+  silently (the status bar says so). A file deleted on disk keeps its buffer; its tab says `(deleted)` and the status bar
+  `deleted on disk`.
 
 All three follow Visual Studio, because 10x's behaviour is not confirmed (OPEN_QUESTIONS #5), and each has a setting:
 `editor.confirmUnsaved` (default `true`; `false` skips every question: closing a tab then keeps the edited document in
-memory without a tab, and quitting discards it) and `editor.reloadExternalChanges` (`auto`, `prompt`, `never`; see
-[Settings](#settings-files)).
+memory without a tab, and quitting discards it), `editor.detectExternalChanges` (default `true`; `false` ignores changes on
+disk) and `editor.reloadUnlessUnsaved` (default `false`, as in Visual Studio; see [Settings](#settings-files)). The older
+`editor.reloadExternalChanges` still works when it is set (migration below).
 
 ## Installing
 
@@ -216,7 +225,22 @@ This is the feature 10x lacks. It works like Visual Studio's Navigate Backward /
   returns. The remembered spot follows edits above it, like history entries.
 * Setting `nav.statusCounts` shows the back and forward counts in the status bar.
 
-Switching tabs is not a navigation jump and is not recorded; the tab order for Control Tab is most recently used first.
+Switching tabs is not a navigation jump and is not recorded.
+
+**The switch panel.** **Control Tab** (`ShowSwitchPanelPanel`) opens a list of the panel's open files, most recently used
+first, with the previous file selected (like Visual Studio's IDE Navigator); **Control Shift Tab** starts on the oldest one.
+While you hold Control, **Tab** / **Shift Tab** (or Down / Up) move the selection, wrapping; nothing is switched until you
+**release Control** (or press Enter or click a row), which commits. Escape cancels. With a single tab it does not open.
+
+**Tab well.** Pinned tabs stay at the left of the unpinned ones; dragging or moving a tab never crosses that boundary.
+**Control K, Control Z** (Visual Studio's Restore Closed Tab; a tenfold addition, 10x leaves the chord free) reopens the
+last closed tab like Control Shift T. A **single click on a file in the workspace explorer** (and a click on a result of Find in
+Files or Find All References, and the debugger stepping into a file that is not open) opens it in the one **preview
+tab** at the right end of the well, shown in italics (colour keys `tabPreviewActive` / `tabPreviewInactive`, falling back to the
+normal tab colours). The next preview replaces it. It becomes a normal tab when you edit the file, double-click the tab or the
+explorer item, choose Open (or press Enter) in the explorer, or open the file by name. A preview tab cannot be pinned or
+moved. Enter or F8 on a result and a double click open normal tabs. Settings `tabs.previewTab` (default `true`) and
+`tabs.previewFromFindResults` (default `true`); VS_BEHAVIOUR section 7.
 
 ## Pickers and search
 
@@ -622,7 +646,8 @@ moves to its first child), Left collapses it (or moves to the parent); **Enter**
 `gotoLocation` (so Back returns) and gives the editor the keys, or expands / collapses a folder. Typing filters the tree:
 fuzzy, like the pickers, every space-separated word has to match a name; matching nodes and their folders stay, expanded.
 Backspace edits the filter, Escape clears it, and with no filter Escape gives the keys back to the editor. **Mouse:** a click
-selects, the arrow (or Enter) expands, a double click opens a file, the wheel and the thin scroll bar scroll.
+selects (a file also opens in the italic **preview tab**, `tabs.previewTab`, keeping the keys in the tree), the arrow (or Enter)
+expands, a double click opens a file permanently, the wheel and the thin scroll bar scroll.
 
 **Colours.** A file that version control reports as modified, added / untracked, checked out or read-only (Perforce) gets
 the same colour and marker as its tab (the `tabVcs*` theme keys); the marker is a square at the right edge. Folders show
@@ -731,7 +756,11 @@ tests.)
 | `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). 10x documents no such setting. |
 | `editor.commentBlockUsesLineComments` | `true` | bool | 10x `CommentBlockUsesLineComments`: the 10x `ToggleComment` command (Ctrl+Shift+/) comments a selection with `//` line comments; `false` wraps the selection in `/* */` instead. Without a selection it always toggles a line comment. |
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
-| `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
+| `editor.detectExternalChanges` | `true` | bool | Notice a file that changed on disk behind the editor's back (Visual Studio: "Detect when file is changed outside the environment"). `false`: nothing happens and nothing is said. |
+| `editor.reloadUnlessUnsaved` | `false` | bool | Reload a changed file without asking when it has no unsaved edits (Visual Studio: "Reload modified files unless there are unsaved changes", off by default). A file with unsaved edits always asks. |
+| `editor.reloadExternalChanges` | (empty) | string | The older single setting. Empty: unused. `auto` = detect + reloadUnlessUnsaved (the old default), `prompt` = detect, always ask, `never` = do not detect and say so in the status bar. **Migration:** the old default `auto` is gone because Visual Studio's default is to ask; a `settings.txt` that sets this key keeps its old behaviour, one that did not now gets the question for clean files too (set `editor.reloadUnlessUnsaved = true` for the old silent reload). |
+| `tabs.previewTab` | `true` | bool | A single click on a file in the explorer, and the debugger stepping into an unopened file, open it in the preview tab (Visual Studio: "Allow new files to be opened in the preview tab"). `false`: a single click only selects. |
+| `tabs.previewFromFindResults` | `true` | bool | A click on a result of Find in Files or Find All References opens the preview tab (Visual Studio: "Preview selected files in Find Results"). Needs `tabs.previewTab`. |
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. Encoding of new files is UTF-8 (10x: DefaultEncoding). |
 | `editor.replicateNewLine` | `true` | bool | Enter (and every command that adds a line) copies the line ending of the line the caret is on, so a CRLF file stays CRLF and an LF file stays LF; only a document without any line break uses `editor.defaultLineEnding`. `false` always uses `editor.defaultLineEnding`. Visual Studio: `ReplicateNewLineCharacter`. |
 | `editor.pasteKeepsLineBreaks` | `true` | bool | Pasted text keeps its own line breaks (pasting LF text into a CRLF file makes the file mixed, as in Visual Studio). `false` turns them into the line ending Enter would use. |
@@ -1150,7 +1179,7 @@ differs from the 10x description:
 | `Shift Alt D` | `DuplicatePanel` | `Workbench.DuplicatePanel` | a copy with all the tabs opens to the right, the focus stays |
 | `Alt Comma` | `DuplicatePanelLeft` | `Workbench.DuplicatePanelLeft` | the copy opens to the left and takes the focus |
 | `Alt .` | `DuplicatePanelRight` | `Workbench.DuplicatePanelRight` | the copy opens to the right and takes the focus |
-| `Control Tab` | `ShowSwitchPanelPanel` | `Workbench.CycleMruNext` | tenfold's recent-documents switcher; releasing Control ends the cycle |
+| `Control Tab` | `ShowSwitchPanelPanel` | `Workbench.CycleMruNext` | tenfold's switch panel: files most recently used first, the previous one selected, Tab / Shift Tab move, releasing Control commits |
 | `Control Shift Tab` | `ShowSwitchPanelPrevItem` | `Workbench.CycleMruPrev` | tenfold's recent-documents switcher |
 
 **Perforce**
@@ -1172,6 +1201,7 @@ Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in 
 | `Control /` | `Editor.ToggleLineComment` |
 | `Control J` | `Editor.JoinLines` |
 | `Control M, Control O` | `Editor.CollapseToDefinitions` (Visual Studio's Collapse to Definitions; 10x has no such command) |
+| `Control K, Control Z` | `RestoreRecentlyClosedFile` (Visual Studio's Restore Closed Tab; same command as 10x's `Control Shift T`) |
 | `Control Shift K` | `DeleteLine` |
 | `F12`, `Control F12`, `Shift F12` | `GotoSymbolDefinition`, `Editor.GotoDeclaration`, `FindSymbolReferences` |
 | `Control Comma` | `FindSymbol` (symbol search) |
@@ -1213,8 +1243,8 @@ listed (see FEATURE_PARITY).
   Open Containing Folder, Copy Full Path. A right-click outside the selection moves the caret
   there first, inside it keeps the selection.
 * **A tab**: Close, Close All But This, Close All But Pinned, Pin / Unpin Tab, Copy Full Path, Open Containing Folder. The
-  right-clicked tab becomes the active tab first. Tabs holding unsaved changes are left open by the two "close all"
-  items.
+  right-clicked tab becomes the active tab first. The two "close all" items ask once about the modified documents they
+  would close (the list dialog, see "Read this first").
 * **Explorer tree**: right-click a node (it is selected first), or Shift F10 / AppsKey with the tree focused. Files: Open,
   Collapse All, Open Containing Folder, Copy Full Path, Build Current File (C/C++ sources). Folders, projects and the
   solution: Expand / Collapse, Collapse All, Open Containing Folder, Copy Full Path. 10x's "Settings..." on the workspace

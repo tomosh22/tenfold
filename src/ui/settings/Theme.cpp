@@ -75,6 +75,8 @@ const std::vector<ColorMember>& colorMembers() {
       {"menuBorder", &Theme::menuBorder, true},
       {"menuSelection", &Theme::menuSelection, true},
       {"menuSeparator", &Theme::menuSeparator, true},
+      {"tabPreviewActive", &Theme::tabPreviewActive, true},
+      {"tabPreviewInactive", &Theme::tabPreviewInactive, true},
       {"debugBreakpoint", &Theme::debugBreakpoint, true},
       {"debugCurrentLine", &Theme::debugCurrentLine, true},
       {"debugCurrentArrow", &Theme::debugCurrentArrow, true},
