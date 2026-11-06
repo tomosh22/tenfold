@@ -4,7 +4,7 @@
 namespace geo {
 
 template <typename T>
-/*@Vec_ctor_def*/Vec<T>::Vec(T x_, T y_) : x(x_), y(y_) {}
+Vec<T>::/*@Vec_ctor_def*/Vec(T x_, T y_) : x(x_), y(y_) {}
 
 template <typename T>
 T Vec<T>::/*@Vec_dot_def*/dot(const Vec& o) const { return /*@use_x_in_dot*/x * o.x + y * o./*@use_y_in_dot*/y; }

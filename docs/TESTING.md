@@ -93,7 +93,8 @@ trailing comment. `A`, `B`, `C` are anchors.
 | line | meaning |
 |---|---|
 | `def A -> B` | go to definition at A lands on B. `-> B \| C` : on any of them. `-> none` : no result. |
-| `decl A -> B`, `typedef A -> B` | go to declaration / type definition; same forms as `def`. |
+| `def A = B C`, `def A >= B`, `def A = B C default C` | the whole **choice list** of a go to definition that offers several targets (through a using-declaration or an alias, on a constructor call: W10-CHOOSE): `=` exactly these (every result lands on a listed anchor, every anchor is landed on, the order is not judged), `>=` at least these. `default C`: the target the chooser selects is C (the answer's `SymbolLocation::preferred`); only after `=` / `>=`. `-> B \| C` on such a line would also pass with a one-target answer, so lines whose answer is a choice use `=`. |
+| `decl A -> B`, `typedef A -> B` | go to declaration / type definition; same forms as `def` (including `=` / `>=` / `default`). |
 | `impl A -> B C ...` | go to implementations returns exactly this set (`=` is the same, `>=` at least). |
 | `refs A = B C D` | find references returns exactly these (`>=` at least these, `= none` empty). Include the declaration only if listed. |
 | `hover A ~ "text"` | the hover text contains the text (several quoted strings: all must occur). |
@@ -154,6 +155,12 @@ that is a range (document symbols) also lands on B when it **contains** B's firs
 
 * `def`/`decl`/`typedef` `-> B | C`: the answer must be non-empty and **every** location must land on one of the
   alternatives (two results that are both listed pass; a stray extra result fails).
+* `def`/`decl`/`typedef` `= B C` / `>= B` (W10-CHOOSE): the set rules below; this is how a go to definition that offers a
+  **choice** (through a using-declaration or an alias, on a constructor call) is judged, because `-> B | C` would also
+  accept an answer that lost one of the targets. `default C` additionally needs the entry the chooser selects
+  (`SymbolLocation::preferred`, carried to the checker as `Loc::preferred`) to land on C. The harness reads the list the
+  Editor delivers, not the popup; the popup (rows, default row, Enter, Escape, Back) is covered by
+  `tests/ui/test_w10_chooser.cpp`, labels by `tests/test_w10_choose.cpp`.
 * `=` / `impl ->`: every expected anchor is landed on by some result **and** every result lands on a listed anchor.
   `>=`: every expected anchor is landed on, extra results are fine.
 * `sym ->`: the first result. `sym ∋`: each anchor is landed on by some result.

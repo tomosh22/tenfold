@@ -43,6 +43,15 @@ struct SymbolLocation {
   // Whole extent of the symbol (byte columns) for document symbols answered by clangd: a function definition's
   // extent contains its body, a declaration's ends at the `;`. Empty (start == end) when unknown.
   Range extent;
+  // Go to definition with several meaningful targets (W10-CHOOSE: through a using-declaration or an alias, on a
+  // constructor call): what this entry is, as the chooser shows it ("class Widget", "constructor Widget(int)",
+  // "using-declaration", "typedef Bar -> Foo"). Empty for ordinary answers. The list is ordered declaration first,
+  // real entity last; `preferred` marks the entry the chooser selects.
+  std::string label;
+  bool preferred = false;
+  // Approximate answers only: clangd may still add targets (this single entry is a class used like a constructor
+  // call, or an alias), so the Editor does not jump on it until the authoritative answer is in.
+  bool refinable = false;
 };
 
 struct Diagnostic {
@@ -375,6 +384,21 @@ class SemanticEngine {
 
   // Request watchdog (Options::requestTimeoutMs): `fail(message)` runs once if the request has not completed in time.
   struct ReqGuard;
+  // Go to definition answer assembly (W10-CHOOSE, SemanticEngine.cpp).
+  struct DefQuery;
+  void refineDefinition(std::shared_ptr<DefQuery> q, std::vector<SymbolLocation> locs);
+  void aliasChoices(std::shared_ptr<DefQuery> q, SymbolLocation alias);
+  // `prefix`: targets listed before the class (the aliases that led to it, W10-CHOOSE).
+  void constructorChoices(std::shared_ptr<DefQuery> q, SymbolLocation cls, std::vector<SymbolLocation> prefix = {});
+  void inheritedConstructorChoices(std::shared_ptr<DefQuery> q, SymbolLocation cls, SymbolLocation usingDecl,
+                                   std::vector<SymbolLocation> prefix);
+  bool classLike(const SymbolLocation& l) const;
+  std::string lineText(const std::filesystem::path& file, int line) const;
+  std::optional<Symbol> fastSymbolAt(const Location& loc) const;
+  std::string describeTarget(const Location& loc) const;
+  bool openInClangd(const std::filesystem::path& file) const;
+  Position serverPosition(const std::filesystem::path& file, Position p) const;
+  void preferConstructorDefinition(SymbolLocation& ctor) const;
   void armRequestTimeout(std::shared_ptr<ReqGuard> g, std::shared_ptr<LspClient> c, std::string what,
                          std::function<void(const std::string&)> fail);
   // Replaces a declaration in `locs` by the out-of-line definition of the same function the fast index knows (W9g G-1).

@@ -49,8 +49,8 @@ def use_call_v2 -> v2_call_def
 decl use_call_v2 -> v2_call
 def use_Opts -> v1_Opts
 def use_v2_Opts -> v2_Opts
-def use_app_value -> using_value | inner_value_def  # clangd answers the using-declaration plus the entity
-def use_app_Node -> using_Node | outer_Node  # clangd answers the using-declaration plus the entity
+def use_app_value = using_value inner_value_def default inner_value_def  # the using-declaration and the entity; the chooser selects the entity
+def use_app_Node = using_Node outer_Node default outer_Node
 def use_Node_get -> outer_Node_get_def
 decl use_Node_get -> outer_Node_get
 def use_dir_Node -> inner_Node
@@ -65,6 +65,15 @@ def anon_b_get_use -> anon_b_Impl_get
 typedef var_t -> est_Thing
 xfail typedef var_n -> outer_Node  # clangd also returns the using-declaration (a second, non-type-definition location)
 typedef var_m -> inner_Node
+
+# ---- go to definition lets the user choose (W10-CHOOSE): the alias chain, the entity last and selected ----
+def use_B3 = al_B3 al_B2 al_B1 al_Gadget default al_Gadget
+def use_B2 = al_B2 al_B1 al_Gadget default al_Gadget
+def use_B1 = al_B1 al_Gadget default al_Gadget
+def use_Hold = al_Hold al_Holder default al_Holder
+def use_myint = al_myint  # nothing more to name: a single target, the editor jumps
+def use_us_Gadget = al_using_Gadget al_Gadget default al_Gadget
+def use_us_twice = al_using_twice al_twice_def default al_twice_def
 
 # ---- references ----
 refs outer_value = outer_value outer_value_def use_outer_value

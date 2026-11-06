@@ -47,9 +47,9 @@ def use_tbl_add -> op_add_def
 def use_tbl_mul -> op_mul
 
 # ---- tag vs typedef with one name ----
-def use_node_td_main -> node_td
-def use_node_td_sum -> node_td
-def use_node_td_c -> node_td
+def use_node_td_main = node_td node_tag default node_tag  # typedef struct node_tag node_td: the typedef and the struct
+def use_node_td_sum = node_td node_tag default node_tag
+def use_node_td_c = node_td node_tag default node_tag
 def use_node_tag_main -> node_tag
 def use_node_tag_list -> node_tag
 decl use_node_tag_main -> node_tag_fwd | node_tag  # clangd answers the first declaration (typedef struct node node;) or, in about 1 run in 10 on a loaded machine, the definition: the canonical declaration of a tag comes from the AST or from the merged index
@@ -62,7 +62,7 @@ def use_value_main -> node_value
 hover use_value_main ~ "value" "int"
 
 # ---- opaque handle ----
-def use_handle_td_c -> handle_td
+def use_handle_td_c = handle_td handle_tag_def default handle_tag_def
 decl handle_tag_def -> handle_tag
 def use_id_open -> handle_id_field
 def use_id_get -> handle_id_field

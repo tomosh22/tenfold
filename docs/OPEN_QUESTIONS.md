@@ -33,12 +33,42 @@ decided by the user). Each has a default we implement until answered.
 * **Line endings:** handle them **the same way as Visual Studio** (load, display, typing new lines, mixed endings, the
   consistency check, save). Replaces the W9-FIX-ENC default "normalise to the dominant ending on save".
 * **Go to definition through a `using` declaration or a `typedef` / alias:** let the user **choose** between the
-  declaration (the using-declaration / typedef) and the real entity.
+  declaration (the using-declaration / typedef) and the real entity. **Implemented (W10-CHOOSE)**, see below.
 * **Go to definition on a constructor call such as `Widget(2)`, `Widget{2}`, `new Widget(2)`:** let the user **choose**
-  between the class and the constructor that is called.
+  between the class and the constructor that is called. **Implemented (W10-CHOOSE)**, see below.
 * **Every other unanswered question** (rows still open below and the defaults chosen in the detail sections where the
   10x documentation is silent): **match Visual Studio's behaviour where Visual Studio has one** (research it, cite the
   source). Where Visual Studio has no equivalent, keep the documented default.
+
+### W10-CHOOSE: how the two choosers were implemented (and what was decided where the decision said nothing)
+
+* **Default selection:** the real entity for aliases and using-declarations, the constructor for constructor calls, as
+  decided. For the inherited constructor it is the resolved base constructor.
+* **Order of the list:** declaration first, entity last (`using-declaration`, `entity`; `alias B3`, `typedef B2`, `typedef B1`,
+  `struct Foo`; `class Widget`, `constructor Widget(int)`), so the corpus can say `def use_x = using_x entity_x`.
+* **The constructor is shown at its definition** (`Widget::Widget(int)` in the .cpp, else the declaration) because the
+  command is "go to definition". Choose the class row for the class.
+* **Implicit constructor** (no written one): one target, so no chooser; F12 jumps to the class and the status bar says
+  `implicit constructor`. **Aggregate initialisation** (`Plain p{1, 2}`): the class only, nothing said (no constructor runs).
+* **Forms covered:** `T(args)`, `T{args}`, `T name(args);`, `T name{args};`, `new T(args)`, base / delegating mem-initializers,
+  with a template argument list after the name; also deduction (`Pair p{1, 2.0}`). Not covered, class only: a bare
+  `T name;` and `T name = x;` (the call is not spelled), `make<T>(...)` / `std::make_unique<T>` (the constructor is called
+  inside the library).
+* **Not a choice:** a typedef of a builtin type or of something with no declaration (`typedef int myint`) is one target.
+  The caret on a declaration (the constructor's own name, the alias being declared) is the usual single answer.
+* **Fast tier / chooser consistency:** the fast index cannot tell a constructor call from a type use, nor an alias from
+  its target by name alone. An approximate answer that is a single `typedef` / alias, or a single class spelled like a
+  construction, is flagged `refinable`; the Editor does not jump on it and waits for clangd (status bar `waiting for
+  clangd`), then jumps (one target) or the front end shows the chooser once. If clangd fails or finds nothing it jumps to
+  the held-back approximate answer, so nothing is lost when clangd is absent. Known gap: a name whose only alias-ness is a
+  **using-declaration** (not indexed by the fast tier) is a plain single fast answer, so a slow clangd (more than the
+  250 ms budget) makes F12 jump first and the chooser appear afterwards at the authoritative answer.
+* **Intermediate aliases** are followed with clangd's `typeDefinition` at the caret for the first hop, then with clangd at
+  the alias' declaration when that document is open, else with the lexical index (only when the aliased name is
+  unambiguous in the workspace); an alias template to a library class (`Vec = std::vector<T>`) has no further hop.
+* **The chooser's position:** a small popup below the caret (above when there is no room), or at the symbol under the
+  mouse for the middle-click command; the same `ListPopup` as the other pickers, so Up / Down / Enter / Escape work and
+  the popup is modal.
 
 ## #8 detail: editing behaviours and their 10x settings
 

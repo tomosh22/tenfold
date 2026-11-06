@@ -200,6 +200,7 @@ Loc Runner::toLoc(const SymbolLocation& s) const {
   Loc l;
   l.line = s.loc.pos.line;
   l.col = s.loc.pos.column;
+  l.preferred = s.preferred;
   if (!s.extent.empty()) {
     l.endLine = s.extent.end.line;
     l.endCol = s.extent.end.column;

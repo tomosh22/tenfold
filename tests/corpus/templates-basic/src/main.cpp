@@ -57,9 +57,10 @@ int main() {
   dependent_names(Box<int>{7});
   // ---- CTAD, deduction guides
   /*@use_Pair*/Pair /*@var_p*/p{1, 2.0};
-  Pair<int, double> p2(1, 2.0);
+  /*@use_Pair_explicit*/Pair<int, double> p2(1, 2.0);
   auto first = p./*@use_Pair_first*/first;
   /*@use_Wrap*/Wrap /*@var_w*/w(src.begin(), src.end());
+  /*@use_Wrap_explicit*/Wrap<int> w2(src.begin(), src.end());
   decltype(p) dp = p;
   // ---- alias / variable templates, template template parameters
   /*@use_Vec_t*/Vec_t<int> vi;

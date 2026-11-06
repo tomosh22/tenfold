@@ -34,6 +34,7 @@ struct Loc {
   std::string file;
   int line = 0, col = 0;
   int endLine = -1, endCol = -1;
+  bool preferred = false;  // go to definition: the entry the chooser selects by default (SymbolLocation::preferred)
 };
 
 // Scans `text` of `relFile` for anchors and adds them to `out`. Problems (duplicate name, anchor without a token on
@@ -76,6 +77,8 @@ struct Item {
   bool none = false;                 // `-> none`, or an empty set; rename: the indented line `(none)` (nothing changes)
   bool refused = false;              // rename ... `!`: clangd must refuse the rename (and nothing changes)
   std::vector<std::string> targets;  // anchors: alternatives (def, decl, typedef, sym ->) or set members
+  // def / decl / typedef with `=` or `>=` (a set): `default B` names the anchor the chooser must select by default.
+  std::string preferred;
   // sym ∋: `A | B C` is two groups {A, B} and {C}; each group needs one member among the results. `targets` holds
   // every name of every group.
   std::vector<std::vector<std::string>> groups;

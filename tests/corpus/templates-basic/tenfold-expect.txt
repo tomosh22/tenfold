@@ -128,9 +128,11 @@ rename Box_val value
   Box_val dep_val
 
 # ---- CTAD ----
-def use_Pair -> Pair
+def use_Pair = Pair Pair_ctor default Pair_ctor  # CTAD: `Pair p{1, 2.0}` calls Pair(A, B)
 typedef use_Pair -> Pair
-def use_Wrap -> Wrap
+def use_Wrap = Wrap Wrap_it_ctor default Wrap_it_ctor  # CTAD through the deduction guide; the constructor template is the one called
+def use_Pair_explicit = Pair Pair_ctor default Pair_ctor
+def use_Wrap_explicit = Wrap Wrap_it_ctor default Wrap_it_ctor
 def use_Pair_first -> Pair_first
 refs Pair_first >= Pair_first use_Pair_first
 typedef use_Pair_first -> none  # the type of Pair::first is the dependent parameter A: no type definition

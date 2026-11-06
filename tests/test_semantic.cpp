@@ -255,6 +255,16 @@ TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
     CHECK_EQ(o.error, "");
     auto& [conf, locs] = o.calls.back();
     CHECK(conf == Confidence::Authoritative);
+    if (std::string(c.useMark) == "decl_v") {
+      // A use of a typedef/alias is a choice (W10-CHOOSE): the alias and the type it names, the type preferred; the
+      // editor does not jump. (tests/test_w10_choose.cpp covers the chooser's labels and orders.)
+      REQUIRE(locs.size() == 2u);
+      CHECK(locs[0].loc.file == c.file);
+      CHECK_EQ(locs[0].loc.pos.line, markLine(c.file, c.defMark));
+      CHECK_EQ(locs[1].loc.pos.line, markLine(c.file, "Vec2"));
+      CHECK(!locs[0].preferred && locs[1].preferred);
+      continue;
+    }
     if (locs.size() != 1u) {
       std::cerr << "    " << c.useMark << "/" << c.token << ": " << locs.size() << " locations\n";
       for (auto& l : locs) std::cerr << "      " << toString(l.loc) << "\n";

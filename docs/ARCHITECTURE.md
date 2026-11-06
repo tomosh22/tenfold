@@ -210,6 +210,53 @@ output only when clangd is absent.
 result and records both ends of the jump in the navigation history. With
 several results it does not jump; the front end shows a picker.
 
+### Go to definition with a choice (W10-CHOOSE)
+
+For a name that stands for more than one wanted thing, `SemanticEngine::gotoDefinition` assembles the authoritative
+answer from a few more questions to clangd (all about the caret's own, open document) and returns *labelled* targets:
+`SymbolLocation::label` ("class Widget", "constructor Widget(int)", "using-declaration", "typedef Bar → Foo"),
+`preferred` (the chooser's default selection) and, on the fast tier only, `refinable`. Order: declaration first, entity
+last. The text helpers (which `(` makes a name a construction, what an alias names, parameter types without names) are
+pure functions in `src/semantic/DefChoice.{h,cpp}`.
+
+1. `textDocument/definition` at the caret, as ever. A single answer with no special shape is returned unchanged.
+2. **Using-declaration** (a result whose declaration is a `using ns::x;`): clangd already answers the declaration and the
+   entity; they are labelled (`using-declaration`, `function ns::f(int)`), the entity is `preferred`.
+3. **Alias** (the single result is a `typedef X Y;` / `using Y = X;` / alias template): the hops are followed up to the
+   real entity. Hop 1 is `textDocument/typeDefinition` at the caret (one hop for clangd: `B3 → B2`); later hops ask
+   clangd for `definition` at the aliased name inside the alias' declaration when that document is open in clangd, else
+   look the name up in the fast index (taken only when exactly one workspace declaration has it; a library type like
+   `std::vector` ends the chain). Cycles and more than 8 hops end it. The list is the aliases nearest first, then the
+   entity (`preferred`); an alias of a builtin type is a single target (labelled; the front end shows the label).
+4. **Constructor call** (the single result is a class, and the word is followed by a `(` / `{` that spells a
+   construction: `T(..)`, `T{..}`, `T name(..)`, `new T(..)`, `: T(..)`; `defchoice::constructPoint`): `definition` at that
+   `(` / `{` is the constructor clangd resolved overload resolution to (clangd's selection tree puts the construct
+   expression there; `Widget(2, 3)` answers `Widget(int, int)`, a delegating or base mem-initializer likewise).
+   * the answer is the class's own position: an **implicit** constructor, labelled `class T (implicit constructor)`,
+     one target; no answer: aggregate initialisation, the class alone;
+   * the answer is on the `using Base::Base;` of an **inherited** constructor: the call's signature is read from
+     `textDocument/ast` (the `CXXConstructExpr`, e.g. `'void (int) noexcept(false)'`) and matched, parameter types
+     without names, against the base class's constructors in the fast index (`constructor Base(int) (inherited)`); if that
+     fails the using-declaration is the second target;
+   * otherwise the constructor (checked to be one: the fast index says Constructor, or the word is the class name),
+     moved to its out-of-line definition when the index knows exactly one for that signature (`preferConstructorDefinition`,
+     so the answer does not depend on how far clangd's background index is).
+   A result on the caret's own line (the caret is on a declaration) is never refined.
+
+Two tiers: the fast tier answers the entity / class as a single result and cannot tell a construction or an alias use from
+a plain use. A single approximate answer that is a `Typedef`, or a class/struct/union where `constructPoint` finds a
+construction, is flagged `refinable`. `Editor::deliverDefinition` (the callback of `gotoDefinition` /
+`gotoDefinitionAt`) does **not** jump on a lone refinable approximate answer: it passes it on (the UI shows `waiting for
+clangd`) and waits. The authoritative answer then either has one target (jump, as for any single answer) or several (no
+jump; the front end opens the chooser, once). If clangd fails or answers nothing, it jumps to the held-back approximate
+answer. An approximate answer with an error (clangd off, held back) always jumps at once; the budget (250 ms) still
+means that when clangd is quick there is only the authoritative callback. A using-declaration is not in the fast index,
+so a name that is *only* a using-declaration is a plain single answer to the fast tier: with a slow clangd it jumps first
+and the chooser follows at the authoritative answer (documented in OPEN_QUESTIONS).
+
+The chooser is `NavResultPicker` (below). The `def` of the corpus format can judge the whole list and its default
+(docs/TESTING.md, `def A = B C default C`).
+
 ### What the fast tier indexes, and how its answer is shaped (W9-FIX-C1)
 
 The fast tier is `CppLexer` + the `Extractor` in `src/semantic/FastIndex.cpp`: no preprocessing, no types, no scopes
@@ -1498,6 +1545,13 @@ list; it opens with `Workbench::openFile`, a tab operation that is not a navigat
 2-4 ms per keystroke. *Result list* (`NavResultPicker`): GotoDefinition/Declaration with several candidates and
 FindReferences with any number show `file:line` plus the source line; the approximate list is swapped in place for the
 authoritative one with the selection kept by location; stale answers of an older command are ignored.
+*Chooser* (W10-CHOOSE): when the targets carry a `SymbolLocation::label` the same picker shows a compact chooser:
+`ListPopup::setAnchor` places it just below the caret (above when there is no room; for the middle-click command at the
+clicked symbol; `NavResultPicker::setAnchor` is set by `EditorApp::runCommandId`), one row per target (label, code line,
+`file:line` right aligned), no more rows than targets, the `preferred` row selected. Enter / click go through
+`Editor::gotoLocation` (history, Back returns), Escape closes without moving. A single labelled target is not a chooser:
+the Editor has jumped and `EditorApp::showNavResults` puts the label in the status bar ("... (implicit constructor)"); a
+held-back approximate answer shows `waiting for clangd`.
 
 ### Search, completion, hover, signature help, diagnostics (`src/ui/features`, B5b)
 

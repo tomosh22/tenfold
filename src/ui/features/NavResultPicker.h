@@ -1,4 +1,5 @@
 #pragma once
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -9,6 +10,9 @@ namespace tf::ui {
 // Result list for the semantic navigation commands (GotoDefinition, FindReferences, ...) when the answer has several
 // locations: rows "file:line" + the source line, greyed with a "verifying..." badge while the answer is Approximate,
 // swapped (selection kept by location) when the Authoritative one arrives. Enter -> Editor::gotoLocation.
+// Chooser (W10-CHOOSE): when the targets carry a SymbolLocation::label ("class Widget", "constructor Widget(int)",
+// "using-declaration", "typedef Bar -> Foo") the rows show label, code line and file:line, the popup sits at the
+// caret (setAnchor) and selects the `preferred` target; Enter jumps (history), Escape closes.
 class NavResultPicker {
  public:
   explicit NavResultPicker(PickerEnv& env) : env_(env) {}
@@ -17,6 +21,9 @@ class NavResultPicker {
   // `minResults` locations closes an open picker instead (the Editor jumped by itself, or there is nothing to pick).
   void show(const std::string& title, Confidence c, const std::vector<SymbolLocation>& locs, const std::string& err,
             size_t minResults);
+  // Where the next chooser appears (the caret or the mouse position); without one the popup is centred.
+  void setAnchor(RectF r) { anchor_ = r; }
+  void clearAnchor() { anchor_.reset(); }
   void close();
   bool isOpen() const { return popup_ != nullptr; }
   ListPopup* popup() const { return popup_; }
@@ -25,6 +32,7 @@ class NavResultPicker {
   PickerEnv& env_;
   ListPopup* popup_ = nullptr;
   std::vector<SymbolLocation> locs_;
+  std::optional<RectF> anchor_;
 };
 
 }  // namespace tf::ui

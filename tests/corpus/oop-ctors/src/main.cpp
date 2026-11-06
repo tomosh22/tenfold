@@ -5,6 +5,7 @@
 #include "bits.h"
 #include "registry.h"
 #include "containers.h"
+#include "gadget.h"
 
 double /*@take_feet_def*/take_feet(Feet f) { return f.v; }
 double /*@take_meters_def*/take_meters(Meters m) { return m.v; }
@@ -27,10 +28,21 @@ int widgets() {
   g->/*@use_dtor_call*/~Widget();
   Widget h = /*@use_temp_int*/Widget(2);
   Widget i = /*@use_temp_wh*/Widget(2, 3);
-  Widget j{4};
-  (void)e; (void)h; (void)i; (void)j;
+  /*@use_var_int*/Widget k(6);
+  /*@use_var_brace*/Widget j{4};
+  Widget l = /*@use_temp_brace*/Widget{7};
+  (void)e; (void)h; (void)i; (void)j; (void)k; (void)l;
   delete g;
   return n;
+}
+
+int implicit_and_defaulted() {
+  Gadget g1 = /*@use_Gadget_temp*/Gadget();
+  /*@use_Gadget_var*/Gadget g2(g1);
+  /*@use_Sprocket_default*/Sprocket s1{};
+  /*@use_Sprocket_int*/Sprocket s2(3);
+  /*@use_Plain_brace*/Plain p{1, 2};
+  return g2.gadget_n + s1.sprocket_n + s2.sprocket_n + p.plain_a;
 }
 
 int inherit() {

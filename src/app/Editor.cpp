@@ -1344,23 +1344,59 @@ void Editor::autoJump(Confidence c, std::vector<SymbolLocation> locs, const std:
   if (done) done(c, locs, err);
 }
 
+namespace {
+// State of one go-to-definition run shared by its two callbacks (approximate, then authoritative).
+struct DefinitionRun {
+  bool deferred = false;     // a single approximate answer was held back
+  SymbolLocation approxLoc;  // ... this one
+};
+}  // namespace
+
+// Go to definition: a single answer jumps. An approximate answer that clangd may still turn into a choice (W10-CHOOSE:
+// an alias, a class used like a constructor call; SymbolLocation::refinable) does not jump on its own: the run waits
+// for clangd, and jumps to the approximate answer only if clangd fails or finds nothing. So the chooser (several
+// authoritative targets) is shown once, by the front end, and never after a jump the user did not get to choose.
+void Editor::deliverDefinition(Confidence c, std::vector<SymbolLocation> locs, const std::string& err, NavResult done,
+                               const Location* origin, std::shared_ptr<void> runState) {
+  auto* run = static_cast<DefinitionRun*>(runState.get());
+  if (c == Confidence::Approximate && err.empty() && locs.size() == 1 && locs[0].refinable) {
+    run->deferred = true;
+    run->approxLoc = locs[0];
+    if (done) done(c, locs, err);
+    return;
+  }
+  if (run->deferred) {
+    run->deferred = false;
+    if (c == Confidence::Authoritative && (!err.empty() || locs.empty())) {
+      autoJump(Confidence::Approximate, {run->approxLoc}, err, done, origin);
+      return;
+    }
+  }
+  autoJump(c, std::move(locs), err, done, origin);
+}
+
 void Editor::gotoDefinition(NavResult done) {
   if (!current_) {
     if (done) done(Confidence::Approximate, {}, "no document");
     return;
   }
-  semantic_->gotoDefinition(
-      *current_, cursor_.pos, [this, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
-        post([this, c, locs = std::move(locs), err, done]() mutable { autoJump(c, std::move(locs), err, done); });
-      });
+  std::shared_ptr<void> run = std::make_shared<DefinitionRun>();
+  semantic_->gotoDefinition(*current_, cursor_.pos,
+                            [this, run, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+                              post([this, run, c, locs = std::move(locs), err, done]() mutable {
+                                deliverDefinition(c, std::move(locs), err, done, nullptr,
+                                                  run);  // origin = the caret at delivery time
+                              });
+                            });
 }
 
 void Editor::gotoDefinitionAt(Document& doc, Position pos, NavResult done) {
   const Location origin{doc.path(), pos};
+  std::shared_ptr<void> run = std::make_shared<DefinitionRun>();
   semantic_->gotoDefinition(
-      doc, pos, [this, origin, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
-        post([this, origin, c, locs = std::move(locs), err, done]() mutable {
-          autoJump(c, std::move(locs), err, done, &origin);
+      doc, pos, [this, origin, run, done](Confidence c, std::vector<SymbolLocation> locs, const std::string& err) {
+        post([this, origin, run, c, locs = std::move(locs), err, done]() mutable {
+          deliverDefinition(c, std::move(locs), err, done, &origin, run);
         });
       });
 }

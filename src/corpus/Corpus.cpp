@@ -524,7 +524,7 @@ struct Parser {
     switch (it.kind) {
       case Kind::Def:
       case Kind::Decl:
-      case Kind::Typedef: relOk = it.rel == Rel::Arrow; break;
+      case Kind::Typedef: relOk = it.rel == Rel::Arrow || it.rel == Rel::Eq || it.rel == Rel::Ge; break;
       case Kind::Impl: relOk = it.rel == Rel::Arrow || it.rel == Rel::Eq || it.rel == Rel::Ge; break;
       case Kind::Refs: relOk = it.rel == Rel::Eq || it.rel == Rel::Ge; break;
       case Kind::Hover: relOk = it.rel == Rel::Contains; break;
@@ -574,8 +574,16 @@ struct Parser {
       return;
     }
     bool expectAnchor = true;
+    const bool navigation = it.kind == Kind::Def || it.kind == Kind::Decl || it.kind == Kind::Typedef;
     for (; i < toks.size(); ++i) {
       const Tok& k = toks[i];
+      if (navigation && !alternatives && !k.quoted && k.text == "default" && !anchors.count("default")) {
+        if (i + 2 != toks.size()) return error(no, "'default' takes one anchor and ends the line");
+        if (!anchorOk(no, toks[i + 1])) return;
+        it.preferred = toks[i + 1].text;
+        i = toks.size();
+        break;
+      }
       if (k.isBar()) {
         if (!alternatives) return error(no, kw + " lists anchors separated by blanks, not '|'");
         if (expectAnchor) return error(no, "misplaced '|'");
@@ -730,7 +738,8 @@ Verdict checkLocations(const Item& it, const std::vector<Loc>& actual, const Anc
            std::all_of(actual.begin(), actual.end(), [&](const Loc& l) { return landsOnAny(l, it.targets, anchors); });
     return v;
   }
-  // Sets (refs, impl): exactly (= and impl ->) or at least (>=) these anchors.
+  // Sets (refs, impl, and def / decl / typedef with `=` / `>=`): exactly (= and impl ->) or at least (>=) these
+  // anchors.
   const bool exact = it.rel != Rel::Ge;
   v.expected = std::string(exact ? "exactly {" : "at least {") + join(it.targets, " ") + "}";
   v.ok = std::all_of(it.targets.begin(), it.targets.end(),
@@ -738,6 +747,14 @@ Verdict checkLocations(const Item& it, const std::vector<Loc>& actual, const Anc
   if (exact)
     for (auto& l : actual)
       if (!landsOnAny(l, it.targets, anchors)) v.ok = false;
+  if (!it.preferred.empty()) {  // the chooser's default selection
+    v.expected += " default " + it.preferred;
+    auto pref = std::find_if(actual.begin(), actual.end(), [](const Loc& l) { return l.preferred; });
+    auto a = anchors.find(it.preferred);
+    const bool good = pref != actual.end() && a != anchors.end() && locMatchesAnchor(*pref, a->second);
+    v.actual += pref == actual.end() ? " default none" : " default " + describeLoc(*pref, anchors);
+    if (!good) v.ok = false;
+  }
   return v;
 }
 

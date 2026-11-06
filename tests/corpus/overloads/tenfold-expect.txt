@@ -129,10 +129,10 @@ hover use_conv_float ~ "conv"
 # ---- constructors: parentheses vs. braces, initializer_list ----
 # Judgement: the token clicked is the type name Bag, which names the class (clangd answers the class for Bag(3), Bag{3},
 # new Bag(7) and for the variable name it answers the variable). The chosen constructor is only visible in references.
-def use_bag_n -> Bag_class
-def use_bag_nn -> Bag_class
-def use_bag_il1 -> Bag_class
-def use_bag_new -> Bag_class
+def use_bag_n = Bag_class bag_n_def default bag_n_def  # Bag(3): the class and the constructor that is called
+def use_bag_nn = Bag_class bag_nn_def default bag_nn_def
+def use_bag_il1 -> Bag_class  # Bag{3} calls the initializer_list constructor; clangd's selection at the '{' names no constructor, so the class alone (W10-CHOOSE known gap)
+def use_bag_new = Bag_class bag_n_def default bag_n_def
 def var_bag_a -> var_bag_a
 refs bag_il = bag_il bag_il_def use_bag_il1 use_bag_il2 var_bag_b var_bag_d
 refs bag_nn = bag_nn bag_nn_def use_bag_nn var_bag_c

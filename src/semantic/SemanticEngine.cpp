@@ -4,6 +4,7 @@
 #include <cctype>
 #include <chrono>
 #include <cstdio>
+#include <cstring>
 #include <fstream>
 #include <mutex>
 #include <set>
@@ -13,6 +14,7 @@
 #include "core/JsonUtil.h"
 #include "core/PathUtil.h"
 #include "core/TextEncoding.h"
+#include "semantic/DefChoice.h"
 #include "semantic/FastIndexStore.h"
 
 namespace tf {
@@ -1974,17 +1976,535 @@ void SemanticEngine::augmentWithFastDefinitions(const std::string& name, std::ve
   }
 }
 
+// ---------------------------------------------------------------------------
+// Go to definition with several targets (W10-CHOOSE)
+// ---------------------------------------------------------------------------
+//
+// clangd answers the one entity the caret names. Through a using-declaration or an alias, and on a constructor call,
+// the user wants a choice, so the authoritative answer is assembled from a few more questions to clangd (all asked
+// about the caret's own document, which clangd has open):
+//   * using-declaration: clangd already answers the declaration and the entity; they are labelled and ordered.
+//   * alias (typedef / using X = / alias template): typeDefinition at the caret names what the alias stands for; the
+//     chain is followed hop by hop (clangd when the alias' document is open, else the lexical index) up to the real
+//     entity, so the intermediate aliases are listed too.
+//   * constructor call (`Widget(2)`, `Widget{2}`, `Widget w(2)`, `new Widget(2)`, `: Base(0)`): definition at the
+//     '(' or '{' of the call is the constructor clangd resolved overload resolution to. An inherited constructor
+//     comes back as the using-declaration; the real one is found by the call's signature (textDocument/ast).
+
+struct SemanticEngine::DefQuery {
+  std::shared_ptr<LspClient> c;
+  std::shared_ptr<ReqGuard> g;
+  std::function<void(std::vector<SymbolLocation>, std::string)> done;
+  Location caret;
+  std::string uri, word;
+  Position sp;                                 // caret, server coordinates
+  Position wordStartSp;                        // start of the word, server coordinates
+  int constructCol = -1;                       // '(' / '{' that makes the word a construction (-1: none)
+  Position constructSp;                        // the same, server coordinates
+  std::set<std::pair<std::string, int>> seen;  // alias chain cycle guard
+};
+
+namespace {
+bool sameSpotLoc(const Location& a, const Location& b) { return a.file == b.file && a.pos.line == b.pos.line; }
+
+const char* kindWord(SymbolKind k) {
+  switch (k) {
+    case SymbolKind::Namespace: return "namespace";
+    case SymbolKind::Class: return "class";
+    case SymbolKind::Struct: return "struct";
+    case SymbolKind::Union: return "union";
+    case SymbolKind::Enum: return "enum";
+    case SymbolKind::Enumerator: return "enumerator";
+    case SymbolKind::Function: return "function";
+    case SymbolKind::Method: return "method";
+    case SymbolKind::Constructor: return "constructor";
+    case SymbolKind::Variable: return "variable";
+    case SymbolKind::Field: return "field";
+    case SymbolKind::Typedef: return "typedef";
+    case SymbolKind::Macro: return "macro";
+    case SymbolKind::Concept: return "concept";
+    default: return "symbol";
+  }
+}
+
+std::string wordAtCol(const std::string& line, int col) {
+  if (col < 0 || static_cast<size_t>(col) >= line.size()) return {};
+  size_t b = static_cast<size_t>(col), e = b;
+  auto isId = [](char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '~'; };
+  while (e < line.size() && isId(line[e])) ++e;
+  return line.substr(b, e - b);
+}
+
+std::string clip(std::string s, size_t n = 48) {
+  if (s.size() > n) s = s.substr(0, n - 3) + "...";
+  return s;
+}
+
+std::string trimmed(std::string s) {
+  const auto b = s.find_first_not_of(" \t\r");
+  if (b == std::string::npos) return {};
+  const auto e = s.find_last_not_of(" \t\r");
+  return s.substr(b, e - b + 1);
+}
+
+// First node of a textDocument/ast tree (pre-order) that is a constructor call, with its printed arcana.
+std::string constructArcana(const Json& n) {
+  if (!n.is_object()) return {};
+  const std::string kind = n.value("kind", "");
+  if (kind.rfind("CXXConstruct", 0) == 0 || kind.rfind("CXXTemporaryObject", 0) == 0) return n.value("arcana", "");
+  if (n.contains("children") && n["children"].is_array())
+    for (const Json& ch : n["children"]) {
+      std::string a = constructArcana(ch);
+      if (!a.empty()) return a;
+    }
+  return {};
+}
+}  // namespace
+
+namespace {
+// Is the name at `col` of `text` declared by a using-declaration (`using ns::f;`, also after other declarations on the
+// line, as in `struct D : B { using B::B; };`)?
+bool usingDeclarationAt(const std::string& text, int col) {
+  const size_t at = static_cast<size_t>(std::max(col, 0));
+  size_t u = text.rfind("using", at);
+  while (u != std::string::npos) {
+    const bool wordStart = u == 0 || !(std::isalnum(static_cast<unsigned char>(text[u - 1])) || text[u - 1] == '_');
+    if (wordStart && defchoice::aliasForm(text.substr(u)) == defchoice::AliasForm::UsingDecl) {
+      const size_t semi = text.find(';', u);
+      return semi == std::string::npos || semi >= at;
+    }
+    if (u == 0) break;
+    u = text.rfind("using", u - 1);
+  }
+  return false;
+}
+}  // namespace
+
+std::string SemanticEngine::lineText(const fs::path& file, int line) const {
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(pathToUri(file));
+    if (it != openDocs_.end()) {
+      const TextBuffer& b = it->second->buffer();
+      return line >= 0 && line < b.lineCount() ? defchoice::blankComments(b.line(line)) : std::string();
+    }
+  }
+  return defchoice::blankComments(readLineOfFile(file, line));
+}
+
+std::optional<Symbol> SemanticEngine::fastSymbolAt(const Location& loc) const {
+  auto fsyms = fast_.fileSymbols(loc.file);
+  if (!fsyms) return std::nullopt;
+  const Symbol* best = nullptr;
+  for (const Symbol& s : fsyms->symbols) {
+    if (s.line != loc.pos.line) continue;
+    if (s.col == loc.pos.column) return s;
+    if (!best) best = &s;
+  }
+  if (best) return *best;
+  return std::nullopt;
+}
+
+bool SemanticEngine::openInClangd(const fs::path& file) const {
+  const std::string uri = pathToUri(file);
+  std::lock_guard<std::mutex> lk(mu_);
+  return openDocs_.count(uri) != 0 && unsent_.count(uri) == 0;
+}
+
+Position SemanticEngine::serverPosition(const fs::path& file, Position p) const {
+  auto c = client();
+  if (!c || c->offsetEncoding() == "utf-8") return p;
+  return {p.line, TextBuffer::utf8ToUtf16Column(lineText(file, p.line), p.column)};
+}
+
+// "class Widget", "method Widget::size()", "function ns::f(int)": kind and qualified name of what is declared at `loc`.
+std::string SemanticEngine::describeTarget(const Location& loc) const {
+  const std::string text = lineText(loc.file, loc.pos.line);
+  std::optional<Symbol> s = fastSymbolAt(loc);
+  std::string kind, scope, name = wordAtCol(text, loc.pos.column);
+  if (s) {
+    kind = kindWord(s->kind);
+    scope = s->scope;
+    if (s->kind == SymbolKind::Method) {  // `int ns::f(int)` defined out of line is a function of a namespace
+      const size_t cut = scope.rfind("::");
+      const std::string owner = cut == std::string::npos ? scope : scope.substr(cut + 2);
+      bool isClass = scope.empty();
+      for (auto& m : fast_.lookup(owner)) {
+        const SymbolKind k = m.sym().kind;
+        isClass = isClass || k == SymbolKind::Class || k == SymbolKind::Struct || k == SymbolKind::Union;
+      }
+      if (!isClass) kind = "function";
+    }
+    if (s->kind == SymbolKind::Typedef)
+      kind = defchoice::aliasForm(text) == defchoice::AliasForm::Typedef ? "typedef" : "alias";
+    if (name.empty() || s->col != loc.pos.column) name = s->name;
+  } else {
+    // Not in the lexical index (declared by a macro, ...): judge by what precedes the name.
+    const std::string before = loc.pos.column > 0 ? text.substr(0, static_cast<size_t>(loc.pos.column)) : "";
+    auto endsWith = [&](const char* w) {
+      const std::string t = trimmed(before);
+      const size_t n = std::strlen(w);
+      return t.size() >= n && t.compare(t.size() - n, n, w) == 0 &&
+             (t.size() == n ||
+              !(std::isalnum(static_cast<unsigned char>(t[t.size() - n - 1])) || t[t.size() - n - 1] == '_'));
+    };
+    if (endsWith("class")) kind = "class";
+    else if (endsWith("struct")) kind = "struct";
+    else if (endsWith("union")) kind = "union";
+    else if (endsWith("enum")) kind = "enum";
+    else if (defchoice::aliasForm(text) == defchoice::AliasForm::UsingDecl) kind = "using-declaration";
+    else {
+      const size_t after = static_cast<size_t>(loc.pos.column) + name.size();
+      kind = after < text.size() && text[after] == '(' ? "function" : "symbol";
+    }
+  }
+  const bool fn = kind == "function" || kind == "method" || kind == "constructor";
+  std::string shown = fn ? defchoice::signatureText(text, loc.pos.column) : name;
+  if (shown.empty()) shown = name;
+  if (!scope.empty() && kind != "constructor") shown = scope + "::" + shown;
+  return kind + " " + shown;
+}
+
+// A constructor declaration whose out-of-line definition the lexical index knows: the definition (same class, same
+// parameter types). Go to definition goes to the definition, whatever clangd's index state.
+void SemanticEngine::preferConstructorDefinition(SymbolLocation& ctor) const {
+  std::optional<Symbol> s = fastSymbolAt(ctor.loc);
+  if (!s || s->kind != SymbolKind::Constructor || s->definition) return;
+  const std::string declText = lineText(ctor.loc.file, ctor.loc.pos.line);
+  bool okDecl = false;
+  const std::vector<std::string> want =
+      defchoice::paramTypes(declText, s->col + static_cast<int>(s->name.size()), &okDecl);
+  if (!okDecl) return;
+  std::vector<FastIndex::Match> hits;
+  for (auto& m : fast_.lookup(s->name)) {
+    const Symbol& d = m.sym();
+    if (d.kind != SymbolKind::Constructor || !d.definition || d.scope != s->scope || d.arity != s->arity) continue;
+    bool ok = false;
+    const std::vector<std::string> got =
+        defchoice::paramTypes(lineText(m.file->file, d.line), d.col + static_cast<int>(d.name.size()), &ok);
+    if (ok && got == want) hits.push_back(m);
+  }
+  if (hits.size() != 1) return;
+  SymbolLocation r = fromFast(hits[0]);
+  r.confidence = ctor.confidence;
+  r.label = ctor.label;
+  r.preferred = ctor.preferred;
+  ctor = std::move(r);
+}
+
 void SemanticEngine::gotoDefinition(const Document& doc, Position pos, LocationsCallback cb) {
-  std::string word = doc.buffer().wordAt(pos).text;
-  LocationsCallback wrapped = [this, word, cb = std::move(cb)](Confidence c, std::vector<SymbolLocation> locs,
-                                                               const std::string& err) {
-    if (c == Confidence::Authoritative && err.empty()) augmentWithFastDefinitions(word, locs);
+  const auto word = doc.buffer().wordAt(pos);
+  LocationsCallback wrapped = [this, w = word.text, cb = std::move(cb)](Confidence c, std::vector<SymbolLocation> locs,
+                                                                        const std::string& err) {
+    if (c == Confidence::Authoritative && err.empty()) augmentWithFastDefinitions(w, locs);
     cb(c, std::move(locs), err);
   };
-  locationQuery("definition", doc, pos, std::move(wrapped), [](LspClient& c, const std::string& u, Position p, auto k) {
-    return c.definition(u, p, std::move(k));
+  std::vector<SymbolLocation> approx = approximateDefinitions(doc, pos, FastIndex::Want::Definition);
+  auto q = std::make_shared<DefQuery>();
+  q->caret = {doc.path(), pos};
+  q->uri = doc.uri();
+  q->word = word.text;
+  q->sp = toServer(doc, pos);
+  if (!word.text.empty()) {
+    const std::string text = defchoice::blankComments(doc.buffer().line(doc.buffer().clamp(pos).line));
+    q->constructCol = defchoice::constructPoint(text, word.range.end.column);
+    q->wordStartSp = toServer(doc, word.range.start);
+    if (q->constructCol >= 0) q->constructSp = toServer(doc, Position{word.range.end.line, q->constructCol});
+  }
+  // The fast tier cannot tell an alias or a constructor call from a plain type use: a single answer that might become
+  // a choice is held back by the Editor until clangd has answered (or failed).
+  if (approx.size() == 1) {
+    std::optional<Symbol> s = fastSymbolAt(approx[0].loc);
+    if (s && (s->kind == SymbolKind::Typedef ||
+              (q->constructCol >= 0 &&
+               (s->kind == SymbolKind::Class || s->kind == SymbolKind::Struct || s->kind == SymbolKind::Union))))
+      approx[0].refinable = true;
+  }
+  if (unsent(q->uri)) {  // the document is not known to clangd: only the fast tier can answer
+    return deliverWithBudget(std::move(approx), std::move(wrapped), [](auto done) {
+      done(std::vector<SymbolLocation>{}, std::string("clangd has no translation-unit context for this file"));
+    });
+  }
+  deliverWithBudget(std::move(approx), std::move(wrapped), [this, q](auto done) {
+    auto c = clangd();
+    if (!c) return done(std::vector<SymbolLocation>{}, std::string("clangd not running"));
+    q->c = c;
+    q->g = std::make_shared<ReqGuard>();
+    q->done = done;
+    q->g->id = c->definition(q->uri, q->sp, [this, q](std::vector<LspLocation> ls, const std::string& err) {
+      if (q->g->done.load()) return;
+      if (!err.empty()) {
+        if (!q->g->done.exchange(true)) q->done({}, err);
+        return;
+      }
+      refineDefinition(q, fromServer(ls, Confidence::Authoritative));
+    });
+    armRequestTimeout(q->g, c, "definition", [done](const std::string& m) { done(std::vector<SymbolLocation>{}, m); });
   });
 }
+
+void SemanticEngine::refineDefinition(std::shared_ptr<DefQuery> q, std::vector<SymbolLocation> locs) {
+  auto finish = [q](std::vector<SymbolLocation> r) {
+    if (!q->g->done.exchange(true)) q->done(std::move(r), {});
+  };
+  if (locs.empty()) return finish(std::move(locs));
+  for (const SymbolLocation& l : locs)
+    if (sameSpotLoc(l.loc, q->caret)) return finish(std::move(locs));  // the caret is on a declaration itself
+  // Through a using-declaration clangd answers the declaration and the entity: label them, entity last and preferred.
+  std::vector<SymbolLocation> usings, others;
+  for (SymbolLocation& l : locs) {
+    const std::string text = lineText(l.loc.file, l.loc.pos.line);
+    (usingDeclarationAt(text, l.loc.pos.column) ? usings : others).push_back(std::move(l));
+  }
+  if (!usings.empty()) {
+    std::vector<SymbolLocation> out;
+    for (SymbolLocation& u : usings) {
+      u.label = "using-declaration";
+      out.push_back(std::move(u));
+    }
+    for (SymbolLocation& o : others) {
+      o.label = describeTarget(o.loc);
+      out.push_back(std::move(o));
+    }
+    if (!others.empty()) out[usings.size()].preferred = true;
+    return finish(std::move(out));
+  }
+  locs = std::move(others);
+  if (locs.size() == 1) {
+    const std::string text = lineText(locs[0].loc.file, locs[0].loc.pos.line);
+    const defchoice::AliasForm form = defchoice::aliasForm(text);
+    if (form == defchoice::AliasForm::Typedef || form == defchoice::AliasForm::Using)
+      return aliasChoices(q, std::move(locs[0]));
+    if (q->constructCol >= 0 && classLike(locs[0])) return constructorChoices(q, std::move(locs[0]));
+  }
+  finish(std::move(locs));
+}
+
+bool SemanticEngine::classLike(const SymbolLocation& l) const {
+  std::optional<Symbol> s = fastSymbolAt(l.loc);
+  if (s) return s->kind == SymbolKind::Class || s->kind == SymbolKind::Struct || s->kind == SymbolKind::Union;
+  const std::string d = describeTarget(l.loc);
+  return d.rfind("class ", 0) == 0 || d.rfind("struct ", 0) == 0 || d.rfind("union ", 0) == 0;
+}
+
+// ---- aliases ----
+
+void SemanticEngine::aliasChoices(std::shared_ptr<DefQuery> q, SymbolLocation alias) {
+  struct Walk {
+    std::vector<SymbolLocation> chain;  // aliases, nearest to the caret first
+    std::optional<SymbolLocation> entity;
+    int hops = 0;
+  };
+  auto w = std::make_shared<Walk>();
+  q->seen.insert({alias.loc.file.generic_string(), alias.loc.pos.line});
+  w->chain.push_back(std::move(alias));
+
+  auto finish = [this, q, w] {
+    std::vector<SymbolLocation> out = std::move(w->chain);
+    std::vector<std::string> names;
+    for (const SymbolLocation& a : out)
+      names.push_back(wordAtCol(lineText(a.loc.file, a.loc.pos.line), a.loc.pos.column));
+    std::string entityName;
+    if (w->entity) {
+      w->entity->label = describeTarget(w->entity->loc);
+      const std::string t = lineText(w->entity->loc.file, w->entity->loc.pos.line);
+      entityName = wordAtCol(t, w->entity->loc.pos.column);
+    }
+    for (size_t i = 0; i < out.size(); ++i) {
+      const std::string text = lineText(out[i].loc.file, out[i].loc.pos.line);
+      const bool isTypedef = defchoice::aliasForm(text) == defchoice::AliasForm::Typedef;
+      std::string target = i + 1 < out.size() ? names[i + 1] : entityName;
+      if (target.empty()) {  // names something with no declaration of its own (int, a function pointer, ...)
+        const size_t eq = text.find('=');
+        const size_t tp = text.find("typedef");
+        if (!isTypedef && eq != std::string::npos) target = trimmed(text.substr(eq + 1, text.find(';', eq) - eq - 1));
+        else if (isTypedef && tp != std::string::npos && static_cast<size_t>(out[i].loc.pos.column) > tp + 7)
+          target = trimmed(text.substr(tp + 7, static_cast<size_t>(out[i].loc.pos.column) - tp - 7));
+        target = clip(target, 40);
+      }
+      out[i].label = std::string(isTypedef ? "typedef " : "alias ") + names[i] + (target.empty() ? "" : " → " + target);
+    }
+    if (w->entity && q->constructCol >= 0 && classLike(*w->entity))  // `Bar b(1, 2);`: the constructor too
+      return constructorChoices(q, std::move(*w->entity), std::move(out));
+    if (w->entity) out.push_back(std::move(*w->entity));
+    out.back().preferred = true;
+    if (!q->g->done.exchange(true)) q->done(std::move(out), {});
+  };
+
+  auto isAlias = [this](const SymbolLocation& l) {
+    const defchoice::AliasForm f = defchoice::aliasForm(lineText(l.loc.file, l.loc.pos.line));
+    return f == defchoice::AliasForm::Typedef || f == defchoice::AliasForm::Using;
+  };
+
+  // The hop from the alias `cur` to what it names; `first` = the hop from the caret's own alias, answered by
+  // typeDefinition at the caret. The callback gets nothing when the chain cannot be followed.
+  auto step = std::make_shared<std::function<void(SymbolLocation, bool)>>();
+  *step = [this, q, w, finish, isAlias, step](SymbolLocation cur, bool first) {
+    if (q->g->done.load()) return;
+    auto next = [this, q, w, finish, isAlias, step, cur](std::optional<SymbolLocation> n) {
+      if (q->g->done.load()) return;
+      if (!n || sameSpotLoc(n->loc, cur.loc)) return finish();
+      if (!q->seen.insert({n->loc.file.generic_string(), n->loc.pos.line}).second || ++w->hops > 8) return finish();
+      if (isAlias(*n)) {
+        w->chain.push_back(*n);
+        return (*step)(*n, false);
+      }
+      w->entity = *n;
+      finish();
+    };
+    auto lexical = [this, cur, next]() {
+      const std::string text = lineText(cur.loc.file, cur.loc.pos.line);
+      std::optional<defchoice::AliasRhs> rhs = defchoice::aliasRhs(text, cur.loc.pos.column);
+      if (!rhs) return next(std::nullopt);
+      std::vector<SymbolLocation> hits;
+      for (auto& m : fast_.lookup(rhs->name)) {
+        const Symbol& s = m.sym();
+        if (s.kind == SymbolKind::Macro || s.kind == SymbolKind::Namespace || s.kind == SymbolKind::Variable ||
+            s.kind == SymbolKind::Field || s.kind == SymbolKind::Function || s.kind == SymbolKind::Method ||
+            s.kind == SymbolKind::Constructor || s.kind == SymbolKind::Enumerator)
+          continue;
+        if (!s.definition && s.kind != SymbolKind::Typedef) continue;
+        const std::string q2 = s.qualified();
+        if (!rhs->qualifier.empty() && q2 != rhs->qualifier + "::" + rhs->name &&
+            !q2.ends_with("::" + rhs->qualifier + "::" + rhs->name))
+          continue;
+        hits.push_back(fromFast(m));
+      }
+      if (hits.size() != 1) return next(std::nullopt);  // unknown or ambiguous by name: do not guess
+      next(std::move(hits[0]));
+    };
+    if (first) {
+      q->g->id = q->c->typeDefinition(
+          q->uri, q->sp, [this, q, cur, next, lexical](std::vector<LspLocation> ls, const std::string& err) {
+            if (q->g->done.load()) return;
+            std::vector<SymbolLocation> r =
+                err.empty() ? fromServer(ls, Confidence::Authoritative) : std::vector<SymbolLocation>{};
+            if (!r.empty() && !sameSpotLoc(r[0].loc, cur.loc)) return next(std::move(r[0]));
+            lexical();
+          });
+      return;
+    }
+    // Later hops: ask clangd at the aliased name when the alias' document is open there, else the lexical index.
+    const std::string text = lineText(cur.loc.file, cur.loc.pos.line);
+    std::optional<defchoice::AliasRhs> rhs = defchoice::aliasRhs(text, cur.loc.pos.column);
+    if (rhs && openInClangd(cur.loc.file)) {
+      q->g->id = q->c->definition(pathToUri(cur.loc.file), serverPosition(cur.loc.file, {cur.loc.pos.line, rhs->col}),
+                                  [this, q, next, lexical](std::vector<LspLocation> ls, const std::string& err) {
+                                    if (q->g->done.load()) return;
+                                    std::vector<SymbolLocation> r = err.empty()
+                                                                        ? fromServer(ls, Confidence::Authoritative)
+                                                                        : std::vector<SymbolLocation>{};
+                                    if (!r.empty()) return next(std::move(r[0]));
+                                    lexical();
+                                  });
+      return;
+    }
+    lexical();
+  };
+  (*step)(w->chain[0], true);
+}
+
+// ---- constructor calls ----
+
+void SemanticEngine::constructorChoices(std::shared_ptr<DefQuery> q, SymbolLocation cls,
+                                        std::vector<SymbolLocation> prefix) {
+  q->g->id = q->c->definition(
+      q->uri, q->constructSp,
+      [this, q, cls, prefix = std::move(prefix)](std::vector<LspLocation> ls, const std::string& err) {
+        if (q->g->done.load()) return;
+        // The aliases that led to the class come first; with them the entity (the class, or the constructor) is
+        // selected.
+        auto finish = [q, &prefix](std::vector<SymbolLocation> r, bool selectLast) {
+          std::vector<SymbolLocation> out = prefix;
+          for (SymbolLocation& l : r) out.push_back(std::move(l));
+          if (selectLast || !prefix.empty()) out.back().preferred = true;
+          if (!q->g->done.exchange(true)) q->done(std::move(out), {});
+        };
+        std::vector<SymbolLocation> found =
+            err.empty() ? fromServer(ls, Confidence::Authoritative) : std::vector<SymbolLocation>{};
+        SymbolLocation klass = cls;
+        if (!prefix.empty() || !found.empty()) klass.label = describeTarget(klass.loc);
+        if (found.empty()) return finish({klass}, false);  // aggregate initialisation, or nothing to add
+        SymbolLocation ctor = found[0];
+        const std::string ctorText = lineText(ctor.loc.file, ctor.loc.pos.line);
+        const std::string className = wordAtCol(lineText(klass.loc.file, klass.loc.pos.line), klass.loc.pos.column);
+        if (usingDeclarationAt(ctorText, ctor.loc.pos.column))
+          return inheritedConstructorChoices(q, klass, ctor, prefix);
+        if (sameSpotLoc(ctor.loc, klass.loc) && ctor.loc.pos.column == klass.loc.pos.column) {
+          // clangd places an implicit constructor at its class
+          klass.label = describeTarget(klass.loc) + " (implicit constructor)";
+          return finish({klass}, true);
+        }
+        if (sameSpotLoc(ctor.loc, q->caret))
+          return finish({klass}, false);  // a constructor declaration being asked about
+        std::optional<Symbol> s = fastSymbolAt(ctor.loc);
+        const bool isCtor =
+            s ? s->kind == SymbolKind::Constructor : wordAtCol(ctorText, ctor.loc.pos.column) == className;
+        if (!isCtor) return finish({klass}, false);
+        preferConstructorDefinition(ctor);
+        ctor.label = describeTarget(ctor.loc);
+        finish({klass, ctor}, true);
+      });
+}
+
+void SemanticEngine::inheritedConstructorChoices(std::shared_ptr<DefQuery> q, SymbolLocation cls,
+                                                 SymbolLocation usingDecl, std::vector<SymbolLocation> prefix) {
+  auto finish = [this, q, cls, usingDecl, prefix = std::move(prefix)](std::optional<SymbolLocation> real) mutable {
+    std::vector<SymbolLocation> out = std::move(prefix);
+    cls.label = describeTarget(cls.loc);
+    out.push_back(cls);
+    if (real) {
+      real->label = describeTarget(real->loc) + " (inherited)";
+      real->preferred = true;
+      out.push_back(*real);
+    } else {
+      usingDecl.label = "using-declaration (inherited constructors)";
+      usingDecl.preferred = true;
+      out.push_back(usingDecl);
+    }
+    if (!q->g->done.exchange(true)) q->done(std::move(out), {});
+  };
+  // The signature of the call: the constructor expression clangd's AST has for it.
+  Json params = {{"textDocument", {{"uri", q->uri}}},
+                 {"range",
+                  {{"start", {{"line", q->wordStartSp.line}, {"character", q->wordStartSp.column}}},
+                   {"end", {{"line", q->constructSp.line}, {"character", q->constructSp.column + 1}}}}}};
+  q->g->id = q->c->rawRequest(
+      "textDocument/ast", params, [this, q, usingDecl, finish](Json r, const std::string& err) mutable {
+        if (q->g->done.load()) return;
+        if (!err.empty()) return finish(std::nullopt);
+        bool ok = false;
+        const std::vector<std::string> want = defchoice::signatureParamTypes(constructArcana(r), &ok);
+        const std::string base = defchoice::usingQualifier(lineText(usingDecl.loc.file, usingDecl.loc.pos.line));
+        if (!ok || base.empty()) return finish(std::nullopt);
+        const size_t cut = base.rfind("::");
+        const std::string baseName = cut == std::string::npos ? base : base.substr(cut + 2);
+        std::set<std::string> scopes;  // qualified names of the base class (it can be declared in several namespaces)
+        for (auto& m : fast_.lookup(baseName)) {
+          const Symbol& s = m.sym();
+          if ((s.kind == SymbolKind::Class || s.kind == SymbolKind::Struct) && s.definition)
+            scopes.insert(s.qualified());
+        }
+        if (scopes.size() != 1) return finish(std::nullopt);
+        std::vector<FastIndex::Match> hits;
+        for (auto& m : fast_.lookup(baseName)) {
+          const Symbol& s = m.sym();
+          if (s.kind != SymbolKind::Constructor || s.scope != *scopes.begin()) continue;
+          bool pok = false;
+          const std::vector<std::string> got =
+              defchoice::paramTypes(lineText(m.file->file, s.line), s.col + static_cast<int>(s.name.size()), &pok);
+          if (pok && got == want) hits.push_back(m);
+        }
+        if (hits.empty()) return finish(std::nullopt);
+        std::stable_sort(hits.begin(), hits.end(), [](const FastIndex::Match& a, const FastIndex::Match& b) {
+          return a.sym().definition > b.sym().definition;
+        });
+        SymbolLocation real = fromFast(hits[0]);
+        preferConstructorDefinition(real);
+        finish(std::move(real));
+      });
+}
+
 void SemanticEngine::gotoDeclaration(const Document& doc, Position pos, LocationsCallback cb) {
   locationQuery("declaration", doc, pos, std::move(cb), [](LspClient& c, const std::string& u, Position p, auto k) {
     return c.declaration(u, p, std::move(k));
