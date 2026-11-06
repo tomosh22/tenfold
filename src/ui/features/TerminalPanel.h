@@ -28,13 +28,15 @@ class TerminalPanel {
   // Existing terminals pick up the font, the scrollback limit and the wheel speed; the commands apply to new ones.
   void applySettings(const Settings& s, float dpiScale);
   // The program a terminal of `kind` runs, after the settings and the off-Windows translation of 10x's Windows
-  // defaults ("cmd.exe" = the user's shell, a leading "cmd /c" dropped): program + arguments.
+  // defaults ("cmd.exe" = the user's shell, a leading "cmd /c" dropped): program + arguments. An empty
+  // terminal.command (the default) is Pty::defaultTerminalShell(): pwsh.exe / powershell.exe on Windows, else $SHELL.
   std::vector<std::string> commandFor(Kind kind) const;
   // The working directory of a new terminal: the workspace root, else the current file's folder, else the home folder.
   std::filesystem::path workingDirectory() const;
 
   // NewTerminal: a terminal tab in the active panel, focused. Returns its tab id, or -1 with *error.
-  int create(Kind kind, std::string* error = nullptr);
+  // `cwd` (when not empty) replaces the working directory (OpenInTerminal on an explorer node).
+  int create(Kind kind, std::string* error = nullptr, const std::filesystem::path& cwd = {});
   // ShowTerminal: with no terminal creates a shell; if the active tab is a terminal shows the next one (wrapping round,
   // in creation order); otherwise shows the one shown last. Returns the tab id shown, or -1 with *error.
   int show(std::string* error = nullptr);
@@ -72,9 +74,10 @@ class TerminalPanel {
   Workbench& bench_;
   std::vector<Info> infos_;
   std::shared_ptr<TerminalFont> font_ = std::make_shared<TerminalFont>();
-  std::string command_ = "cmd.exe", claude_ = "claude", cursor_ = "cmd /c agent";
+  std::string command_, claude_ = "claude", cursor_ = "cmd /c agent";
   size_t scrollback_ = 10000;
   bool closeOnExit_ = false;
+  bool ctrlCCopies_ = false;
   int wheelLines_ = 3;
   FontSpec fontSpec_;
   float fontSize_ = 0;

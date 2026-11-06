@@ -374,24 +374,10 @@ void TerminalView::onFocusChanged(bool) { syncFocusReport(); }
 bool TerminalView::onKey(const InputEvent& e) {
   const bool ctrl = e.mods & ModCtrl, alt = e.mods & ModAlt, shift = e.mods & ModShift;
   const uint32_t k = static_cast<uint32_t>(e.key);
-  // Clipboard.
-  if (ctrl && !alt && (e.key == Key('C'))) {
-    if (shift) {
-      copySelection(false);
-      return true;  // Ctrl+Shift+C never reaches the program
-    }
-    if (selActive_) {
-      copySelection(true);
-      return true;
-    }
-    // no selection: falls through, ^C goes to the program
-  }
-  if (ctrl && !alt && !shift && e.key == Key::Insert) {
-    copySelection(false);
-    return true;
-  }
-  if ((ctrl && !alt && e.key == Key('V')) || (shift && !ctrl && !alt && e.key == Key::Insert)) {
-    paste();
+  // Copy / paste keys are key map bindings (Terminal.Copy / Terminal.Paste); the only clipboard key handled here is the
+  // opt-in Ctrl+C. Without it Ctrl+C is ^C and Ctrl+V is 0x16, as in Visual Studio's terminal.
+  if (ctrlCCopiesSelection && ctrl && !alt && !shift && e.key == Key('C') && selActive_) {
+    copySelection(true);
     return true;
   }
   if (!session_ || session_->exited()) return false;
@@ -495,8 +481,7 @@ bool TerminalView::mouseDown(const InputEvent& e) {
     return true;
   }
   if (e.button == MouseButton::Right) {
-    if (selActive_) copySelection(true);
-    else paste();
+    paste();  // Visual Studio: a right click pastes (it does not copy a selection)
     return true;
   }
   if (e.button != MouseButton::Left) return false;

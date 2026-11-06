@@ -382,7 +382,9 @@ TEST(term_command_translation_off_windows_and_defaults) {
   Env env;
   Settings s;  // the shipped defaults: 10x's own
   env.app->applySettings(s);
-  CHECK_EQ(s.getString("terminal.command"), std::string("cmd.exe"));
+  CHECK_EQ(s.getString("terminal.command"),
+           std::string(""));  // VS-TERM: empty = pwsh/powershell on Windows, else $SHELL
+  CHECK(!s.getBool("terminal.ctrlCCopiesSelection"));
   CHECK_EQ(s.getString("terminal.claudeCommand"), std::string("claude"));
   CHECK_EQ(s.getString("terminal.cursorCommand"), std::string("cmd /c agent"));
   CHECK(s.getFont("terminal.font").family.empty());
@@ -393,10 +395,15 @@ TEST(term_command_translation_off_windows_and_defaults) {
   const auto shell = env.terms().commandFor(TerminalPanel::Kind::Shell);
   const auto cursor = env.terms().commandFor(TerminalPanel::Kind::Cursor);
 #ifdef _WIN32
-  CHECK_EQ(shell[0], std::string("cmd.exe"));
+  CHECK(shell[0] == "pwsh.exe" || shell[0] == "powershell.exe");
   CHECK_EQ(cursor.size(), size_t(3));
 #else
-  CHECK(shell == Pty::splitCommand(Pty::defaultShell()));  // $SHELL, else /bin/sh
+  CHECK(shell == std::vector<std::string>{Pty::defaultShell()});  // $SHELL, else /bin/sh
+  // An explicitly set 10x TerminalCommand stays authoritative; 10x's own `cmd.exe` still means the shell here.
+  env.settings("terminal.command = /bin/sh -l\n");
+  CHECK((env.terms().commandFor(TerminalPanel::Kind::Shell) == std::vector<std::string>{"/bin/sh", "-l"}));
+  env.settings("terminal.command = cmd.exe\n");
+  CHECK(env.terms().commandFor(TerminalPanel::Kind::Shell) == shell);
   CHECK(cursor == std::vector<std::string>{"agent"});
 #endif
 }
@@ -559,43 +566,218 @@ TEST(term_keys_go_to_the_program_except_the_app_strokes) {
 #endif
 }
 
-TEST(term_ctrl_c_copies_a_selection_and_otherwise_interrupts_the_program) {
-#ifndef _WIN32
-  if (!Pty::available()) return;
-  Env env;
-  FakeClipboard cb;
-  env.settings(cmdSetting("trap 'echo GOT-INT; exit 7' INT; echo alpha beta gamma; while :; do sleep 0.05; done"));
-  const int id = env.newTerminal();
-  REQUIRE(id >= 0);
-  REQUIRE(env.waitHas("alpha beta gamma"));
-  TerminalView* v = env.tv();
+namespace {
+// Selects "beta gamma" on the "alpha beta gamma" line of the terminal with the mouse.
+void selectBetaGamma(Env& env, TerminalView* v) {
   int row = -1;
   for (int r = 0; r < v->session()->screen().rows(); ++r)
     if (v->visibleRowText(r) == "alpha beta gamma") row = r;
   REQUIRE(row >= 0);
-  // Drag from the 'b' of beta to the end of gamma.
   const RectF a = v->cellRect(row, 6), b = v->cellRect(row, 15);
   env.send(mouseEv(InputType::MouseDown, a.x + 2, a.y + 3));
   env.send(mouseEv(InputType::MouseMove, b.x + 2, b.y + 3));
   env.send(mouseEv(InputType::MouseUp, b.x + 2, b.y + 3));
   CHECK(v->hasSelection());
   CHECK_EQ(v->selectedText(), std::string("beta gamma"));
-  env.key(Key('C'), ModCtrl);  // copies, does not interrupt
+}
+}  // namespace
+
+// VS-TERM (docs/VS_BEHAVIOUR.md sec. 12, M1): Ctrl+C is always ^C, with or without a selection.
+TEST(term_ctrl_c_always_sends_0x03_even_with_a_selection) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  cb.text = "untouched";
+  // Raw mode: the tty delivers ^C as a byte (cat -v shows it) instead of turning it into SIGINT.
+  env.settings(cmdSetting("stty raw -echo; echo alpha beta gamma; cat -v"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("alpha beta gamma"));
+  TerminalView* v = env.tv();
+  env.key(Key('C'), ModCtrl);  // no selection
+  REQUIRE(env.waitHas("^C"));
+  selectBetaGamma(env, v);
+  env.key(Key('C'), ModCtrl);  // selection: still the program's, nothing copied
+  CHECK(env.waitFor([&] {
+    const std::string sc = env.screen();
+    return sc.find("^C^C") != std::string::npos;
+  }));
+  CHECK_EQ(cb.text, std::string("untouched"));
+  CHECK(v->hasSelection());
+#endif
+}
+
+TEST(term_ctrl_c_interrupts_a_running_program_with_a_selection_too) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  env.settings(cmdSetting("trap 'echo GOT-INT; exit 7' INT; echo alpha beta gamma; while :; do sleep 0.05; done"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("alpha beta gamma"));
+  selectBetaGamma(env, env.tv());
+  env.key(Key('C'), ModCtrl);
+  CHECK(env.waitHas("GOT-INT"));
+  CHECK(env.waitHas("[process exited with code 7]"));
+  CHECK(cb.text.empty());
+#endif
+}
+
+TEST(term_ctrl_v_sends_its_control_character_and_does_not_paste) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  cb.text = "clip";
+  env.settings(cmdSetting("stty raw -echo; echo ready; cat -v"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("ready"));
+  env.key(Key('V'), ModCtrl);
+  CHECK(env.waitHas("^V"));
+  CHECK(!env.has("clip"));
+#endif
+}
+
+TEST(term_ctrl_shift_c_and_ctrl_insert_copy_without_sending_anything) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  env.settings(cmdSetting("stty raw -echo; echo alpha beta gamma; cat -v"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("alpha beta gamma"));
+  TerminalView* v = env.tv();
+  selectBetaGamma(env, v);
+  env.key(Key('C'), ModCtrl | ModShift);
+  CHECK_EQ(cb.text, std::string("beta gamma"));
+  CHECK(v->hasSelection());  // copying keeps the selection
+  cb.text.clear();
+  env.key(Key::Insert, ModCtrl);
+  CHECK_EQ(cb.text, std::string("beta gamma"));
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  env.frame();
+  CHECK(!env.has("^C") && !env.has("^["));  // nothing reached the program
+#endif
+}
+
+TEST(term_ctrl_shift_v_and_shift_insert_paste_bracketed) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  env.settings(cmdSetting("printf '\\033[?2004h'; cat -v"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitFor([&] { return env.tv()->session()->screen().bracketedPaste(); }));
+  auto count = [&](const std::string& needle) {
+    const std::string sc = env.screen();
+    size_t n = 0;
+    for (size_t p = sc.find(needle); p != std::string::npos; p = sc.find(needle, p + 1)) ++n;
+    return n;
+  };
+  cb.text = "pasted";
+  env.key(Key('V'), ModCtrl | ModShift);
+  CHECK(env.waitFor([&] { return count("^[[200~pasted^[[201~") == 1; }));
+  env.key(Key::Insert, ModShift);
+  CHECK(env.waitFor([&] { return count("^[[200~pasted^[[201~") == 2; }));
+#endif
+}
+
+TEST(term_right_click_pastes_and_never_copies_a_selection) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  env.settings(cmdSetting("stty raw -echo; echo alpha beta gamma; cat -v"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("alpha beta gamma"));
+  TerminalView* v = env.tv();
+  cb.text = "RC";
+  const RectF r = v->bounds();
+  auto rightClick = [&] {
+    InputEvent d = mouseEv(InputType::MouseDown, r.x + 40, r.y + r.h - 12);
+    d.button = MouseButton::Right;
+    env.send(d);
+    d.type = InputType::MouseUp;
+    env.send(d);
+  };
+  rightClick();  // no selection
+  CHECK(env.waitFor([&] { return env.screen().find("RC") != std::string::npos; }));
+  selectBetaGamma(env, v);
+  cb.text = "ZZ";
+  rightClick();  // selection: pastes the clipboard, the clipboard keeps its text
+  CHECK(env.waitFor([&] { return env.screen().find("ZZ") != std::string::npos; }));
+  CHECK_EQ(cb.text, std::string("ZZ"));
+#endif
+}
+
+TEST(term_ctrl_c_copies_selection_setting_restores_windows_terminal_behaviour) {
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  Env env;
+  FakeClipboard cb;
+  env.settings("terminal.ctrlCCopiesSelection = true\n" +
+               cmdSetting("trap 'echo GOT-INT; exit 7' INT; echo alpha beta gamma; while :; do sleep 0.05; done"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("alpha beta gamma"));
+  TerminalView* v = env.tv();
+  selectBetaGamma(env, v);
+  env.key(Key('C'), ModCtrl);  // copies and clears, does not interrupt
   CHECK_EQ(cb.text, std::string("beta gamma"));
   CHECK(!v->hasSelection());
   std::this_thread::sleep_for(std::chrono::milliseconds(150));
   env.frame();
   CHECK(!env.has("GOT-INT"));
-  CHECK(v->session()->running());
-  // No selection now: ^C goes to the program.
-  env.key(Key('C'), ModCtrl);
+  env.key(Key('C'), ModCtrl);  // no selection: ^C
   CHECK(env.waitHas("GOT-INT"));
-  CHECK(env.waitHas("[process exited with code 7]"));
-  // Ctrl+Shift+C copies too but never sends anything (the program is gone, so only the clipboard is observable).
-  cb.text.clear();
-  v->selectAll();
-  env.key(Key('C'), ModCtrl | ModShift);
-  CHECK(cb.text.find("alpha beta gamma") != std::string::npos);
+  // The setting is picked up by a terminal that already runs.
+  Env env2;
+  env2.settings(cmdSetting("stty raw -echo; echo alpha beta gamma; cat -v"));
+  REQUIRE(env2.newTerminal() >= 0);
+  CHECK(!env2.tv()->ctrlCCopiesSelection);
+  env2.settings("terminal.ctrlCCopiesSelection = true\n");
+  CHECK(env2.tv()->ctrlCCopiesSelection);
+#endif
+}
+
+TEST(term_copy_paste_keys_are_rebindable_through_the_key_map) {
+  Env env;
+  FakeClipboard cb;
+  // The defaults: terminal-context bindings; Ctrl+C and Ctrl+V are not bound there.
+  auto find = [&](const char* text) -> const KeyBinding* {
+    for (const KeyBinding& b : env.app->keys().bindings())
+      if (b.context == "terminal" && formatChords(b.chords) == text) return &b;
+    return nullptr;
+  };
+  for (const char* k : {"Control Shift C", "Control Insert", "Control Shift V", "Shift Insert"}) {
+    const KeyBinding* b = find(k);
+    REQUIRE(b != nullptr);
+    CHECK(resolveCommandName(b->command).id.rfind("Terminal.", 0) == 0);
+  }
+  CHECK(find("Control C") == nullptr && find("Control V") == nullptr);
+  CHECK(env.app->commands().find("Terminal.Copy") != nullptr);
+  CHECK(env.app->commands().find("Terminal.Paste") != nullptr);
+  CHECK_EQ(resolveCommandName("Terminal.Copy").context, std::string("terminal"));
+#ifndef _WIN32
+  if (!Pty::available()) return;
+  env.settings(cmdSetting("stty raw -echo; echo alpha beta gamma; cat -v"));
+  REQUIRE(env.newTerminal() >= 0);
+  REQUIRE(env.waitHas("alpha beta gamma"));
+  // A user binding: Alt+Y pastes.
+  KeyBinding kb;
+  kb.chords = {chordFromKey(Key('Y'), ModAlt)};
+  kb.context = "terminal";
+  kb.command = "Terminal.Paste";
+  env.app->keys().add(kb);
+  cb.text = "viaalty";
+  env.key(Key('Y'), ModAlt);
+  CHECK(env.waitHas("viaalty"));
+  // Removing the default makes Ctrl+Shift+V a key for the program (no paste).
+  env.app->keys().remove({chordFromKey(Key('V'), ModCtrl | ModShift)}, "terminal");
+  cb.text = "nopaste";
+  env.key(Key('V'), ModCtrl | ModShift);
+  std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  env.frame();
+  CHECK(!env.has("nopaste"));
 #endif
 }
 
@@ -635,7 +817,7 @@ TEST(term_paste_is_bracketed_when_the_program_asked_and_never_blocks_the_ui) {
   REQUIRE(env.newTerminal() >= 0);
   REQUIRE(env.waitFor([&] { return env.tv()->session()->screen().bracketedPaste(); }));
   cb.text = "pasted";
-  env.key(Key('V'), ModCtrl);  // Ctrl+V pastes
+  env.key(Key('V'), ModCtrl | ModShift);  // Ctrl+Shift+V pastes
   CHECK(env.waitHas("^[[200~pasted^[[201~"));
   env.key(Key::Insert, ModShift);  // so does Shift+Insert
   CHECK(env.waitFor([&] {

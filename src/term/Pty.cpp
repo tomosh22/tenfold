@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <chrono>
 #include <cstdlib>
+#include <filesystem>
 
 #include "term/PtyBackend.h"
 
@@ -19,6 +20,46 @@ std::string Pty::defaultShell(const std::string& configured) {
 #else
   const char* sh = std::getenv("SHELL");
   return (sh && *sh) ? sh : "/bin/sh";
+#endif
+}
+
+std::string Pty::chooseTerminalShell(bool windows, const std::function<bool(const std::string&)>& onPath,
+                                     const std::string& shellEnv) {
+  if (windows) return onPath && onPath("pwsh.exe") ? "pwsh.exe" : "powershell.exe";
+  return shellEnv.empty() ? "/bin/sh" : shellEnv;
+}
+
+bool Pty::programOnPath(const std::string& name) {
+  namespace fs = std::filesystem;
+  const char* path = std::getenv("PATH");
+  if (!path || !*path || name.empty()) return false;
+#ifdef _WIN32
+  const char sep = ';';
+#else
+  const char sep = ':';
+#endif
+  const std::string all = path;
+  size_t pos = 0;
+  while (pos <= all.size()) {
+    size_t end = all.find(sep, pos);
+    if (end == std::string::npos) end = all.size();
+    std::string dir = all.substr(pos, end - pos);
+    pos = end + 1;
+    if (dir.size() >= 2 && dir.front() == '"' && dir.back() == '"') dir = dir.substr(1, dir.size() - 2);
+    if (dir.empty()) continue;
+    std::error_code ec;
+    const fs::path f = fs::path(dir) / name;
+    if (fs::is_regular_file(f, ec)) return true;
+  }
+  return false;
+}
+
+std::string Pty::defaultTerminalShell() {
+  const char* sh = std::getenv("SHELL");
+#ifdef _WIN32
+  return chooseTerminalShell(true, programOnPath, sh ? sh : "");
+#else
+  return chooseTerminalShell(false, programOnPath, sh ? sh : "");
 #endif
 }
 

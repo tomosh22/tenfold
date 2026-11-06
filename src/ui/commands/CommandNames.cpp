@@ -376,6 +376,8 @@ const NativeContext kNativeContexts[] = {
     {"Editor.DeleteWordLeft", "editor"},
     {"Editor.DeleteWordRight", "editor"},
     {"Editor.JoinLines", "editor"},
+    {"Terminal.Copy", "terminal"},
+    {"Terminal.Paste", "terminal"},
     {"Editor.ToggleBlockComment", "editor"},
     {"Editor.ToggleLineComment", "editor"},
 };

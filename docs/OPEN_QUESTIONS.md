@@ -306,21 +306,29 @@ TerminalFontSize. Everything else below is tenfold's choice, to be checked again
   (a bottom dock like Build) would give one terminal only and no cycling. A terminal can be dragged to any panel. No setting.
 * `ShowTerminal` cycling: creation order; focused terminal -> next (wraps); terminal shown but not focused -> focus it; not
   shown -> the one shown last. `NewTerminal` always creates.
-* Windows defaults on other platforms: `terminal.command = cmd.exe` means `$SHELL`, else `/bin/sh`; a leading `cmd /c` is dropped
+* Default shell (VS-TERM, supersedes the 10x default `cmd.exe` as tenfold's default, VS_BEHAVIOUR §12 M3): `terminal.command` is empty
+  by default = `pwsh.exe` if on `PATH`, else `powershell.exe` on Windows, `$SHELL` else `/bin/sh` elsewhere; any value set (including
+  10x's TerminalCommand) is authoritative. Windows defaults on other platforms: `terminal.command = cmd.exe` means `$SHELL`, else `/bin/sh`; a leading `cmd /c` is dropped
   (`cmd /c agent` runs `agent`). 10x has no Linux default, this is the guess. Settings are the 10x names in tenfold's
   dotted style: `terminal.command`, `terminal.claudeCommand`, `terminal.cursorCommand`, `terminal.font`, `terminal.fontSize` (0 =
   the editor size; 10x: "the tool font / size", read as tenfold's editor font).
 * Working directory: workspace root, else the current file's folder, else home (10x documents none).
 * Exit: the tab stays with the final screen and `[process exited with code N]`; `terminal.closeOnExit` (default false) closes it.
   No restart key. Closing a tab kills the process tree without asking even if a program is running; so does quitting.
-* Scrollback 10000 lines (`terminal.scrollbackLines`). Copy/paste follows Visual Studio's terminal: Control C copies a selection
-  (and clears it; no selection = ^C), Control V pastes, right click pastes/copies (Windows Terminal style). No copy-on-select.
+* Scrollback 10000 lines (`terminal.scrollbackLines`). Copy/paste follows Visual Studio's terminal
+  (VS_BEHAVIOUR §12 M1/M2, implemented as VS-TERM): ~~Control C copies a selection (and clears it; no selection = ^C), Control V
+  pastes, right click pastes/copies~~ **superseded**: Control C is always ^C and Control V its literal character; copy is Control
+  Shift C / Control Insert, paste Control Shift V / Shift Insert / right click (a right click never copies); all are key map
+  bindings of the `terminal` context (`Terminal.Copy`, `Terminal.Paste`). `terminal.ctrlCCopiesSelection` (default false) restores
+  "Control C copies a selection". The 10x key map documentation defines no terminal copy/paste keys, so nothing there wins. "Open in
+  Terminal" in the explorer menu opens the node's folder (M4); the workspace root stays the default. No copy-on-select.
 * Keys that stay the app's while a terminal is focused: terminal commands, `Workbench.*` (tab/panel keys), quit, command palette,
   explorer/build-panel/fullscreen/focus-mode/zoom toggles. Everything else, including Control K/F/O/W and Alt+letters, goes to
   the program. Ctrl+Alt letters are treated as AltGr (text), not as a shortcut.
 * Look: `vs-dark` terminal background #1E1E1E, foreground #CCCCCC, ANSI palette "Campbell" (Windows console), steady block cursor
   (blinking only when the program asks), bold = bright + double strike, no italic face. Values marked `[?]` in vs-dark.txt (see #19).
-* Not done: reflow, search, links, split inside a terminal, persistence across sessions, shell integration, OSC 52, a context menu.
+* Not done: reflow, search, links, split inside a terminal, persistence across sessions, shell integration, OSC 52, a context menu
+  inside the terminal (right click pastes).
 * ConPTY is untested at run time (compile-tested only); the first run on Windows may show problems the Linux tests cannot.
 
 ## W9 detail: encodings, line endings and the BOM (W9-FIX-ENC; 10x documents nothing about them)

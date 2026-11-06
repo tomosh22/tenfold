@@ -37,10 +37,12 @@ void TerminalPanel::applySettings(const Settings& s, float dpiScale) {
   cursor_ = s.getString("terminal.cursorCommand");
   scrollback_ = static_cast<size_t>(std::clamp(s.getInt("terminal.scrollbackLines"), 0, 1000000));
   closeOnExit_ = s.getBool("terminal.closeOnExit");
+  ctrlCCopies_ = s.getBool("terminal.ctrlCCopiesSelection");
   wheelLines_ = std::max(1, s.getInt("editor.wheelLines"));
   for (const Info& i : infos_)
     if (TerminalView* v = view(i.id)) {
       v->wheelLines = wheelLines_;
+      v->ctrlCCopiesSelection = ctrlCCopies_;
       if (v->session()) v->session()->screen().setScrollbackLimit(scrollback_);
     }
   rebuildFont(s, dpiScale);
@@ -83,7 +85,7 @@ std::vector<std::string> TerminalPanel::commandFor(Kind kind) const {
   else if (parts.size() == 1 && isCmdExe(parts[0])) parts.clear();
 #endif
   if (parts.empty()) {
-    if (kind == Kind::Shell) return Pty::splitCommand(Pty::defaultShell());
+    if (kind == Kind::Shell) return {Pty::defaultTerminalShell()};
     return {kind == Kind::Claude ? "claude" : "agent"};
   }
   return parts;
@@ -127,7 +129,7 @@ std::vector<int> TerminalPanel::terminals() const {
   return out;
 }
 
-int TerminalPanel::create(Kind kind, std::string* error) {
+int TerminalPanel::create(Kind kind, std::string* error, const fs::path& cwd) {
   auto fail = [&](const std::string& m) {
     if (error) *error = m;
     return -1;
@@ -138,12 +140,13 @@ int TerminalPanel::create(Kind kind, std::string* error) {
   PtyOptions o;
   o.program = cmd[0];
   o.args.assign(cmd.begin() + 1, cmd.end());
-  o.cwd = workingDirectory();
+  o.cwd = cwd.empty() ? workingDirectory() : cwd;
   o.env.emplace_back("TERM_PROGRAM", "tenfold");
 
   auto own = std::make_unique<TerminalView>();
   TerminalView* v = own.get();
   v->wheelLines = wheelLines_;
+  v->ctrlCCopiesSelection = ctrlCCopies_;
   v->setFont(font_);
   const int serial = ++serial_;
   const std::string title = baseTitle(kind, cmd, serial);

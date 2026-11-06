@@ -70,6 +70,15 @@ class Pty {
   // The shell to start: `configured` (the TerminalCommand setting; may carry arguments, see splitCommand) when not
   // empty, else %ComSpec% (cmd.exe) on Windows, $SHELL or /bin/sh on POSIX.
   static std::string defaultShell(const std::string& configured = {});
+  // VS-TERM: the shell the integrated terminal starts when terminal.command is empty (nothing configured). Windows:
+  // pwsh.exe if it is on PATH, else powershell.exe (Visual Studio 2022's default profile is a PowerShell); elsewhere
+  // $SHELL, else /bin/sh. `onPath(name)` says whether a program is found on PATH. Pure, so it is testable everywhere.
+  static std::string chooseTerminalShell(bool windows, const std::function<bool(const std::string&)>& onPath,
+                                         const std::string& shellEnv);
+  // chooseTerminalShell for this machine: real platform, real PATH, real $SHELL.
+  static std::string defaultTerminalShell();
+  // Whether `name` (a bare program name; ".exe" is tried too on Windows) is an executable file in a PATH folder.
+  static bool programOnPath(const std::string& name);
   // Splits a command line ("cmd /c agent", "\"C:\\Program Files\\x.exe\" -l") into program and arguments; double
   // quotes group, no other escapes.
   static std::vector<std::string> splitCommand(const std::string& commandLine);

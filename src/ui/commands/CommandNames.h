@@ -14,7 +14,7 @@ namespace tf::ui {
 struct CommandAlias {
   const char* name10x;
   const char* tenfoldId;  // empty: tenfold does not implement this 10x command
-  const char* context;    // key context the binding belongs in: "global", "editor", "popup"
+  const char* context;    // key context the binding belongs in: "global", "editor", "popup", "terminal"
   const char* note;       // how the tenfold command differs from the 10x one; empty when it matches
 };
 

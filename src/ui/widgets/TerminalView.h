@@ -40,10 +40,11 @@ std::string encodeTermMouse(const TermMouse& m, bool sgr);
 //  * Scrollback: wheel (`wheelLines` per notch), Shift+PageUp / PageDown, a scrollbar on the right; any key or text
 //  typed
 //    snaps to the bottom; while scrolled back the view keeps its place when new lines arrive.
-//  * Selection: mouse drag, double click = word, triple click = line, Shift+click extends. Ctrl+C copies when there is
-//    a selection (and clears it), otherwise ^C goes to the program; Ctrl+Shift+C / Ctrl+Insert only copy. Ctrl+V,
-//    Ctrl+Shift+V and Shift+Insert paste (bracketed when the program asked), as does a right click without
-//    selection (a right click with a selection copies it, like Windows Terminal).
+//  * Selection: mouse drag, double click = word, triple click = line, Shift+click extends. Ctrl+C is always ^C for the
+//    program (VS-TERM, Visual Studio's terminal) unless `ctrlCCopiesSelection` is set and there is a selection; Ctrl+V
+//    is the literal 0x16. Copy and paste are the commands Terminal.Copy / Terminal.Paste (EditorApp, keys from the key
+//    map: Ctrl+Shift+C / Ctrl+Insert, Ctrl+Shift+V / Shift+Insert; paste is bracketed when the program asked). A right
+//    click pastes, with or without a selection.
 //  * A program that enabled mouse tracking gets the mouse (Shift bypasses it for selecting); in the alternate screen
 //    without tracking the wheel sends Up / Down keys (xterm "alternate scroll").
 class TerminalView : public Widget {
@@ -55,6 +56,7 @@ class TerminalView : public Widget {
   TerminalSession* session() const { return session_.get(); }
   void setFont(std::shared_ptr<TerminalFont> f);
   int wheelLines = 3;
+  bool ctrlCCopiesSelection = false;  // terminal.ctrlCCopiesSelection: Ctrl+C copies a selection instead of sending ^C
 
   // Rows x columns a rectangle of this size holds with the current font (at least 1 x 2). Needs a root.
   std::pair<int, int> gridFor(const RectF& area) const;

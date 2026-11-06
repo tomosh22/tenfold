@@ -1289,6 +1289,13 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
   bottom), selection (drag, word, line, Shift-extend) in absolute scrollback coordinates, clipboard, bracketed paste, focus
   reporting, SGR/X10 mouse reporting, alternate-screen wheel to arrow keys. Keys: `encodeTermKey`; Ctrl/Alt combinations from
   `KeyDown`, printable text from `Text` events (Ctrl+Alt = AltGr is left to `Text`).
+* **Copy / paste (VS-TERM).** Visual Studio's terminal keys: `TerminalView::onKey` sends Ctrl+C (^C) and Ctrl+V (0x16) to the program
+  and only copies on Ctrl+C when `ctrlCCopiesSelection` (`terminal.ctrlCCopiesSelection`) is set and a selection exists. Copy and paste
+  are the commands `Terminal.Copy` / `Terminal.Paste` (key context `terminal`, which `EditorApp::activeContext` returns while a
+  `TerminalView` is focused; defaults Ctrl+Shift+C, Ctrl+Insert / Ctrl+Shift+V, Shift+Insert in the default key map, so rebindable).
+  A right click pastes. `Terminal.OpenAt <path>` (explorer menu "Open in Terminal") creates a shell in that folder (a file: its folder).
+  The default shell (`terminal.command` empty) is `Pty::chooseTerminalShell` (pure: Windows pwsh.exe if on PATH else powershell.exe,
+  else `$SHELL`, else `/bin/sh`; `Pty::defaultTerminalShell` supplies the real PATH).
 * **Key routing.** While a terminal has the focus `EditorApp::handleEventImpl` sends a `KeyDown` straight to it unless a global
   binding starting with that stroke runs `Terminal.*`, `Workbench.*` (tabs, panels, close tab, focus/move/duplicate panel),
   `App.Quit`, `App.CommandPalette` or a window/explorer/zoom toggle (`EditorApp::terminalSkipsShell`).

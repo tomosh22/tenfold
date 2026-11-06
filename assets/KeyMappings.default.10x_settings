@@ -247,6 +247,13 @@ Control /: Editor.ToggleLineComment
 Control J: Editor.JoinLines
 Control Shift K: DeleteLine
 
+# --- Terminal (VS-TERM: Visual Studio's terminal keys; the key context "terminal" is the focused terminal) ---
+# Ctrl+C and Ctrl+V are not bound: they reach the program (^C, 0x16). Rebind with e.g. `Control C: Terminal.Copy`.
+Control Shift C: Terminal.Copy
+Control Insert: Terminal.Copy
+Control Shift V: Terminal.Paste
+Shift Insert: Terminal.Paste
+
 # --- Semantic navigation ---
 F12: GotoSymbolDefinition
 Control F12: Editor.GotoDeclaration

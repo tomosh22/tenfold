@@ -397,6 +397,9 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Terminal.Show", "Show Terminal");
   addUi(r, "Terminal.NewClaude", "New Claude Code Terminal");
   addUi(r, "Terminal.NewCursor", "New Cursor Terminal");
+  addUi(r, "Terminal.Copy", "Copy Terminal Selection");
+  addUi(r, "Terminal.Paste", "Paste into Terminal");
+  addUi(r, "Terminal.OpenAt", "Open in Terminal");
   // W8c parser commands
   addUi(r, "Editor.RenameSymbol", "Rename Symbol...");
   addUi(r, "Editor.SubmitRenameSymbol", "Submit Rename Symbol");
