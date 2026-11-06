@@ -542,9 +542,16 @@ TEST(utf16_holds_every_character_but_not_stray_bytes_and_utf8_never_refuses) {
   CHECK(u.saveToDisk());
 }
 
+// The save-refusal tests below do not need clangd (and some CI jobs have none: start() fails without it).
+static Editor::Options noClangdOptions() {
+  Editor::Options o;
+  o.semantic.useClangd = false;
+  return o;
+}
+
 TEST(save_as_of_an_untitled_document_in_another_encoding_is_refused_and_stays_untitled) {
   Tmp t;
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.newUntitled(LineEnding::LF);
@@ -568,7 +575,7 @@ TEST(editor_save_and_save_all_refuse_unencodable_text_and_save_the_other_documen
   auto bad = t.write("bad.cpp", kLatin1File);
   auto good = t.write("good.cpp", "int g;\n");
   auto bad2 = t.write("bad2.cpp", kLatin1File);
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* b = ed.open(bad, &err);
@@ -618,7 +625,7 @@ TEST(rename_edits_that_would_put_an_unencodable_character_in_a_closed_file_do_no
   auto latin = t.write("l.cpp",
                        "int Gr\xF6\xDF"
                        "e = old_name;\r\n");
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   FileEdits fe;
@@ -659,7 +666,7 @@ TEST(replace_in_files_does_not_write_a_windows1252_file_when_the_replacement_is_
   const auto u = search(utf8);
   ms.insert(ms.end(), u.begin(), u.end());
   REQUIRE((ms.size()) == size_t(3));
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Editor::ReplaceInFilesResult r = ed.replaceInFiles(ms, kHan);
