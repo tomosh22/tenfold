@@ -113,7 +113,8 @@ const CommandAlias kAliases[] = {
     {"SaveAll", "File.SaveAll", "global", ""},
     {"CloseAll", "", "global", ""},
     {"NewTextFile", "File.New", "global",
-     "creates an untitled file named TextFileN.txt (Visual Studio's name for a new text file); Save asks for its path in an input line"},
+     "creates an untitled file named TextFileN.txt (Visual Studio's name for a new text file); Save asks for its path "
+     "in an input line"},
     {"CopyActiveFilePath", "File.CopyPath", "global", "copies the full path with the platform's separators"},
     {"OpenFolderForActivefile", "File.ShowInFolder", "global",
      "opens the file manager (explorer, open -R, or xdg-open on the folder)"},

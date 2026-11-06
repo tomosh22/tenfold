@@ -58,6 +58,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.autoAddCloseBracket", SettingType::Bool},
                                              {"editor.autoCloseQuotes", SettingType::Bool},
                                              {"editor.copyLineWhenEmpty", SettingType::Bool},
+                                             {"editor.useEditorConfig", SettingType::Bool},
                                              {"editor.copyBlankLines", SettingType::Bool},
                                              {"editor.mouseWheelZoom", SettingType::Bool},
                                              {"editor.bracketSelectedText", SettingType::Bool},

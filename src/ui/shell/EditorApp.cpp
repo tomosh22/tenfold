@@ -399,6 +399,7 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.autoCloseQuotes = s.getBool("editor.autoCloseQuotes");
   o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
+  o.useEditorConfig = s.getBool("editor.useEditorConfig");
   o.replicateNewLine = s.getBool("editor.replicateNewLine");
   o.pasteKeepsLineBreaks = s.getBool("editor.pasteKeepsLineBreaks");
   o.checkLineEndings = s.getBool("editor.checkLineEndings");
@@ -907,10 +908,12 @@ void EditorApp::bindUiCommands() {
       },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
-      "Editor.Copy", [this](const CommandContext& c, std::string_view) { return doCopy(*c.editor, clipboardSetter(), lineCopy_); },
+      "Editor.Copy",
+      [this](const CommandContext& c, std::string_view) { return doCopy(*c.editor, clipboardSetter(), lineCopy_); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
-      "Editor.Cut", [this](const CommandContext& c, std::string_view) { return doCut(*c.editor, clipboardSetter(), lineCopy_); },
+      "Editor.Cut",
+      [this](const CommandContext& c, std::string_view) { return doCut(*c.editor, clipboardSetter(), lineCopy_); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
       "Editor.Paste", [](const CommandContext& c, std::string_view) { return doPaste(*c.editor); },
@@ -1125,7 +1128,8 @@ void EditorApp::updateZoomIndicator() {
   if (!bench_) return;
   std::string txt;
   const float base = root_.text().cellWidth();
-  if (zoomPt_ != 0 && base > 0) txt = std::to_string(std::lround(100.0f * root_.editorText().cellWidth() / base)) + " %";
+  if (zoomPt_ != 0 && base > 0)
+    txt = std::to_string(std::lround(100.0f * root_.editorText().cellWidth() / base)) + " %";
   bench_->status().setText("zoom", txt);
 }
 

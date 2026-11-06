@@ -55,9 +55,9 @@ struct Env {
 
   Env() {
     static int n = 0;
-    dir = uitest::tempRoot() / ("tf_vsedit_" +
-                                std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-                                std::to_string(n++));
+    dir = uitest::tempRoot() /
+          ("tf_vsedit_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+           std::to_string(n++));
     fs::create_directories(dir);
     std::ofstream(dir / "a.cpp", std::ios::binary) << "one;\r\n  \r\nthree;\r\nfour;\n";
     gfx::FontStack stack;
@@ -116,13 +116,13 @@ struct Env {
 TEST(vsedit_defaults_follow_visual_studio) {
   Settings s;
   s.loadTexts("", "");
-  CHECK(s.getBool("editor.autoCloseQuotes"));      // Z1
-  CHECK(s.getBool("editor.copyLineWhenEmpty"));    // Z4
-  CHECK(s.getBool("editor.copyBlankLines"));       // Z4
-  CHECK(s.getBool("editor.mouseWheelZoom"));       // Z8 (10x MouseWheelZoom)
-  CHECK_EQ(s.getInt("editor.wheelLines"), 3);      // Z7 (VS: 3 lines per scroll)
+  CHECK(s.getBool("editor.autoCloseQuotes"));         // Z1
+  CHECK(s.getBool("editor.copyLineWhenEmpty"));       // Z4
+  CHECK(s.getBool("editor.copyBlankLines"));          // Z4
+  CHECK(s.getBool("editor.mouseWheelZoom"));          // Z8 (10x MouseWheelZoom)
+  CHECK_EQ(s.getInt("editor.wheelLines"), 3);         // Z7 (VS: 3 lines per scroll)
   CHECK_EQ(s.getInt("editor.pasteHistorySize"), 20);  // Z11 (VS clipboard ring: 20)
-  CHECK(s.getBool("editor.wordWrap"));             // Z6 stays: the user's decision, not VS's default
+  CHECK(s.getBool("editor.wordWrap"));                // Z6 stays: the user's decision, not VS's default
 }
 
 TEST(vsedit_copy_and_cut_without_a_selection_take_the_whole_line_with_its_terminator) {

@@ -100,9 +100,10 @@ class Editor {
   // editor (save, saveAll, rename and replace-in-files writing closed files, the close and quit prompts) goes through
   // here, so none of them can write such a file.
   bool save(Document& doc, std::string* error = nullptr, UnencodableReport* refused = nullptr);
-  // NewTextFile: an empty document with no file, named "TextFileN.txt" (Visual Studio's File > New > File > Text File) (the lowest N whose path is neither open nor a file
-  // on disk) in the workspace root, writing `lineEnding` on save. It is not announced to clangd or version control and
-  // not hashed for external changes until saveAs. Returns it (not made current; use activateDocument).
+  // NewTextFile: an empty document with no file, named "TextFileN.txt" (Visual Studio's File > New > File > Text File)
+  // (the lowest N whose path is neither open nor a file on disk) in the workspace root, writing `lineEnding` on save.
+  // It is not announced to clangd or version control and not hashed for external changes until saveAs. Returns it (not
+  // made current; use activateDocument).
   Document* newUntitled(LineEnding lineEnding);
   // Gives an untitled document its file and writes it: `path` (relative paths are under the workspace root) must not
   // be an open document or an existing file, and its folder must exist. The Document object, its undo history and the
@@ -346,6 +347,7 @@ class Editor {
     bool detectIndent = false;              // take the indent unit from the document's first lines
     std::string indentUnit = "\t";          // "\t" or N spaces; the fallback when detection finds nothing
     bool trimTrailingWhitespace = false;    // on save()
+    bool useEditorConfig = true;  // save() also honours .editorconfig trim_trailing_whitespace / insert_final_newline
     LineEnding defaultLineEnding = LineEnding::CRLF;  // new lines of a document without any line break
     bool replicateNewLine = true;      // VS ReplicateNewLineCharacter: a new line copies the caret line's ending
     bool pasteKeepsLineBreaks = true;  // pasted text keeps its own line breaks (VS), else the Enter ending

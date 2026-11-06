@@ -379,12 +379,11 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
   parenthesis, `case` labels.
 * Indent unit (`editor.indentUnit`, a tab by default; `editor.detectIndent`, off by default): when detection is on, taken
   per file from its first 400 lines, else the setting. Tab inserts one unit (a multi-line selection indents its lines); Shift+Tab outdents.
-* Auto-close, all off by default as in 10x (`editor.autoAddCloseBrace` for `{`, `editor.autoAddCloseBracket` for `( [`,
-  `editor.autoCloseQuotes` for `" '`): the closer is inserted when the next character is blank, the end of the line or
+* Auto-close: braces and brackets are off by default as in 10x (`editor.autoAddCloseBrace` for `{`, `editor.autoAddCloseBracket` for `( [`), quotes are on by default like Visual Studio C++ (`editor.autoCloseQuotes` for `" '`, VS_BEHAVIOUR Z1): the closer is inserted when the next character is blank, the end of the line or
   one of `) ] } ; ,`; quotes are not paired after an identifier character, a backslash or the same quote; typing the
   closer steps over it (tenfold does not remember which closers it inserted); Backspace inside an empty pair deletes
   both. Typing `(`, `[` or `{` over a selection encloses it (`editor.bracketSelectedText`, on by default, independent of
-  auto-close); quotes wrap a selection only with `editor.autoCloseQuotes`.
+  auto-close); quotes wrap a selection with `editor.autoCloseQuotes`.
 * **Ctrl+/** and **Ctrl+Shift+/** (`ToggleComment`) toggle `//` comments at the lines' minimum indentation;
   `Editor.ToggleBlockComment` (no default key) wraps each selection in `/* */`
   (a bare caret: its line's text) and unwraps again. C and C++ comment syntax only.
@@ -401,7 +400,7 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
   of the file using the bar's last query, options and replacement text, from the editor or from the bar when its replace
   row is shown; the bar need not be open. They say what they did in the status bar. In the find-only bar (Ctrl+F) and
   in pickers Alt+R stays the regex toggle; **Alt+E** also toggles regex in the bar.
-* `editor.trimTrailingWhitespace` removes trailing blanks on save (off by default; 10x documents no such setting).
+* `editor.trimTrailingWhitespace` removes trailing blanks on save (off by default; 10x documents no such setting). A `.editorconfig` with `trim_trailing_whitespace = true` / `insert_final_newline = true` does the same for the files it matches (`editor.useEditorConfig`).
 * The matching bracket of the one at the caret is highlighted. `editor.showWhitespace`, `editor.columnGuide`,
   `editor.highlightCurrentLine` and the caret blink are settings.
 
@@ -736,7 +735,7 @@ tests.)
 | `editor.caretBlink` | `true` | bool | Blink the caret while the editor has focus. |
 | `editor.caretBlinkMs` | `530` | int | Blink interval in milliseconds: the caret is shown for this long, then hidden for this long. Values below 50 are treated as 50. |
 | `editor.highlightCurrentLine` | `true` | bool | Highlight the line with the primary caret (an outline in `vs-dark`). |
-| `editor.wheelLines` | `3` | int | Lines scrolled per mouse-wheel notch. |
+| `editor.wheelLines` | `3` | int | Lines scrolled per mouse-wheel notch (Visual Studio: "Vertical scrolling sensitivity", default 3; VS_BEHAVIOUR Z7). |
 | `editor.tabWidth` | `4` | int | Display width of a tab character, in columns. |
 | `editor.columnGuide` | `0` | int | Draw a vertical guide line at this column. 0 turns it off. 10x's VerticalRulers is empty by default. |
 | `editor.showWhitespace` | `false` | bool | Draw dots for spaces and arrows for tabs (first 4000 bytes of each line). |
@@ -751,7 +750,7 @@ tests.)
 | `editor.formatBracesOnEnterSplit` | `false` | bool | Enter between `{` and `}` moves the `}` to its own line below the new indented line. 10x: FormatBracesOnEnterSplit. |
 | `editor.autoAddCloseBrace` | `false` | bool | `{` inserts `}`; typing the closer steps over it, Backspace between an empty pair removes both. 10x: AutoAddCloseBrace. |
 | `editor.autoAddCloseBracket` | `false` | bool | The same for `(` and `[`. 10x: AutoAddCloseBracket. |
-| `editor.autoCloseQuotes` | `false` | bool | `"` and `'` insert a second quote (not after an identifier character, a backslash or the same quote) and wrap a selection. tenfold only: 10x documents no setting for quotes. |
+| `editor.autoCloseQuotes` | `true` | bool | `"` and `'` insert a second quote (not after an identifier character, a backslash or the same quote) and wrap a selection. tenfold only: 10x documents no setting for quotes. VS-EDIT: on by default, like Visual Studio C++ "Automatic brace completion" (VS_BEHAVIOUR Z1); typing the closing quote steps over it and Backspace in an empty pair removes both. |
 | `editor.bracketSelectedText` | `true` | bool | Typing `(`, `[` or `{` with text selected encloses the selection in the pair. 10x: BracketSelectedText. |
 | `editor.trimTrailingWhitespace` | `false` | bool | Remove trailing blanks on every line when saving (one undo step). 10x documents no such setting. |
 | `editor.commentBlockUsesLineComments` | `true` | bool | 10x `CommentBlockUsesLineComments`: the 10x `ToggleComment` command (Ctrl+Shift+/) comments a selection with `//` line comments; `false` wraps the selection in `/* */` instead. Without a selection it always toggles a line comment. |
@@ -767,7 +766,11 @@ tests.)
 | `editor.checkLineEndings` | `true` | bool | Opening a file whose lines end in different ways (CRLF and LF, ...) asks "The line endings in the following files are not consistent. Do you want to normalize the line endings?" with a choice of ending. Visual Studio: Tools > Options > Environment > Documents > Check for consistent line endings on load. |
 | `editor.autoNameUntitledFiles` | `false` | bool | An untitled file is named after the first word typed in it; the name is what the Save As prompt offers. 10x: AutoNameUntitledFiles. |
 | `editor.internetSearchCommand` | `https://www.google.com/search?q=` | string | `InternetSearch` (F1) opens this address with the word under the caret or the selection appended (percent-encoded) in the default browser. 10x: InternetSearchCommand. |
-| `editor.pasteHistorySize` | `20` | int | How many recent clipboard texts `PasteHistory` (Ctrl+Shift+V) keeps; 0 turns it off. 10x documents no size. |
+| `editor.copyLineWhenEmpty` | `true` | bool | Copy and Cut with nothing selected act on the whole caret line including its line ending (Visual Studio: "Cut or Copy commands with no selection", VS_BEHAVIOUR Z4); several carets: their lines. `false`: nothing happens without a selection. |
+| `editor.copyBlankLines` | `true` | bool | Copy / Cut with no selection also act on blank (whitespace-only) lines (Visual Studio: "Apply Cut or Copy commands to blank lines when there is no selection", on by default). `false`: a blank caret line is left alone. |
+| `editor.mouseWheelZoom` | `true` | bool | Control + mouse wheel over the editor zooms its text, one point per notch (10x MouseWheelZoom; wheel up = larger). Same zoom as `ZoomIn` / `ZoomOut`. |
+| `editor.useEditorConfig` | `true` | bool | Saving also honours the file's `.editorconfig` (closest file wins, `root = true` stops the search): `trim_trailing_whitespace = true` trims trailing blanks, `insert_final_newline = true` adds the final line ending (each its own undo step). Visual Studio reads `.editorconfig` too (VS_BEHAVIOUR Z19); `editor.trimTrailingWhitespace` stays off by default. |
+| `editor.pasteHistorySize` | `20` | int | How many recent clipboard texts `PasteHistory` (Ctrl+Shift+V) keeps; 0 turns it off. 10x documents no size; 20 is the size of Visual Studio's Clipboard Ring (VS_BEHAVIOUR Z11). |
 | `font.editor` | (empty) | font | Editor font as `family or path[, size in pt]`. Empty means unset: `font.fallbacks` are tried in order. A family name is matched against font file names in the system font folders (case and spaces ignored), so give a full path if it is not found. |
 | `font.fallbacks` | `Cascadia Mono, Consolas` | string | Comma-separated font names tried in order when `font.editor` is unset or not found; after the last one the platform's usual monospace font is used. |
 | `font.size` | `10` | float | Font size in points when `font.editor` does not carry one. |
@@ -956,8 +959,8 @@ differs from the 10x description:
 | `Alt X` | `OpenCurrentFileInDebugger` | `Debug.OpenInVisualStudio` |  |
 | `Control Shift E` | `ToggleWorkspaceExplorer` | `View.ToggleWorkspaceExplorer` | opens the explorer panel on the left (focused) or closes it; see [Workspace explorer](#workspace-explorer) |
 | `F1` | `InternetSearch` | `Editor.InternetSearch` | the word under the caret or the selection, percent-encoded after `editor.internetSearchCommand` |
-| `Control Shift .` | `ZoomIn` | `View.ZoomIn` | one point per step on the whole UI font, for this session only (not saved) |
-| `Control Shift Comma` | `ZoomOut` | `View.ZoomOut` | one point per step on the whole UI font, for this session only (not saved) |
+| `Control Shift .` | `ZoomIn` | `View.ZoomIn` | one point per step on the editor text only (tabs, status bar and menus keep their size), for this session only (not saved); the status bar shows the zoom as "113 %" while it is not 100 %, a click on it resets it; Control + mouse wheel does the same (`editor.mouseWheelZoom`) |
+| `Control Shift Comma` | `ZoomOut` | `View.ZoomOut` | one point per step on the editor text only, for this session only (not saved); see `ZoomIn` |
 | `Alt Enter` | `ToggleFullscreen` | `View.ToggleFullscreen` | borderless fullscreen on the current display |
 | `Control Alt Enter` | `ToggleFocusMode` | `View.ToggleFocusMode` | shows only the current panel: no status bar, other panels or bottom dock (10x's documentation gives no details) |
 | `Shift Alt Enter` | `ToggleFullScreenFocusMode` | `View.ToggleFullscreenFocusMode` | both together; both off when both are on |
@@ -970,7 +973,7 @@ differs from the 10x description:
 | `Control F4` | `CloseFile` | `Workbench.CloseTab` | closes the tab (asks about unsaved changes) |
 | `Control S` | `SaveFile` | `File.Save` | an untitled file asks for a path first |
 | `Control S, Control S`; `Control Shift S` | `SaveAll` | `File.SaveAll` | saves every modified open file; a failure is named in the status bar |
-| `Control N` | `NewTextFile` | `File.New` | "Untitled N", line ending from `editor.defaultLineEnding`, UTF-8; saving asks for a path in an input line |
+| `Control N` | `NewTextFile` | `File.New` | "TextFileN.txt" (Visual Studio's name for a new text file, the lowest free N), line ending from `editor.defaultLineEnding`, UTF-8; saving asks for a path in an input line |
 | `Control Shift Alt /` | `OpenFolderForActivefile` | `File.ShowInFolder` | `explorer /select` (Windows), `open -R` (macOS), `xdg-open` on the folder (Linux) |
 | `Control T` | `ShowInWorkspaceTree` | `View.ShowInWorkspaceTree` | opens the explorer when it is closed, selects the current file and gives the tree the keys |
 | (none) | `ShowInWorkspaceTreeWithToggle` | `View.ShowInWorkspaceTreeWithToggle` | like `ShowInWorkspaceTree`, but closes the explorer when it already shows the file; bind it yourself |

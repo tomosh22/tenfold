@@ -175,8 +175,9 @@ class EditorApp {
   SaveAsPrompt& saveAsPrompt() { return *saveAs_; }
   SaveRefusedDialog& saveRefusedDialog() { return *saveRefused_; }
   // View.ZoomIn / ZoomOut: points added to the configured font size for this session (never saved). The function the
-  // app passes to attachSettings as `rebuildFont` must build the font at the configured size and, when fontZoomPt() != 0, a second renderer for the editor text at configured
-  // size + fontZoomPt() (RootWidget::setEditorTextRenderer); only the editor text is zoomed.
+  // app passes to attachSettings as `rebuildFont` must build the font at the configured size and, when fontZoomPt() !=
+  // 0, a second renderer for the editor text at configured size + fontZoomPt() (RootWidget::setEditorTextRenderer);
+  // only the editor text is zoomed.
   float fontZoomPt() const { return zoomPt_; }
 
   // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a

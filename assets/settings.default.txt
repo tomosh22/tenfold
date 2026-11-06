@@ -59,6 +59,9 @@ editor.copyBlankLines = true
 editor.bracketSelectedText = true
 # Not documented by 10x; stays off.
 editor.trimTrailingWhitespace = false
+# Visual Studio honours .editorconfig; on, saving also applies its trim_trailing_whitespace and insert_final_newline
+# properties (trimming happens when either this file's setting above or the .editorconfig asks for it).
+editor.useEditorConfig = true
 # 10x CommentBlockUsesLineComments: ToggleComment with a selection uses // line comments (false: /* */ around the selection).
 editor.commentBlockUsesLineComments = true
 

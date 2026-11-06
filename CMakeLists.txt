@@ -39,6 +39,7 @@ add_library(tenfold_core STATIC
   src/core/TextEncoding.cpp
   src/core/Document.cpp
   src/core/PathUtil.cpp
+  src/core/EditorConfig.cpp
   src/core/CrashHandler.cpp
   src/core/Log.cpp
   src/nav/NavigationHistory.cpp
@@ -151,6 +152,7 @@ add_executable(tenfold-tests
   tests/test_multicaret.cpp
   tests/test_editing.cpp
   tests/test_untitled.cpp
+  tests/test_editorconfig.cpp
   tests/test_encodings.cpp
   tests/test_lsp_features.cpp
   tests/test_build.cpp
