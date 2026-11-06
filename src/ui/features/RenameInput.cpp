@@ -206,9 +206,11 @@ void RenameInput::finish(const Editor::RenameResult& r, const std::string& err, 
                     (r.edits == 1 ? "" : "s") + " in " + std::to_string(files) + " file" + (files == 1 ? "" : "s");
   if (!r.written.empty()) msg += ", " + std::to_string(r.written.size()) + " written to disk";
   if (!r.unsaved.empty()) msg += "; could not save " + std::to_string(r.unsaved.size()) + " (" + err + ")";
+  if (!r.refused.empty()) msg += "; they stay open and unsaved (their encoding cannot hold some characters)";
   if (r.missedTotal)
     msg += "; WARNING: " + std::to_string(r.missedTotal) + " other spelling(s) of " + old_ + " were not renamed";
   env_.say(msg);
+  env_.refused(r.refused);
 }
 
 }  // namespace tf::ui

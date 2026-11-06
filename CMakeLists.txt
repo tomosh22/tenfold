@@ -294,6 +294,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/FindReplace.cpp
     src/ui/features/GoToLine.cpp
     src/ui/features/SaveAsPrompt.cpp
+    src/ui/features/SaveRefusedDialog.cpp
     src/ui/features/OsLauncher.cpp
     src/ui/features/ConfigurationPicker.cpp
     src/ui/features/BookmarkList.cpp

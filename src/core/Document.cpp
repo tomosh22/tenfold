@@ -27,7 +27,6 @@ bool Document::loadFromDisk(std::string* error) {
   DecodedText dec = decodeFileBytes(bytes);
   buf_.setText(dec.text);
   encoding_ = dec.encoding;
-  saveNote_.clear();
   dirty_ = false;
   onDisk_ = true;
   undo_.clear();
@@ -38,16 +37,26 @@ bool Document::loadFromDisk(std::string* error) {
   return true;
 }
 
-bool Document::saveToDisk(std::string* error) {
+UnencodableReport Document::findUnencodable(Encoding e) const {
+  UnencodableReport rep;
+  rep.encoding = e;
+  if (e == Encoding::Utf8) return rep;
+  for (int l = 0; l < buf_.lineCount(); ++l) collectUnencodable(buf_.line(l), l, rep);
+  return rep;
+}
+
+bool Document::saveToDisk(std::string* error, UnencodableReport* refused) {
+  UnencodableReport rep = findUnencodable();
+  if (!rep.empty()) {
+    if (error) *error = path_.filename().string() + " was not saved: " + describeUnencodable(rep);
+    if (refused) *refused = std::move(rep);
+    return false;
+  }
   std::string bytes;
-  saveNote_.clear();
-  size_t bad = 0;
-  if (!encodeText(buf_.textForDisk(), encoding_, bytes, &bad)) {
-    // A character the file's code page cannot hold: keep the user's text, change the file to UTF-8.
-    const std::string was = encodingName(encoding_);
-    saveNote_ = path_.filename().string() + " contains characters that " + was + " cannot represent; saved as UTF-8";
-    encoding_ = Encoding::Utf8;
-    bytes = buf_.textForDisk();
+  if (!encodeText(buf_.textForDisk(), encoding_, bytes)) {  // cannot happen: the scan above found nothing
+    if (error)
+      *error = path_.filename().string() + " was not saved: " + encodingName(encoding_) + " cannot hold its text";
+    return false;
   }
   std::ofstream out(path_, std::ios::binary | std::ios::trunc);
   if (!out) {

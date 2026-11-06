@@ -36,6 +36,7 @@
 #include "ui/features/RenameInput.h"
 #include "ui/features/ReplaceInFiles.h"
 #include "ui/features/SaveAsPrompt.h"
+#include "ui/features/SaveRefusedDialog.h"
 #include "ui/features/SignatureHelp.h"
 #include "ui/features/SymbolSearch.h"
 #include "ui/features/TerminalPanel.h"
@@ -163,6 +164,7 @@ class EditorApp {
   // How InternetSearch and OpenFolderForActivefile reach the OS (default: the real browser / file manager).
   void setLauncher(OsLauncher l) { launcher_ = std::move(l); }
   SaveAsPrompt& saveAsPrompt() { return *saveAs_; }
+  SaveRefusedDialog& saveRefusedDialog() { return *saveRefused_; }
   // View.ZoomIn / ZoomOut: points added to the configured font size for this session (never saved). The function the
   // app passes to attachSettings as `rebuildFont` must build the editor font at configured size + fontZoomPt().
   float fontZoomPt() const { return zoomPt_; }
@@ -286,6 +288,7 @@ class EditorApp {
   WindowHooks window_;
   OsLauncher launcher_ = systemLauncher();
   std::unique_ptr<SaveAsPrompt> saveAs_;
+  std::unique_ptr<SaveRefusedDialog> saveRefused_;
   float zoomPt_ = 0;
   bool fullscreen_ = false;
   LineEnding defaultEol_ = LineEnding::CRLF;                        // editor.defaultLineEnding

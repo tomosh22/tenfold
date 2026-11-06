@@ -267,21 +267,16 @@ TEST(document_latin1_file_loads_decoded_and_saves_byte_exact_or_re_encoded) {
   d.insert({1, 0}, "\xC3\xA4");
   REQUIRE(d.saveToDisk());
   CHECK(d.encoding() == Encoding::Windows1252);
-  CHECK(d.saveNote().empty());
   CHECK_EQ(Tmp::read(p),
            "const char* s=\"Gr\xF6\xDF"
            "e\";\r\n\xE4int x;\r\n");
-  // A character Windows-1252 cannot hold: the file becomes UTF-8, with a note, and nothing is lost.
+  // A character Windows-1252 cannot hold: the save is refused (see the W10 tests below).
   d.insert({1, 0}, "\xE2\x89\xA0");
-  REQUIRE(d.saveToDisk());
-  CHECK(d.encoding() == Encoding::Utf8);
-  CHECK(!d.saveNote().empty());
-  CHECK(isValidUtf8(Tmp::read(p)));
-  CHECK(Tmp::read(p).find("\xE2\x89\xA0") != std::string::npos);
-  Document again(p);
-  REQUIRE(again.loadFromDisk());
-  CHECK(again.encoding() == Encoding::Utf8);
-  CHECK_EQ(again.buffer().text(), d.buffer().text());
+  CHECK(!d.saveToDisk());
+  CHECK(d.encoding() == Encoding::Windows1252);
+  CHECK_EQ(Tmp::read(p),
+           "const char* s=\"Gr\xF6\xDF"
+           "e\";\r\n\xE4int x;\r\n");  // untouched
 }
 
 TEST(document_utf16_utf8_bom_and_cr_only_files_round_trip_byte_exact) {
@@ -429,4 +424,277 @@ TEST(search_and_replace_count_lone_cr_lines) {
   CHECK_EQ(r, std::string("int a;\rint pin;\rint b;\rpin();\r"));
   CHECK_EQ(counts.replaced, size_t(2));
   CHECK_EQ(counts.stale, size_t(0));
+}
+
+// ---- W10-ENC: characters the file's encoding cannot hold are refused -----------------------------------------------
+
+namespace {
+const std::string kHan = "\xE6\xBC\xA2";        // U+6F22
+const std::string kEmoji = "\xF0\x9F\x98\x80";  // U+1F600
+const std::string kLatin1File =
+    "int a; // Gr\xF6\xDF"
+    "e\r\nint b;\r\n";
+}  // namespace
+
+TEST(unencodable_detection_lists_every_character_with_code_point_line_and_column) {
+  Tmp t;
+  auto p = t.write("l.cpp", kLatin1File);
+  Document d(p);
+  REQUIRE(d.loadFromDisk());
+  CHECK(d.findUnencodable().empty());
+  d.insert({1, 4}, kHan + "x" + kEmoji);  // "int " + 漢 x 😀 + "b;"
+  d.insert({0, 0}, "\xE2\x82\xAC");       // U+20AC IS in Windows-1252 (0x80): not reported
+  const UnencodableReport rep = d.findUnencodable();
+  CHECK(rep.encoding == Encoding::Windows1252);
+  REQUIRE((rep.total) == size_t(2));
+  REQUIRE((rep.chars.size()) == size_t(2));
+  CHECK_EQ(rep.chars[0].codePoint, uint32_t(0x6F22));
+  CHECK_EQ(rep.chars[0].line, 1);
+  CHECK_EQ(rep.chars[0].column, 4);
+  CHECK_EQ(rep.chars[0].text, kHan);
+  CHECK_EQ(rep.chars[1].codePoint, uint32_t(0x1F600));
+  CHECK_EQ(rep.chars[1].column, 8);  // bytes: 4 + 3 (漢) + 1 (x)
+  CHECK_EQ(codePointLabel(0x6F22), std::string("U+6F22"));
+  CHECK_EQ(codePointLabel(0x1F600), std::string("U+1F600"));
+  CHECK_EQ(codePointLabel(0x41), std::string("U+0041"));
+  CHECK_EQ(describeUnencodableChar(rep.chars[0]), std::string("U+6F22 at line 2, column 5"));
+  CHECK_EQ(describeUnencodable(rep),
+           std::string("Windows-1252 cannot hold 2 characters (first: U+6F22 at line 2, column 5)"));
+  CHECK(d.findUnencodable(Encoding::Utf8).empty());
+  CHECK(d.findUnencodable(Encoding::Utf16LE).empty());  // UTF-16 holds all of them
+}
+
+TEST(unencodable_list_is_capped_but_counts_everything) {
+  Tmp t;
+  Document d(t.write("l.cpp", kLatin1File));
+  REQUIRE(d.loadFromDisk());
+  std::string many;
+  for (size_t i = 0; i < kMaxUnencodableListed + 50; ++i) many += kHan;
+  d.insert({1, 0}, many);
+  const UnencodableReport rep = d.findUnencodable();
+  CHECK_EQ(rep.total, kMaxUnencodableListed + 50);
+  CHECK_EQ(rep.chars.size(), kMaxUnencodableListed);
+  CHECK_EQ(rep.chars.back().column, static_cast<int>(3 * (kMaxUnencodableListed - 1)));
+}
+
+TEST(save_of_a_windows1252_file_with_an_unencodable_character_is_refused_and_nothing_changes) {
+  Tmp t;
+  auto p = t.write("l.cpp", kLatin1File);
+  Document d(p);
+  REQUIRE(d.loadFromDisk());
+  d.insert({0, 0}, kHan);
+  d.insert({1, 0}, kEmoji);
+  std::string err;
+  UnencodableReport rep;
+  CHECK(!d.saveToDisk(&err, &rep));
+  CHECK_EQ(Tmp::read(p), kLatin1File);  // nothing written
+  CHECK(d.dirty());
+  CHECK(d.encoding() == Encoding::Windows1252);
+  CHECK_EQ(rep.total, size_t(2));
+  CHECK(err.find("l.cpp was not saved") != std::string::npos);
+  CHECK(err.find("Windows-1252 cannot hold 2 characters") != std::string::npos);
+  CHECK(err.find("U+6F22 at line 1, column 1") != std::string::npos);
+  // Remove them and the save works again, byte exact.
+  d.erase({{0, 0}, {0, 3}});
+  d.erase({{1, 0}, {1, 4}});
+  CHECK(d.saveToDisk(&err, &rep));
+  CHECK_EQ(Tmp::read(p), kLatin1File);
+  CHECK(!d.dirty());
+}
+
+TEST(utf16_holds_every_character_but_not_stray_bytes_and_utf8_never_refuses) {
+  Tmp t;
+  std::string u16;
+  encodeText("int a;\r\n", Encoding::Utf16LE, u16);
+  auto p = t.write("u.cpp", u16);
+  Document d(p);
+  REQUIRE(d.loadFromDisk());
+  CHECK(d.encoding() == Encoding::Utf16LE);
+  d.insert({0, 0}, kHan + kEmoji);  // every Unicode scalar value fits (surrogate pairs)
+  REQUIRE(d.saveToDisk());
+  Document back(p);
+  REQUIRE(back.loadFromDisk());
+  CHECK(back.encoding() == Encoding::Utf16LE);
+  CHECK_EQ(back.buffer().line(0), kHan + kEmoji + "int a;");
+  // What the UTF-8 text can hold beyond scalar values: a stray byte (0xFF) or an encoded lone surrogate (ED A0 80).
+  // UTF-16 cannot represent them, so the save is refused instead of writing U+FFFD.
+  d.insert({1, 0}, std::string("\xFF") + "\xED\xA0\x80");
+  const UnencodableReport rep = d.findUnencodable();
+  REQUIRE((rep.total) == size_t(2));
+  CHECK_EQ(rep.chars[0].invalidByte, 0xFF);
+  CHECK_EQ(describeUnencodableChar(rep.chars[0]), std::string("invalid byte 0xFF at line 2, column 1"));
+  CHECK_EQ(rep.chars[1].codePoint, uint32_t(0xD800));
+  CHECK_EQ(rep.chars[1].column, 1);
+  const std::string before = Tmp::read(p);
+  CHECK(!d.saveToDisk());
+  CHECK_EQ(Tmp::read(p), before);
+  CHECK(d.encoding() == Encoding::Utf16LE && d.dirty());
+  std::string out;
+  size_t bad = 0;
+  CHECK(!encodeText("a\xFF", Encoding::Utf16BE, out, &bad));
+  CHECK_EQ(bad, size_t(1));
+  // UTF-8 files are written as they are.
+  auto q = t.write("u8.cpp", "int a;\n");
+  Document u(q);
+  REQUIRE(u.loadFromDisk());
+  u.insert({0, 0}, kHan + kEmoji + "\xFF");
+  CHECK(u.findUnencodable().empty());
+  CHECK(u.saveToDisk());
+}
+
+TEST(save_as_of_an_untitled_document_in_another_encoding_is_refused_and_stays_untitled) {
+  Tmp t;
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.newUntitled(LineEnding::LF);
+  d->setEncoding(Encoding::Windows1252);
+  d->insert({0, 0}, "ok " + kHan);
+  const fs::path was = d->path();
+  UnencodableReport rep;
+  CHECK(!ed.saveAs(*d, "new.cpp", &err, &rep));
+  CHECK_EQ(rep.total, size_t(1));
+  CHECK(d->isUntitled());
+  CHECK(d->path() == was);
+  CHECK(!fs::exists(t.dir / "new.cpp"));
+  d->erase({{0, 3}, {0, 6}});
+  CHECK(ed.saveAs(*d, "new.cpp", &err, &rep));
+  CHECK_EQ(Tmp::read(t.dir / "new.cpp"), std::string("ok "));
+  ed.shutdown();
+}
+
+TEST(editor_save_and_save_all_refuse_unencodable_text_and_save_the_other_documents) {
+  Tmp t;
+  auto bad = t.write("bad.cpp", kLatin1File);
+  auto good = t.write("good.cpp", "int g;\n");
+  auto bad2 = t.write("bad2.cpp", kLatin1File);
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* b = ed.open(bad, &err);
+  Document* g = ed.open(good, &err);
+  Document* b2 = ed.open(bad2, &err);
+  REQUIRE(b && g && b2);
+  b->insert({1, 0}, kHan);
+  g->insert({0, 0}, "// edit\n");
+  b2->insert({0, 0}, kEmoji);
+  b2->insert({1, 0}, kEmoji);
+  UnencodableReport rep;
+  CHECK(!ed.save(*b, &err, &rep));
+  CHECK(err.find("was not saved") != std::string::npos);
+  CHECK_EQ(rep.total, size_t(1));
+  CHECK_EQ(rep.chars[0].line, 1);
+  CHECK_EQ(Tmp::read(bad), kLatin1File);
+  CHECK(b->dirty() && b->encoding() == Encoding::Windows1252);
+  // Save All: the good document is written, both bad ones are reported with their characters.
+  std::vector<SaveRefusal> refused;
+  err.clear();
+  CHECK(!ed.saveAll(&err, &refused));
+  CHECK(err.empty());  // refusals are reported through `refused`
+  REQUIRE((refused.size()) == size_t(2));
+  CHECK(refused[0].file == bad);
+  CHECK_EQ(refused[0].report.total, size_t(1));
+  CHECK(refused[1].file == bad2);
+  CHECK_EQ(refused[1].report.total, size_t(2));
+  CHECK_EQ(Tmp::read(good), std::string("// edit\nint g;\n"));
+  CHECK(!g->dirty() && b->dirty() && b2->dirty());
+  CHECK_EQ(Tmp::read(bad), kLatin1File);
+  CHECK_EQ(Tmp::read(bad2), kLatin1File);
+  // Without the out parameter the refusal is the error.
+  CHECK(!ed.saveAll(&err));
+  CHECK(err.find("was not saved") != std::string::npos);
+  // Fix one: Save All saves it and still reports the other.
+  b->erase({{1, 0}, {1, 3}});
+  refused.clear();
+  CHECK(!ed.saveAll(nullptr, &refused));
+  CHECK_EQ(refused.size(), size_t(1));
+  CHECK(!b->dirty());
+  ed.shutdown();
+}
+
+TEST(rename_edits_that_would_put_an_unencodable_character_in_a_closed_file_do_not_write_it) {
+  Tmp t;
+  auto closed = t.write("c.cpp", "int old_name;\r\nint x = old_name;\r\n");
+  auto latin = t.write("l.cpp",
+                       "int Gr\xF6\xDF"
+                       "e = old_name;\r\n");
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  FileEdits fe;
+  fe[closed].push_back({Range{{0, 4}, {0, 12}}, "new_" + kHan});  // UTF-8 file: fine
+  fe[latin].push_back({Range{{0, 11}, {0, 19}}, "new_" + kHan});  // Windows-1252 file: refused
+  const Editor::RenameResult res = ed.applyRenameEdits(fe, &err);
+  CHECK(res.written.size() == 1 && res.written[0] == closed);
+  REQUIRE((res.unsaved.size()) == size_t(1));
+  CHECK(res.unsaved[0] == latin);
+  REQUIRE((res.refused.size()) == size_t(1));
+  CHECK(res.refused[0].file == latin);
+  CHECK_EQ(res.refused[0].report.chars[0].codePoint, uint32_t(0x6F22));
+  CHECK_EQ(Tmp::read(latin), std::string("int Gr\xF6\xDF"
+                                         "e = old_name;\r\n"));
+  CHECK(ed.document(latin) != nullptr && ed.document(latin)->dirty());  // left open and dirty for the user
+  CHECK_EQ(Tmp::read(closed), std::string("int new_") + kHan + ";\r\nint x = old_name;\r\n");
+  ed.shutdown();
+}
+
+TEST(replace_in_files_does_not_write_a_windows1252_file_when_the_replacement_is_unencodable) {
+  Tmp t;
+  const std::string latinBytes =
+      "int needle; // Gr\xF6\xDF"
+      "e\r\nneedle();\r\n";
+  auto latin = t.write("l.cpp", latinBytes);
+  auto utf8 = t.write("u.cpp", "int needle;\n");
+  auto search = [&](const fs::path& f) {
+    SearchInput in;
+    in.root = t.dir;
+    in.files = {f};
+    SearchOptions o;
+    o.query = "needle";
+    std::vector<SearchMatch> out;
+    TextSearch::run(std::move(in), o, &out);
+    return out;
+  };
+  std::vector<SearchMatch> ms = search(latin);
+  const auto u = search(utf8);
+  ms.insert(ms.end(), u.begin(), u.end());
+  REQUIRE((ms.size()) == size_t(3));
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Editor::ReplaceInFilesResult r = ed.replaceInFiles(ms, kHan);
+  CHECK_EQ(Tmp::read(latin), latinBytes);            // not written, not even partly
+  CHECK_EQ(Tmp::read(utf8), "int " + kHan + ";\n");  // the UTF-8 file is fine
+  CHECK_EQ(r.filesWritten, size_t(1));
+  CHECK_EQ(r.replaced, size_t(1));
+  REQUIRE((r.errors.size()) == size_t(1));
+  CHECK(r.errors[0].find("l.cpp was not changed: Windows-1252 cannot hold") != std::string::npos);
+  REQUIRE((r.refused.size()) == size_t(1));
+  CHECK(r.refused[0].file == latin);
+  REQUIRE((r.refused[0].report.total) == size_t(2));  // one per match
+  CHECK_EQ(r.refused[0].report.chars[0].codePoint, uint32_t(0x6F22));
+  CHECK_EQ(r.refused[0].report.chars[0].line, 0);
+  CHECK_EQ(r.refused[0].report.chars[0].column, 4);
+  CHECK_EQ(r.refused[0].report.chars[1].line, 1);
+  // A replacement the code page can hold is converted to it (not inserted as UTF-8 bytes) and the rest is untouched.
+  ms = search(latin);
+  r = ed.replaceInFiles(ms,
+                        "n\xC3\xA4"
+                        "dle");  // "nädle"
+  CHECK(r.errors.empty() && r.refused.empty());
+  CHECK_EQ(r.replaced, size_t(2));
+  CHECK_EQ(Tmp::read(latin), std::string("int n\xE4"
+                                         "dle; // Gr\xF6\xDF"
+                                         "e\r\nn\xE4"
+                                         "dle();\r\n"));
+  // The function itself: the same through replaceMatchesInFile, with the offending characters out.
+  auto again = t.write("l2.cpp", latinBytes);
+  ms = search(again);
+  UnencodableReport rep;
+  ReplaceCounts counts;
+  CHECK(!replaceMatchesInFile(again, ms, kEmoji, &counts, &err, &rep));
+  CHECK_EQ(counts.replaced, size_t(0));
+  CHECK_EQ(rep.total, size_t(2));
+  CHECK_EQ(Tmp::read(again), latinBytes);
+  ed.shutdown();
 }

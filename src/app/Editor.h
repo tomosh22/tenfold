@@ -37,6 +37,12 @@ namespace tf {
 // A front end (GPU/native window, TUI, test harness) drives this class and
 // renders its state. The caret set (primary first) lives here; rendering state
 // (scroll, layout) belongs to the front end's view layer.
+// A save that was refused because the file's encoding cannot hold some of its characters (see Editor::save).
+struct SaveRefusal {
+  std::filesystem::path file;
+  UnencodableReport report;
+};
+
 class Editor {
  public:
   struct Options {
@@ -88,7 +94,12 @@ class Editor {
   Document* document(const std::filesystem::path& path);
   std::vector<Document*> documents();
   bool close(const std::filesystem::path& path);
-  bool save(Document& doc, std::string* error = nullptr);  // an untitled document fails: use saveAs
+  // Writes the document. An untitled document fails: use saveAs. Text that the file's encoding cannot hold is REFUSED
+  // (Document::saveToDisk): nothing is written, the document stays dirty, `error` says why and `refused`, when given,
+  // lists the characters (positions are Positions of the document, ready for gotoLocation). Every save path of the
+  // editor (save, saveAll, rename and replace-in-files writing closed files, the close and quit prompts) goes through
+  // here, so none of them can write such a file.
+  bool save(Document& doc, std::string* error = nullptr, UnencodableReport* refused = nullptr);
   // NewTextFile: an empty document with no file, named "Untitled N" (the lowest N whose path is neither open nor a file
   // on disk) in the workspace root, writing `lineEnding` on save. It is not announced to clangd or version control and
   // not hashed for external changes until saveAs. Returns it (not made current; use activateDocument).
@@ -96,7 +107,10 @@ class Editor {
   // Gives an untitled document its file and writes it: `path` (relative paths are under the workspace root) must not
   // be an open document or an existing file, and its folder must exist. The Document object, its undo history and the
   // carets stay; clangd and version control now hear about it as a freshly opened file.
-  bool saveAs(Document& doc, const std::filesystem::path& path, std::string* error = nullptr);
+  // Refused like save() when the text holds a character the document's encoding cannot hold: the document stays
+  // untitled, nothing is written.
+  bool saveAs(Document& doc, const std::filesystem::path& path, std::string* error = nullptr,
+              UnencodableReport* refused = nullptr);
   // Replace the buffer with the file's current content (undo history is cleared,
   // the document is clean afterwards). Only the changed line range is replaced,
   // so navigation history entries and the language server stay in sync.
@@ -209,6 +223,7 @@ class Editor {
     std::vector<std::filesystem::path> updated;  // open documents that were edited
     std::vector<std::filesystem::path> written;  // closed files that were edited and saved
     std::vector<std::filesystem::path> unsaved;  // closed files that could not be saved (left open and dirty)
+    std::vector<SaveRefusal> refused;            // the part of `unsaved` that holds characters its encoding cannot
     // Rename safety (SemanticEngine::renameCoverage): places that still spell the old name in the edited files, the
     // files that include them and the files they include, and are not part of the edit set. The rename may leave code
     // that no longer compiles there (or they are an unrelated symbol of the same name).
@@ -244,6 +259,9 @@ class Editor {
     size_t openDocuments = 0;  // documents edited in place
     size_t filesWritten = 0;   // closed files written to disk
     std::vector<std::string> errors;
+    // Closed files that were NOT written because the replacement holds a character their encoding cannot (a Windows-
+    // 1252 file, replacement U+6F22); the file is untouched. The positions are the matches in the file as it is.
+    std::vector<SaveRefusal> refused;
   };
   ReplaceInFilesResult replaceInFiles(const std::vector<SearchMatch>& matches, const std::string& replacement);
 
@@ -357,7 +375,10 @@ class Editor {
   void selectCurrentBracketScope();  // the same for ( ) [ ] { }
   bool moveToMatchingBracket();  // each caret next to a bracket jumps to the same side of its partner; false if none
   // Saves every modified document; false (and `error` set to the first failure) if any could not be saved.
-  bool saveAll(std::string* error = nullptr);
+  // Saves every dirty document. A document that cannot be saved does not stop the others; false when any failed, with
+  // the first reason in `error`. Documents refused for an unencodable character are listed in `refused` when it is
+  // given (and then do not set `error`; without it they do).
+  bool saveAll(std::string* error = nullptr, std::vector<SaveRefusal>* refused = nullptr);
   bool gotoLine(int line, int column = 1, std::string* error = nullptr);  // 1-based, through gotoLocation
   // Line ending of `doc` (LF / CRLF): marks the document dirty; not an undo step.
   void setLineEnding(Document& doc, LineEnding e);
@@ -546,7 +567,7 @@ class Editor {
   std::string clangdStatus_;
   NavigationHistory nav_;
   std::unique_ptr<VcsManager> vcs_;
-  void noteSaveEncoding(const Document& doc);
+  void noteSaveRefused(const Document& doc, const UnencodableReport& rep);
   bool reloading_ = false;  // reloadFromDisk is replacing the buffer: not a user edit (VcsManager must not see it)
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;

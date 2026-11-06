@@ -15,8 +15,9 @@ namespace tf::ui {
 //
 // Save writes every document through Editor::save. If one fails (a read-only Perforce file, a locked file) nothing
 // proceeds: the error goes to the status bar ("Cannot save a.cpp: ..."), documents already written stay saved, the rest
-// stay dirty and open. Otherwise `proceed(false)` runs. Don't Save runs `proceed(true)` ("discarded": the caller drops
-// the changes, e.g. closes the document). Cancel runs nothing.
+// stay dirty and open. Otherwise `proceed(false)` runs. A document whose file encoding cannot hold one of its
+// characters is refused the same way (nothing proceeds) and SaveRefusedDialog shows the characters. Don't Save runs
+// `proceed(true)` ("discarded": the caller drops the changes, e.g. closes the document). Cancel runs nothing.
 class UnsavedPrompt {
  public:
   using Proceed = std::function<void(bool discarded)>;

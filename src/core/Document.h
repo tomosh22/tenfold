@@ -34,14 +34,22 @@ class Document {
     untitled_ = false;
     dirty_ = true;
   }
+  // Undoes setPath after a save that failed: the document is untitled again, under its old identity.
+  void revertToUntitled(std::filesystem::path p) {
+    path_ = std::move(p);
+    untitled_ = true;
+  }
 
   // Reads the file. The bytes are decoded to UTF-8 (decodeFileBytes, core/TextEncoding.h): any byte content
   // loads. saveToDisk writes the text back in the encoding that was detected (UTF-16 with its BOM, Windows-1252, or
   // UTF-8) with the buffer's line ending, so an unchanged file with uniform line endings is written byte for byte.
-  // If the text now holds a character the file's encoding cannot represent (only Windows-1252 has such), the file
-  // is written as UTF-8, encoding() becomes Utf8 and saveNote() says so (OPEN_QUESTIONS, "W9 detail: encodings").
+  // If the text holds a character the file's encoding cannot represent (a Windows-1252 file with U+6F22; UTF-16 with a
+  // lone surrogate), saveToDisk REFUSES: it returns false, writes nothing, leaves the document dirty and in its
+  // encoding, sets `error` to a sentence naming the first character and fills `refused` (when given) with every such
+  // character (OPEN_QUESTIONS, "User decisions of 2026-11-06"). The user fixes the text; there is no command that
+  // changes the encoding yet (setEncoding exists for a future one).
   bool loadFromDisk(std::string* error = nullptr);
-  bool saveToDisk(std::string* error = nullptr);
+  bool saveToDisk(std::string* error = nullptr, UnencodableReport* refused = nullptr);
   Encoding encoding() const { return encoding_; }
   // Chooses the encoding used on the next save (marks the document dirty). Not an undo step.
   void setEncoding(Encoding e) {
@@ -49,8 +57,9 @@ class Document {
     encoding_ = e;
     dirty_ = true;
   }
-  // Non-empty after a saveToDisk that had to change the encoding; cleared by the next successful save/load.
-  const std::string& saveNote() const { return saveNote_; }
+  // Every character of the text that encoding() cannot hold, in document order (see TextEncoding.h). Empty for UTF-8.
+  UnencodableReport findUnencodable() const { return findUnencodable(encoding_); }
+  UnencodableReport findUnencodable(Encoding e) const;
 
   const std::filesystem::path& path() const { return path_; }
   std::string uri() const;
@@ -129,7 +138,6 @@ class Document {
   bool onDisk_ = false;
   bool untitled_ = false;
   Encoding encoding_ = Encoding::Utf8;
-  std::string saveNote_;
   std::vector<UndoGroup> undo_, redo_;
   UndoGroup open_;  // the group being built while depth_ > 0
   int depth_ = 0;

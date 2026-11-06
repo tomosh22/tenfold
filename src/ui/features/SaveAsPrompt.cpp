@@ -40,8 +40,13 @@ void SaveAsPrompt::open(const fs::path& untitled, const std::string& suggestion)
     Document* d = env_.editor.document(from);
     const fs::path target = resolve(typed);
     std::string err = problem(target);
-    if (d && err.empty() && env_.editor.saveAs(*d, target, &err)) {
+    UnencodableReport rep;
+    if (d && err.empty() && env_.editor.saveAs(*d, target, &err, &rep)) {
       if (onSaved) onSaved(from, target);
+      return;
+    }
+    if (d && !rep.empty()) {  // not written: the characters are listed, the document stays untitled
+      env_.refused({{target, std::move(rep)}});
       return;
     }
     env_.say("Cannot save " + (target.empty() ? from.filename().string() : target.filename().string()) + ": " + err);

@@ -79,6 +79,7 @@ struct Config {
   std::vector<std::string> clangdArgs;  // extra fake clangd options
   int backoffInitialMs = 20, maxCrashes = 5;
   std::string fixture;  // a directory of tests/fixtures/vs copied into the workspace instead of the plain sources
+  std::u32string extraGlyphs;  // characters the mock font can draw besides ASCII
 };
 
 struct Env {
@@ -107,7 +108,8 @@ struct Env {
     }
     gfx::FontStack stack;
     stack.add(std::make_shared<tftext::MockFont>(
-        U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-:,;/()[]{}<>+*&#?=!\"'\\|"));
+        U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-:,;/()[]{}<>+*&#?=!\"'\\|" +
+        cfg.extraGlyphs));
     text = gfx::TextRenderer::fromFonts(std::move(stack));
     Editor::Options o;
     o.semantic.useClangd = cfg.fakeClangd;
@@ -759,4 +761,168 @@ TEST(p2_palette_enter_on_a_disabled_command_says_so) {
   env.key(Key::Enter);
   CHECK(contains(env.app->message(), "not available"));
   CHECK(!env.app->commandPalette().isOpen());
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// W10-ENC: characters the file's encoding cannot hold -> the save is refused and the user sees them
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+const std::string kHan = "\xE6\xBC\xA2";        // U+6F22
+const std::string kEmoji = "\xF0\x9F\x98\x80";  // U+1F600
+const std::string kLatin = "int \xF6;\n";       // not UTF-8: Windows-1252
+
+Config glyphConfig() {
+  Config c;
+  c.extraGlyphs = U"漢\U0001F600�";
+  return c;
+}
+
+const ListRow* rowWith(ListPopup* p, const std::string& what) {
+  if (p)
+    for (const auto& r : p->rows())
+      if (contains(r.primary, what)) return &r;
+  return nullptr;
+}
+}  // namespace
+
+TEST(w10_save_of_unencodable_text_shows_the_characters_and_enter_goes_to_the_first) {
+  Env env(glyphConfig());
+  writeFile(env.dir / "src/l.cpp", kLatin);
+  Document* d = env.open("src/l.cpp");
+  REQUIRE(d != nullptr);
+  CHECK(d->encoding() == Encoding::Windows1252);
+  env.ed->moveCursor({0, 4});
+  env.ed->insertText(kHan + "x" + kEmoji);
+  env.bench->sync();
+  env.run("File.Save");
+  // Nothing written, the document is as it was.
+  CHECK_EQ(slurp(env.dir / "src/l.cpp"), kLatin);
+  CHECK(d->dirty());
+  CHECK(d->encoding() == Encoding::Windows1252);
+  // The dialog: why, and the characters themselves with code point and line:column.
+  REQUIRE(env.app->saveRefusedDialog().isOpen());
+  ListPopup* pop = env.app->saveRefusedDialog().popup();
+  const ListRow* han = rowWith(pop, kHan);
+  const ListRow* emoji = rowWith(pop, kEmoji);
+  REQUIRE(han != nullptr && emoji != nullptr);
+  CHECK(contains(han->primary, "U+6F22"));
+  CHECK_EQ(han->detail, std::string("line 1, column 5"));
+  CHECK(contains(emoji->primary, "U+1F600"));
+  CHECK_EQ(emoji->detail, std::string("line 1, column 9"));
+  CHECK(pop->rows()[0].dim && contains(pop->rows()[0].primary, "Windows-1252 cannot hold 2 characters"));
+  CHECK(contains(pop->rows()[0].primary, "Nothing was written"));
+  CHECK_EQ(pop->selectedRow()->primary, han->primary);  // the first character is selected
+  CHECK(contains(env.app->message(), "l.cpp was not saved: Windows-1252 cannot hold 2 characters"));
+  // The popup draws (the mock font has the glyphs) and the page is still the editor.
+  env.frame();
+  // Enter: go to the first character; the dialog closes; the document is still dirty.
+  env.key(Key::Enter);
+  CHECK(!env.app->saveRefusedDialog().isOpen());
+  CHECK_EQ(env.ed->cursor().pos.line, 0);
+  CHECK_EQ(env.ed->cursor().pos.column, 4);
+  CHECK(d->dirty());
+  // Again, this time to the second character (Down, Enter).
+  env.run("File.Save");
+  REQUIRE(env.app->saveRefusedDialog().isOpen());
+  env.key(Key::Down);
+  env.key(Key::Enter);
+  CHECK_EQ(env.ed->cursor().pos.column, 8);
+  // Fix the text: the save goes through, byte for byte in Windows-1252.
+  d->erase({{0, 4}, {0, 4 + static_cast<int>(kHan.size()) + 1 + static_cast<int>(kEmoji.size())}});
+  env.run("File.Save");
+  CHECK(!env.app->saveRefusedDialog().isOpen());
+  CHECK(!d->dirty());
+  CHECK_EQ(slurp(env.dir / "src/l.cpp"), "int \xF6;\n");
+}
+
+TEST(w10_many_unencodable_characters_are_listed_first_n_and_m_more) {
+  Env env(glyphConfig());
+  writeFile(env.dir / "src/l.cpp", kLatin);
+  Document* d = env.open("src/l.cpp");
+  REQUIRE(d != nullptr);
+  std::string many;
+  for (int i = 0; i < 20; ++i) many += kHan;
+  env.ed->moveCursor({0, 0});
+  env.ed->insertText(many);
+  env.run("File.Save");
+  REQUIRE(env.app->saveRefusedDialog().isOpen());
+  ListPopup* pop = env.app->saveRefusedDialog().popup();
+  size_t listed = 0;
+  for (const auto& r : pop->rows()) listed += contains(r.primary, kHan);
+  CHECK_EQ(listed, SaveRefusedDialog::kCharsPerFile);
+  CHECK(rowWith(pop, "... and 12 more") != nullptr);
+  CHECK(contains(pop->rows()[0].primary, "20 characters"));
+  // A click or Enter on the "and more" row still goes to the first character.
+  const int more = pop->indexOfKey("info");
+  REQUIRE(more >= 0);
+  pop->setSelected(static_cast<int>(pop->rows().size()) - 1);
+  env.key(Key::Enter);
+  CHECK_EQ(env.ed->cursor().pos.column, 0);
+}
+
+TEST(w10_save_all_saves_the_others_and_lists_the_refused_documents) {
+  Env env(glyphConfig());
+  writeFile(env.dir / "src/l.cpp", kLatin);
+  env.open("src/a.cpp");
+  env.edit("// one\n");
+  Document* l = env.open("src/l.cpp");
+  REQUIRE(l != nullptr);
+  env.ed->moveCursor({0, 0});
+  env.ed->insertText(kEmoji);
+  env.open("src/b.cpp");
+  env.edit("// two\n");
+  env.run("File.SaveAll");
+  CHECK(contains(slurp(env.dir / "src/a.cpp"), "// one"));
+  CHECK(contains(slurp(env.dir / "src/b.cpp"), "// two"));
+  CHECK_EQ(slurp(env.dir / "src/l.cpp"), kLatin);
+  CHECK(l->dirty());
+  REQUIRE(env.app->saveRefusedDialog().isOpen());
+  ListPopup* pop = env.app->saveRefusedDialog().popup();
+  CHECK(rowWith(pop, kEmoji) != nullptr);
+  CHECK(contains(env.app->message(), "l.cpp was not saved"));
+  env.key(Key::Enter);  // to the character: the file is now the current one
+  CHECK(env.ed->currentDocument() == l);
+  CHECK_EQ(env.ed->cursor().pos.column, 0);
+}
+
+TEST(w10_closing_a_tab_whose_text_cannot_be_saved_cancels_the_close) {
+  Env env(glyphConfig());
+  writeFile(env.dir / "src/l.cpp", kLatin);
+  Document* l = env.open("src/l.cpp");
+  REQUIRE(l != nullptr);
+  env.ed->moveCursor({0, 0});
+  env.ed->insertText(kHan);
+  env.bench->sync();
+  env.frame();
+  env.closeTabByUser(env.tabOf("src/l.cpp"));
+  REQUIRE(env.app->unsavedPrompt().isOpen());
+  env.key(Key::Enter);  // Save
+  CHECK(!env.app->unsavedPrompt().isOpen());
+  REQUIRE(env.app->saveRefusedDialog().isOpen());
+  CHECK(rowWith(env.app->saveRefusedDialog().popup(), kHan) != nullptr);
+  CHECK(env.tabOf("src/l.cpp") >= 0);  // not closed
+  CHECK(env.ed->document(env.dir / "src/l.cpp") != nullptr && l->dirty());
+  CHECK_EQ(slurp(env.dir / "src/l.cpp"), kLatin);
+  env.key(Key::Escape);
+  CHECK(!env.app->saveRefusedDialog().isOpen());
+}
+
+TEST(w10_quit_with_unencodable_text_saves_the_rest_and_does_not_quit) {
+  Env env(glyphConfig());
+  writeFile(env.dir / "src/l.cpp", kLatin);
+  env.open("src/a.cpp");
+  env.edit("// one\n");
+  Document* l = env.open("src/l.cpp");
+  REQUIRE(l != nullptr);
+  env.ed->moveCursor({0, 0});
+  env.ed->insertText(kHan);
+  env.run("App.Quit");
+  REQUIRE(env.app->unsavedPrompt().isOpen());
+  env.key(Key::Enter);  // Save All
+  CHECK(!env.app->quitRequested());
+  CHECK(contains(slurp(env.dir / "src/a.cpp"), "// one"));  // the other document was saved
+  REQUIRE(env.app->saveRefusedDialog().isOpen());
+  CHECK(l->dirty());
+  CHECK_EQ(slurp(env.dir / "src/l.cpp"), kLatin);
 }

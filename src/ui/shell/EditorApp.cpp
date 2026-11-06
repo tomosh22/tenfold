@@ -133,6 +133,11 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
   saveAs_ = std::make_unique<SaveAsPrompt>(pickerEnv_);
+  saveRefused_ = std::make_unique<SaveRefusedDialog>(pickerEnv_);
+  pickerEnv_.saveRefused = [this](std::vector<SaveRefusal> r) {  // the file's encoding cannot hold a character
+    setMessage(SaveRefusedDialog::statusText(r, editor_.workspace().root()), kDiagMs);
+    saveRefused_->show(std::move(r));
+  };
   saveAs_->onSaved = [this](const std::filesystem::path& from, const std::filesystem::path& to) {
     untitledNames_.erase(from.generic_string());
     if (bench_) bench_->documentRenamed(from, to);
@@ -247,6 +252,7 @@ EditorApp::~EditorApp() {
   external_.reset();  // unhooks Editor::onExternalChange
   unsaved_.reset();
   saveAs_.reset();
+  saveRefused_.reset();
   if (build_) {
     build_->onClose = nullptr;
     build_->onMessage = nullptr;
@@ -426,6 +432,7 @@ void EditorApp::closePickers() {
   palette_->close();
   unsaved_->close();
   saveAs_->close();
+  saveRefused_->close();
   external_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
@@ -481,7 +488,13 @@ void EditorApp::bindEditingCommands() {
       "File.SaveAll",
       [this](const CommandContext& c, std::string_view) {
         std::string err;
-        if (!c.editor->saveAll(&err)) setMessage("Cannot save all files: " + err, kDiagMs);
+        std::vector<SaveRefusal> refused;
+        if (!c.editor->saveAll(&err, &refused)) {
+          // Every other document was saved. Characters a file's encoding cannot hold get the dialog (and its own
+          // status message); other failures (read-only files) the first reason.
+          if (!err.empty()) setMessage("Cannot save all files: " + err, kDiagMs);
+          pickerEnv_.refused(std::move(refused));  // after the message: its own status text wins
+        }
         return true;
       },
       [](const CommandContext& c) { return c.editor != nullptr; });
@@ -818,7 +831,12 @@ void EditorApp::bindUiCommands() {
           return true;
         }
         std::string err;
-        if (c.editor->save(*d, &err)) return true;
+        UnencodableReport rep;
+        if (c.editor->save(*d, &err, &rep)) return true;
+        if (!rep.empty()) {  // the file's encoding cannot hold a character: show it, nothing was written
+          pickerEnv_.refused({{d->path(), std::move(rep)}});
+          return true;
+        }
         setMessage("Cannot save " + d->path().filename().string() + (err.empty() ? std::string() : ": " + err),
                    kDiagMs);
         return true;

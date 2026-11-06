@@ -52,6 +52,14 @@ size_t utf8SeqLen(std::string_view s, size_t i) {
   return 0;
 }
 
+// The Windows-1252 byte for `cp`, or -1.
+int cp1252Byte(uint32_t cp) {
+  if (cp < 0x80 || (cp >= 0xA0 && cp <= 0xFF)) return static_cast<int>(cp);
+  for (unsigned k = 0; k < 32; ++k)
+    if (kCp1252[k] == cp) return static_cast<int>(0x80 + k);
+  return -1;
+}
+
 uint32_t decodeUtf8At(std::string_view s, size_t i, size_t len) {
   const auto b = [&](size_t k) { return static_cast<uint32_t>(static_cast<unsigned char>(s[k])); };
   switch (len) {
@@ -199,9 +207,13 @@ bool encodeText(std::string_view text, Encoding e, std::string& out, size_t* fir
       out.reserve(text.size() * 2 + 2);
       put(0xFEFF);
       for (size_t i = 0; i < text.size();) {
-        size_t len = utf8SeqLen(text, i);
-        uint32_t cp = len ? decodeUtf8At(text, i, len) : 0xFFFD;
-        i += len ? len : 1;
+        const size_t len = utf8SeqLen(text, i);
+        if (!len) {  // not UTF-8 (a stray byte, a lone surrogate): UTF-16 would have to invent a character
+          if (firstBad) *firstBad = i;
+          return false;
+        }
+        uint32_t cp = decodeUtf8At(text, i, len);
+        i += len;
         if (cp >= 0x10000) {
           cp -= 0x10000;
           put(0xD800 + (cp >> 10));
@@ -217,30 +229,77 @@ bool encodeText(std::string_view text, Encoding e, std::string& out, size_t* fir
       for (size_t i = 0; i < text.size();) {
         const size_t len = utf8SeqLen(text, i);
         const uint32_t cp = len ? decodeUtf8At(text, i, len) : 0xFFFD;
-        unsigned char b = 0;
-        bool ok = true;
-        if (cp < 0x80 || (cp >= 0xA0 && cp <= 0xFF)) {
-          b = static_cast<unsigned char>(cp);
-        } else {
-          ok = false;
-          for (unsigned k = 0; k < 32; ++k)
-            if (kCp1252[k] == cp) {
-              b = static_cast<unsigned char>(0x80 + k);
-              ok = true;
-              break;
-            }
-        }
-        if (!ok) {
+        const int b = cp1252Byte(cp);
+        if (b < 0 || !len) {
           if (firstBad) *firstBad = i;
           return false;
         }
         out += static_cast<char>(b);
-        i += len ? len : 1;
+        i += len;
       }
       return true;
     }
   }
   return false;
+}
+
+void collectUnencodable(std::string_view line, int lineNo, UnencodableReport& rep) {
+  if (rep.encoding == Encoding::Utf8) return;  // UTF-8 holds every character (and writes stray bytes as they are)
+  for (size_t i = 0; i < line.size();) {
+    const size_t len = utf8SeqLen(line, i);
+    UnencodableChar c;
+    size_t step = len ? len : 1;
+    if (len) {
+      c.codePoint = decodeUtf8At(line, i, len);
+      if (rep.encoding == Encoding::Windows1252 ? cp1252Byte(c.codePoint) >= 0 : true) {
+        i += step;
+        continue;
+      }
+      c.text = std::string(line.substr(i, len));
+    } else {
+      const auto b = [&](size_t k) { return static_cast<unsigned char>(line[k]); };
+      c.invalidByte = b(i);
+      c.codePoint = 0xFFFD;
+      // A CESU-style surrogate (ED A0..BF 80..BF) is reported as the surrogate it spells, all three bytes at once.
+      if (b(i) == 0xED && i + 2 < line.size() && b(i + 1) >= 0xA0 && b(i + 1) <= 0xBF && (b(i + 2) & 0xC0) == 0x80) {
+        c.codePoint = 0xD000 | ((b(i + 1) & 0x3Fu) << 6) | (b(i + 2) & 0x3Fu);
+        step = 3;
+      }
+    }
+    ++rep.total;
+    c.line = lineNo;
+    c.column = static_cast<int>(i);
+    if (rep.chars.size() < kMaxUnencodableListed) rep.chars.push_back(std::move(c));
+    i += step;
+  }
+}
+
+std::string codePointLabel(uint32_t cp) {
+  static const char* hex = "0123456789ABCDEF";
+  int digits = 4;
+  while (digits < 8 && (cp >> (4 * digits)) != 0) ++digits;
+  std::string s = "U+";
+  for (int k = digits - 1; k >= 0; --k) s += hex[(cp >> (4 * k)) & 0xF];
+  return s;
+}
+
+std::string unencodableLabel(const UnencodableChar& c) {
+  if (c.invalidByte >= 0 && c.codePoint == 0xFFFD) {
+    static const char* hex = "0123456789ABCDEF";
+    return std::string("invalid byte 0x") + hex[(c.invalidByte >> 4) & 0xF] + hex[c.invalidByte & 0xF];
+  }
+  return codePointLabel(c.codePoint);
+}
+
+std::string describeUnencodableChar(const UnencodableChar& c) {
+  return unencodableLabel(c) + " at line " + std::to_string(c.line + 1) + ", column " + std::to_string(c.column + 1);
+}
+
+std::string describeUnencodable(const UnencodableReport& rep) {
+  std::string s = std::string(encodingName(rep.encoding)) + " cannot hold " +
+                  (rep.total == 1 ? std::string("1 character") : std::to_string(rep.total) + " characters");
+  if (!rep.chars.empty()) s += " (first: " + describeUnencodableChar(rep.chars[0]) + ")";
+  return s;
 }
 
 }  // namespace tf

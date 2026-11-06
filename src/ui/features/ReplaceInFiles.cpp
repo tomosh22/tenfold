@@ -505,6 +505,7 @@ bool ReplaceInFiles::apply() {
   if (last_.stale) msg += "; " + std::to_string(last_.stale) + " changed since the search and were skipped";
   if (!last_.errors.empty()) msg += "; " + last_.errors.front();
   env_.say(msg);
+  env_.refused(last_.refused);
   return true;
 }
 
