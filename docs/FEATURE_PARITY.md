@@ -29,8 +29,8 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Per-workspace settings file | ✅ | `.tenfold/workspace.json`. No `.10x` import (OPEN_QUESTIONS #12); compiler settings come from the Visual Studio solution (C5). |
 | Fast "open file" fuzzy search | ✅ | B5a picker (Control O `OpenFile`, Shift Alt O `FindFile`): `FastIndex::fuzzyScore` on filename (weight 4) and path, MRU files first (persisted in `layout.json`), 2-4 ms per keystroke on 8.7k Godot paths. Opening is a tab switch, not a navigation jump. |
 | Find in workspace (text search) | 🔶 | `TextSearch` + `Editor::findInWorkspace` (A6): parallel, streaming, cancellable; literal fast path, PCRE2 regex, globs, open-buffer override; `gotoSearchMatch` records history. CLI `grep`. UI (B5b): Ctrl+Shift+F modal list grouped by file, live streaming, case / word / regex toggles, include / exclude globs, F8 / Shift+F8, scrollbar markers. W8e: `ReplaceInFiles` (Ctrl+Shift+H) is a modal checklist of the matches with a replace field and the replacement shown in each row; open documents are edited in place (one undo step each), closed files are written after one confirmation. `NewSearchPanel` (Ctrl+Shift+A) keeps the current result list (the last three) and starts an empty one, Alt+PageUp / Alt+PageDown bring a kept list back. Gaps against 10x's search box: see "Find in files options not supported". |
-| File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents. UI (P2): a clean document is reloaded (`editor.reloadExternalChanges` = auto, as Visual Studio), a dirty one asks Reload / Keep my version, a deleted file keeps its buffer and marks its tab and the status bar. |
-| Unsaved changes | ✅ | P2: closing the last view of a modified tab, closing the window and `App.Quit` ask Save / Don't Save / Cancel (Save All for several documents; a failed save keeps the app open and shows the error); `editor.confirmUnsaved`. Follows Visual Studio (OPEN_QUESTIONS #5). No autosave. |
+| File watching / external changes | ✅ | `FileWatcher` (A3): inotify on Linux (polling fallback past the watch limit), `ReadDirectoryChangesW` on Windows (Windows test pass in progress); live fast-index, history and file-list updates; `Editor::onExternalChange` / `reloadFromDisk` for open documents. UI (P2, VS-TABS T9): as Visual Studio, a changed file asks "The file X has been modified outside of the source editor. Do you want to reload it?" (Yes / Yes to All / No / No to All; a dirty one always asks); `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved` (silent reload of clean files), `editor.reloadExternalChanges` kept as an override; a deleted file keeps its buffer and marks its tab and the status bar. |
+| Unsaved changes | ✅ | P2: closing the last view of a modified tab, closing the window and `App.Quit` ask Save / Don't Save / Cancel; several modified documents (quit, Close All, Close All But This / Pinned, Close Panel) get Visual Studio's one list "Save changes to the following items?" with Yes / No / Cancel (VS-TABS T6); a failed or encoding-refused save keeps the app open and shows the error; `editor.confirmUnsaved`. Follows Visual Studio (OPEN_QUESTIONS #5). No autosave. |
 
 ## Code intelligence
 
@@ -215,7 +215,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `vcs.diffTool` | DiffExe (auto) | |
 
 No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTrailingWhitespace` (10x documents none),
-`editor.autoCloseQuotes`, `editor.reloadExternalChanges`, `nav.statusCounts`, `picker.preview`, `vcs.diffToolArgs`.
+`editor.autoCloseQuotes`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `picker.preview`, `vcs.diffToolArgs`.
 
 ### Editing
 
@@ -284,7 +284,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 
 | Setting | 10x default | Description | Effort / note |
 |---|---|---|---|
-| SwitchFileMode | All | Ctrl+Tab cycles all files or only the current panel's | S |
+| SwitchFileMode | All | Ctrl+Tab cycles all files or only the current panel's | S. tenfold's switch panel (VS-TABS T1: MRU order, the previous file preselected, Ctrl release commits) lists the active panel's tabs, i.e. the "current panel" mode; "All" is not done |
 | NewTabPosition | RightOfCurrent | Where a newly opened tab goes | S |
 | MaxOpenTabs | 100 | Tab limit | S |
 | TabPanelMode | Top | Tab strip on top, left or right | M |

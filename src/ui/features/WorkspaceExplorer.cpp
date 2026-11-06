@@ -443,6 +443,7 @@ WorkspaceExplorer::WorkspaceExplorer(Editor& editor, Workbench& bench, Hooks hoo
     return n.path.empty() ? TreeView::Mark::None : vcsTabMark(editor_.vcs().fileStatus(fs::path(n.path)));
   };
   view_->onActivate = [this](int node) { opened(node); };
+  view_->onClicked = [this](int node) { previewed(node); };
   view_->onClose = [this] {
     if (hooks_.focusEditor) hooks_.focusEditor();
   };
@@ -454,6 +455,7 @@ WorkspaceExplorer::~WorkspaceExplorer() {
   if (view_) {
     view_->markOf = nullptr;
     view_->onActivate = nullptr;
+    view_->onClicked = nullptr;
     view_->onClose = nullptr;
   }
 }
@@ -473,7 +475,21 @@ void WorkspaceExplorer::opened(int node) {
     return;
   }
   bench_.sync();
+  bench_.promoteFile(file);  // Open / Enter / double click keeps a previewed file open
   if (hooks_.focusEditor) hooks_.focusEditor();
+}
+
+// A single click on a file (VS-TABS T2): it opens in the preview tab and the keys stay in the tree.
+void WorkspaceExplorer::previewed(int node) {
+  if (!bench_.previewEnabled()) return;
+  const TreeNode& n = view_->model().node(node);
+  if (n.kind != TreeKind::File || n.path.empty()) return;
+  const fs::path file(n.path);
+  const bool hadFocus = view_->hasFocus();
+  std::string err;
+  bench_.withPreview(true, [&] { editor_.gotoLocation({file, caretFor(file)}, &err); });
+  if (!err.empty() && hooks_.message) hooks_.message("Cannot open " + file.filename().string() + ": " + err);
+  if (hadFocus) view_->setFocus();
 }
 
 uint64_t WorkspaceExplorer::inputStamp() const {

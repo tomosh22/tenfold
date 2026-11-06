@@ -38,6 +38,7 @@
 #include "ui/features/SaveAsPrompt.h"
 #include "ui/features/SaveRefusedDialog.h"
 #include "ui/features/SignatureHelp.h"
+#include "ui/features/SwitchPanel.h"
 #include "ui/features/SymbolSearch.h"
 #include "ui/features/TerminalPanel.h"
 #include "ui/features/UnsavedPrompt.h"
@@ -109,6 +110,7 @@ class EditorApp {
   BreakpointList& breakpointList() { return *breakpointList_; }
   CompileInfo& compileInfo() { return *compileInfo_; }  // D4: Help.ShowCompileCommand
   UnsavedPrompt& unsavedPrompt() { return *unsaved_; }
+  SwitchPanel* switchPanel() { return switch_.get(); }  // Ctrl+Tab (VS-TABS T1); null without a Workbench
   ExternalChanges& externalChanges() { return *external_; }
   CommandPalette& commandPalette() { return *palette_; }
   bool confirmUnsaved() const { return confirmUnsaved_; }  // setting editor.confirmUnsaved
@@ -244,6 +246,7 @@ class EditorApp {
   int64_t expiry_ = 0;  // 0 = never
   std::unique_ptr<NavigationUi> nav_;
   bool pendingShown_ = false, cycling_ = false, quit_ = false;
+  int strokeMods_ = 0;  // modifiers of the key stroke being handled (the switch panel commits on Ctrl release)
   std::optional<bool>
       whitespaceOverride_;            // ToggleWhitespace: wins over editor.showWhitespace until that setting changes
   std::optional<bool> wrapOverride_;  // View.ToggleWordWrap: wins over editor.wordWrap until that setting changes
@@ -281,6 +284,7 @@ class EditorApp {
   std::unique_ptr<PerforceUi> perforceUi_;
   KeySequence keySeq_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
+  std::unique_ptr<SwitchPanel> switch_;  // Ctrl+Tab (VS-TABS T1); null without a Workbench
   std::unique_ptr<ExternalChanges> external_;
   std::unique_ptr<CommandPalette> palette_;
   bool confirmUnsaved_ = true;
@@ -308,7 +312,9 @@ class EditorApp {
   MenuCommandInfo menuInfo(const std::string& command);
   bool explorerMenu(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out);
   bool menuRequestFor(Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out);
-  void closeTabs(const std::vector<int>& ids);
+  // Closes the tabs after asking about the modified documents whose last view is among them (VS-TABS T6: one list
+  // dialog for several, the per-file prompt for one). `done` runs once they are closed (not after Cancel).
+  void closeTabs(const std::vector<int>& ids, std::function<void()> done = {});
 };
 
 }  // namespace tf::ui

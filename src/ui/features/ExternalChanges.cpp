@@ -13,14 +13,17 @@ namespace {
 constexpr int kPollMs = 1000;
 }
 
-ExternalChanges::Mode ExternalChanges::parseMode(const std::string& text) {
+ExternalChanges::Policy ExternalChanges::resolvePolicy(bool detect, bool reloadUnlessUnsaved,
+                                                       const std::string& legacy) {
   std::string t;
-  for (char c : text)
+  for (char c : legacy)
     if (!std::isspace(static_cast<unsigned char>(c)))
       t += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  if (t == "prompt") return Mode::Prompt;
-  if (t == "never") return Mode::Never;
-  return Mode::Auto;
+  Policy p{detect, reloadUnlessUnsaved, false};
+  if (t == "auto") p = {true, true, false};
+  else if (t == "prompt") p = {true, false, false};
+  else if (t == "never") p = {false, false, true};
+  return p;
 }
 
 ExternalChanges::ExternalChanges(PickerEnv& env, Workbench* bench) : env_(env), bench_(bench) {
@@ -39,11 +42,12 @@ std::string ExternalChanges::name(const fs::path& file) const {
 
 void ExternalChanges::onChanged(Document& d) {
   const fs::path file = d.path();
-  if (mode_ == Mode::Never) {
-    env_.say(name(file) + " changed on disk (not reloaded: editor.reloadExternalChanges is never)");
+  if (!policy_.detect) {
+    if (policy_.announce)
+      env_.say(name(file) + " changed on disk (not reloaded: editor.reloadExternalChanges is never)");
     return;
   }
-  if (mode_ == Mode::Auto && !d.dirty()) {
+  if (policy_.reloadUnlessUnsaved && !d.dirty()) {
     reload(file);
     return;
   }
@@ -66,18 +70,37 @@ void ExternalChanges::openPrompt(const fs::path& file) {
   asking_ = file;
   forced_ = false;
   auto p = std::make_unique<ListPopup>(false);
-  p->setTitle(name(file) + " changed on disk");
-  ListRow reloadRow, keep;
-  reloadRow.key = "reload";
-  reloadRow.primary = dirty ? "Reload (lose my changes)" : "Reload";
-  keep.key = "keep";
-  keep.primary = "Keep my version";
-  p->setMaxVisibleRows(2);
-  p->setRows({reloadRow, keep}, dirty ? 1 : 0);  // never default to throwing edits away
+  p->setTitle("The file " + name(file) + " has been modified outside of the source editor. Do you want to reload it?");
+  p->setWidthCells(110);
+  std::vector<ListRow> rows(4);
+  const char* keys[] = {"yes", "yesall", "no", "noall"};
+  const char* labels[] = {"Yes", "Yes to All", "No", "No to All"};
+  for (size_t i = 0; i < 4; ++i) {
+    rows[i].key = keys[i];
+    rows[i].primary = labels[i];
+  }
+  if (dirty) rows[0].secondary = "the unsaved changes are lost";
+  rows[1].secondary = "reload the other changed files without unsaved changes too";
+  rows[3].secondary = "keep every other changed file as it is";
+  p->setMaxVisibleRows(4);
+  p->setRows(std::move(rows), dirty ? 2 : 0);  // never default to throwing edits away
   p->onAccept([this, file, life = std::weak_ptr<int>(life_)](int row) {
     if (life.expired()) return;
-    if (row == 0) reload(file);
+    if (row == 0 || row == 1) reload(file);
     else env_.say("Keeping your version of " + name(file));
+    if (row == 1) {  // the files waiting behind this one: clean ones reload, the ones with unsaved changes still ask
+      for (auto it = queue_.begin(); it != queue_.end();) {
+        const Document* d = env_.editor.document(*it);
+        if (d && !d->dirty()) {
+          reload(*it);
+          it = queue_.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    } else if (row == 3) {
+      queue_.clear();
+    }
   });
   p->onClosed([this, file, life = std::weak_ptr<int>(life_)] {
     if (life.expired()) return;

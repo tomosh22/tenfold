@@ -352,6 +352,8 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Workbench.CloseTab", "Close Tab");
   addUi(r, "Workbench.CloseOtherTabs", "Close All Other Tabs");
   addUi(r, "Workbench.CloseAllButPinned", "Close All But Pinned Tabs");
+  addUi(r, "Workbench.CloseAllDocuments", "Close All Documents");
+  addUi(r, "Workbench.ClosePanel", "Close Panel");
   addUi(r, "Workbench.PinTab", "Pin Tab");
   addUi(r, "Workbench.TogglePinTab", "Toggle Pin Tab");
   addUi(r, "File.CopyPath", "Copy Full Path");

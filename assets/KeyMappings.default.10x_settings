@@ -250,6 +250,9 @@ Control Shift K: DeleteLine
 # --- Outlining (Visual Studio's Collapse to Definitions; 10x binds only Control M, Control M / Control L) ---
 Control M, Control O: Editor.CollapseToDefinitions
 
+# --- Tabs (Visual Studio's Window > Restore Closed Tab; 10x binds RestoreRecentlyClosedFile to Control Shift T) ---
+Control K, Control Z: RestoreRecentlyClosedFile
+
 # --- Semantic navigation ---
 F12: GotoSymbolDefinition
 Control F12: Editor.GotoDeclaration

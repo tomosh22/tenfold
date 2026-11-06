@@ -100,6 +100,7 @@ class Workbench : public RootWidget {
   bool requestCloseTab(int id);
   std::function<bool(int id)> confirmClose;
   bool isLastViewOfDirty(int id) const;
+  std::vector<int> tabsOf(const std::filesystem::path& file) const;  // every tab (any panel) showing the document
   // Files known to be gone from disk (EditorApp polls): their tabs get a "(deleted)" title suffix and the status bar a
   // "deleted on disk" segment while the document is current. The buffer stays.
   void setFileMissing(const std::filesystem::path& file, bool missing);
@@ -108,6 +109,24 @@ class Workbench : public RootWidget {
   // Editor::gotoLocation, in the active panel); repeated calls go further back. Entries for files that are open again
   // or gone from disk are skipped. Untitled documents are not remembered. False with nothing to reopen.
   bool reopenClosedTab();
+  // ---- preview tab (VS-TABS T2, as Visual Studio) ----
+  // At most one tab of the window is the preview tab: a file opened by a single click in the workspace explorer or a
+  // find result, or by the debugger stepping into an unopened file, opens in it (at the right end of its strip,
+  // drawn italic) and a later preview replaces it. It becomes a normal tab when its document is edited, when the tab or
+  // the explorer item is double-clicked, on the explorer's Open, and when the file is opened by name (openFile). A
+  // preview tab cannot be pinned. Settings tabs.previewTab (everything below is off without it) and
+  // tabs.previewFromFindResults (applied by the result lists through PickerEnv).
+  void setPreviewSettings(bool enabled, bool fromFindResults);
+  bool previewEnabled() const { return previewEnabled_; }
+  bool previewFromFindResults() const { return previewFromFind_; }
+  int previewTabId() const { return previewId_; }  // -1 when there is none
+  // Runs `navigate` (Editor::gotoLocation and friends) and syncs: a file it opens that had no tab becomes the preview
+  // tab when `preview` is set and previews are on. Files that already have a tab are shown as they are.
+  void withPreview(bool preview, const std::function<void()>& navigate);
+  bool gotoAsPreview(const Location& loc, std::string* err = nullptr, const std::string& label = {});
+  void promoteTab(int id);                              // preview -> normal tab (no-op for other tabs)
+  void promoteFile(const std::filesystem::path& file);  // ... the preview tab showing `file`, if any
+
   void closeOthers(int id);          // other unpinned tabs of the same panel
   void closeAllButPinned(Panel* p);  // pinned tabs stay
   void setPinned(int id, bool pinned);
@@ -197,6 +216,8 @@ class Workbench : public RootWidget {
     Position caret;
   };
   void noteClosed(const std::filesystem::path& file, Position caret);
+  void makePreview(int id);
+  bool wantsPreview(const Document& d) const;
   struct Cycle {
     Panel* panel = nullptr;
     std::vector<int> order;
@@ -258,6 +279,8 @@ class Workbench : public RootWidget {
   std::vector<ClosedTab> closed_;  // most recently closed last
   Document* lastCur_ = nullptr;
   int nextId_ = 1;
+  int previewId_ = -1;
+  bool previewEnabled_ = true, previewFromFind_ = true, previewNext_ = false, quietClose_ = false;
   int dragTab_ = -1;
   DropTarget drop_;
   Cycle cycle_;

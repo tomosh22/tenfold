@@ -20,6 +20,7 @@ struct ListRow {
   std::string badge;       // dim, right aligned left of the detail ("approx")
   std::vector<int> match;  // byte offsets inside `primary` drawn highlighted (fuzzy-matched characters)
   bool dim = false;        // greyed out (an approximate result that is still being verified)
+  bool toggle = false;     // Enter / click / Space calls onToggle(row) instead of accepting; the popup stays open
 };
 
 // Text shown in the optional right-hand pane (preview of the selected row).
@@ -49,7 +50,8 @@ class ListPopup : public Widget {
   void setTitle(std::string s);   // header text of an input-less popup (left)
   void setStatus(std::string s);  // dim text right of the input / title ("verifying...")
   void setEmptyText(std::string s) { empty_ = std::move(s); }
-  void setPreviewEnabled(bool on);  // reserves the right pane (even while empty)
+  void setWidthCells(int n) { widthCells_ = n; }  // popup width in character cells (default 80, 120 with a preview)
+  void setPreviewEnabled(bool on);                // reserves the right pane (even while empty)
   void setPreview(ListPreview p);
   bool previewEnabled() const { return preview_; }
   const ListPreview& previewContent() const { return previewContent_; }
@@ -70,6 +72,9 @@ class ListPopup : public Widget {
   void onAccept(std::function<void(int row)> fn) { accept_ = std::move(fn); }
   void onSelection(std::function<void(int row)> fn) { selection_ = std::move(fn); }
   void onClosed(std::function<void()> fn) { closed_ = std::move(fn); }
+  void onToggle(std::function<void(int row)> fn) { toggled_ = std::move(fn); }
+  // True while the onAccept handler runs for a click on a row (not for Enter): result lists open a preview tab then.
+  bool acceptedByMouse() const { return byMouse_; }
 
   // Shows `p` on `root` as the modal widget (focus in the input) and returns it; ownership moves to the tree.
   static ListPopup* open(RootWidget& root, std::unique_ptr<ListPopup> p);
@@ -102,11 +107,12 @@ class ListPopup : public Widget {
   InputLine* input_ = nullptr;
   std::vector<ListRow> rows_;
   int selected_ = -1, first_ = 0, hover_ = -1, maxRows_ = 12;
-  bool preview_ = false, closedFired_ = false;
+  bool preview_ = false, closedFired_ = false, byMouse_ = false;
+  int widthCells_ = 0;
   std::string title_, status_, empty_ = "No results";
   ListPreview previewContent_;
   std::function<void(const std::string&)> query_;
-  std::function<void(int)> accept_, selection_;
+  std::function<void(int)> accept_, selection_, toggled_;
   std::function<void()> closed_;
 };
 

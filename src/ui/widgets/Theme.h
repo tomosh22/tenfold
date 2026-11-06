@@ -80,6 +80,10 @@ struct Theme {
   // Status bar while the session is Running or Break: unset = unchanged look.
   Color statusBackgroundDebugging{0, 0, 0, 0};
   Color statusTextDebugging{0, 0, 0, 0};
+  // Preview tab (VS-TABS), optional: background of the active / an inactive preview tab; unset = tabActive /
+  // tabInactive.
+  Color tabPreviewActive{0, 0, 0, 0};
+  Color tabPreviewInactive{0, 0, 0, 0};
   static Color orElse(const Color& c, const Color& fallback) { return c.a > 0 ? c : fallback; }
 
   // Version control (C3c), optional: unset keeps the built-in fallback named in the comment, so dark and light still

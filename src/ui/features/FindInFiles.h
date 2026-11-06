@@ -70,7 +70,7 @@ class FindInFiles {
   void rebuild();
   void setMarkers();
   std::string statusText() const;
-  void accept(int row);
+  void accept(int row, bool clicked = false);
 
   struct Set {
     std::string text;

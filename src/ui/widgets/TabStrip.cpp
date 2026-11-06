@@ -17,14 +17,18 @@ int TabStrip::indexOf(int id) const {
   return -1;
 }
 
-void TabStrip::addTab(int id, std::string title, bool pinned) {
+void TabStrip::addTab(int id, std::string title, bool pinned, bool preview) {
   if (indexOf(id) >= 0) return;
+  if (preview) pinned = false;  // a preview tab cannot be pinned
   size_t at = tabs_.size();
   if (pinned) {
     at = 0;
     while (at < tabs_.size() && tabs_[at].pinned) ++at;
+  } else if (!preview && !tabs_.empty() && tabs_.back().preview) {
+    --at;  // before the preview tab, which stays at the right end
   }
   tabs_.insert(tabs_.begin() + static_cast<long>(at), Tab{id, std::move(title), false, pinned});
+  tabs_[at].preview = preview;
   mru_.push_back(id);
   if (active_ < 0) activate(id, false);
   invalidate();
@@ -77,9 +81,28 @@ void TabStrip::setVcsMark(int id, VcsMark m) {
   tabs_[i].vcs = m;
   invalidate();
 }
+int TabStrip::previewId() const {
+  for (const Tab& t : tabs_)
+    if (t.preview) return t.id;
+  return -1;
+}
+void TabStrip::setPreview(int id, bool preview) {
+  const int i = indexOf(id);
+  if (i < 0 || tabs_[i].preview == preview) return;
+  if (preview) {
+    Tab t = std::move(tabs_[i]);
+    tabs_.erase(tabs_.begin() + i);
+    t.pinned = false;
+    t.preview = true;
+    tabs_.push_back(std::move(t));
+  } else {
+    tabs_[i].preview = false;
+  }
+  invalidate();
+}
 void TabStrip::setPinned(int id, bool pinned) {
   const int i = indexOf(id);
-  if (i < 0 || tabs_[i].pinned == pinned) return;
+  if (i < 0 || tabs_[i].pinned == pinned || (pinned && tabs_[i].preview)) return;
   Tab t = std::move(tabs_[i]);
   tabs_.erase(tabs_.begin() + i);
   t.pinned = pinned;
@@ -90,11 +113,12 @@ void TabStrip::setPinned(int id, bool pinned) {
 }
 void TabStrip::moveTab(int id, int index) {
   const int i = indexOf(id);
-  if (i < 0) return;
+  if (i < 0 || tabs_[i].preview) return;
   int np = 0;
   for (const Tab& t : tabs_) np += t.pinned;
   const bool pin = tabs_[i].pinned;
-  const int lo = pin ? 0 : np, hi = pin ? np - 1 : static_cast<int>(tabs_.size()) - 1;
+  const int last = static_cast<int>(tabs_.size()) - 1 - (tabs_.back().preview ? 1 : 0);  // the preview tab stays last
+  const int lo = pin ? 0 : np, hi = pin ? np - 1 : last;
   index = std::clamp(index, lo, hi);
   if (index == i) return;
   Tab t = std::move(tabs_[i]);
@@ -277,6 +301,7 @@ bool TabStrip::onEvent(const InputEvent& e) {
       pressClose_ = c.w > 0 && ui::contains(c, e.x, e.y) && closable(tabs_[indexOf(t)]);
       if (!pressClose_) activate(t, true);
       captureMouse();
+      if (e.clicks >= 2 && !pressClose_ && onDoubleClick) onDoubleClick(t);
       return true;
     }
     case InputType::MouseUp: {
@@ -321,7 +346,11 @@ void TabStrip::paint(PaintContext& ctx) {
     const RectF r = intersect(full, b);
     if (r.w <= 0) continue;
     const bool active = t.id == active_, hot = t.id == hoverTab_;
-    ctx.fill(r, active ? th.tabActive : (hot ? th.tabHover : th.tabInactive));
+    const Color bg = t.preview ? (active ? Theme::orElse(th.tabPreviewActive, th.tabActive)
+                                  : hot  ? th.tabHover
+                                         : Theme::orElse(th.tabPreviewInactive, th.tabInactive))
+                               : (active ? th.tabActive : (hot ? th.tabHover : th.tabInactive));
+    ctx.fill(r, bg);
     if (active)
       ctx.fill(intersect({full.x, full.y + full.h - th.accentHeight, full.w, th.accentHeight}, b), th.tabAccent);
     ctx.fill(intersect({full.x + full.w - 1, full.y, 1, full.h}, b), th.tabStripBackground);  // 1px separator
@@ -341,11 +370,11 @@ void TabStrip::paint(PaintContext& ctx) {
         ctx.fill(m, mc);
       }
     }
-    ctx.text(full.x + th.padding + g.markW, textY, g.shown,
-             active ? Theme::orElse(th.tabActiveText, th.text)
-             : hot  ? th.text
-                    : Theme::orElse(th.tabInactiveText, th.textDim),
-             r);
+    const Color fg = active ? Theme::orElse(th.tabActiveText, th.text)
+                     : hot  ? th.text
+                            : Theme::orElse(th.tabInactiveText, th.textDim);
+    if (t.preview) ctx.textItalic(full.x + th.padding + g.markW, textY, g.shown, fg, r);
+    else ctx.text(full.x + th.padding + g.markW, textY, g.shown, fg, r);
     if (!g.slot) continue;
     const RectF slot{full.x + full.w - th.padding / 2 - slotW, full.y, slotW, full.h};
     const bool closeHot = hot && hoverClose_ && !t.pinned;

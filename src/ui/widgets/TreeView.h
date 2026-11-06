@@ -97,6 +97,7 @@ class TreeView : public Widget {
   std::function<Mark(const TreeNode&)> markOf;
   std::function<void(int node)> onActivate;  // Enter / double click on a node without children (a file)
   std::function<void(int node)> onSelected;  // the selection changed by the user
+  std::function<void(int node)> onClicked;   // a single left click on a row (not on its expander arrow)
   std::function<void()> onClose;             // Escape with an empty filter
 
   // ---- geometry (window coordinates), for tests ----

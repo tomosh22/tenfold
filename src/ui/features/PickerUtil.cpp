@@ -4,9 +4,19 @@
 #include <fstream>
 #include <sstream>
 
+#include "ui/shell/Workbench.h"
+
 namespace tf::ui {
 
 namespace fs = std::filesystem;
+
+void openResult(PickerEnv& env, bool clicked, const std::function<void()>& open) {
+  if (env.bench && clicked && env.bench->previewEnabled() && env.bench->previewFromFindResults()) {
+    env.bench->withPreview(true, open);
+    return;
+  }
+  open();
+}
 
 bool LineSource::lines(const fs::path& file, int from, int count, std::vector<std::string>& out, int& firstLine) {
   out.clear();

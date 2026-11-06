@@ -504,9 +504,10 @@ TEST(w8f_enter_and_double_click_open_through_goto_location_and_back_returns) {
   env.frame();
   const int row = env.rowNamed("main.cpp");
   REQUIRE(row >= 0);
-  env.clickRow(row);  // single click only selects
-  CHECK_EQ(env.current(), before);
+  env.clickRow(row);  // a single click selects and previews (VS-TABS T2); the history is not touched by Back below
   CHECK_EQ(env.selectedName(), "main.cpp");
+  CHECK_EQ(env.current().filename().string(), "main.cpp");
+  CHECK(env.bench->previewTabId() >= 0);
   env.key(Key::Enter);
   CHECK_EQ(env.current().filename().string(), "main.cpp");
   CHECK(env.ed->navigation().canGoBack());

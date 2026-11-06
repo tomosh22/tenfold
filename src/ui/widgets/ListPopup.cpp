@@ -40,7 +40,7 @@ float ListPopup::headerHeight() const {
 RectF ListPopup::popupRect() const {
   const RectF& b = bounds();
   const float cell = root()->text().cellWidth(), margin = 16;
-  const float w = std::min(b.w - 2 * margin, cell * (preview_ ? 120 : 80));
+  const float w = std::min(b.w - 2 * margin, cell * (widthCells_ > 0 ? widthCells_ : preview_ ? 120 : 80));
   const float h = std::min(b.h - 2 * margin, headerHeight() + rowHeight() * maxRows_ + theme().verticalPad);
   return {b.x + (b.w - w) / 2, b.y + std::min(b.h * 0.12f, std::max(0.0f, b.h - h - margin)), w, h};
 }
@@ -169,6 +169,10 @@ void ListPopup::close() {
 
 void ListPopup::accept(int row) {
   if (row < 0 || row >= static_cast<int>(rows_.size())) return;
+  if (rows_[static_cast<size_t>(row)].toggle) {
+    if (toggled_) toggled_(row);
+    return;
+  }
   close();  // first: the handler may open another popup
   if (accept_) accept_(row);
 }
@@ -189,6 +193,13 @@ bool ListPopup::onEvent(const InputEvent& e) {
         case Key::Enter:
         case Key::KpEnter: accept(selected_); return true;
         case Key::Escape: close(); return true;
+        case Key::Space:
+          if (!input_ && selected_ >= 0 && selected_ < static_cast<int>(rows_.size()) &&
+              rows_[static_cast<size_t>(selected_)].toggle) {
+            accept(selected_);
+            return true;
+          }
+          return false;
         default: return false;
       }
     case InputType::MouseMove: {
@@ -205,7 +216,9 @@ bool ListPopup::onEvent(const InputEvent& e) {
         const int r = rowAt(e.x, e.y);
         if (r >= 0) {
           setSelected(r);
+          byMouse_ = true;
           accept(r);
+          byMouse_ = false;
         }
       }
       return true;

@@ -331,12 +331,11 @@ TEST(p2_quit_with_two_dirty_documents_lists_them_and_save_all_saves_both) {
   CHECK(!env.app->quitRequested());
   REQUIRE(env.app->unsavedPrompt().isOpen());
   const auto rows = env.rows(env.app->unsavedPrompt().popup());
-  REQUIRE(rows.size() == 5);
-  CHECK_EQ(rows[0], std::string("Save All"));
-  CHECK_EQ(rows[1], std::string("Don't Save"));
-  CHECK_EQ(rows[2], std::string("Cancel"));
-  const std::string listed = rows[3] + "|" + rows[4];
-  CHECK(contains(listed, "src/a.cpp") && contains(listed, "src/b.cpp"));
+  REQUIRE(rows.size() == 5);  // VS-TABS T6: the list dialog
+  CHECK(contains(rows[0], "src/a.cpp") && contains(rows[1], "src/b.cpp"));
+  CHECK_EQ(rows[2], std::string("Yes"));
+  CHECK_EQ(rows[3], std::string("No"));
+  CHECK_EQ(rows[4], std::string("Cancel"));
   env.key(Key::Enter);
   CHECK(env.app->quitRequested());
   CHECK(contains(slurp(env.dir / "src/a.cpp"), "// one"));
@@ -429,6 +428,7 @@ TEST(p2_external_change_of_a_clean_document_reloads_and_keeps_the_caret) {
   Config c;
   c.watch = true;
   Env env(c);
+  env.settings("editor.reloadUnlessUnsaved = true\n");  // Visual Studio's default asks; this is the silent mode
   Document* d = env.open("src/a.cpp");
   env.ed->moveCursor({0, 4});
   const std::string before = d->buffer().text();
@@ -460,10 +460,11 @@ TEST(p2_external_change_of_a_dirty_document_asks_reload_wins_when_chosen) {
   CHECK(contains(d->buffer().text(), "// mine"));  // nothing happens behind the user's back
   env.frame();                                     // the prompt opens
   REQUIRE(env.app->externalChanges().isOpen());
-  CHECK_EQ(join(env.rows(env.app->externalChanges().popup())), std::string("Reload (lose my changes)|Keep my version"));
-  CHECK_EQ(env.app->externalChanges().popup()->selected(), 1);  // the safe choice is the default
+  CHECK_EQ(join(env.rows(env.app->externalChanges().popup())), std::string("Yes|Yes to All|No|No to All"));
+  CHECK_EQ(env.app->externalChanges().popup()->selected(), 2);  // the safe choice (No) is the default
   env.key(Key::Up);
-  env.key(Key::Enter);  // Reload
+  env.key(Key::Up);
+  env.key(Key::Enter);  // Yes
   CHECK(!env.app->externalChanges().isOpen());
   CHECK_EQ(d->buffer().text(), std::string("int theirs;\n"));
   CHECK(!d->dirty());
@@ -505,7 +506,7 @@ TEST(p2_external_change_prompt_mode_asks_for_clean_documents_and_never_mode_does
   REQUIRE(changeOnDisk(env, "src/a.cpp", "int one;\n", [&] { return env.app->externalChanges().pending() > 0; }));
   env.frame();
   REQUIRE(env.app->externalChanges().isOpen());
-  CHECK_EQ(join(env.rows(env.app->externalChanges().popup())), std::string("Reload|Keep my version"));
+  CHECK_EQ(join(env.rows(env.app->externalChanges().popup())), std::string("Yes|Yes to All|No|No to All"));
   CHECK_EQ(env.app->externalChanges().popup()->selected(), 0);
   env.key(Key::Enter);
   CHECK_EQ(d->buffer().text(), std::string("int one;\n"));

@@ -707,3 +707,35 @@ TEST(c2c_golden_vs_dark_break_mode_with_breakpoints_and_arrow) {
   std::error_code ec;
   fs::remove_all(tmp, ec);
 }
+
+// VS-TABS T2: the debugger stepping into a file that is not open shows it in the one preview tab.
+TEST(vstabs_t2_debugger_step_into_an_unopened_file_opens_the_preview_tab_and_the_next_replaces_it) {
+  Env env;
+  writeFile(env.dir / "c.cpp", "int c1;\nint c2;\n");
+  env.open("a.cpp");
+  env.key(Key::F5);
+  REQUIRE(env.until([&] { return env.ed->debug().mode() == DebugMode::Running; }));
+  env.fake->setMode(DebugMode::Break, DebugLocation{env.path("b.cpp"), 1});
+  REQUIRE(env.until([&] { return env.ed->debug().mode() == DebugMode::Break; }));
+  env.frame();
+  env.bench->sync();
+  auto previewTitle = [&]() -> std::string {
+    for (const auto& t : env.bench->activePanel()->tabs().tabs())
+      if (t.preview) return t.title;
+    return {};
+  };
+  REQUIRE(env.until([&] { return previewTitle() == "b.cpp"; }));
+  CHECK_EQ(env.bench->activePanel()->tabs().tabs().front().title, std::string("a.cpp"));  // a.cpp stays a normal tab
+  env.fake->setMode(DebugMode::Break, DebugLocation{env.path("c.cpp"), 0});
+  REQUIRE(env.until([&] {
+    return env.ed->debug().currentStatement() && env.ed->debug().currentStatement()->file.filename() == "c.cpp";
+  }));
+  env.frame();
+  CHECK_EQ(previewTitle(), std::string("c.cpp"));
+  CHECK_EQ(env.bench->activePanel()->tabs().tabs().size(), size_t(2));  // b.cpp was replaced
+  // A file that already has a normal tab stays normal.
+  env.fake->setMode(DebugMode::Break, DebugLocation{env.path("a.cpp"), 3});
+  REQUIRE(
+      env.until([&] { return env.ed->currentDocument() && env.ed->currentDocument()->path().filename() == "a.cpp"; }));
+  for (const auto& t : env.bench->activePanel()->tabs().tabs()) CHECK(!t.preview || t.title == "c.cpp");
+}

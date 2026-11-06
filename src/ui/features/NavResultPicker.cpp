@@ -18,11 +18,13 @@ void NavResultPicker::show(const std::string& title, Confidence c, const std::ve
     env_.lines.clearCache();
     auto p = std::make_unique<ListPopup>(false);
     p->setMaxVisibleRows(10);
-    p->onAccept([this](int row) {
+    p->onAccept([this, raw = p.get()](int row) {
       if (row < 0 || row >= static_cast<int>(locs_.size())) return;
       const SymbolLocation l = locs_[static_cast<size_t>(row)];
-      std::string e;
-      if (!env_.editor.gotoLocation(l.loc, &e, l.name)) env_.say("Cannot open " + l.loc.file.string() + ": " + e);
+      openResult(env_, raw->acceptedByMouse(), [&] {
+        std::string e;
+        if (!env_.editor.gotoLocation(l.loc, &e, l.name)) env_.say("Cannot open " + l.loc.file.string() + ": " + e);
+      });
     });
     p->onClosed([this] { popup_ = nullptr; });
     popup_ = ListPopup::open(env_.root, std::move(p));
