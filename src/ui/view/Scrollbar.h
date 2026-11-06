@@ -43,6 +43,7 @@ class Scrollbar : public Widget {
   bool dragging() const { return drag_; }
 
   bool onEvent(const InputEvent& e) override;
+  void onHover(bool entered) override;
 
  protected:
   void paint(PaintContext& ctx) override;
@@ -51,7 +52,7 @@ class Scrollbar : public Widget {
   float scrollFor(float thumbY) const;
   float range_ = 0, viewH_ = 0, scrollY_ = 0, dragOff_ = 0;
   int lines_ = 1;
-  bool drag_ = false;
+  bool drag_ = false, hotThumb_ = false;
   std::vector<int> marks_[kLanes];
 };
 

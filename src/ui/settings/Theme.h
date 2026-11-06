@@ -11,8 +11,9 @@
 // color.statusBackground) and `token.<kind>[.<modifier>]`. Kinds: lexical (keyword identifier number string char
 // comment preprocessor operator punctuation) and clangd semantic token types (namespace type class struct interface
 // enum enumMember typeParameter concept function method property variable parameter macro event decorator modifier
-// regexp); modifiers: declaration definition readonly static deprecated abstract async modification documentation
-// defaultLibrary. A theme file only overrides what it names; the rest comes from `base`.
+// regexp, plus controlKeyword for if / for / return ... which falls back to keyword); modifiers: declaration definition
+// readonly static deprecated abstract async modification documentation defaultLibrary. A theme file only overrides what
+// it names; the rest comes from `base`.
 namespace tf::ui {
 
 // Applies `text` on top of `base`. Unknown keys / bad colours are diagnostics (never fatal).

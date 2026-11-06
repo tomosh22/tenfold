@@ -13,7 +13,18 @@
 namespace tf::ui {
 
 // Lexical token classes of a line (whitespace is not a span).
-enum class Lex : uint8_t { Keyword, Identifier, Number, String, Char, Comment, Preprocessor, Operator, Punct };
+enum class Lex : uint8_t {
+  Keyword,
+  Identifier,
+  Number,
+  String,
+  Char,
+  Comment,
+  Preprocessor,
+  Operator,
+  Punct,
+  ControlKeyword
+};
 struct LexSpan {
   uint32_t begin, end;
   Lex kind;
@@ -105,7 +116,7 @@ class Highlighter {
 
   Theme theme_;
   std::vector<gfx::Color> pal_;
-  uint32_t textIdx_ = 0, kindIdx_[9] = {};
+  uint32_t textIdx_ = 0, kindIdx_[10] = {};
   std::vector<gfx::ColorSpan> out_;
 };
 

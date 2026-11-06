@@ -189,7 +189,14 @@ bool InputLine::onEvent(const InputEvent& e) {
 
 void InputLine::paint(PaintContext& ctx) {
   const RectF& b = bounds();
-  ctx.fill(b, ctx.theme.panelBackground);
+  ctx.fill(b, Theme::orElse(ctx.theme.inputBackground, ctx.theme.panelBackground));
+  if (ctx.theme.inputBorder.a > 0) {  // 1px frame
+    const Color bc = ctx.theme.inputBorder;
+    ctx.fill({b.x, b.y, b.w, 1}, bc);
+    ctx.fill({b.x, b.y + b.h - 1, b.w, 1}, bc);
+    ctx.fill({b.x, b.y, 1, b.h}, bc);
+    ctx.fill({b.x + b.w - 1, b.y, 1, b.h}, bc);
+  }
   const float left = textLeft(), inner = b.w - 2 * ctx.theme.padding;
   const float cx = caretX();
   if (cx - scrollX_ > inner - 2) scrollX_ = cx - inner + 2;
@@ -201,7 +208,8 @@ void InputLine::paint(PaintContext& ctx) {
     const size_t a = std::min(caret_, anchor_), z = std::max(caret_, anchor_);
     const float x0 = ctx.measure(std::string_view(text_).substr(0, a));
     const float x1 = ctx.measure(std::string_view(text_).substr(0, z));
-    ctx.fill(intersect({left + x0 - scrollX_, ty, x1 - x0, ctx.lineHeight()}, clip), ctx.theme.selection);
+    ctx.fill(intersect({left + x0 - scrollX_, ty, x1 - x0, ctx.lineHeight()}, clip),
+             Theme::orElse(ctx.theme.inputSelection, ctx.theme.selection));
   }
   if (text_.empty()) ctx.text(left, ty, placeholder_, ctx.theme.textDim, clip);
   else ctx.text(left - scrollX_, ty, text_, ctx.theme.text, clip);

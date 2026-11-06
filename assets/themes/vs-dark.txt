@@ -1,84 +1,119 @@
 # tenfold "vs-dark": Visual Studio 2022 default Dark theme (OPEN_QUESTIONS #7: "as close to Visual Studio as possible").
 # The application default (ui.theme = vs-dark). Same file format as settings.default.txt; only color.* and token.* keys.
 #
-# The values below are from memory of VS 2022's stock Dark palette, not sampled from a screenshot. Correct them by
-# copying this file to <user config dir>/themes/vs-dark.txt (or <workspace>/.tenfold/themes/) and editing.
-# Values I am LESS SURE of (marked "[?]" inline too):
-#   * Chrome: panelBackground / popupBackground #252526 (VS 2022 may use #1F1F1F), tabStripBackground and tabInactive
-#     #2D2D30, tabHover #3E3E40, the blue filled active tab #007ACC, splitter / panelBorder #3F3F46, scrollbar track
-#     #3E3E42 and thumb #686868, closeHover #E81123, dirtyMarker #DCDCAA.
-#   * Editor: current-line outline #464646, selection #264F78 (inactive #3A3D41), find highlight #613315 (current
-#     #8A4B1E), bracket match, line numbers #2B91AF, whitespace dots, column guide, caret, build error / warning marks.
+# Sources (details in docs/VS_BEHAVIOUR.md section 5):
+#   [S34] Microsoft Learn, "Color value reference for Visual Studio" (Dark column, VS 2017-2022): shell, tabs, menus,
+#         scrollbars, input fields, selection, status bar.
+#   [S35] Microsoft's "Visual Studio 2019 Dark (C++)" theme in vscode-cpptools (ported from VS): editor and token colours.
+# Values with no source are marked "[?]" inline; correct them by copying this file to <user config dir>/themes/vs-dark.txt
+# (or <workspace>/.tenfold/themes/) and editing. Still unsourced (see OPEN_QUESTIONS #19, needs a screenshot):
+#   * Chrome: dirtyMarker #DCDCAA, statusHover #1C97EA, status bar while debugging #CA5100 and without a solution #68217A
+#     (both from memory), tabAccent line (VS has none).
+#   * Editor: current-line outline colour #464646 (shape is documented), editor selection #264F78, find highlight,
+#     bracket match, whitespace dots, column guide, caret, build error / warning marks.
+#   * Squiggles: error / warning / info (VS: red, green, grey dots; no hex found).
+#   * Git margin: added / modified / deleted, inline diff block, fold marker, tab VCS marks.
 #   * Terminal: all of it (background #1E1E1E, foreground #CCCCCC, the ANSI palette).
-#   * Squiggles: warning green #4CAF50 and info #75BEFF are approximations (VS draws info as a grey dotted line).
-#   * Tokens: function / method #DCDCAA, field / property / variable / parameter #C8C8C8, enum #B8D7A3, template
-#     parameter and concept #4EC9B0, string #D69D85, punctuation #DCDCDC, macro #BD63C5, comment #57A64A.
-# Not expressible yet (no lexer / widget support, so no key): control-flow keywords (VS #D8A0DF, e.g. if / for /
-# return are coloured like every keyword here), string escape sequences (VS #FFD68F), user-defined literals, XML doc
-# tags. Debugger colours (breakpoint #E51400, current statement #FFEE62, status bar #CA5100 while Running / Break) are
-# from memory as well.
+#   * Tokens: string #D69D85 ([S35] has #CE9178), number / enum members, macro #BD63C5 ([S35] has #BEB7FF for
+#     function-like macros), template parameter and concept #4EC9B0, debugger current statement #FFEE62.
+# Not expressible yet (no widget support, so no key): string escape sequences (VS #FFD68F), user-defined literals, XML
+# doc tags. `default` is a plain keyword (the line lexer cannot tell `default:` from `= default`).
 
 # --- IDE chrome ---------------------------------------------------------------------------------------------------
-color.background = #1F1F1F
+# [S34] IDE background, title / menu / tool bars. (#1F1F1F is VS Code's Dark Modern, not Visual Studio.)
+color.background = #2D2D30
 color.panelBackground = #252526
 color.tabStripBackground = #2D2D30
 color.tabActive = #007ACC
 color.tabInactive = #2D2D30
+# [S34] tool window tab hover; hovered *document* tabs use tabDocumentHover.
 color.tabHover = #3E3E40
+# [S34] "Background document tabs: background and border on hover".
+color.tabDocumentHover = #1C97EA
+# [S34] active preview (provisional) tab, bg and border. tenfold has no preview tabs yet; the key is ready for them.
+color.tabPreviewActive = #68217A
 # VS accent blue (light variant) so the 2px line under the blue active tab stays visible; also search-hit text.
 color.tabAccent = #1C97EA
 color.tabInsert = #007ACC
 color.text = #F1F1F1
 color.textDim = #999999
+# [?] unsourced
 color.dirtyMarker = #DCDCAA
-color.closeHover = #E81123
+# [S34] "Document and tool window buttons: active backgrounds on hover" (#E81123 is the Windows caption button).
+color.closeHover = #52B0EF
 color.splitter = #3F3F46
 color.splitterHot = #007ACC
 color.statusBackground = #007ACC
 color.statusText = #FFFFFF
+# [?] unsourced
 color.statusHover = #1C97EA
+# [?] Purple bar while no solution / folder is open (VS 2015-2022, from memory).
+color.statusBackgroundNoSolution = #68217A
 color.panelBorder = #3F3F46
 color.scrollbarTrack = #3E3E42
 color.scrollbarThumb = #686868
+# [S34] thumb hover and pressed.
+color.scrollbarThumbHover = #9E9E9E
+color.scrollbarThumbPressed = #EFEBEF
 color.tabActiveText = #FFFFFF
 color.tabInactiveText = #D0D0D0
-color.popupBackground = #252526
+# [S34] drop-down / popup background (tool windows themselves stay #252526).
+color.popupBackground = #1B1B1C
 color.popupBorder = #3F3F46
-# Context menus (VS dark menu values).
-color.menuBackground = #1F1F1F
+# Context menus [S34]: background, hover row, group separator, text / glyph / disabled text.
+color.menuBackground = #1B1B1C
 color.menuBorder = #3F3F46
-color.menuSelection = #3E3E40
-color.menuSeparator = #3F3F46
-# Selected row in pickers / completion list / find box buttons.
-color.selection = #094771
+color.menuSelection = #333334
+color.menuSeparator = #333337
+color.menuText = #F1F1F1
+color.menuGlyph = #999999
+color.menuDisabled = #656565
+# Text input fields [S34]: background, border, selection (VS #66007ACC as ARGB = #007ACC at 40%).
+color.inputBackground = #333337
+color.inputBorder = #434346
+color.inputSelection = #007ACC66
+# Hyperlinks [S34]. Nothing in tenfold paints links yet.
+color.link = #0097FB
+# Selected row in pickers / completion list / find box buttons [S34]: focused selected row.
+color.selection = #3399FF
 
 # --- Editor -------------------------------------------------------------------------------------------------------
 color.editorBackground = #1E1E1E
 color.gutterBackground = #1E1E1E
+# [S35]
 color.gutterText = #2B91AF
 # VS draws the current line as an outline only: fill = background, 1px border #464646.
 color.currentLine = #282828
 color.currentLineFill = #1E1E1E
+# [?] hex (VS: a grey outline, no fill [S10])
 color.currentLineBorder = #464646
+# [?] unsourced
 color.selectionActive = #264F78
+# [S35]
 color.selectionInactive = #3A3D41
 color.caret = #F1F1F1
 color.editorCaret = #F1F1F1
+# [?] unsourced
 color.columnGuide = #3F3F46
+# [?] unsourced
 color.whitespace = #4A4A4A
+# [?] Squiggles: no hex found (VS: red for syntax errors, blue compiler errors, green warnings).
 color.diagnosticError = #F14C4C
 color.diagnosticWarning = #4CAF50
 color.diagnosticInfo = #75BEFF
 color.buildError = #FF8C00
 color.buildWarning = #D7BA7D
 color.matchMarker = #D7BA7D
+# [?] unsourced
 color.bracketMatch = #8C8C8C59
+# [?] unsourced
 color.findHighlight = #613315
+# [?] unsourced
 color.findHighlightCurrent = #8A4B1E
 
 # --- Debugger (C2c) ---------------------------------------------------------------------------------------------------
-# Breakpoint disc #E51400, current statement arrow #FFEE62 on an amber band, and VS's orange status bar (#CA5100)
-# while the session is Running or Break.
+# Breakpoint disc #E51400 [S34: "Stop, error"]; current statement arrow #FFEE62 on an amber band [?] and VS's orange
+# status bar (#CA5100) [?] while the session is Running or Break (VS 2026 changed it to #7A2101).
 color.debugBreakpoint = #E51400
 color.debugCurrentLine = #FFEE6240
 color.debugCurrentArrow = #FFEE62
@@ -105,8 +140,10 @@ color.tabVcsCheckedOut = #F14C4C
 color.tabVcsReadOnly = #999999
 # Workspace explorer (Solution Explorer look): selected row with / without keyboard focus, folder icon.
 color.treeBackground = #252526
-color.treeSelection = #094771
+# [S34] focused selected row; unfocused is #3F3F46
+color.treeSelection = #3399FF
 color.treeSelectionInactive = #3F3F46
+# [?] unsourced
 color.treeFolder = #DCB67A
 # Integrated terminal [?]: background / foreground, cursor, selection and the 16 ANSI colours (the Windows console
 # "Campbell" palette, which Visual Studio's terminal inherits from ConPTY; the exact VS 2022 values are from memory).
@@ -133,20 +170,23 @@ color.terminalAnsi15 = #F2F2F2
 
 # --- Token colours (lexical kinds, then clangd semantic types / modifiers) -------------------------------------------
 token.keyword = #569CD6
-token.identifier = #DCDCDC
+# Tokens: [S35] "Visual Studio 2019 Dark (C++)" unless noted.
+token.identifier = #DADADA
 token.number = #B5CEA8
+# [?] [S35] has #CE9178
 token.string = #D69D85
 token.char = #D69D85
 token.comment = #57A64A
-token.preprocessor = #9B9B9B
+token.preprocessor = #9A9A9A
 token.operator = #B4B4B4
-token.punctuation = #DCDCDC
+token.punctuation = #B4B4B4
 token.namespace = #C8C8C8
 token.type = #4EC9B0
 token.class = #4EC9B0
 token.struct = #4EC9B0
 token.interface = #4EC9B0
 token.enum = #B8D7A3
+# [?] [S35] has #B5CEA8
 token.enumMember = #B8D7A3
 token.typeParameter = #4EC9B0
 token.concept = #4EC9B0
@@ -154,9 +194,12 @@ token.function = #DCDCAA
 token.method = #DCDCAA
 token.function.static = #DCDCAA
 token.method.static = #DCDCAA
-token.property = #C8C8C8
-token.property.static = #C8C8C8
+token.property = #DADADA
+token.property.static = #DADADA
 token.variable = #C8C8C8
 token.variable.static = #C8C8C8
-token.parameter = #C8C8C8
+token.parameter = #9A9A9A
+# [?] [S35] has #BEB7FF
 token.macro = #BD63C5
+# Control-flow keywords (if else for while do switch case break continue goto return try catch throw co_*).
+token.controlKeyword = #D8A0DF

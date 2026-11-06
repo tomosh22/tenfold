@@ -205,6 +205,23 @@ windows `#252526`, document well `#1E1E1E`.
   (#9E9E9E), `color.scrollbarThumbPressed` (#EFEBEF), `color.inputBackground` (#333337), `color.inputBorder` (#434346),
   `color.statusBackgroundNoSolution` (#68217A), `color.link` (#0097FB), `color.menuText/menuGlyph/menuDisabled`.
 
+### 5.3 Implementation status (W10-THEME)
+
+Applied to `assets/themes/vs-dark.txt` (the `[?]` marker is removed where a source backs the value; sources are cited in
+the file): `background`, `popupBackground` (#1B1B1C), `closeHover`, `menuBackground`, `menuSelection`, `menuSeparator`,
+`selection`, `treeSelection`, `debugBreakpoint`, `gutterText`, `selectionInactive`, `editorBackground`, and the tokens
+`identifier` #DADADA, `punctuation` / `operator` #B4B4B4, `preprocessor` #9A9A9A, `parameter` #9A9A9A, `property`
+#DADADA, control-flow keywords #D8A0DF. Rows marked "✓" already matched. New optional keys, painted: `tabDocumentHover`,
+`scrollbarThumbHover`, `scrollbarThumbPressed` (editor, explorer and terminal scrollbars; hover on the terminal bar is
+not tracked), `inputBackground`, `inputBorder`, `inputSelection`, `menuText`, `menuGlyph`, `menuDisabled`,
+`statusBackgroundNoSolution` (status bar when the workspace root is empty). Defined but not painted yet: `tabPreviewActive`
+(no preview tabs; section 7 T2), `link` (no links). New token kind `controlKeyword` (line lexer; falls back to `keyword`).
+Differences from the proposal: `tabHover` stays #3E3E40 (it also colours hovered list and tree rows; VS's #1C97EA applies to
+document tabs only, hence `tabDocumentHover`); `tabInactiveFocusBorder` and white text on selected rows are not implemented
+(no unfocused tab-group state; the F1F1F1 text is kept on #3399FF). Not changed (low confidence or not found, `[?]`):
+squiggles, Git margin, find highlight, bracket match, whitespace, column guide, `selectionActive`, `currentLineBorder` hex,
+`dirtyMarker`, `statusHover`, debugging orange, no-solution purple, string / enum / macro, terminal palette.
+
 ---
 
 ## 6. Symbol search preview (OPEN_QUESTIONS #6)

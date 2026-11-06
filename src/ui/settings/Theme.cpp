@@ -75,6 +75,18 @@ const std::vector<ColorMember>& colorMembers() {
       {"menuBorder", &Theme::menuBorder, true},
       {"menuSelection", &Theme::menuSelection, true},
       {"menuSeparator", &Theme::menuSeparator, true},
+      {"tabDocumentHover", &Theme::tabDocumentHover, true},
+      {"tabPreviewActive", &Theme::tabPreviewActive, true},
+      {"scrollbarThumbHover", &Theme::scrollbarThumbHover, true},
+      {"scrollbarThumbPressed", &Theme::scrollbarThumbPressed, true},
+      {"inputBackground", &Theme::inputBackground, true},
+      {"inputBorder", &Theme::inputBorder, true},
+      {"inputSelection", &Theme::inputSelection, true},
+      {"menuText", &Theme::menuText, true},
+      {"menuGlyph", &Theme::menuGlyph, true},
+      {"menuDisabled", &Theme::menuDisabled, true},
+      {"link", &Theme::link, true},
+      {"statusBackgroundNoSolution", &Theme::statusBackgroundNoSolution, true},
       {"debugBreakpoint", &Theme::debugBreakpoint, true},
       {"debugCurrentLine", &Theme::debugCurrentLine, true},
       {"debugCurrentArrow", &Theme::debugCurrentArrow, true},
@@ -127,7 +139,7 @@ const std::vector<std::string> kLexical = {"keyword", "identifier",   "number", 
 const std::vector<std::string> kSemantic = {"namespace", "type",       "class",         "struct",    "interface",
                                             "enum",      "enumMember", "typeParameter", "concept",   "function",
                                             "method",    "property",   "variable",      "parameter", "macro",
-                                            "event",     "decorator",  "modifier",      "regexp"};
+                                            "event",     "decorator",  "modifier",      "regexp",    "controlKeyword"};
 
 bool contains(const std::vector<std::string>& v, const std::string& s) {
   return std::find(v.begin(), v.end(), s) != v.end();

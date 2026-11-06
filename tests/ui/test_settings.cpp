@@ -240,6 +240,33 @@ TEST(theme_vs_dark_resolves_every_key) {
   CHECK(dark.editorBackground.a == 0 && dark.currentLineFill.a == 0 && dark.selectionActive.a == 0);
 }
 
+// W10-THEME: the Visual Studio values of docs/VS_BEHAVIOUR.md section 5, and the fallbacks of the new optional keys.
+TEST(theme_vs_dark_visual_studio_values) {
+  auto rgb = [](int r, int g, int b) { return Theme::Color{r / 255.f, g / 255.f, b / 255.f, 1}; };
+  std::vector<SettingsDiag> d;
+  Theme t = loadTheme("vs-dark", {}, {}, d);
+  CHECK(near(t.background, rgb(0x2D, 0x2D, 0x30)) && near(t.menuBackground, rgb(0x1B, 0x1B, 0x1C)));
+  CHECK(near(t.tabDocumentHover, rgb(0x1C, 0x97, 0xEA)) && near(t.closeHover, rgb(0x52, 0xB0, 0xEF)));
+  CHECK(near(t.tabPreviewActive, rgb(0x68, 0x21, 0x7A)) && near(t.statusBackgroundNoSolution, rgb(0x68, 0x21, 0x7A)));
+  CHECK(near(t.menuSelection, rgb(0x33, 0x33, 0x34)) && near(t.menuSeparator, rgb(0x33, 0x33, 0x37)));
+  CHECK(near(t.selection, rgb(0x33, 0x99, 0xFF)) && near(t.treeSelection, rgb(0x33, 0x99, 0xFF)));
+  CHECK(near(t.scrollbarThumbFor(true, false), rgb(0x9E, 0x9E, 0x9E)));
+  CHECK(near(t.scrollbarThumbFor(true, true), rgb(0xEF, 0xEB, 0xEF)));
+  CHECK(near(t.scrollbarThumbFor(false, false), rgb(0x68, 0x68, 0x68)));
+  CHECK(near(t.inputBackground, rgb(0x33, 0x33, 0x37)) && near(t.inputBorder, rgb(0x43, 0x43, 0x46)));
+  CHECK(near(t.tokenColor("identifier"), rgb(0xDA, 0xDA, 0xDA)) &&
+        near(t.tokenColor("parameter"), rgb(0x9A, 0x9A, 0x9A)));
+  CHECK(near(t.tokenColor("punctuation"), rgb(0xB4, 0xB4, 0xB4)) &&
+        near(t.tokenColor("property"), rgb(0xDA, 0xDA, 0xDA)));
+  CHECK(near(t.tokenColor("controlKeyword"), rgb(0xD8, 0xA0, 0xDF)) &&
+        near(t.tokenColor("keyword"), rgb(0x56, 0x9C, 0xD6)));
+  // Other themes leave the new keys unset: thumb states fall back to the thumb, control-flow keywords to keyword.
+  Theme dark = loadTheme("dark", {}, {}, d);
+  CHECK(dark.tabDocumentHover.a == 0 && dark.inputBackground.a == 0 && dark.menuText.a == 0);
+  CHECK(near(dark.scrollbarThumbFor(true, true), dark.scrollbarThumb));
+  CHECK(near(dark.tokenColor("controlKeyword"), dark.tokenColor("keyword")));
+}
+
 TEST(settings_hot_reload) {
   TempDir ws, user;
   writeFile(ws.path / ".tenfold" / "settings.txt", "editor.tabWidth = 2\n");

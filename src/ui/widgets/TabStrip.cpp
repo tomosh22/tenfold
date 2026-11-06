@@ -321,7 +321,7 @@ void TabStrip::paint(PaintContext& ctx) {
     const RectF r = intersect(full, b);
     if (r.w <= 0) continue;
     const bool active = t.id == active_, hot = t.id == hoverTab_;
-    ctx.fill(r, active ? th.tabActive : (hot ? th.tabHover : th.tabInactive));
+    ctx.fill(r, active ? th.tabActive : (hot ? Theme::orElse(th.tabDocumentHover, th.tabHover) : th.tabInactive));
     if (active)
       ctx.fill(intersect({full.x, full.y + full.h - th.accentHeight, full.w, th.accentHeight}, b), th.tabAccent);
     ctx.fill(intersect({full.x + full.w - 1, full.y, 1, full.h}, b), th.tabStripBackground);  // 1px separator

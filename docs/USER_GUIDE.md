@@ -733,10 +733,10 @@ and `log.txt` ([Logs](#logs-and-crash-reports)). They are all safe to delete whi
 ## Themes
 
 The default theme is **`vs-dark`**, a Visual Studio 2022 Dark look (OPEN_QUESTIONS #7). Built in: `dark`, `light`,
-`vs-dark`. Choose one with `ui.theme = light` in a settings file. Several `vs-dark` colours were written from memory
-and are marked `[?]` in the theme file's header: panel background, tabs, scrollbars, squiggles, diff and debugger colours
-(OPEN_QUESTIONS #19). Corrections are welcome. Control-flow keywords (`if`, `return`) and string escapes have no
-colour of their own yet.
+`vs-dark`. Choose one with `ui.theme = light` in a settings file. The shell, tab, menu, scrollbar, input and selection colours
+and the syntax colours come from Microsoft's published Visual Studio palettes (sources in the theme file's header); the
+values still written from memory are marked `[?]`: squiggles, diff and debugger colours, find highlight, the terminal
+palette (OPEN_QUESTIONS #19). Corrections are welcome. String escapes have no colour of their own yet.
 
 A theme is a settings-style text file that contains only `color.*` and `token.*` keys:
 
@@ -757,10 +757,16 @@ message.
 * `color.<name>`: interface and editor colours (`background`, `panelBackground`, `tabActive`, `editorBackground`,
   `gutterText`, `selectionActive`, `findHighlight`, `diagnosticError`, `buildError`, `debugBreakpoint`, `diffAdded`, ...).
   The names are the members of the theme; `assets/themes/vs-dark.txt` lists every one and a wrong name is reported with its
-  line. The editor, debugger and version-control colours are optional: leaving them out gives the built-in look.
+  line. The editor, debugger and version-control colours are optional: leaving them out gives the built-in look. The
+  Visual Studio details are optional too and unset in `dark` and `light`: `tabDocumentHover` (hovered document tab),
+  `tabPreviewActive` (preview tab, for later), `scrollbarThumbHover` / `scrollbarThumbPressed`, `inputBackground`,
+  `inputBorder`, `inputSelection` (text fields), `menuText` / `menuGlyph` / `menuDisabled`, `link` and
+  `statusBackgroundNoSolution` (status bar when no workspace is open).
 * `token.<kind>[.<modifier>]`: colours of the lexical kinds (`keyword identifier number string char comment
   preprocessor operator punctuation`) and of clangd's semantic kinds (`namespace type class struct interface enum
   enumMember typeParameter concept function method property variable parameter macro event decorator modifier regexp`).
+  `controlKeyword` colours `if else for while do switch case break continue goto return try catch throw co_await
+  co_return co_yield` and falls back to `keyword`.
   A modifier is one of `declaration definition readonly static deprecated abstract async modification documentation
   defaultLibrary`. A token falls back along `method.static` -> `method` -> `function` -> `identifier`.
 * Colours are `#rrggbb` or `#rrggbbaa`.
