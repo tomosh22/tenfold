@@ -422,6 +422,7 @@ struct WFx {
     tv = v.get();
     tv->settings().smoothScroll = false;
     tv->settings().caretBlink = false;
+    tv->settings().showFoldGlyphs = false;  // the outlining margin (default on) would move the text
     tv->settings().wordWrap = wrap;
     root->addChild(std::move(v));
     tv->setFocus();

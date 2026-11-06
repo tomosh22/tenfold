@@ -72,7 +72,8 @@ namespace tf::ui {
 // wrap). Regions are computed on a copy of the lines off the main thread once typing pauses (a result for an older
 // version is dropped), the commands compute them on the spot when the set is stale. A caret that lands in a hidden
 // line (a jump, a search hit, Left from below) expands the region; so does any edit touching its lines. A click on
-// the marker expands; editor.showFoldGlyphs adds a gutter lane with a triangle per region start.
+// the marker expands; editor.showFoldGlyphs (default on, like Visual Studio's outlining margin) adds a gutter lane with
+// a boxed +/- per region start and a guide line through the open region.
 //
 // Dirtiness: input handling and onTick() compare the Editor state (document, version, selections) with what was last
 // drawn, so changes made elsewhere (LSP edits, Back/Forward, another view) repaint too. Drive onTick through
@@ -85,11 +86,14 @@ class TextView : public Widget {
     bool caretBlink = true;
     int caretBlinkMs = 530;
     bool highlightCurrentLine = true;
-    int wheelLines = 3;              // lines per wheel notch
-    int tabWidth = 4;                // editor.tabWidth (applied to the shared TextLayout)
-    int columnGuide = 0;             // editor.columnGuide: column of the vertical guide, 0 = off
-    bool showWhitespace = false;     // editor.showWhitespace: dots for spaces, arrows for tabs
-    bool showFoldGlyphs = false;     // editor.showFoldGlyphs: gutter lane with a triangle per region start
+    int wheelLines = 3;           // lines per wheel notch
+    int tabWidth = 4;             // editor.tabWidth (applied to the shared TextLayout)
+    int columnGuide = 0;          // editor.columnGuide: column of the vertical guide, 0 = off
+    bool showWhitespace = false;  // editor.showWhitespace: dots for spaces, arrows for tabs
+    bool showFoldGlyphs = true;   // editor.showFoldGlyphs: the outlining margin (boxed +/- and a guide per region)
+    bool outlineEnabled = true;   // outline.enabled / outline.pragmaRegions / outline.statementBlocks (VS C++ options)
+    bool outlinePragmaRegions = true;
+    bool outlineStatementBlocks = true;
     std::function<int64_t()> clock;  // monotonic ms for blink; null = steady_clock
   };
 
@@ -164,12 +168,13 @@ class TextView : public Widget {
     ExpandAll,
     CollapseAllRecursive,
     ExpandAllRecursive,
-    ToggleAll
+    ToggleAll,
+    CollapseToDefinitions
   };
   // The 10x CollapseRegions commands on the primary caret's line. False when the file has no regions (not C/C++),
   // or nothing changed.
   bool foldCommand(FoldOp op);
-  bool foldingActive() const { return colouring() && document(); }
+  bool foldingActive() const { return colouring() && document() && settings_.outlineEnabled; }
   const FoldModel& folds() const { return fold_; }
   // Computes the regions on the calling thread now (waits for a running job); for the commands and for tests.
   void foldRefreshNow();
@@ -234,6 +239,8 @@ class TextView : public Widget {
   void foldMoveCarets();  // carets in hidden lines go to the end of their head line
   std::string foldMarkerText(const FoldModel::Region& r, int line, float* gap) const;
   void paintFoldGlyph(PaintContext& ctx, const Layout& L, const RowRef& r, float y);
+  FoldModel::Options foldOptions() const;
+  std::vector<FoldModel::Region> glyphRegions_;  // open regions touching the visible lines (set per paint)
   std::optional<int> statementLine() const;  // the line of the debugger's current statement when it is in this document
   void paintGlyphMargin(PaintContext& ctx, const Layout& L, const RowRef& r, float y, bool arrow);
   void toggleBreakpointAt(int line);

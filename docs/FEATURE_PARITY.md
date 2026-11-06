@@ -200,7 +200,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.autoAddCloseBracket` | AutoAddCloseBracket (false) | `(` and `[` |
 | `editor.bracketSelectedText` | BracketSelectedText (true) | |
 | `editor.showWhitespace` | ShowWhitespace (false) | |
-| `editor.showFoldGlyphs` | ShowCollapseRegionMargin (true) | default **false** here: the gutter stays as it was until asked; a collapsed region always shows its `{...}` marker |
+| `editor.showFoldGlyphs` | ShowCollapseRegionMargin (true) | default **true** (10x's and Visual Studio's default): boxed +/- margin with guide lines; a collapsed region always shows its `{...}` marker |
 | `editor.columnGuide` | VerticalRulers (empty) | 10x takes a list; tenfold one column |
 | `editor.wheelLines` | MouseWheelScrollStep (3) | |
 | `editor.caretBlink`, `editor.caretBlinkMs` | CursorBlinkRate (auto) | auto = the OS rate; 0 = off. tenfold uses 530 ms |

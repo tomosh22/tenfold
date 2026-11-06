@@ -138,6 +138,7 @@ struct Fx {
     tv->settings().smoothScroll = false;
     tv->settings().wordWrap = wrap;  // the legacy scenarios here are written for unwrapped lines
     tv->settings().caretBlink = false;
+    tv->settings().showFoldGlyphs = false;  // the outlining margin (default on) would move the text
     tv->settings().clock = [c] { return *c; };
     root->addChild(std::move(v));
     tv->setFocus();

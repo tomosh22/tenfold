@@ -17,10 +17,16 @@ editor.tabWidth = 4
 # 0 = off (10x VerticalRulers is empty by default; tenfold draws one guide).
 editor.columnGuide = 0
 editor.showWhitespace = false
-# 10x ShowCollapseRegionMargin (default true there): triangles in the gutter, between the line numbers and the change
-# strip, that collapse / expand the region starting on a line. Off here so the gutter is unchanged until asked for
-# (a collapsed region always shows its {...} marker; the commands and click-on-marker work either way).
-editor.showFoldGlyphs = false
+# 10x ShowCollapseRegionMargin (default true there) and Visual Studio's outlining margin (on by default): a lane in the
+# gutter, between the line numbers and the change strip, with a boxed [-] / [+] on every region start and a guide line
+# through the open region (click to collapse / expand). A collapsed region always shows its {...} marker.
+editor.showFoldGlyphs = true
+# Visual Studio's C/C++ outlining options (Tools > Options > Text Editor > C/C++ > View > Outlining), all on there:
+# Enable Outlining (off: no regions, no margin), Outline Pragma Regions (#pragma region / endregion), Outline Statement
+# Blocks (off: braces nested in a function body are not regions; functions, classes, namespaces and comments still are).
+outline.enabled = true
+outline.pragmaRegions = true
+outline.statementBlocks = true
 
 # Editing conveniences (B8b: the defaults are 10x's documented defaults; the 10x setting each key mirrors is named).
 # indentUnit (10x IndentMode = Tabs): "tab" or the number of spaces of one indent level; used when detectIndent is off

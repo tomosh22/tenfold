@@ -211,29 +211,49 @@ state, so these are choices, taken from Visual Studio's Solution Explorer:
 ## W8f detail: code folding (CollapseRegions)
 
 The 10x documentation gives one sentence per command and one setting (ShowCollapseRegionMargin); nothing on what a
-"region" is or how the recursive variants differ. tenfold's reading, to be checked against a running 10x:
+"region" is or how the recursive variants differ. Since the decision of 2026-11-06 ("like Visual Studio" wherever 10x is
+silent) the defaults below follow docs/VS_BEHAVIOUR.md section 9 (task W10-OUTLINE, rows marked **VS** are implemented;
+the rest is tenfold's reading, to be checked against a running 10x):
 
 * **What a region is.** `{ ... }` blocks spanning at least two lines, multi-line `/* */` comments and `#pragma region` /
   `#pragma endregion` pairs, from the lexer (braces in strings and comments do not count). `#if` / `#endif` blocks and
-  runs of `//` comments are not regions. Only C and C++ files have regions.
+  runs of `//` comments are not regions (**VS**, O1: C++ outlining covers blocks, comments and pragma regions). Only C and
+  C++ files have regions. **VS**: the three C++ outlining options exist as `outline.enabled` (Enable Outlining),
+  `outline.pragmaRegions` (Outline Pragma Regions) and `outline.statementBlocks` (Outline Statement Blocks), all `true`.
+  Reading of the last one (the VS page does not define "statement block" further): off drops the brace blocks nested in a
+  function body (if / for / while / try / bare blocks); function, class, namespace, enum and `extern "C"` bodies stay.
+  Not done: user-defined regions (Hide Selection, Ctrl+M Ctrl+H), Stop Outlining.
 * **What collapsing hides.** Every line after the first one through the closing line, shown as a marker after the first
-  line (`head {...}`); text after the closing brace (`} else {`, `};`) is hidden with it. 10x's exact marker is unknown.
+  line (`head {...}`); text after the closing brace (`} else {`, `};`) is hidden with it. 10x's exact marker is unknown;
+  VS shows a boxed `...`, which the marker box imitates (**VS**, O2). **VS**: resting the pointer on the marker shows the
+  hidden code in a tooltip (up to 15 lines, common indentation removed).
 * **"The current region"** (`CollapseRegion`, `ToggleCollapseExpandRegion`): the innermost region around the caret line
   that is not collapsed already (so repeating the key walks outwards). `ExpandRegion`: the collapsed region that starts on
-  the caret line (the caret is never inside a collapsed one).
+  the caret line (the caret is never inside a collapsed one). Toggle already matches VS's Toggle Outlining Expansion
+  (O4): a collapsed head opens, otherwise the innermost open region around the caret collapses.
 * **"All regions"**: `CollapseAllRegions` / `ExpandAllRegions` act on the outermost level (collapse: regions not
   inside another region; expand: collapsed regions whose first line is visible, nested ones keep their state), the
   `...Recursive` variants on every depth. 10x may mean something else by "recursive".
-* **`ToggleCollapseExpandAllRegions`** (Visual Studio's Toggle All Outlining): when every region is collapsed or hidden by a
-  collapsed one it expands everything, otherwise it collapses everything (all depths).
+* **`ToggleCollapseExpandAllRegions`** (Visual Studio's Toggle All Outlining, **VS**, O5, changed): nothing collapsed ->
+  collapse everything (all depths); anything collapsed, including a mixed state -> expand everything.
+* **Collapse to Definitions** (**VS**, O6, new): the tenfold command `Editor.CollapseToDefinitions`, bound to VS's
+  `Control M, Control O` (10x binds only M,M and M,L; it has no such command). It collapses the bodies of functions and
+  other members (brace blocks that are not a namespace / class / struct / union / enum / `extern "C"` body and not inside
+  another such body) and expands everything else, so types stay open and statement blocks, comments and pragma regions
+  inside open types are as in a fresh file. A body is recognised from the text before its `{` (the previous line for
+  Allman style); a `template <class T> void f() {` is a function because of the parenthesis.
 * **Opening on landing.** A caret that lands in a collapsed region (jump, find, build error, Left/Right/Up/Down onto a hidden
   line is not possible for Up/Down, but is for Left/Right and word moves) expands every region that hides it; so does an edit
-  touching a region's lines, including typing at the end of its first line.
-* **`editor.showFoldGlyphs`** mirrors ShowCollapseRegionMargin (10x default true) but defaults to **false**: turning it on
-  widens the gutter, which would change every existing golden image and the text position. A collapsed region always
-  has its marker, which can be clicked. Decide whether the default should follow 10x. 10x's MarginWidth (16) is not mirrored:
-  the lane is one line height wide.
-* Folds are per view and per session; they are not saved in `layout.json` and are lost when the tab's view is rebuilt.
+  touching a region's lines, including typing at the end of its first line (**VS**, O8: navigation expands the regions
+  around the target).
+* **`editor.showFoldGlyphs`** mirrors ShowCollapseRegionMargin and now defaults to **true** (**VS**, O3; 10x's default is
+  true as well). The golden images that show the gutter were regenerated for it. The margin is VS's: a boxed `-` on
+  the first line of an open region with a guide line through the region to a tick on its last line, a boxed `+` on a
+  collapsed one; the theme key `foldGlyph` colours it. Not done: highlighting the region under the pointer, double-click
+  on the margin. 10x's MarginWidth (16) is not mirrored: the lane is one line height wide.
+* **Persistence** (O7, medium-low confidence, so not implemented): folds are per view and per session; they are not
+  saved in `layout.json` and are lost when the tab's view is rebuilt. VS opens a file fully expanded as well.
+* **Undo** (O9, optional): folding is not part of the undo history.
 
 
 ## W8f detail: context menus (10x documents almost nothing)

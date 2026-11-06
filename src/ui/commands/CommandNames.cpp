@@ -373,6 +373,7 @@ const NativeContext kNativeContexts[] = {
     {"Editor.Tab", "editor"},
     {"Editor.Backspace", "editor"},
     {"Editor.CollapseCarets", "editor"},
+    {"Editor.CollapseToDefinitions", "editor"},
     {"Editor.DeleteWordLeft", "editor"},
     {"Editor.DeleteWordRight", "editor"},
     {"Editor.JoinLines", "editor"},

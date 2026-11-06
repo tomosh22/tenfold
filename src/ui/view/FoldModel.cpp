@@ -31,15 +31,52 @@ int pragmaKind(std::string_view d) {
   return 0;
 }
 
+// True when the text before a '{' (`head`, from the start of the line) opens the body of a namespace / class / struct /
+// union / enum / extern "C": the last statement-ish segment holds one of those keywords and no '(' (a function
+// returning `struct S` or taking a `class T` template parameter has one).
+bool opensTypeBody(std::string_view head) {
+  const size_t cut = head.find_last_of(";{}");
+  if (cut != std::string_view::npos) head.remove_prefix(cut + 1);
+  if (head.find('(') != std::string_view::npos) return false;
+  if (head.find("//") != std::string_view::npos || head.find("/*") != std::string_view::npos) {
+    // a trailing comment: only the code before it counts
+    head = head.substr(0, std::min(head.find("//"), head.find("/*")));
+  }
+  size_t i = 0;
+  while (i < head.size()) {
+    if (!(std::isalpha(static_cast<unsigned char>(head[i])) || head[i] == '_')) {
+      ++i;
+      continue;
+    }
+    size_t e = i;
+    while (e < head.size() && (std::isalnum(static_cast<unsigned char>(head[e])) || head[e] == '_')) ++e;
+    const std::string_view w = head.substr(i, e - i);
+    if (w == "namespace" || w == "class" || w == "struct" || w == "union" || w == "enum") return true;
+    if (w == "extern") return head.find('"', e) != std::string_view::npos;
+    i = e;
+  }
+  return false;
+}
+
 bool byStart(const FoldModel::Region& r, int line) { return r.start < line; }
 
 }  // namespace
 
 std::vector<FoldModel::Region> FoldModel::detect(const std::vector<std::string>& lines) {
+  return detect(lines, Options{});
+}
+
+std::vector<FoldModel::Region> FoldModel::detect(const std::vector<std::string>& lines, const Options& opt) {
   std::vector<Region> out;
+  if (!opt.enabled) return out;
   LexState st;
   std::vector<LexSpan> spans;
-  std::vector<int> braces, pragmas;
+  struct Brace {
+    int line;
+    bool type;
+  };
+  std::vector<Brace> braces;
+  std::vector<int> pragmas;
   int commentStart = -1;
   for (int i = 0; i < static_cast<int>(lines.size()); ++i) {
     const std::string& s = lines[static_cast<size_t>(i)];
@@ -56,13 +93,21 @@ std::vector<FoldModel::Region> FoldModel::detect(const std::vector<std::string>&
       if (sp.kind == Lex::Punct && sp.end == sp.begin + 1) {
         const char c = s[sp.begin];
         if (c == '{') {
-          braces.push_back(i);
+          std::string_view head = std::string_view(s).substr(0, sp.begin);
+          bool blank = true;
+          for (char h : head) blank &= h == ' ' || h == '\t' || h == '\r';
+          // Allman style: the head is the closest earlier line with code
+          for (int j = i - 1; blank && j >= 0 && j >= i - 4; --j) {
+            head = lines[static_cast<size_t>(j)];
+            blank = head.find_first_not_of(" \t\r") == std::string_view::npos;
+          }
+          braces.push_back({i, opensTypeBody(head)});
         } else if (c == '}' && !braces.empty()) {
-          const int b = braces.back();
+          const Brace b = braces.back();
           braces.pop_back();
-          if (b < i) out.push_back({b, i, Kind::Brace});
+          if (b.line < i) out.push_back({b.line, i, Kind::Brace, b.type});
         }
-      } else if (sp.kind == Lex::Preprocessor && in.mode == LexState::None) {
+      } else if (opt.pragmaRegions && sp.kind == Lex::Preprocessor && in.mode == LexState::None) {
         const int k = pragmaKind(std::string_view(s).substr(sp.begin, sp.end - sp.begin));
         if (k == 1) {
           pragmas.push_back(i);
@@ -79,6 +124,18 @@ std::vector<FoldModel::Region> FoldModel::detect(const std::vector<std::string>&
             [](const Region& a, const Region& b) { return a.start != b.start ? a.start < b.start : a.end > b.end; });
   out.erase(std::unique(out.begin(), out.end(), [](const Region& a, const Region& b) { return a.start == b.start; }),
             out.end());
+  if (!opt.statementBlocks) {  // keep the brace blocks that are not inside a function body
+    std::vector<Region> kept;
+    int funcEnd = -1;
+    for (const Region& r : out) {
+      if (r.kind == Kind::Brace && !r.type) {
+        if (r.start <= funcEnd) continue;
+        funcEnd = r.end;
+      }
+      kept.push_back(r);
+    }
+    out = std::move(kept);
+  }
   return out;
 }
 
@@ -223,13 +280,21 @@ bool FoldModel::expandAll(bool recursive) {
 
 bool FoldModel::toggleAll() {
   if (regions_.empty() && collapsed_.empty()) return false;
-  bool allFolded = true;
+  return collapsed_.empty() ? collapseAll(true) : expandAll(true);
+}
+
+bool FoldModel::collapseToDefinitions() {
+  std::vector<Region> next;
+  int funcEnd = -1;  // regions are sorted by start: anything starting inside the last member body is part of it
   for (const Region& r : regions_)
-    if (!isCollapsedAt(r.start) && !isHidden(r.start)) {
-      allFolded = false;
-      break;
+    if (r.kind == Kind::Brace && !r.type && r.start > funcEnd) {
+      next.push_back(r);
+      funcEnd = r.end;
     }
-  return allFolded ? expandAll(true) : collapseAll(true);
+  if (next == collapsed_) return false;
+  collapsed_ = std::move(next);
+  rebuildHidden();
+  return true;
 }
 
 bool FoldModel::expandCovering(int line) {
