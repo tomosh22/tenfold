@@ -350,6 +350,13 @@ Disk: about 350 MB for `--scale full` if every scenario is kept; the driver dele
   types 60 characters, undoes, goes home. The keystroke-to-paint budget (8 ms) is a `PERF_CHECK`: printed always,
   enforced only with `TENFOLD_ENFORCE_PERF=1` (and only in an optimised, unsanitised build), as in `BENCHMARKS.md`.
 
+On Windows these tests are written to hold there too: names that Windows refuses (`nul.cpp` is a device name; control
+characters, `"` and `|`) are not counted as made, non-ASCII names go through `pathFromUtf8`, and paths past MAX_PATH are
+created with the `\\?\\` prefix. The one Linux-only part is the symlink section (creating a symlink needs a privilege
+on Windows). Wine runs the mingw build of the suite (`cmake/mingw-w64.cmake`, `wine64 tenfold-tests.exe pathological_`,
+with `LANG=C.UTF-8`); its `ReadDirectoryChangesW` keeps reporting the old name for changes inside a renamed directory, so
+`pathological_churn_while_indexing` can show stale entries there that real Windows does not produce.
+
 ```sh
 ./build-rel/tenfold-tests pathological_
 TENFOLD_ENFORCE_PERF=1 xvfb-run -a ./build-ui/tenfold-ui-tests pathological_ui
