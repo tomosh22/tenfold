@@ -2337,8 +2337,11 @@ void SemanticEngine::aliasChoices(std::shared_ptr<DefQuery> q, SymbolLocation al
   // The hop from the alias `cur` to what it names; `first` = the hop from the caret's own alias, answered by
   // typeDefinition at the caret. The callback gets nothing when the chain cannot be followed.
   auto step = std::make_shared<std::function<void(SymbolLocation, bool)>>();
-  *step = [this, q, w, finish, isAlias, step](SymbolLocation cur, bool first) {
-    if (q->g->done.load()) return;
+  // The function refers to itself weakly (a strong self-capture is a cycle that leaks the query and everything its
+  // callbacks hold); `next` holds it strongly while a hop is in flight.
+  *step = [this, q, w, finish, isAlias, weakStep = std::weak_ptr(step)](SymbolLocation cur, bool first) {
+    const auto step = weakStep.lock();
+    if (!step || q->g->done.load()) return;
     auto next = [this, q, w, finish, isAlias, step, cur](std::optional<SymbolLocation> n) {
       if (q->g->done.load()) return;
       if (!n || sameSpotLoc(n->loc, cur.loc)) return finish();
