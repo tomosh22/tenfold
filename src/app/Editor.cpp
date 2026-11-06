@@ -292,7 +292,8 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
   }
   loadBreakpoints();
   auto doc = std::make_unique<Document>(path);
-  if (!doc->loadFromDisk(error)) return nullptr;
+  if (!doc->loadFromDisk(error, loadOptions())) return nullptr;
+  noteFallbackEncoding(*doc);
   Document* raw = doc.get();
   watchDocument(*raw);
   std::string key = docKey(path);
@@ -377,12 +378,34 @@ bool Editor::save(Document& doc, std::string* error, UnencodableReport* refused)
   return true;
 }
 
+// How documents are read: Visual Studio's "Auto-detect UTF-8 encoding without signature" (editing().autoDetectUtf8).
+Document::LoadOptions Editor::loadOptions(std::optional<Encoding> forced) const {
+  Document::LoadOptions lo;
+  lo.detect.autoDetectUtf8 = editing_.autoDetectUtf8;
+  lo.forced = forced;
+  return lo;
+}
+
+// tenfold's codec has Windows-1252 as its only single-byte page. When the system ANSI page is another one (932 on
+// Japanese Windows), bytes above 0x7F of a non-UTF-8 file are not what Visual Studio would show: say so once.
+void Editor::noteFallbackEncoding(const Document& doc) {
+  if (ansiNoted_ || doc.encoding() != Encoding::Windows1252) return;
+  bool exact = true;
+  fallbackEncoding(0, &exact);
+  if (exact) return;
+  ansiNoted_ = true;
+  if (opt_.log)
+    opt_.log("warning: the system ANSI code page is " + std::to_string(systemAnsiCodePage()) +
+             "; files that are not UTF-8 are read as Windows-1252 (the only single-byte code page tenfold supports)");
+}
+
 Document* Editor::newUntitled(LineEnding lineEnding) {
   std::error_code ec;
   for (int n = 1;; ++n) {
     const fs::path path = ws_.root() / ("Untitled " + std::to_string(n));
     if (document(path) || fs::exists(path, ec)) continue;
     auto doc = std::make_unique<Document>(Document::untitled(path, lineEnding));
+    doc->initEncodingChoice(editing_.defaultEncoding);  // editor.defaultEncoding
     Document* raw = doc.get();
     watchDocument(*raw);
     docs_[docKey(path)] = std::move(doc);
@@ -436,7 +459,17 @@ void Editor::noteSaveRefused(const Document& doc, const UnencodableReport& rep) 
   if (opt_.log) opt_.log("warning: " + doc.path().filename().string() + " was not saved: " + describeUnencodable(rep));
 }
 
-bool Editor::reloadFromDisk(Document& doc, std::string* error) {
+bool Editor::reloadFromDisk(Document& doc, std::string* error) { return reloadWith(doc, std::nullopt, error); }
+
+bool Editor::reopenWithEncoding(Document& doc, EncodingChoice c, std::string* error) {
+  if (doc.isUntitled()) {
+    if (error) *error = "it has no file on disk yet";
+    return false;
+  }
+  return reloadWith(doc, encodingOf(c), error);
+}
+
+bool Editor::reloadWith(Document& doc, std::optional<Encoding> forced, std::string* error) {
   struct ReloadScope {
     bool& flag;
     explicit ReloadScope(bool& f) : flag(f) { flag = true; }
@@ -444,7 +477,14 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
   } reloadScope(reloading_);
   std::string bytes;
   if (!readRegularFile(doc.path(), bytes, error)) return false;
-  TextBuffer fresh(decodeFileBytes(bytes).text);  // the same UTF-8 view of the file that loadFromDisk builds
+  const Document::LoadOptions lo = loadOptions(forced);
+  std::string decoded;
+  if (forced) {
+    if (!decodeForced(bytes, *forced, decoded, error)) return false;
+  } else {
+    decoded = decodeFileBytes(bytes, lo.detect).text;
+  }
+  TextBuffer fresh(decoded);  // the same UTF-8 view of the file that loadFromDisk builds
   const TextBuffer& old = doc.buffer();
   const int oldN = old.lineCount(), newN = fresh.lineCount();
   // Replace only the lines that differ (text or terminator) so history entries and clangd keep their place.
@@ -466,7 +506,8 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
                   fresh.textInRangeRaw({{from, 0}, {newN - 1, static_cast<int>(fresh.line(newN - 1).size())}}));
     }
   }
-  if (!doc.loadFromDisk(error)) return false;  // clean state, CRLF flag, empty undo stack
+  if (!doc.loadFromDisk(error, lo)) return false;  // clean state, CRLF flag, empty undo stack
+  noteFallbackEncoding(doc);
   diskHash_[docKey(doc.path())] = hashFile(doc.path());
   vcs_->documentReloaded(doc);
   return true;

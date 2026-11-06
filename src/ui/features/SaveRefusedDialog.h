@@ -1,5 +1,6 @@
 #pragma once
 #include <filesystem>
+#include <functional>
 #include <string>
 #include <vector>
 
@@ -16,6 +17,8 @@ namespace tf::ui {
 //   dim      Enter goes to the selected character. Fix the text (or remove the character) and save again.
 //   rows     the characters themselves, as rendered text, with U+XXXX on the left of "line 3, column 5"; at most
 //            `kCharsPerFile` per file, then "... and M more"
+//   last     (one file only) "Save with Encoding..." - opens the Advanced Save Options list with UTF-8 selected, the
+//            way out of a refusal (Visual Studio's own fix for C4819); a tenfold convenience, VS has no such dialog
 //
 // Enter / click on a character row goes to that character (Editor::gotoLocation, so Back returns); on any other row
 // to the first listed character. Escape closes. The same text is put in the status bar by `statusText`.
@@ -27,6 +30,8 @@ class SaveRefusedDialog {
   static constexpr size_t kMaxFiles = 4;
 
   void show(std::vector<SaveRefusal> refusals);
+  // Called with the file when the user takes the "Save with Encoding..." row (EditorApp opens EncodingPrompt).
+  std::function<void(const std::filesystem::path&)> saveWithEncoding;
   void close();
   bool isOpen() const { return popup_ != nullptr; }
   ListPopup* popup() const { return popup_; }

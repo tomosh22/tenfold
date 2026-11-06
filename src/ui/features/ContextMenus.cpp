@@ -81,6 +81,8 @@ std::vector<MenuEntry> statusMenuEntries(const std::string& segment) {
             {"Editor.LineEndingCR", "Macintosh (CR)"},
             {},
             {"File.SaveWithLineEndings", "Save with Line Endings..."}};
+  if (segment == "encoding")
+    return {{"File.ReopenWithEncoding", "Reopen with Encoding..."}, {"File.SaveWithEncoding", "Save with Encoding..."}};
   if (segment == "flags") return {{"Help.ShowCompileCommand", "Show Compile Command"}};
   if (segment == "clangd") return {{"Clangd.Restart", "Restart clangd"}};
   if (segment == "build")

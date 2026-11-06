@@ -64,7 +64,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Go to line | ✅ | B8: Ctrl+G, `line[:column]`, recorded in the navigation history. |
 | Bookmarks | 🔶 | B8: toggle / next / previous / list, per file, follow edits, `.tenfold/bookmarks.json`, gutter flag. **verify** 10x's behaviour (OPEN_QUESTIONS #8). |
 | Find / replace in file | 🔶 | B8: Ctrl+F / Ctrl+H bar, incremental highlight of all matches, case / word / regex, F3 / Shift+F3, replace one / all (one undo step). Regex group references in the replacement are not expanded. |
-| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off; 10x documents no such setting), `Editor.LineEndingLF/CRLF/CR`. Encoding is UTF-8 only. |
+| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off; 10x documents no such setting), `Editor.LineEndingLF/CRLF/CR`. Encodings: UTF-8 (with or without signature), UTF-16 LE/BE (BOM) and Windows-1252, shown in the status bar, with Reopen / Save with Encoding (VS-ENC). |
 | Word wrap | ✅ | B2c: soft wrap on by default (`editor.wordWrap`; smooth scrolling off by default), at word boundaries, continuation rows indented, line number on the first row; Up / Down / Home / End by visual row; `View.ToggleWordWrap` (Alt+Z, the Visual Studio binding). No hard wrap / reflow and no wrap at a fixed column (a possible later setting). |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 
@@ -208,7 +208,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.wordWrap` | WordWrap (false) | tenfold true by decision (OPEN_QUESTIONS #4) |
 | `editor.smoothScroll` | SmoothScroll (true) | tenfold false by decision (#4) |
 | `font.editor`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7). ZoomIn / ZoomOut add to the size for the session only and scale the whole UI font |
-| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile`; new files are UTF-8 (DefaultEncoding is not mirrored) |
+| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile`; new files take `editor.defaultEncoding` (DefaultEncoding; UTF-8 default; also `utf-8-bom`, `utf-16le`, `utf-16be`, `windows-1252`) |
 | `editor.autoNameUntitledFiles` | AutoNameUntitledFiles (false) | the first word typed names the tab and is the Save As suggestion |
 | `editor.internetSearchCommand` | InternetSearchCommand | |
 | `ui.theme` | ColorScheme (Sunset) | vs-dark by decision (#7) |
@@ -248,7 +248,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | ShowLineEndings | false | Draw line endings | S |
 | ShowIndentGuideLines | true | Draw indent guides | M |
 | AllowEditingOfReadOnlyFiles | true | Edit read-only files | S. Relates to Perforce auto-checkout (C3b) |
-| DefaultEncoding | UTF-8 | Encoding of new files | L together with non-UTF-8 support (UTF-16, ANSI, Shift_JIS, BOM variants) |
+| DefaultEncoding | UTF-8 | Encoding of new files | Done (VS-ENC) as `editor.defaultEncoding` for UTF-8, UTF-8 with BOM, UTF-16 LE/BE and Windows-1252; Shift_JIS and other code pages are not supported |
 
 ### Navigation, find and view
 

@@ -115,6 +115,11 @@ class Editor {
   // the document is clean afterwards). Only the changed line range is replaced,
   // so navigation history entries and the language server stay in sync.
   bool reloadFromDisk(Document& doc, std::string* error = nullptr);
+  // File.ReopenWithEncoding: reads the file again but decodes its bytes as `c` instead of detecting (UTF-16 needs
+  // well-formed text, else `error` and nothing changes; "UTF-8 with signature" reads like UTF-8: the signature is what
+  // the file has). The buffer's unsaved edits are DISCARDED, exactly like reloadFromDisk (the UI asks first), undo
+  // history is cleared, the document is clean. Fails for an untitled document or a file that is gone.
+  bool reopenWithEncoding(Document& doc, EncodingChoice c, std::string* error = nullptr);
 
   // --- file watching ---
   // Fired on the pump thread when a file that is open in a Document changed on
@@ -350,6 +355,8 @@ class Editor {
     bool replicateNewLine = true;      // VS ReplicateNewLineCharacter: a new line copies the caret line's ending
     bool pasteKeepsLineBreaks = true;  // pasted text keeps its own line breaks (VS), else the Enter ending
     bool checkLineEndings = true;      // VS "Check for consistent line endings on load"
+    bool autoDetectUtf8 = true;        // VS "Auto-detect UTF-8 encoding without signature" (editor.autoDetectUtf8)
+    EncodingChoice defaultEncoding = EncodingChoice::Utf8;  // new untitled documents (editor.defaultEncoding)
     bool commentBlockUsesLineComments = true;  // 10x CommentBlockUsesLineComments: ToggleComment with a selection
     int tabWidth = 4;                          // columns per tab stop (alignCarets); the view's editor.tabWidth
   };
@@ -399,6 +406,14 @@ class Editor {
   LineEnding newLineEndingAt(const Document& doc, int line) const;
   // File > Advanced Save Options / "Save with Line Endings": converts `doc` to `e` (undoable) and saves it.
   bool saveWithLineEnding(Document& doc, LineEnding e, std::string* error = nullptr);
+  // File.SaveWithEncoding / Advanced Save Options (VS_BEHAVIOUR E5): makes `c` the document's encoding and `ending`
+  // (when given) its line endings, then saves. If `c` cannot hold the text (a character of a Windows-1252 target that
+  // is not in the repertoire), NOTHING changes: the document keeps its encoding and text, `refused` lists the
+  // characters, `error` says why. Choosing UTF-8 / UTF-8 with signature never refuses, so this is the way out of a
+  // refused save. The BOM / line-ending edits and the encoding change are one undo step (the encoding itself is not
+  // undone). An untitled document only gets the encoding (returns true, nothing is written; saveAs writes it).
+  bool saveWithEncoding(Document& doc, EncodingChoice c, std::optional<LineEnding> ending = std::nullopt,
+                        std::string* error = nullptr, UnencodableReport* refused = nullptr);
   // "Check for consistent line endings on load": called (from open(), for a document read from disk whose lines do
   // not all end the same way) when editing().checkLineEndings is on. The UI asks what to do and answers with
   // setLineEnding() or nothing. Not called for reloads of a changed file or for typing / pasting afterwards.
@@ -596,6 +611,10 @@ class Editor {
   NavigationHistory nav_;
   std::unique_ptr<VcsManager> vcs_;
   void noteSaveRefused(const Document& doc, const UnencodableReport& rep);
+  Document::LoadOptions loadOptions(std::optional<Encoding> forced = std::nullopt) const;
+  void noteFallbackEncoding(const Document& doc);
+  bool reloadWith(Document& doc, std::optional<Encoding> forced, std::string* error);
+  bool ansiNoted_ = false;  // the "system ANSI code page is not 1252" warning was logged
   bool reloading_ = false;  // reloadFromDisk is replacing the buffer: not a user edit (VcsManager must not see it)
   std::map<std::string, std::unique_ptr<Document>> docs_;  // key: generic path
   Document* current_ = nullptr;

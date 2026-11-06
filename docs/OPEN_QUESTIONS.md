@@ -389,8 +389,8 @@ Decided without a user decision because the alternative was the editor terminati
   UTF-16 LE/BE. Everything else is **Windows-1252** (the "ANSI" code page 10x and Visual Studio use on Western
   Windows; also covers ISO-8859-1 apart from the C1 range). No other code pages (Shift-JIS, GBK, ...) and no
   BOM-less UTF-16/32: such a file loads as Windows-1252, i.e. readable only as far as its ASCII goes, but it never
-  fails and is written back byte for byte. There is no "reopen with encoding" command and the status bar does not
-  show the encoding yet.
+  fails and is written back byte for byte. VS-ENC added the status-bar encoding segment, Reopen / Save with Encoding
+  and the settings `editor.autoDetectUtf8` and `editor.defaultEncoding` (see "VS-ENC detail" below).
 * **Saving.** The file is written in the encoding it was read in; the BOM of UTF-8/UTF-16 files is kept. If the text
   holds a character that encoding cannot represent, the save is **refused** (user decision of 2026-11-06, implemented
   by W10-ENC; this replaced the W9-FIX-ENC default of writing UTF-8 instead). Nothing is written, the document stays
@@ -411,9 +411,7 @@ Decided without a user decision because the alternative was the editor terminati
   documents are edited in memory and are refused when they are saved. The corpus harness restores files byte for byte
   from raw copies and never goes through `Document::saveToDisk`, so it cannot hit this. There is no auto-save and no
   save-before-build in tenfold yet; when they come they must use `Editor::save` and show the same dialog.
-  **There is no command to change a document's encoding** (`Document::setEncoding` exists, nothing calls it), so the
-  only way out of a refusal is to edit the text; "Save with encoding..." / "Reopen with encoding..." would be the
-  next step (Visual Studio has both) and was not added here.
+  The way out of a refusal besides editing the text is **Save with Encoding...** (VS-ENC; also a row of the dialog).
 * **Line endings.** Replaced by the Visual Studio behaviour (user decision of 2026-11-06; see "W10 detail: line
   endings like Visual Studio" below). The old default, one dominant ending per document written for every line on save,
   no longer exists.
@@ -470,7 +468,7 @@ constant, branch or setting, easy to change.
   whole document as one undo step (VS's own click behaviour is unknown).
 * **Save with Line Endings (L11):** converts the document (an undoable edit, as the status-bar conversion) and saves it;
   after the save the buffer holds the new endings, and the next plain Save keeps them ("not a persistent option" in VS
-  terms). It is not an encoding picker: Save with Encoding belongs to the encoding work.
+  terms). Save with Encoding (VS-ENC) is the same flow with the encoding added (see "VS-ENC detail").
 * **Commands that rewrite lines (move line, comment toggle over several lines):** their replacement text takes the ending of
   the first line of the edited range, so in a mixed file the lines they rewrite become uniform. Edits that copy buffer text
   (comment a selection, duplicate a selection, wrap in brackets, change case) keep each line's own ending.
@@ -481,6 +479,41 @@ constant, branch or setting, easy to change.
   with its dominant ending only.
 * **clangd:** gets CRLF and LF lines as they are and lone CR as LF (see ARCHITECTURE, "Text for clangd"), so lines and
   columns always agree.
+
+
+## VS-ENC detail: encodings like Visual Studio (implemented; VS_BEHAVIOUR section 2, rows E1-E6)
+
+Implemented from the user's rule "for all other unanswered questions match Visual Studio behaviour if possible"; 10x
+documents nothing here except `DefaultEncoding`. Choices where VS's behaviour is unknown or tenfold deviates:
+
+* **Status segment (E3).** Labels `UTF-8`, `UTF-8 with signature`, `UTF-16 LE`, `UTF-16 BE`, `Windows-1252`. VS names the
+  code page (`Western European (Windows) - Codepage 1252`); the short name was chosen for the status bar. A click with
+  either mouse button opens a two-item menu (VS opens the encoding dialog directly; the menu is the task's choice).
+* **UTF-8 signature.** It stays part of the text of a file that has one (columns of line 1 count it, as before), so
+  "with signature" is derived. Save with Encoding "UTF-8" on such a file removes it (an undoable edit of line 1);
+  "UTF-8 with signature" on a file without one makes the save write it (no text edit). VS lets one reopen with
+  "UTF-8 with signature" too; here Reopen lists a single UTF-8 row because the signature is a property of the bytes
+  (the label then shows which one the file has).
+* **Reopen (E4).** Lists the encodings the codec has (no code-page list). The dialog for a modified document is the
+  existing Save / Don't Save / Cancel prompt (VS's wording unknown). Reopening as UTF-16 a file that is not well-formed
+  UTF-16 fails with a message; reopening as UTF-8 a file with stray bytes keeps the bytes (saving writes them back; VS
+  shows U+FFFD and loses them). UTF-16 chosen for a file without BOM is written back with a BOM. An external-change
+  reload detects the encoding again (the reopen choice is not remembered).
+* **Save with Encoding (E5).** One list: Save on top, then the Encoding and Line endings groups, Enter selects a row and shows
+  the list again (VS has two combo boxes and OK/Cancel). Refusals use the existing dialog and change nothing, including
+  the requested line endings. After a successful save the document keeps the new encoding. A failure after the
+  conversion (read-only file, I/O error) leaves the document converted and modified. `File.SaveWithLineEndings`
+  is kept as the line-endings-only list. **The SaveRefusedDialog row** "Save with Encoding..." (one refused file only)
+  starts the list with UTF-8 selected; VS has no such dialog, so it is a tenfold convenience.
+* **Detection (E1/E2).** `editor.autoDetectUtf8` (default true, medium confidence for VS's default). The fast index,
+  clangd's file reads and the corpus runner keep using automatic detection. On Windows the fallback should be `GetACP()`;
+  the codec only has Windows-1252, so another system page (e.g. 932) is read as 1252 and logged once: a
+  Shift-JIS file shows mojibake instead of Japanese. Implementing it with `MultiByteToWideChar` /
+  `WideCharToMultiByte` (`WC_NO_BEST_FIT_CHARS` and a lossless round-trip check so refusal still works) is the follow-up.
+* **Default for new files (E6).** `editor.defaultEncoding`, default `utf-8` (10x's DefaultEncoding default); `utf-8-bom`,
+  `utf-16le`, `utf-16be`, `windows-1252` also accepted, anything else means `utf-8`. An untitled document with a non-UTF-8
+  default refuses to Save As text it cannot hold, like any document.
+* **`.editorconfig` `charset`:** not read (tenfold reads no `.editorconfig`). Skipped.
 
 ## W9 detail: Visual Studio configurations (W9-FIX-vs)
 

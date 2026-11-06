@@ -56,7 +56,8 @@ void SaveRefusedDialog::show(std::vector<SaveRefusal> refusals) {
     info(std::string(encodingName(rep.encoding)) + " cannot hold " + countOf(rep.total, "character", "characters") +
          " of this file. Nothing was written; the file on disk is unchanged.");
   }
-  info("Enter goes to the selected character. Remove or replace it, then save again.");
+  info(many ? "Enter goes to the selected character. Remove or replace it, then save again."
+            : "Enter goes to the selected character. Remove or replace it, or save with another encoding.");
   int firstChar = -1;
   std::vector<Location> where(rows.size());  // per row: where it goes (file empty for the explanation rows)
   const size_t perFile = many ? kCharsPerManyFiles : kCharsPerFile;
@@ -81,12 +82,26 @@ void SaveRefusedDialog::show(std::vector<SaveRefusal> refusals) {
     where.resize(rows.size());
   }
   if (refusals.size() > kMaxFiles) info("... and " + countOf(refusals.size() - kMaxFiles, "more file", "more files"));
+  int encodingRow = -1;
+  if (!many && saveWithEncoding) {
+    ListRow row;
+    row.key = "encoding";
+    row.primary = "Save with Encoding...";
+    row.secondary = "choose an encoding that can hold the text, e.g. UTF-8";
+    encodingRow = static_cast<int>(rows.size());
+    rows.push_back(std::move(row));
+  }
   p->setMaxVisibleRows(static_cast<int>(std::min<size_t>(rows.size(), 16)));
   p->setRows(rows, std::max(firstChar, 0));
   where.resize(rows.size());
+  const std::filesystem::path onlyFile = refusals[0].file;
   const Location first = firstChar >= 0 ? where[static_cast<size_t>(firstChar)] : Location{};
-  p->onAccept([this, where, first, life = std::weak_ptr<int>(life_)](int row) {
+  p->onAccept([this, where, first, encodingRow, onlyFile, life = std::weak_ptr<int>(life_)](int row) {
     if (life.expired() || row < 0 || static_cast<size_t>(row) >= where.size()) return;
+    if (row == encodingRow) {
+      if (saveWithEncoding) saveWithEncoding(onlyFile);
+      return;
+    }
     const Location& to = where[static_cast<size_t>(row)].file.empty() ? first : where[static_cast<size_t>(row)];
     std::string err;
     if (!to.file.empty() && !env_.editor.gotoLocation(to, &err, "unencodable character"))

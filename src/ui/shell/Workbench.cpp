@@ -977,7 +977,7 @@ void Workbench::refreshStatus() {
     const Position p = editor_.cursor().pos;
     status_->setText("pos", "Ln " + std::to_string(p.line + 1) + ", Col " + std::to_string(p.column + 1));
     status_->setText("eol", lineEndingLabel(cur->buffer()));
-    status_->setText("encoding", "UTF-8");
+    status_->setText("encoding", encodingLabel(cur->encodingChoice()));
     status_->setText("vcs", vcsStatusText(editor_.vcs(), cur->path()));
     status_->setText("disk", fileMissing(cur->path()) ? "deleted on disk" : "");
   } else {

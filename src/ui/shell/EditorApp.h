@@ -20,6 +20,7 @@
 #include "ui/features/ConfigurationPicker.h"
 #include "ui/features/ContextMenus.h"
 #include "ui/features/DiagnosticsPanel.h"
+#include "ui/features/EncodingPrompt.h"
 #include "ui/features/ExternalChanges.h"
 #include "ui/features/FileSearch.h"
 #include "ui/features/FindInFiles.h"
@@ -112,6 +113,7 @@ class EditorApp {
   UnsavedPrompt& unsavedPrompt() { return *unsaved_; }
   ExternalChanges& externalChanges() { return *external_; }
   LineEndingPrompt& lineEndingPrompt() { return *lineEndings_; }  // load check + Advanced Save Options
+  EncodingPrompt& encodingPrompt() { return *encodings_; }        // Reopen / Save with Encoding
   CommandPalette& commandPalette() { return *palette_; }
   bool confirmUnsaved() const { return confirmUnsaved_; }  // setting editor.confirmUnsaved
   // Quit like App.Quit and closing the window do: with dirty documents (and editor.confirmUnsaved) the Save All / Don't
@@ -285,6 +287,7 @@ class EditorApp {
   std::unique_ptr<UnsavedPrompt> unsaved_;
   std::unique_ptr<ExternalChanges> external_;
   std::unique_ptr<LineEndingPrompt> lineEndings_;
+  std::unique_ptr<EncodingPrompt> encodings_;
   std::unique_ptr<CommandPalette> palette_;
   bool confirmUnsaved_ = true;
   // W8b

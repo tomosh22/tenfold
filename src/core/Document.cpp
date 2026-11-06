@@ -21,12 +21,19 @@ Document Document::untitled(std::filesystem::path path, LineEnding lineEnding) {
   return d;
 }
 
-bool Document::loadFromDisk(std::string* error) {
+bool Document::loadFromDisk(std::string* error, const LoadOptions& opts) {
   std::string bytes;
   if (!readRegularFile(path_, bytes, error)) return false;
-  DecodedText dec = decodeFileBytes(bytes);
+  DecodedText dec;
+  if (opts.forced) {
+    if (!decodeForced(bytes, *opts.forced, dec.text, error)) return false;
+    dec.encoding = *opts.forced;
+  } else {
+    dec = decodeFileBytes(bytes, opts.detect);
+  }
   buf_.setText(dec.text);
   encoding_ = dec.encoding;
+  pendingSignature_ = false;
   dirty_ = false;
   onDisk_ = true;
   undo_.clear();
@@ -45,6 +52,62 @@ UnencodableReport Document::findUnencodable(Encoding e) const {
   return rep;
 }
 
+namespace {
+constexpr std::string_view kUtf8Bom = "\xEF\xBB\xBF";
+}
+
+bool Document::hasUtf8Signature() const {
+  if (encoding_ != Encoding::Utf8) return false;
+  return pendingSignature_ || std::string_view(buf_.line(0)).substr(0, 3) == kUtf8Bom;
+}
+
+EncodingChoice Document::encodingChoice() const {
+  switch (encoding_) {
+    case Encoding::Utf16LE: return EncodingChoice::Utf16LE;
+    case Encoding::Utf16BE: return EncodingChoice::Utf16BE;
+    case Encoding::Windows1252: return EncodingChoice::Windows1252;
+    case Encoding::Utf8: break;
+  }
+  return hasUtf8Signature() ? EncodingChoice::Utf8Signature : EncodingChoice::Utf8;
+}
+
+UnencodableReport Document::findUnencodable(EncodingChoice c) const {
+  const Encoding e = encodingOf(c);
+  UnencodableReport rep;
+  rep.encoding = e;
+  if (e == Encoding::Utf8) return rep;
+  const bool bom = std::string_view(buf_.line(0)).substr(0, 3) == kUtf8Bom;  // dropped by applyEncodingChoice
+  for (int l = 0; l < buf_.lineCount(); ++l) {
+    if (l == 0 && bom) collectUnencodable(std::string_view(buf_.line(0)).substr(3), 0, rep, 3);
+    else collectUnencodable(buf_.line(l), l, rep);
+  }
+  return rep;
+}
+
+bool Document::applyEncodingChoice(EncodingChoice c) {
+  const Encoding e = encodingOf(c);
+  bool changed = e != encoding_;
+  encoding_ = e;
+  if (std::string_view(buf_.line(0)).substr(0, 3) == kUtf8Bom && c != EncodingChoice::Utf8Signature) {
+    replace({{0, 0}, {0, 3}}, {});  // the signature leaves the text (and, for UTF-8, the file)
+    changed = true;
+  }
+  if (e == Encoding::Utf8 && c == EncodingChoice::Utf8Signature && !hasUtf8Signature()) {
+    pendingSignature_ = true;
+    changed = true;
+  } else if (c != EncodingChoice::Utf8Signature && pendingSignature_) {
+    pendingSignature_ = false;
+    changed = true;
+  }
+  if (changed) dirty_ = true;
+  return changed;
+}
+
+void Document::initEncodingChoice(EncodingChoice c) {
+  encoding_ = encodingOf(c);
+  pendingSignature_ = c == EncodingChoice::Utf8Signature;
+}
+
 bool Document::saveToDisk(std::string* error, UnencodableReport* refused) {
   UnencodableReport rep = findUnencodable();
   if (!rep.empty()) {
@@ -53,11 +116,13 @@ bool Document::saveToDisk(std::string* error, UnencodableReport* refused) {
     return false;
   }
   std::string bytes;
+  const bool signature = pendingSignature_ && std::string_view(buf_.line(0)).substr(0, 3) != kUtf8Bom;
   if (!encodeText(buf_.textForDisk(), encoding_, bytes)) {  // cannot happen: the scan above found nothing
     if (error)
       *error = path_.filename().string() + " was not saved: " + encodingName(encoding_) + " cannot hold its text";
     return false;
   }
+  if (signature) bytes.insert(0, kUtf8Bom);
   std::ofstream out(path_, std::ios::binary | std::ios::trunc);
   if (!out) {
     if (error) *error = "cannot write " + path_.string();

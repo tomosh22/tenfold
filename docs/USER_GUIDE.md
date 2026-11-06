@@ -294,8 +294,39 @@ file stays modified, and a dialog lists the offending characters (the character 
 character jumps to it, **Escape** closes the dialog; remove or replace the characters and save again. The same happens
 for Save All (the other files are still saved), when you close a tab or quit and answer Save (the tab stays open, the
 quit is cancelled), and when a rename writes closed files (they stay open and modified). Replace in Files does not write
-a closed Windows-1252 file when the replacement text has such a character, and says so. There is no command to change a
-file's encoding yet. Line endings are handled like Visual Studio does:
+a closed Windows-1252 file when the replacement text has such a character, and says so.
+
+Encodings are handled like Visual Studio does:
+
+* The **status bar** shows the document's encoding next to the line ending: `UTF-8`, `UTF-8 with signature` (a file that
+  starts with the UTF-8 byte order mark), `UTF-16 LE`, `UTF-16 BE` or `Windows-1252`. Clicking it (left or right button)
+  opens a menu with **Reopen with Encoding...** (`File.ReopenWithEncoding`) and **Save with Encoding...**
+  (`File.SaveWithEncoding`); both commands also run from the command palette and have no default key.
+* **Reopen with Encoding** lists UTF-8, UTF-16 LE, UTF-16 BE and Windows-1252 (the current one is marked) and reads the
+  file's bytes from disk again with the one you pick, for a file that was detected wrongly. A modified document first
+  asks "Save changes to a.cpp?" (Save / Don't Save / Cancel); a Save that is refused (see above) shows the refusal dialog
+  and does not reopen. The undo history starts over, as after a reload. UTF-16 needs well-formed text (otherwise the
+  status bar says so and nothing changes); a file read as UTF-8 that is not valid UTF-8 keeps its stray bytes and is
+  written back unchanged.
+* **Save with Encoding** is Visual Studio's *Advanced Save Options*: one list with **Save** on top, the **Encoding**
+  group (UTF-8, UTF-8 with signature, UTF-16 LE, UTF-16 BE, Windows-1252) and the **Line endings** group (Current Setting,
+  Windows (CR LF), Macintosh (CR), Unix (LF)). Enter on a choice selects it (`(*)`), Enter on Save writes the file in that
+  encoding and with those line endings, and the document keeps them. An encoding that cannot hold the text (Windows-1252
+  for a document with `漢`) is **refused** like any other save: the refusal dialog lists the characters, and the
+  document keeps its encoding and line endings. This is the way out of a refusal: the dialog has a **Save with
+  Encoding...** row (tenfold's convenience; Visual Studio has no such dialog) that opens this list with UTF-8 selected.
+  For an untitled document it only chooses the encoding; Save As writes it. `File.SaveWithLineEndings` stays as the
+  shortcut for the line-ending half.
+* The encoding of a file is detected when it is opened: valid UTF-8 is UTF-8 (with a signature if it has one), a UTF-16
+  byte order mark selects UTF-16, anything else is read with the fallback code page. `editor.autoDetectUtf8 = false`
+  (Visual Studio's *Auto-detect UTF-8 encoding without signature*) turns the UTF-8 guess off: a file without a signature
+  and with non-ASCII bytes is then read with the fallback code page. The fallback is Windows-1252; on Windows tenfold
+  would use `GetACP()` like Visual Studio, but its codec only knows Windows-1252, so another system code page (932 on
+  Japanese Windows) is read as 1252 and the log says so once. New files (`NewTextFile`) are UTF-8 unless
+  `editor.defaultEncoding` says `utf-8-bom`, `utf-16le`, `utf-16be` or `windows-1252`.
+* `.editorconfig` is not read: its `charset` has no effect.
+
+Line endings are handled like Visual Studio does:
 
 * LF, CRLF and classic Mac CR are recognised, and **every line keeps its own ending**. A file is saved exactly as it was
   loaded, also when its lines end in different ways; nothing is normalised behind your back.
@@ -732,10 +763,12 @@ tests.)
 | `editor.commentBlockUsesLineComments` | `true` | bool | 10x `CommentBlockUsesLineComments`: the 10x `ToggleComment` command (Ctrl+Shift+/) comments a selection with `//` line comments; `false` wraps the selection in `/* */` instead. Without a selection it always toggles a line comment. |
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
 | `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
-| `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. Encoding of new files is UTF-8 (10x: DefaultEncoding). |
+| `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. The encoding of new files is `editor.defaultEncoding`. |
 | `editor.replicateNewLine` | `true` | bool | Enter (and every command that adds a line) copies the line ending of the line the caret is on, so a CRLF file stays CRLF and an LF file stays LF; only a document without any line break uses `editor.defaultLineEnding`. `false` always uses `editor.defaultLineEnding`. Visual Studio: `ReplicateNewLineCharacter`. |
 | `editor.pasteKeepsLineBreaks` | `true` | bool | Pasted text keeps its own line breaks (pasting LF text into a CRLF file makes the file mixed, as in Visual Studio). `false` turns them into the line ending Enter would use. |
 | `editor.checkLineEndings` | `true` | bool | Opening a file whose lines end in different ways (CRLF and LF, ...) asks "The line endings in the following files are not consistent. Do you want to normalize the line endings?" with a choice of ending. Visual Studio: Tools > Options > Environment > Documents > Check for consistent line endings on load. |
+| `editor.autoDetectUtf8` | `true` | bool | Visual Studio's "Auto-detect UTF-8 encoding without signature": a file without a byte order mark that is valid UTF-8 opens as UTF-8. `false`: such a file with non-ASCII text opens as Windows-1252 (ASCII files, files with a UTF-8 signature and UTF-16 files with a BOM are not affected). |
+| `editor.defaultEncoding` | `utf-8` | string | Encoding of a new untitled file (`NewTextFile`): `utf-8`, `utf-8-bom`, `utf-16le`, `utf-16be` (both with BOM) or `windows-1252`; anything else means `utf-8`. 10x: DefaultEncoding. |
 | `editor.autoNameUntitledFiles` | `false` | bool | An untitled file is named after the first word typed in it; the name is what the Save As prompt offers. 10x: AutoNameUntitledFiles. |
 | `editor.internetSearchCommand` | `https://www.google.com/search?q=` | string | `InternetSearch` (F1) opens this address with the word under the caret or the selection appended (percent-encoded) in the default browser. 10x: InternetSearchCommand. |
 | `editor.pasteHistorySize` | `20` | int | How many recent clipboard texts `PasteHistory` (Ctrl+Shift+V) keeps; 0 turns it off. 10x documents no size. |
@@ -935,7 +968,7 @@ differs from the 10x description:
 | `Control F4` | `CloseFile` | `Workbench.CloseTab` | closes the tab (asks about unsaved changes) |
 | `Control S` | `SaveFile` | `File.Save` | an untitled file asks for a path first |
 | `Control S, Control S`; `Control Shift S` | `SaveAll` | `File.SaveAll` | saves every modified open file; a failure is named in the status bar |
-| `Control N` | `NewTextFile` | `File.New` | "Untitled N", line ending from `editor.defaultLineEnding`, UTF-8; saving asks for a path in an input line |
+| `Control N` | `NewTextFile` | `File.New` | "Untitled N", line ending from `editor.defaultLineEnding`, encoding from `editor.defaultEncoding` (UTF-8); saving asks for a path in an input line |
 | `Control Shift Alt /` | `OpenFolderForActivefile` | `File.ShowInFolder` | `explorer /select` (Windows), `open -R` (macOS), `xdg-open` on the folder (Linux) |
 | `Control T` | `ShowInWorkspaceTree` | `View.ShowInWorkspaceTree` | opens the explorer when it is closed, selects the current file and gives the tree the keys |
 | (none) | `ShowInWorkspaceTreeWithToggle` | `View.ShowInWorkspaceTreeWithToggle` | like `ShowInWorkspaceTree`, but closes the explorer when it already shows the file; bind it yourself |
