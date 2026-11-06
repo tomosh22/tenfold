@@ -1,0 +1,1 @@
+int a;int after_cr();struct S { void m(); };

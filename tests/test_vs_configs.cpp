@@ -213,8 +213,8 @@ TEST(vs_host_fallback_rewrites_a_clang_cl_command_for_the_host) {
   REQUIRE(!out.empty());
   CHECK_EQ(out[0], "clang-cl");
   CHECK_EQ(out[1], "--target=x86_64-pc-linux-gnu");
-  CHECK_EQ(out[2], "-isysroot");
-  CHECK_EQ(out[3], "/sdk");
+  CHECK_EQ(out[2], "/clang:-isysroot");  // GCC-style flags only reach clang-cl through /clang:
+  CHECK_EQ(out[3], "/clang:/sdk");
   CHECK(has(out, "-fms-extensions"));
   CHECK(has(out, "/D_MSC_VER=1933"));
   CHECK(has(out, "/clang:-std=c++20"));  // cl-mode /std: is ignored for a non-Windows target
@@ -507,7 +507,7 @@ TEST(vs_clangd_resolves_the_standard_library_in_sln_mode_off_windows) {
   bool published = ed.waitFor([&] { return true; }, 1500);
   (void)published;
   for (auto& d : ed.diagnostics(main)) {
-    std::cerr << "    diag " << d.range.start.line + 1 << ": " << d.message << "\n";
+    std::cerr << "    diag " << d.range.start.line + 1 << ": " << d.message << " (severity " << d.severity << ")\n";
     CHECK(d.severity != 1);  // no 'vector' file not found, no #error
   }
 }

@@ -44,11 +44,13 @@ namespace {
 
 // A real SIGSEGV with a fault address, taken by the kernel and not by the compiler's checks: a store through a null
 // pointer is caught by UBSan (-fsanitize=null) and ends the process before the crash handler runs. Here the store goes
-// to a mapped page without access rights (POSIX); Windows has no UBSan in the builds that run this.
+// to a page that was mapped and released again (POSIX); Windows has no UBSan in the builds that run this.
 [[noreturn]] void segfault() {
 #ifndef _WIN32
+  // Unmapped, not PROT_NONE: a protection fault is SIGBUS on macOS (SIGSEGV on Linux), an access to unmapped memory
+  // is SIGSEGV on both.
   void* page = ::mmap(nullptr, 4096, PROT_NONE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
-  if (page != MAP_FAILED) {
+  if (page != MAP_FAILED && ::munmap(page, 4096) == 0) {
     volatile int* p = static_cast<volatile int*>(page);
     *p = 1;
   }

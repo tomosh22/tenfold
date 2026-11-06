@@ -68,7 +68,9 @@ struct VcxprojOptions {
   // `-fms-extensions` plus `/D_MSC_VER=1933` keep `__declspec`, `__int64` and `#ifdef _MSC_VER` branches working.
   // Empty (the default, and always on Windows) = the clang-cl commands MSVC would see.
   std::string hostTarget;
-  std::vector<std::string> hostExtraFlags;  // inserted right after the driver (e.g. -isysroot on macOS)
+  // GCC-style flags inserted right after the driver (e.g. -isysroot <SDK> on macOS); passed to clang-cl as
+  // /clang:<flag>.
+  std::vector<std::string> hostExtraFlags;
 };
 
 // The target triple of the machine tenfold runs on ("x86_64-pc-linux-gnu", "arm64-apple-darwin", ...), or "" when

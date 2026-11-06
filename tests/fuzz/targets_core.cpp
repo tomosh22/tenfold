@@ -207,8 +207,10 @@ void runExtract(const uint8_t* d, size_t n) {
   const std::string_view src = view(d, n);
   std::vector<std::string> inc;
   const std::vector<Symbol> syms = extractSymbols(src, &inc);
+  // Lines as the document and the lexer count them: "\n", "\r\n" and a lone '\r' (classic Mac) each end one.
   size_t lines = 1;
-  for (char c : src) lines += c == '\n';
+  for (size_t i = 0; i < src.size(); ++i)
+    if (src[i] == '\n' || (src[i] == '\r' && (i + 1 >= src.size() || src[i + 1] != '\n'))) ++lines;
   for (const Symbol& s : syms) {
     FUZZ_REQUIRE(s.line >= 0 && static_cast<size_t>(s.line) < lines);
     FUZZ_REQUIRE(s.col >= 0);
