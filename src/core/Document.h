@@ -24,7 +24,7 @@ class Document {
   explicit Document(std::filesystem::path path);
   static Document fromText(std::filesystem::path path, std::string text);
 
-  // A document with no file yet (NewTextFile): `path` is only its identity ("<workspace>/Untitled 1"), nothing is read
+  // A document with no file yet (NewTextFile): `path` is only its identity ("<workspace>/TextFile1.txt"), nothing is read
   // from or written to it until Editor::saveAs gives it a real path (setPath). Empty, clean, `lineEnding` on save.
   static Document untitled(std::filesystem::path path, LineEnding lineEnding);
   bool isUntitled() const { return untitled_; }

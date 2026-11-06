@@ -140,7 +140,7 @@ void TerminalView::setFont(std::shared_ptr<TerminalFont> f) {
 const gfx::TextRenderer* TerminalView::renderer() const {
   if (font_ && font_->tr) return font_->tr.get();
   const RootWidget* r = root();
-  return r ? &r->text() : nullptr;
+  return r ? &r->editorText() : nullptr;  // follows the editor zoom (terminal.fontSize 0)
 }
 
 TerminalView::Metrics TerminalView::metrics() const {
@@ -645,7 +645,7 @@ void TerminalView::paint(PaintContext& ctx) {
   ctx.fill(bounds(), bgc);
   if (!session_) return;
   VtScreen& s = session_->screen();
-  gfx::TextRenderer& tr = (font_ && font_->tr) ? *font_->tr : ctx.textRenderer;
+  gfx::TextRenderer& tr = (font_ && font_->tr) ? *font_->tr : root()->editorText();
   if (font_) {  // a replaced renderer can give its texture back now that a live Renderer is at hand
     for (auto& old : font_->retired) old->releaseTexture(ctx.renderer);
     font_->retired.clear();

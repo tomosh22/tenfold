@@ -182,6 +182,7 @@ int main(int argc, char** argv) {
   const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
 
   std::unique_ptr<gfx::TextRenderer> text;
+  std::unique_ptr<gfx::TextRenderer> editorText;  // the zoomed editor font; null while the editor is not zoomed
   std::unique_ptr<ui::SettingsService> settings;  // layered settings + theme, hot-reloaded (B7)
   std::unique_ptr<ui::RootWidget> demoRoot;       // --shell: ShellDemo
   std::unique_ptr<ui::Workbench> bench;           // default: the editor
@@ -230,11 +231,20 @@ int main(int argc, char** argv) {
   if (app && settings) {
     // A changed font.* setting rebuilds the TextRenderer; the old one lives until the root points at the new one.
     app->attachSettings(*settings, win->pixelScale(), [&] {
-      auto next = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), nullptr, app->fontZoomPt());
+      // View.ZoomIn / ZoomOut scale only the editor text: a second renderer at the zoomed size (VS_BEHAVIOUR Z8).
+      auto next = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), nullptr);
       if (!next) return false;
+      std::unique_ptr<gfx::TextRenderer> nextEditor;
+      if (app->fontZoomPt() != 0) {
+        nextEditor = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), nullptr, app->fontZoomPt());
+        if (!nextEditor) return false;
+      }
       root->setTextRenderer(*next);
+      root->setEditorTextRenderer(nextEditor.get());
       text->releaseTexture(*renderer);
+      if (editorText) editorText->releaseTexture(*renderer);
       text = std::move(next);
+      editorText = std::move(nextEditor);
       return true;
     });
     app->setWindowHooks({[&](bool on) { win->setFullscreen(on); }});  // View.ToggleFullscreen

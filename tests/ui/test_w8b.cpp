@@ -48,6 +48,7 @@ struct Env {
   fs::path dir;
   std::unique_ptr<Editor> ed;
   std::unique_ptr<gfx::TextRenderer> text;
+  std::unique_ptr<gfx::TextRenderer> editorText;  // the zoomed editor font; null while not zoomed
   NullRenderer nr;
   std::unique_ptr<Workbench> bench;
   std::unique_ptr<SettingsService> svc;
@@ -58,11 +59,14 @@ struct Env {
   std::vector<bool> fullscreenCalls;
   std::vector<float> zooms;  // fontZoomPt() at every font rebuild
 
-  gfx::TextRenderer* makeText(float advance) {
+  static std::unique_ptr<gfx::TextRenderer> makeRenderer(float advance) {
     gfx::FontStack stack;
     stack.add(
         std::make_shared<tftext::MockFont>(U"abcdefghijklmnopqrstuvwxyz0123456789 ._-:,;ABCLMNTUFDK&/é", advance));
-    text = gfx::TextRenderer::fromFonts(std::move(stack));
+    return gfx::TextRenderer::fromFonts(std::move(stack));
+  }
+  gfx::TextRenderer* makeText(float advance) {
+    text = makeRenderer(advance);
     return text.get();
   }
 
@@ -87,9 +91,13 @@ struct Env {
     app->attachSettings(*svc, 1.0f, [this] {
       zooms.push_back(app->fontZoomPt());
       auto old = std::move(text);
-      gfx::TextRenderer* next = makeText(8 + app->fontZoomPt());
+      auto oldEditor = std::move(editorText);
+      gfx::TextRenderer* next = makeText(8);  // only the editor text is zoomed
+      if (app->fontZoomPt() != 0) editorText = makeRenderer(8 + app->fontZoomPt());
       bench->setTextRenderer(*next);
+      bench->setEditorTextRenderer(editorText.get());
       old.reset();
+      oldEditor.reset();
       return true;
     });
     OsLauncher l;
@@ -386,35 +394,46 @@ TEST(w8b_duplicate_panel_copies_every_tab) {
 
 // ---- zoom ----
 
-TEST(w8b_zoom_changes_the_font_size_and_survives_relayout_and_settings_changes) {
+TEST(w8b_zoom_changes_the_editor_font_size_and_survives_relayout_and_settings_changes) {
   Env env;
   env.bench->openFile("a.cpp");
   env.frame();
-  const float cell0 = env.text->cellWidth();
+  const float cell0 = env.bench->editorText().cellWidth();
   CHECK_EQ(env.app->fontZoomPt(), 0.0f);
-  CHECK(env.key(Key('.'), kCS));  // ZoomIn
+  CHECK_EQ(env.status("zoom"), std::string());  // not zoomed: no indicator
+  CHECK(env.key(Key('.'), kCS));                // ZoomIn
   CHECK_EQ(env.app->fontZoomPt(), 1.0f);
-  CHECK(env.text->cellWidth() > cell0);
+  CHECK(env.bench->editorText().cellWidth() > cell0);
   CHECK(env.app->message().find("Zoom +1") != std::string::npos);
+  // VS_BEHAVIOUR Z8: only the editor text is zoomed; tabs, status bar and menus keep the root's font.
+  CHECK_EQ(env.text->cellWidth(), cell0);
+  CHECK_EQ(env.status("zoom"), std::string("113 %"));  // 9 / 8
   env.key(Key('.'), kCS);
-  CHECK_EQ(env.text->cellWidth(), cell0 + 2);
+  CHECK_EQ(env.bench->editorText().cellWidth(), cell0 + 2);
+  CHECK_EQ(env.text->cellWidth(), cell0);
   env.key(Key(','), kCS);  // ZoomOut
-  CHECK_EQ(env.text->cellWidth(), cell0 + 1);
+  CHECK_EQ(env.bench->editorText().cellWidth(), cell0 + 1);
   // A relayout (new window size) keeps the zoom; so does a font setting that rebuilds the font.
   env.bench->render(env.nr, 700, 400);
-  CHECK_EQ(env.text->cellWidth(), cell0 + 1);
+  CHECK_EQ(env.bench->editorText().cellWidth(), cell0 + 1);
   env.changeSettings("font.size = 14\n");
   CHECK_EQ(env.zooms.back(), 1.0f);
-  CHECK_EQ(env.text->cellWidth(), cell0 + 1);
-  // The text really lays out with the new cell width.
+  CHECK_EQ(env.bench->editorText().cellWidth(), cell0 + 1);
+  CHECK_EQ(env.status("zoom"), std::string("113 %"));
+  // The text view really lays out with the editor font: one character is one zoomed cell wide.
   auto* tv = dynamic_cast<TextView*>(env.bench->activePanel()->activeContent());
   REQUIRE(tv != nullptr);
+  const float w1 = tv->caretRect({0, 4}).x - tv->caretRect({0, 3}).x;
+  CHECK_EQ(w1, cell0 + 1);
   env.key(Key(','), kCS);
   env.key(Key(','), kCS);
-  CHECK_EQ(env.text->cellWidth(), cell0 - 1);
+  CHECK_EQ(env.bench->editorText().cellWidth(), cell0 - 1);
   CHECK_EQ(env.app->message(), std::string("Zoom -1 pt"));
+  CHECK_EQ(env.status("zoom"), std::string("88 %"));  // 7 / 8
   env.key(Key('.'), kCS);
   CHECK_EQ(env.app->message(), std::string("Zoom reset"));
+  CHECK_EQ(env.status("zoom"), std::string());
+  CHECK(!env.bench->hasEditorText());  // back to one renderer
   // Limits.
   for (int i = 0; i < 60; ++i) env.app->runCommand("View.ZoomIn");
   CHECK_EQ(env.app->fontZoomPt(), 40.0f);
@@ -422,6 +441,45 @@ TEST(w8b_zoom_changes_the_font_size_and_survives_relayout_and_settings_changes) 
   CHECK(env.app->message().find("largest") != std::string::npos);
   for (int i = 0; i < 80; ++i) env.app->runCommand("View.ZoomOut");
   CHECK_EQ(env.app->fontZoomPt(), -8.0f);
+}
+
+TEST(vsedit_control_wheel_zooms_the_editor_text_and_plain_wheel_scrolls) {
+  Env env;
+  env.bench->openFile("a.cpp");
+  env.frame();
+  auto* tv = dynamic_cast<TextView*>(env.bench->activePanel()->activeContent());
+  REQUIRE(tv != nullptr);
+  const RectF b = tv->bounds();
+  InputEvent w;
+  w.type = InputType::Wheel;
+  w.x = b.x + b.w / 2;
+  w.y = b.y + b.h / 2;
+  w.dy = 1;
+  w.mods = ModCtrl;
+  const float cell0 = env.bench->editorText().cellWidth();
+  CHECK(env.app->handleEvent(w, 2000));  // wheel up = larger
+  CHECK_EQ(env.app->fontZoomPt(), 1.0f);
+  CHECK_EQ(env.bench->editorText().cellWidth(), cell0 + 1);
+  w.dy = -1;
+  env.app->handleEvent(w, 2010);
+  env.app->handleEvent(w, 2020);
+  CHECK_EQ(env.app->fontZoomPt(), -1.0f);
+  // Clicking the indicator resets the zoom.
+  env.frame();
+  const RectF zr = env.bench->status().segmentRect("zoom");
+  CHECK(zr.w > 0);
+  InputEvent click;
+  click.type = InputType::MouseDown;
+  click.button = MouseButton::Left;
+  click.x = zr.x + zr.w / 2;
+  click.y = zr.y + zr.h / 2;
+  env.app->handleEvent(click, 2030);
+  CHECK_EQ(env.app->fontZoomPt(), 0.0f);
+  // editor.mouseWheelZoom = false: Control + wheel no longer zooms.
+  env.changeSettings("editor.mouseWheelZoom = false\n");
+  w.dy = 1;
+  env.app->handleEvent(w, 2040);
+  CHECK_EQ(env.app->fontZoomPt(), 0.0f);
 }
 
 // ---- fullscreen and focus mode ----
@@ -490,7 +548,7 @@ TEST(w8b_new_text_file_then_save_asks_for_a_path) {
   Document* d = env.ed->currentDocument();
   REQUIRE(d != nullptr);
   CHECK(d->isUntitled());
-  CHECK_EQ(env.activeTitle(env.bench->activePanel()), std::string("Untitled 1"));
+  CHECK_EQ(env.activeTitle(env.bench->activePanel()), std::string("TextFile1.txt"));
   CHECK_EQ(env.status("eol"), std::string("CRLF"));  // 10x DefaultLineEnding
   CHECK_EQ(env.status("encoding"), std::string("UTF-8"));
   env.type("hello");
@@ -498,8 +556,8 @@ TEST(w8b_new_text_file_then_save_asks_for_a_path) {
   // Control S has nowhere to write: it asks for a path.
   CHECK(env.key(Key('S'), ModCtrl));
   REQUIRE(env.app->saveAsPrompt().isOpen());
-  CHECK_EQ(env.app->saveAsPrompt().popup()->input()->text(), std::string("Untitled 1"));
-  CHECK(!fs::exists(env.dir / "Untitled 1"));
+  CHECK_EQ(env.app->saveAsPrompt().popup()->input()->text(), std::string("TextFile1.txt"));
+  CHECK(!fs::exists(env.dir / "TextFile1.txt"));
   // A name that exists is refused and asked again.
   env.type("a.cpp");
   env.key(Key::Enter);
@@ -527,10 +585,10 @@ TEST(w8b_new_text_file_then_save_asks_for_a_path) {
   // The untitled tab never reaches layout.json or the recent files.
   env.app->runCommand("File.New");
   CHECK_EQ(env.ed->currentDocument()->path().filename().string(),
-           std::string("Untitled 1"));  // the number is free again
+           std::string("TextFile1.txt"));  // the number is free again
   const std::string layout = env.bench->layoutJson();
-  CHECK(layout.find("Untitled") == std::string::npos);
-  for (const fs::path& r : env.bench->recentFiles()) CHECK(r.filename() != "Untitled 1");
+  CHECK(layout.find("TextFile") == std::string::npos);
+  for (const fs::path& r : env.bench->recentFiles()) CHECK(r.filename() != "TextFile1.txt");
 }
 
 TEST(w8b_new_text_file_line_ending_follows_the_setting_and_clean_untitled_closes_silently) {
@@ -539,13 +597,13 @@ TEST(w8b_new_text_file_line_ending_follows_the_setting_and_clean_untitled_closes
   CHECK_EQ(env.status("eol"), std::string("LF"));
   Panel* p = env.bench->activePanel();
   env.key(Key('N'), ModCtrl);
-  CHECK_EQ(env.activeTitle(p), std::string("Untitled 2"));
+  CHECK_EQ(env.activeTitle(p), std::string("TextFile2.txt"));
   env.changeSettings("editor.defaultLineEnding = CRLF\n");
   env.key(Key('N'), ModCtrl);
   CHECK_EQ(env.status("eol"), std::string("CRLF"));
   // Closing a clean untitled document does not ask and frees the document.
   env.app->runCommand("Workbench.CloseTab");
-  CHECK(env.ed->document(env.dir / "Untitled 3") == nullptr);
+  CHECK(env.ed->document(env.dir / "TextFile3.txt") == nullptr);
   // A dirty one asks, and Don't Save drops it.
   env.key(Key('N'), ModCtrl);
   env.type("x");
@@ -571,11 +629,11 @@ TEST(w8b_auto_name_untitled_files_takes_the_first_word_typed) {
   CHECK_EQ(env.app->saveAsPrompt().popup()->input()->text(), std::string("foo"));
   env.key(Key::Escape);
   CHECK(!env.app->saveAsPrompt().isOpen());
-  // Without the setting the title stays "Untitled N".
+  // Without the setting the title stays "TextFileN.txt".
   Env plain;
   plain.key(Key('N'), ModCtrl);
   plain.type("word ");
-  CHECK_EQ(plain.activeTitle(plain.bench->activePanel()), std::string("Untitled 1"));
+  CHECK_EQ(plain.activeTitle(plain.bench->activePanel()), std::string("TextFile1.txt"));
 }
 
 TEST(w8b_quit_with_a_dirty_untitled_file_prompts_and_save_says_why_it_cannot) {
@@ -586,7 +644,7 @@ TEST(w8b_quit_with_a_dirty_untitled_file_prompts_and_save_says_why_it_cannot) {
   CHECK(env.app->unsavedPrompt().isOpen());
   env.key(Key::Enter);  // Save: there is no file name yet
   CHECK(!env.app->quitRequested());
-  CHECK(env.app->message().find("Untitled 1") != std::string::npos);
+  CHECK(env.app->message().find("TextFile1.txt") != std::string::npos);
   CHECK(env.ed->currentDocument()->dirty());
 }
 

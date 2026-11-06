@@ -100,7 +100,7 @@ class Editor {
   // editor (save, saveAll, rename and replace-in-files writing closed files, the close and quit prompts) goes through
   // here, so none of them can write such a file.
   bool save(Document& doc, std::string* error = nullptr, UnencodableReport* refused = nullptr);
-  // NewTextFile: an empty document with no file, named "Untitled N" (the lowest N whose path is neither open nor a file
+  // NewTextFile: an empty document with no file, named "TextFileN.txt" (Visual Studio's File > New > File > Text File) (the lowest N whose path is neither open nor a file
   // on disk) in the workspace root, writing `lineEnding` on save. It is not announced to clangd or version control and
   // not hashed for external changes until saveAs. Returns it (not made current; use activateDocument).
   Document* newUntitled(LineEnding lineEnding);
@@ -341,7 +341,7 @@ class Editor {
     bool formatBracesOnEnterSplit = false;  // Enter between "{" and "}" moves the closer to its own line
     bool autoCloseBrace = false;            // "{" inserts "}" (with skip-over and pair Backspace)
     bool autoCloseBracket = false;          // "(" and "[" insert their closer (with skip-over and pair Backspace)
-    bool autoCloseQuotes = false;           // tenfold only: quotes pair (10x documents no setting for it)
+    bool autoCloseQuotes = true;            // tenfold only: quotes pair, like VS C++ (10x documents no setting for it)
     bool bracketSelectedText = true;        // typing ( [ { over a selection encloses it (quotes: autoCloseQuotes)
     bool detectIndent = false;              // take the indent unit from the document's first lines
     std::string indentUnit = "\t";          // "\t" or N spaces; the fallback when detection finds nothing

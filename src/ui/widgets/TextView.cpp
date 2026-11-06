@@ -87,7 +87,7 @@ bool TextView::colouring() const {
   return false;
 }
 
-float TextView::scrollbarWidth() const { return root() ? std::round(root()->text().cellWidth() * 1.5f) : 0.0f; }
+float TextView::scrollbarWidth() const { return root() ? std::round(root()->editorText().cellWidth() * 1.5f) : 0.0f; }
 
 void TextView::applySettings(const EditorSettings& s) {
   settings_.smoothScroll = s.smoothScroll;
@@ -107,7 +107,7 @@ void TextView::applySettings(const EditorSettings& s) {
     foldCancel();
     fold_.invalidate();
   }
-  if (root()) root()->text().setTabWidth(s.tabWidth);
+  if (root()) root()->editorText().setTabWidth(s.tabWidth);
   setWordWrap(s.wordWrap);
   markDirty();
 }
@@ -169,7 +169,7 @@ void TextView::updateDiagMarkers() {
 }
 
 Layout TextView::geometry() const {
-  Layout L(root()->text().textLayout());
+  Layout L(root()->editorText().textLayout());
   L.setGlyphLane(glyphLaneWidth());
   L.setFoldLane(foldLaneWidth());
   return L;
@@ -182,7 +182,7 @@ bool TextView::glyphMarginActive() const {
 }
 
 float TextView::glyphLaneWidth() const {
-  return glyphMarginActive() ? std::max(8.0f, std::floor(root()->text().lineHeight())) : 0.0f;
+  return glyphMarginActive() ? std::max(8.0f, std::floor(root()->editorText().lineHeight())) : 0.0f;
 }
 
 RectF TextView::glyphLaneRect() const { return {bounds().x, bounds().y, glyphLaneWidth(), bounds().h}; }
@@ -271,7 +271,7 @@ int TextView::wrapCols() const {
 WrapLayout& TextView::wrapLayout() const {
   const Document* d = document();
   const bool ok = d && root();
-  wrap_.bind(ok ? &d->buffer() : nullptr, ok ? &root()->text().textLayout() : nullptr, ok ? wrapCols() : 0);
+  wrap_.bind(ok ? &d->buffer() : nullptr, ok ? &root()->editorText().textLayout() : nullptr, ok ? wrapCols() : 0);
   return wrap_;
 }
 
@@ -282,7 +282,7 @@ float TextView::scrollX() const { return wordWrapActive() ? 0.0f : std::floor(vp
 float TextView::totalHeight() const {
   if (!root()) return 0.0f;
   const int rows = wrapLayout().totalRows();
-  return static_cast<float>(rows + rowMap().extraRows()) * root()->text().lineHeight();
+  return static_cast<float>(rows + rowMap().extraRows()) * root()->editorText().lineHeight();
 }
 
 // Rebinds the wrap map to the current width. When the wrap width changed (resize, toggle, a wider gutter) the first
@@ -298,7 +298,7 @@ void TextView::syncWrap() {
   if (!first && anchorLine_ >= 0)
     y = static_cast<float>(
             rowMap().display(W.firstRowOf(std::min(anchorLine_, document()->buffer().lineCount() - 1)))) *
-        root()->text().lineHeight();
+        root()->editorText().lineHeight();
   vp_.jumpTo(cols > 0 ? 0.0f : vp_.x(), std::clamp(y, 0.0f, maxScrollY()));
   markDirty();
 }
@@ -359,7 +359,7 @@ void TextView::collectVisibleRows(std::vector<RowRef>& out) const {
   const Document* d = document();
   if (!d || !root()) return;
   WrapLayout& W = wrapLayout();
-  const float lh = root()->text().lineHeight(), sy = std::floor(vp_.y());
+  const float lh = root()->editorText().lineHeight(), sy = std::floor(vp_.y());
   const int total = W.totalRows();
   const RowBlocks& M = rowMap();  // inline diff blocks: display rows = wrap rows + the rows of blocks before them
   const int dTotal = total + M.extraRows();
@@ -393,7 +393,7 @@ template <class Fn>
 void TextView::forSegments(int line, int b0, int b1, bool withBreak, Fn fn) const {
   const auto [lo, hi] = visibleRange(line);
   const int n = static_cast<int>(document()->buffer().line(line).size());
-  const float cw = root()->text().cellWidth();
+  const float cw = root()->editorText().cellWidth();
   for (size_t i = lo; i < hi; ++i) {
     const RowRef& r = vis_[i];
     const bool last = r.end >= n;
@@ -448,7 +448,7 @@ RectF TextView::textArea() const {
 
 int TextView::visibleLineCount() const {
   if (!root()) return 1;
-  return std::max(1, static_cast<int>(bounds().h / root()->text().lineHeight()));
+  return std::max(1, static_cast<int>(bounds().h / root()->editorText().lineHeight()));
 }
 
 Position TextView::positionAt(float x, float y) const {
@@ -679,7 +679,7 @@ int TextView::onTick(int64_t nowMs) {
 void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, float y, const RectF& clip,
                            const std::vector<gfx::ColorSpan>* spans) {
   const std::string& line = document()->buffer().line(r.line);
-  const float x = textX + static_cast<float>(r.indent) * root()->text().cellWidth();
+  const float x = textX + static_cast<float>(r.indent) * root()->editorText().cellWidth();
   const bool whole = r.start == 0 && r.end >= static_cast<int>(line.size());
   const std::string_view v =
       whole ? std::string_view(line)
@@ -701,7 +701,10 @@ void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, floa
   ctx.textRenderer.drawSpans(x, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
 }
 
-void TextView::paint(PaintContext& ctx) {
+void TextView::paint(PaintContext& rootCtx) {
+  // The text of the editor is drawn with the editor's own renderer (zoomed by View.ZoomIn / ZoomOut, VS_BEHAVIOUR Z8);
+  // RootWidget::render flushes it. The rest of the window keeps the root's.
+  PaintContext ctx{rootCtx.renderer, root()->editorText(), rootCtx.theme};
   const RectF& b = bounds();
   const Theme& th = ctx.theme;
   ctx.fill(b, Theme::orElse(th.editorBackground, th.panelBackground));
@@ -883,7 +886,7 @@ void TextView::paintWhitespace(PaintContext& ctx, const Layout& L, std::string_v
                                const RectF& clip) const {
   const Color c = ctx.theme.whitespace;
   const float cw = L.cellWidth(), lh = L.lineHeight(), dot = std::max(1.0f, std::floor(cw / 6));
-  const int tw = root()->text().textLayout().tabWidth();
+  const int tw = root()->editorText().textLayout().tabWidth();
   const size_t end = std::min<size_t>(s.size(), 4000);
   int col = 0;
   for (size_t i = 0; i < end; ++i) {
@@ -1022,7 +1025,7 @@ bool TextView::moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool e
   if (!wordWrapActive() && !(vertical && wrapLayout().hasHidden())) return false;  // folds alone: rows are lines
   const TextBuffer& b = document()->buffer();
   WrapLayout& W = wrapLayout();
-  const float cw = root()->text().cellWidth();
+  const float cw = root()->editorText().cellWidth();
   std::vector<Selection> sels = editor_.selections();
   const bool keep = vertical && prefSel_ == sels && prefCol_.size() == sels.size();
   std::vector<int> cols(sels.size(), 0);
@@ -1065,7 +1068,7 @@ FoldModel::Options TextView::foldOptions() const {
 
 float TextView::foldLaneWidth() const {
   if (!settings_.showFoldGlyphs || !settings_.outlineEnabled || !root() || !colouring()) return 0.0f;
-  return std::max(8.0f, std::floor(root()->text().lineHeight()));
+  return std::max(8.0f, std::floor(root()->editorText().lineHeight()));
 }
 
 RectF TextView::foldLaneRect() const {
@@ -1104,7 +1107,7 @@ void TextView::applyHidden(bool keepTop) {
   if (anchored) {
     anchorLine_ = W.isHidden(anchorLine_) ? W.prevVisible(anchorLine_) : anchorLine_;
     const int after = rowMap().display(W.firstRowOf(anchorLine_));
-    vp_.shiftY(static_cast<float>(after - before) * root()->text().lineHeight());
+    vp_.shiftY(static_cast<float>(after - before) * root()->editorText().lineHeight());
     if (vp_.targetY() > maxScrollY()) vp_.jumpTo(vp_.x(), maxScrollY());
   }
   markDirty();
@@ -1353,7 +1356,7 @@ void TextView::mutateBlocks(const std::function<void()>& f) {
   f();
   ++blocksGen_;
   const int after = topRow();
-  if (root() && after != before) vp_.shiftY(static_cast<float>(after - before) * root()->text().lineHeight());
+  if (root() && after != before) vp_.shiftY(static_cast<float>(after - before) * root()->editorText().lineHeight());
   markDirty();
 }
 
@@ -1394,7 +1397,7 @@ bool TextView::toggleInlineDiff(int line) {
   const int at = blockIndex(h);
   if (at >= 0) {
     const RowBlocks& M = rowMap();
-    const float lh = root()->text().lineHeight(), top = static_cast<float>(M.top(static_cast<size_t>(at))) * lh,
+    const float lh = root()->editorText().lineHeight(), top = static_cast<float>(M.top(static_cast<size_t>(at))) * lh,
                 bottom = top + static_cast<float>(blocks_[static_cast<size_t>(at)].rows()) * lh;
     if (bottom > vp_.targetY() + bounds().h)
       vp_.scrollTo(vp_.targetX(), std::clamp(std::min(bottom - bounds().h, top), 0.0f, maxScrollY()), false);
@@ -1417,7 +1420,7 @@ TextView::InlineBlockInfo TextView::blockInfo(size_t i) const {
   info.lines = b.lines;
   if (!root()) return info;
   const RowBlocks& M = rowMap();
-  const gfx::TextRenderer& tr = root()->text();
+  const gfx::TextRenderer& tr = root()->editorText();
   const float lh = tr.lineHeight(), pad = theme().padding;
   const float y = bounds().y + static_cast<float>(M.top(i)) * lh - std::floor(vp_.y());
   const float w = std::max(0.0f, bounds().w - scrollbarWidth());
@@ -1683,7 +1686,7 @@ void TextView::addCaretAtPoint(float x, float y) {
 
 void TextView::mouseDown(const InputEvent& e) {
   if (const float lane = glyphLaneWidth(); lane > 0 && e.x >= bounds().x && e.x < bounds().x + lane) {
-    const float lh = root()->text().lineHeight();
+    const float lh = root()->editorText().lineHeight();
     const int vrow = static_cast<int>(std::floor((e.y - bounds().y + std::floor(vp_.y())) / lh));
     if (vrow >= 0 && vrow < wrapLayout().totalRows())
       toggleBreakpointAt(document()->buffer().clamp(positionAt(e.x, e.y)).line);
@@ -1692,7 +1695,7 @@ void TextView::mouseDown(const InputEvent& e) {
   if (const float fl = foldLaneWidth(); fl > 0) {
     const Layout L = geometry();
     const float x0 = bounds().x + L.numbersRight(document()->buffer().lineCount());
-    const float lh = root()->text().lineHeight();
+    const float lh = root()->editorText().lineHeight();
     const int vrow = static_cast<int>(std::floor((e.y - bounds().y + std::floor(vp_.y())) / lh));
     if (e.x >= x0 && e.x < x0 + fl) {
       if (vrow >= 0 && vrow < wrapLayout().totalRows())

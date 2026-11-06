@@ -244,10 +244,12 @@ void RootWidget::render(gfx::Renderer& r, int w, int h) {
     r.beginFrame(w, h, theme_.background);
     paintTree(ctx);
     if (!text_->flushText(r)) continue;
+    if (editorText_ && !editorText_->flushText(r)) continue;
     paintOverlayTree(ctx);
     if (!hasTopLayer()) break;
     paintTopTree(ctx, false);
     if (!text_->flushText(r)) continue;
+    if (editorText_ && !editorText_->flushText(r)) continue;
     paintTopTree(ctx, true);
     break;
   }

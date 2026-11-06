@@ -13,6 +13,8 @@ editor.caretBlink = true
 editor.caretBlinkMs = 530
 editor.highlightCurrentLine = true
 editor.wheelLines = 3
+# 10x MouseWheelZoom (default true there): Control + mouse wheel zooms the editor text (View.ZoomIn / ZoomOut steps).
+editor.mouseWheelZoom = true
 editor.tabWidth = 4
 # 0 = off (10x VerticalRulers is empty by default; tenfold draws one guide).
 editor.columnGuide = 0
@@ -44,8 +46,15 @@ editor.formatBracesOnEnterSplit = false
 editor.autoAddCloseBrace = false
 # 10x AutoAddCloseBracket: the same for ( and [.
 editor.autoAddCloseBracket = false
-# tenfold only (10x documents no setting for quotes): " and ' insert a second quote and wrap a selection.
-editor.autoCloseQuotes = false
+# tenfold only (10x documents no setting for quotes; on like Visual Studio's C/C++ "Automatic brace completion"): "
+# inserts a second quote and ' does too (not after a letter or digit), typing the closing quote steps over it, and a
+# quote typed over a selection wraps it.
+editor.autoCloseQuotes = true
+# Visual Studio's "Cut or Copy commands with no selection" (Tools > Options > Text Editor > General): Copy and Cut
+# with nothing selected act on the whole caret line including its line ending, and, like VS's option "Apply Cut or Copy
+# commands to blank lines when there is no selection", on blank lines too. Off: Copy / Cut do nothing without a selection.
+editor.copyLineWhenEmpty = true
+editor.copyBlankLines = true
 # 10x BracketSelectedText: typing ( [ { over a selection encloses it.
 editor.bracketSelectedText = true
 # Not documented by 10x; stays off.

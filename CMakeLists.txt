@@ -415,6 +415,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_term.cpp
     tests/ui/test_pathological_ui.cpp
     tests/ui/test_vs_tabs.cpp
+    tests/ui/test_vs_edit.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

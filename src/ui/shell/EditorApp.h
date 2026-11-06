@@ -131,6 +131,11 @@ class EditorApp {
     return terminals_.get();
   }  // W8f: NewTerminal, ShowTerminal, ...; null without a Workbench
   VcsUi& vcsUi() { return *vcsUi_; }  // C3c: Vcs.* commands, revert confirmation, external diff tool
+  // VS-EDIT (VS_BEHAVIOUR Z4): Copy / Cut without a selection act on the caret lines (editor.copyLineWhenEmpty) and
+  // on blank lines too (editor.copyBlankLines), like Visual Studio's two options.
+  struct LineCopyOptions {
+    bool whenEmpty = true, blankLines = true;
+  };
   // W8f: PasteHistory (Control Shift V), key-sequence recording / playback, PerforceHistory / PerforceShowInP4v.
   PasteHistory& pasteHistory() { return *pasteHistory_; }
   KeySequence& keySequence() { return keySeq_; }
@@ -170,7 +175,8 @@ class EditorApp {
   SaveAsPrompt& saveAsPrompt() { return *saveAs_; }
   SaveRefusedDialog& saveRefusedDialog() { return *saveRefused_; }
   // View.ZoomIn / ZoomOut: points added to the configured font size for this session (never saved). The function the
-  // app passes to attachSettings as `rebuildFont` must build the editor font at configured size + fontZoomPt().
+  // app passes to attachSettings as `rebuildFont` must build the font at the configured size and, when fontZoomPt() != 0, a second renderer for the editor text at configured
+  // size + fontZoomPt() (RootWidget::setEditorTextRenderer); only the editor text is zoomed.
   float fontZoomPt() const { return zoomPt_; }
 
   // Settings and themes (B7): the editor.* settings reach every TextView in the tree (new ones on the next tick), a
@@ -210,6 +216,7 @@ class EditorApp {
   void bindViewCommands();
   void bindPanelCommands();
   bool zoomBy(float stepPt);
+  void updateZoomIndicator();
   void setFullscreen(bool on);
   void updateUntitledNames();
   std::string untitledSuggestion(const Document& d) const;
@@ -297,6 +304,8 @@ class EditorApp {
   std::unique_ptr<SaveAsPrompt> saveAs_;
   std::unique_ptr<SaveRefusedDialog> saveRefused_;
   float zoomPt_ = 0;
+  LineCopyOptions lineCopy_;
+  bool wheelZoom_ = true;  // editor.mouseWheelZoom
   bool fullscreen_ = false;
   LineEnding defaultEol_ = LineEnding::CRLF;                        // editor.defaultLineEnding
   std::string searchCommand_ = "https://www.google.com/search?q=";  // editor.internetSearchCommand

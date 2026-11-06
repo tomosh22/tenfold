@@ -613,7 +613,7 @@ TEST(b8b_default_options_are_10x_defaults) {
   const Editor::EditingOptions o;
   CHECK(!o.autoCloseBrace);
   CHECK(!o.autoCloseBracket);
-  CHECK(!o.autoCloseQuotes);
+  CHECK(o.autoCloseQuotes);  // VS-EDIT Z1: Visual Studio C++ closes quotes
   CHECK(o.bracketSelectedText);
   CHECK(!o.formatBracesOnEnterSplit);
   CHECK(o.autoIndent);
@@ -625,6 +625,7 @@ TEST(b8b_default_options_are_10x_defaults) {
 TEST(b8b_default_typing_does_not_close_or_skip) {
   Fx f("");
   f.ed->editing() = Editor::EditingOptions{};
+  f.ed->editing().autoCloseQuotes = false;
   f.type("(a)[b]{c}\"d\"");
   CHECK_EQ(f.text(), "(a)[b]{c}\"d\"");
   Fx g("()");
@@ -641,6 +642,8 @@ TEST(b8b_bracket_selected_text_wraps_brackets_only) {
   f.type("(");
   CHECK_EQ(f.text(), "(hello) world");
   CHECK(f.primary() == S(0, 1, 0, 6));
+  f.ed->editing().autoCloseQuotes = false;
+  f.set({S(0, 1, 0, 6)});
   f.type("\"");  // quotes do not wrap unless autoCloseQuotes is on
   CHECK_EQ(f.text(), "(\") world");
   Fx g("hello world");
@@ -949,4 +952,34 @@ TEST(le_external_change_that_only_changes_line_endings_is_picked_up) {
   CHECK(f.ed->reloadFromDisk(*f.doc, &err));
   CHECK_EQ(disk(f), "a\nb\r\n");
   CHECK(!f.doc->dirty());
+}
+
+// --- VS-EDIT Z1: quotes close by default, like Visual Studio's C/C++ "Automatic brace completion" ----------------
+
+TEST(vsedit_quotes_close_by_default_but_braces_and_brackets_stay_10x) {
+  Fx f("");
+  f.ed->editing() = Editor::EditingOptions{};  // the defaults
+  f.type("f(\"a");
+  CHECK_EQ(f.text(), "f(\"a\"");  // ( is not paired (10x AutoAddCloseBracket false), " is
+  f.type("\"");                   // typing the closing quote steps over it
+  CHECK_EQ(f.text(), "f(\"a\"");
+  CHECK(f.caret() == (Position{0, 5}));
+}
+
+TEST(vsedit_apostrophe_after_a_word_character_does_not_pair_and_backspace_removes_an_empty_pair) {
+  Fx f("");
+  f.ed->editing() = Editor::EditingOptions{};
+  f.type("don't");
+  CHECK_EQ(f.text(), "don't");
+  Fx g("");
+  g.ed->editing() = Editor::EditingOptions{};
+  g.type("x = '");
+  CHECK_EQ(g.text(), "x = ''");
+  g.ed->backspace();  // Backspace in an empty pair deletes both
+  CHECK_EQ(g.text(), "x = ");
+  Fx h("say hello");
+  h.ed->editing() = Editor::EditingOptions{};
+  h.set({S(0, 4, 0, 9)});
+  h.type("\"");  // a quote over a selection wraps it
+  CHECK_EQ(h.text(), "say \"hello\"");
 }
