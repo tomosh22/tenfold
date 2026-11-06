@@ -26,6 +26,9 @@ class StatusBar : public Widget {
   // theme sets them.
   void setDebugging(bool on);
   bool debugging() const { return debugging_; }
+  // While true (no workspace open) the bar uses Theme::statusBackgroundNoSolution when the theme sets it (Visual
+  // Studio's purple bar without a solution). Debugging wins.
+  void setNoSolution(bool on);
 
   float preferredHeight() const;
   // Window-coordinate rect of a segment as of the last layout/paint (zero-size if empty or unknown).
@@ -54,7 +57,7 @@ class StatusBar : public Widget {
   Segment* segmentAt(float x, float y);
 
   std::vector<Segment> segs_;
-  bool stale_ = true, debugging_ = false;
+  bool stale_ = true, debugging_ = false, noSolution_ = false;
   Segment* hot_ = nullptr;
 };
 

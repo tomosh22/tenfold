@@ -129,6 +129,7 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   status_->addSegment("encoding", StatusBar::Align::Right);
   status_->addSegment("eol", StatusBar::Align::Right);
   status_->setText("workspace", editor_.workspace().root().filename().string());
+  status_->setNoSolution(editor_.workspace().root().empty());
   auto ds = std::make_unique<DockSplit>();
   split_ = ds.get();
   auto body = std::make_unique<Body>();

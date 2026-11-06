@@ -62,7 +62,14 @@ void Scrollbar::paint(PaintContext& ctx) {
     }
   }
   const RectF t = thumbRect();
-  if (t.w > 0) ctx.fill(t, th.scrollbarThumb);
+  if (t.w > 0) ctx.fill(t, th.scrollbarThumbFor(hotThumb_, drag_));
+}
+
+void Scrollbar::onHover(bool entered) {
+  if (!entered && hotThumb_) {
+    hotThumb_ = false;
+    markDirty();
+  }
 }
 
 bool Scrollbar::onEvent(const InputEvent& e) {
@@ -73,6 +80,7 @@ bool Scrollbar::onEvent(const InputEvent& e) {
       if (t.w <= 0) return true;
       if (ui::contains(t, e.x, e.y)) {
         drag_ = true;
+        markDirty();
         dragOff_ = e.y - t.y;
         captureMouse();
       } else if (onScroll) {  // page toward the click
@@ -82,10 +90,21 @@ bool Scrollbar::onEvent(const InputEvent& e) {
       return true;
     }
     case InputType::MouseMove:
-      if (!drag_) return false;
+      if (!drag_) {
+        const RectF t = thumbRect();
+        const bool hot = t.w > 0 && ui::contains(t, e.x, e.y);
+        if (hot != hotThumb_) {
+          hotThumb_ = hot;
+          markDirty();
+        }
+        return false;
+      }
       if (onScroll) onScroll(scrollFor(e.y - dragOff_), false);
       return true;
-    case InputType::MouseUp: drag_ = false; return e.button == MouseButton::Left;
+    case InputType::MouseUp:
+      if (drag_) markDirty();
+      drag_ = false;
+      return e.button == MouseButton::Left;
     default: return false;
   }
 }

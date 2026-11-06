@@ -468,6 +468,7 @@ bool TerminalView::mouseDown(const InputEvent& e) {
       barGrab_ = th.h / 2;  // a click on the track jumps there
     }
     draggingBar_ = true;
+    markDirty();
     captureMouse();
     InputEvent mv = e;
     mouseMove(mv);
@@ -559,6 +560,7 @@ bool TerminalView::mouseMove(const InputEvent& e) {
 bool TerminalView::mouseUp(const InputEvent& e) {
   if (draggingBar_) {
     draggingBar_ = false;
+    markDirty();
     return true;
   }
   if (reporting_) {
@@ -782,7 +784,7 @@ void TerminalView::paint(PaintContext& ctx) {
   if (!s.altScreen() && sb > 0) {
     const RectF track{bounds().x + bounds().w - m.sbW, bounds().y, m.sbW, bounds().h};
     ctx.fill(track, th.scrollbarTrack);
-    ctx.fill(scrollbarThumb(), th.scrollbarThumb);
+    ctx.fill(scrollbarThumb(), th.scrollbarThumbFor(false, draggingBar_));
   }
   s.clearDirty();
 }

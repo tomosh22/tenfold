@@ -17,6 +17,12 @@ bool oneOf(std::string_view w, std::initializer_list<const char*> l) {
     if (w == s) return true;
   return false;
 }
+// Control-flow keywords (Visual Studio colours these apart from the other keywords). `default` stays a plain keyword:
+// the line lexer cannot tell a switch label from `= default`.
+bool isControlFlow(std::string_view w) {
+  return oneOf(w, {"if", "else", "for", "while", "do", "switch", "case", "break", "continue", "goto", "return", "try",
+                   "catch", "throw", "co_await", "co_return", "co_yield"});
+}
 }  // namespace
 
 bool LexState::operator==(const LexState& o) const {
@@ -126,7 +132,7 @@ LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
         i = quoted(i, j);
         continue;
       }
-      add(i, j, CppLexer::isKeyword(w) ? Lex::Keyword : Lex::Identifier);
+      add(i, j, !CppLexer::isKeyword(w) ? Lex::Identifier : isControlFlow(w) ? Lex::ControlKeyword : Lex::Keyword);
       i = j;
     } else {
       add(i, i + 1, std::strchr("(){}[];,.", c) ? Lex::Punct : Lex::Operator);
@@ -301,9 +307,9 @@ void Highlighter::setTheme(const Theme& t) {
   pal_.clear();
   semIdx_.clear();
   textIdx_ = idx(t.text);
-  static const char* names[9] = {"keyword", "identifier",   "number",   "string",     "char",
-                                 "comment", "preprocessor", "operator", "punctuation"};
-  for (int i = 0; i < 9; ++i) kindIdx_[i] = idx(t.tokenColor(names[i]));
+  static const char* names[10] = {"keyword", "identifier",   "number",   "string",      "char",
+                                  "comment", "preprocessor", "operator", "punctuation", "controlKeyword"};
+  for (int i = 0; i < 10; ++i) kindIdx_[i] = idx(t.tokenColor(names[i]));
 }
 
 void Highlighter::setSemanticTokens(std::vector<TokenSpan> spans, std::vector<std::string> types,

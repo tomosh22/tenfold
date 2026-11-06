@@ -95,6 +95,12 @@ void StatusBar::setDebugging(bool on) {
   markDirty();
 }
 
+void StatusBar::setNoSolution(bool on) {
+  if (noSolution_ == on) return;
+  noSolution_ = on;
+  markDirty();
+}
+
 void StatusBar::onHover(bool entered) {
   if (!entered && hot_) {
     hot_ = nullptr;
@@ -126,7 +132,9 @@ bool StatusBar::onEvent(const InputEvent& e) {
 void StatusBar::paint(PaintContext& ctx) {
   if (stale_) place();
   const Theme& th = ctx.theme;
-  const Color bg = debugging_ ? Theme::orElse(th.statusBackgroundDebugging, th.statusBackground) : th.statusBackground;
+  const Color bg = debugging_    ? Theme::orElse(th.statusBackgroundDebugging, th.statusBackground)
+                   : noSolution_ ? Theme::orElse(th.statusBackgroundNoSolution, th.statusBackground)
+                                 : th.statusBackground;
   const Color fg = debugging_ ? Theme::orElse(th.statusTextDebugging, th.statusText) : th.statusText;
   ctx.fill(bounds(), bg);
   const float y = bounds().y + (bounds().h - ctx.lineHeight()) / 2;

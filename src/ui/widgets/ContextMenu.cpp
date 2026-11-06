@@ -267,11 +267,11 @@ void ContextMenu::paint(PaintContext& ctx) {
       }
       if (i == levels_[lv].sel) ctx.fill({ir.x + 1, ir.y, ir.w - 2, ir.h}, hot);
       const float ty = ir.y + (ir.h - ctx.lineHeight()) / 2;
-      const Color fg = it.enabled ? t.text : t.textDim;
+      const Color fg = it.enabled ? Theme::orElse(t.menuText, t.text) : Theme::orElse(t.menuDisabled, t.textDim);
       ctx.text(ir.x + m.pad, ty, it.label, fg, ir);
       float right = ir.x + ir.w - m.pad;
       if (!it.sub.empty()) {
-        ctx.text(right - ctx.measure(">"), ty, ">", fg, ir);
+        ctx.text(right - ctx.measure(">"), ty, ">", Theme::orElse(t.menuGlyph, fg), ir);
         right -= 2 * cell;
       }
       if (!it.shortcut.empty()) ctx.text(right - ctx.measure(it.shortcut), ty, it.shortcut, t.textDim, ir);

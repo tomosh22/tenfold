@@ -140,7 +140,7 @@ class TreeView : public Widget {
   std::string filter_;
   float scrollY_ = 0;
   int hoverRow_ = -1;
-  bool dragThumb_ = false;
+  bool dragThumb_ = false, hotThumb_ = false;
   float dragGrab_ = 0;
   bool focused_ = false;
   float metricLh_ = 16, metricCell_ = 8, metricPad_ = 4;  // cached from the last paint / layout

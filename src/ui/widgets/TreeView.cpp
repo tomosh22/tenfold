@@ -434,8 +434,9 @@ void TreeView::onLayout() {
 }
 
 void TreeView::onHover(bool entered) {
-  if (!entered && hoverRow_ != -1) {
+  if (!entered && (hoverRow_ != -1 || hotThumb_)) {
     hoverRow_ = -1;
+    hotThumb_ = false;
     markDirty();
   }
 }
@@ -509,6 +510,14 @@ bool TreeView::onEvent(const InputEvent& e) {
         if (track > 0) setScrollY((e.y - l.y - dragGrab_) / track * maxScroll);
         return true;
       }
+      {
+        const RectF t = thumbRect();
+        const bool hot = t.h > 0 && ui::contains(t, e.x, e.y);
+        if (hot != hotThumb_) {
+          hotThumb_ = hot;
+          markDirty();
+        }
+      }
       const int h = rowAtY(e.y);
       if (h != hoverRow_ && contains(e.x, e.y)) {
         hoverRow_ = h;
@@ -519,6 +528,7 @@ bool TreeView::onEvent(const InputEvent& e) {
     case InputType::MouseUp:
       if (dragThumb_) {
         dragThumb_ = false;
+        markDirty();
         releaseMouse();
         return true;
       }
@@ -528,6 +538,7 @@ bool TreeView::onEvent(const InputEvent& e) {
       const RectF t = thumbRect();
       if (t.h > 0 && ui::contains(t, e.x, e.y)) {
         dragThumb_ = true;
+        markDirty();
         dragGrab_ = e.y - t.y;
         captureMouse();
         return true;
@@ -651,7 +662,7 @@ void TreeView::paint(PaintContext& ctx) {
   const RectF t = thumbRect();
   if (t.h > 0) {
     ctx.fill({t.x, list.y, t.w, list.h}, th.scrollbarTrack);
-    ctx.fill(t, th.scrollbarThumb);
+    ctx.fill(t, th.scrollbarThumbFor(hotThumb_, dragThumb_));
   }
 }
 

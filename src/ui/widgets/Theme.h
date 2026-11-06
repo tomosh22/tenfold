@@ -80,11 +80,25 @@ struct Theme {
   // Status bar while the session is Running or Break: unset = unchanged look.
   Color statusBackgroundDebugging{0, 0, 0, 0};
   Color statusTextDebugging{0, 0, 0, 0};
-  // Preview tab (VS-TABS), optional: background of the active / an inactive preview tab; unset = tabActive /
-  // tabInactive.
-  Color tabPreviewActive{0, 0, 0, 0};
-  Color tabPreviewInactive{0, 0, 0, 0};
+  // Visual Studio chrome details (W10-THEME), all optional: unset keeps the look named in the comment.
+  Color tabDocumentHover{0, 0, 0, 0};  // hovered document tab; unset = tabHover (which also colours hovered list rows)
+  Color tabPreviewActive{0, 0, 0, 0};  // active preview (provisional) tab (VS-TABS); unset = tabActive
+  Color tabPreviewInactive{0, 0, 0, 0};     // an inactive preview tab; unset = tabInactive
+  Color scrollbarThumbHover{0, 0, 0, 0};    // scrollbar thumb under the pointer; unset = scrollbarThumb
+  Color scrollbarThumbPressed{0, 0, 0, 0};  // thumb while dragged; unset = scrollbarThumbHover, else scrollbarThumb
+  Color inputBackground{0, 0, 0, 0};        // text input fields; unset = panelBackground
+  Color inputBorder{0, 0, 0, 0};            // their 1px border; unset = none
+  Color inputSelection{0, 0, 0, 0};         // text selection inside an input field; unset = selection
+  Color menuText{0, 0, 0, 0};               // context menu item text; unset = text
+  Color menuGlyph{0, 0, 0, 0};              // submenu arrows; unset = the item text
+  Color menuDisabled{0, 0, 0, 0};           // disabled item text; unset = textDim
+  Color link{0, 0, 0, 0};                   // hyperlinks; unset = tabAccent. Nothing paints links yet.
+  Color statusBackgroundNoSolution{0, 0, 0, 0};  // status bar while no workspace is open; unset = statusBackground
   static Color orElse(const Color& c, const Color& fallback) { return c.a > 0 ? c : fallback; }
+  Color scrollbarThumbFor(bool hover, bool pressed) const {
+    if (pressed) return orElse(scrollbarThumbPressed, orElse(scrollbarThumbHover, scrollbarThumb));
+    return hover ? orElse(scrollbarThumbHover, scrollbarThumb) : scrollbarThumb;
+  }
 
   // Version control (C3c), optional: unset keeps the built-in fallback named in the comment, so dark and light still
   // show change marks (they need a colour), while vs-dark carries the Visual Studio values.
@@ -97,7 +111,7 @@ struct Theme {
   Color foldMarkerBackground{0, 0, 0,
                              0};     // the {...} marker of a collapsed region; unset = panelBackground 12% towards text
   Color foldMarkerText{0, 0, 0, 0};  // its text; unset = textDim
-  Color foldGlyph{0, 0, 0, 0};       // the gutter triangles (editor.showFoldGlyphs); unset = gutterText
+  Color foldGlyph{0, 0, 0, 0};       // the outlining margin glyphs (editor.showFoldGlyphs); unset = gutterText
   Color tabVcsModified{0, 0, 0, 0};  // tab marker, file modified (Git / Perforce); unset = dirtyMarker
   Color tabVcsAdded{0, 0, 0, 0};     // new / untracked / opened for add; unset = the added colour
   Color tabVcsCheckedOut{0, 0, 0, 0};  // Perforce checked out; unset = the deleted colour (red)
@@ -187,6 +201,7 @@ struct Theme {
                                                                             {"event", "variable"},
                                                                             {"decorator", "preprocessor"},
                                                                             {"modifier", "keyword"},
+                                                                            {"controlKeyword", "keyword"},
                                                                             {"regexp", "string"}};
     auto it = parents.find(t);
     return it == parents.end() ? std::string() : it->second;

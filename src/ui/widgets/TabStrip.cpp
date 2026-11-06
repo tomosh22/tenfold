@@ -346,10 +346,11 @@ void TabStrip::paint(PaintContext& ctx) {
     const RectF r = intersect(full, b);
     if (r.w <= 0) continue;
     const bool active = t.id == active_, hot = t.id == hoverTab_;
-    const Color bg = t.preview ? (active ? Theme::orElse(th.tabPreviewActive, th.tabActive)
-                                  : hot  ? th.tabHover
-                                         : Theme::orElse(th.tabPreviewInactive, th.tabInactive))
-                               : (active ? th.tabActive : (hot ? th.tabHover : th.tabInactive));
+    const Color bg =
+        t.preview ? (active ? Theme::orElse(th.tabPreviewActive, th.tabActive)
+                     : hot  ? Theme::orElse(th.tabDocumentHover, th.tabHover)
+                            : Theme::orElse(th.tabPreviewInactive, th.tabInactive))
+                  : (active ? th.tabActive : (hot ? Theme::orElse(th.tabDocumentHover, th.tabHover) : th.tabInactive));
     ctx.fill(r, bg);
     if (active)
       ctx.fill(intersect({full.x, full.y + full.h - th.accentHeight, full.w, th.accentHeight}, b), th.tabAccent);

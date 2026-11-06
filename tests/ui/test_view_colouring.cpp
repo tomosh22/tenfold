@@ -209,6 +209,15 @@ TEST(colouring_lexer_raw_strings_directives_and_edits_relex_forward) {
   sp.clear();
   CHECK(lexLine("  x + 1", st, sp).mode == LexState::None && sp.size() == 1 && sp[0].kind == Lex::Preprocessor);
 
+  // Control-flow keywords are their own class; other keywords stay Keyword.
+  sp.clear();
+  lexLine("if (x) return new int;", {}, sp);
+  CHECK(sp[0].kind == Lex::ControlKeyword);
+  int ctl = 0, kw = 0;
+  for (const LexSpan& l : sp) ctl += l.kind == Lex::ControlKeyword, kw += l.kind == Lex::Keyword;
+  CHECK_EQ(ctl, 2);  // if, return
+  CHECK_EQ(kw, 2);   // new, int
+
   // Opening a block comment on line 0 recolours the lines below; closing it again restores them (the cache walks
   // forward until the state matches what each cached line was lexed with).
   Fx2 f("int a;\nint b;\nint c;\n");
