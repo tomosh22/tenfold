@@ -118,7 +118,7 @@ TEST(linediff_crlf_and_trailing_newline) {
   CHECK(L("a\r\nb\r\n") == (Lines{"a", "b", ""}));
   CHECK(L("a\nb\n") == (Lines{"a", "b", ""}));
   CHECK(L("a\r\nb") == (Lines{"a", "b"}));
-  CHECK(L("a\rb\r\n") == (Lines{"a\rb", ""}));  // only a '\r' right before '\n' is a terminator
+  CHECK(L("a\rb\r\n") == (Lines{"a", "b", ""}));  // a lone CR is a line break too (the TextBuffer rule)
   // The committed text (LF) against a CRLF buffer, and the other way round, is no change at all.
   CHECK(diffLines(L("one\ntwo\nthree\n"), L("one\r\ntwo\r\nthree\r\n")).empty());
   CHECK(diffLines(L("one\r\ntwo\r\n"), L("one\ntwo\n")).empty());

@@ -707,3 +707,246 @@ TEST(b8b_default_indent_is_a_tab_without_detection) {
   f.ed->insertTab();
   CHECK_EQ(f.doc->buffer().line(0), "\tvoid f() {");
 }
+
+// --- line endings like Visual Studio (W10 line endings; docs/VS_BEHAVIOUR.md section 1) ------------------------------
+
+namespace {
+std::string disk(const Fx& f) { return f.doc->buffer().textForDisk(); }
+}  // namespace
+
+TEST(le_enter_replicates_the_ending_of_the_caret_line) {
+  Fx crlf("a\r\nb\r\nc");
+  crlf.ed->editing().autoIndent = false;
+  crlf.set({C(0, 1)});
+  crlf.ed->insertNewline();
+  CHECK_EQ(disk(crlf), "a\r\n\r\nb\r\nc");
+  crlf.set({C(3, 1)});  // last line: it has no ending, the line before decides
+  crlf.ed->insertNewline();
+  CHECK_EQ(disk(crlf), "a\r\n\r\nb\r\nc\r\n");
+  CHECK(crlf.ed->undo());
+  CHECK(crlf.ed->undo());
+  CHECK_EQ(disk(crlf), "a\r\nb\r\nc");
+
+  Fx lf("a\nb\nc");
+  lf.ed->editing().autoIndent = false;
+  lf.set({C(1, 0)});
+  lf.ed->insertNewline();
+  CHECK_EQ(disk(lf), "a\n\nb\nc");
+
+  Fx cr("a\rb\rc");
+  cr.ed->editing().autoIndent = false;
+  cr.set({C(0, 1)});
+  cr.ed->insertNewline();
+  CHECK_EQ(disk(cr), "a\r\rb\rc");
+}
+
+TEST(le_enter_in_a_mixed_file_follows_the_line_it_is_typed_on) {
+  const std::string src = "int a;\r\nint b;\nint c;\r\nint d;";
+  Fx f(src);
+  f.ed->editing().autoIndent = false;
+  f.ed->editing().formatBracesOnEnterSplit = false;
+  f.set({C(0, 6)});
+  f.ed->insertNewline();  // CRLF line
+  f.set({C(2, 6)});       // the former "int b;" (LF) is now line 2
+  f.ed->insertNewline();
+  f.set({C(5, 6)});  // "int d;" is the last line: the line before it (CRLF) decides
+  f.ed->insertNewline();
+  CHECK_EQ(disk(f), "int a;\r\n\r\nint b;\n\nint c;\r\nint d;\r\n");
+  CHECK_EQ(f.undoAll(), 3);
+  CHECK_EQ(disk(f), src);
+  // positions stay right: the caret lands on the new line, text below moved down one line
+  f.set({C(1, 6)});
+  f.ed->insertNewline();
+  CHECK(f.caret() == (Position{2, 0}));
+  CHECK_EQ(f.doc->buffer().line(3), "int c;");
+}
+
+TEST(le_enter_with_autoindent_and_brace_split_uses_one_ending_for_both_breaks) {
+  Fx f("void f() {}\r\nint x;\n");
+  f.set({C(0, 10)});
+  f.ed->insertNewline();  // between { and }: two new lines
+  CHECK_EQ(disk(f), "void f() {\r\n    \r\n}\r\nint x;\n");
+  CHECK_EQ(f.ed->selections().size(), size_t(1));
+  CHECK(f.caret() == (Position{1, 4}));
+  f.expectOneStep("void f() {}\nint x;\n");
+  CHECK_EQ(disk(f), "void f() {}\r\nint x;\n");
+}
+
+TEST(le_a_document_without_a_break_uses_the_default_ending_and_replicateNewLine_off_always_does) {
+  Fx f("abc");
+  f.ed->editing().autoIndent = false;
+  f.ed->editing().defaultLineEnding = LineEnding::LF;
+  f.set({C(0, 3)});
+  f.ed->insertNewline();
+  CHECK_EQ(disk(f), "abc\n");
+  f.ed->editing().defaultLineEnding = LineEnding::CRLF;
+  f.set({C(0, 3)});
+  f.ed->insertNewline();  // now the document has an LF: replicated
+  CHECK_EQ(disk(f), "abc\n\n");
+  f.ed->editing().replicateNewLine = false;
+  f.set({C(0, 3)});
+  f.ed->insertNewline();
+  CHECK_EQ(disk(f), "abc\r\n\n\n");
+}
+
+TEST(le_commands_that_add_lines_use_the_replicated_ending) {
+  Fx f("a\r\nb\r\nc");
+  f.ed->editing().autoIndent = false;
+  f.set({C(0, 0)});
+  f.ed->duplicate();
+  CHECK_EQ(disk(f), "a\r\na\r\nb\r\nc");
+  f.set({C(1, 0)});
+  f.ed->insertLineBelow();
+  CHECK_EQ(disk(f), "a\r\na\r\n\r\nb\r\nc");
+  f.set({C(0, 0)});
+  f.ed->insertLineAbove();
+  CHECK_EQ(disk(f), "\r\na\r\na\r\n\r\nb\r\nc");
+  // comment toggling over a multi-line selection rewrites text but keeps each line's own ending
+  Fx m("x\r\ny\nz");
+  m.set({S(0, 0, 2, 1)});
+  m.ed->toggleBlockComment();
+  CHECK_EQ(disk(m), "/*x\r\ny\nz*/");
+}
+
+TEST(le_paste_keeps_the_line_breaks_of_the_pasted_text) {
+  Fx f("a\r\nb\r\n");
+  f.set({C(1, 1)});
+  f.ed->insertText("X\nY\rZ\r\nW", true);
+  CHECK_EQ(disk(f), "a\r\nbX\nY\rZ\r\nW\r\n");
+  CHECK(f.doc->buffer().mixedLineEndings());
+  CHECK(f.caret() == (Position{4, 1}));
+  f.expectOneStep("a\nb\n");
+  CHECK_EQ(disk(f), "a\r\nb\r\n");
+
+  // two carets, two pasted lines
+  Fx g("1\r\n2\r\n");
+  g.set({C(0, 1), C(1, 1)});
+  g.ed->insertTextPerCaret({"x", "y"}, true);
+  CHECK_EQ(disk(g), "1x\r\n2y\r\n");
+
+  // the setting turns the preservation off: the breaks become the ending Enter would use
+  Fx h("a\r\nb\r\n");
+  h.ed->editing().pasteKeepsLineBreaks = false;
+  h.set({C(1, 1)});
+  h.ed->insertText("X\nY", true);
+  CHECK_EQ(disk(h), "a\r\nbX\r\nY\r\n");
+  CHECK(!h.doc->buffer().mixedLineEndings());
+
+  // typed / generated text is never "pasted": its breaks follow the document
+  Fx t("a\r\nb\r\n");
+  t.set({C(0, 1)});
+  t.ed->insertText("\n");
+  CHECK_EQ(disk(t), "a\r\n\r\nb\r\n");
+}
+
+TEST(le_selected_text_for_the_clipboard_keeps_the_stored_breaks) {
+  Fx f("a\r\nb\nc\rd");
+  f.set({S(0, 0, 3, 1)});
+  CHECK_EQ(f.ed->selectedTextRaw(), "a\r\nb\nc\rd");
+  CHECK_EQ(f.ed->selectedText(), "a\nb\nc\nd");
+}
+
+TEST(le_normalize_is_one_undoable_edit_and_save_keeps_mixed_files_as_they_are) {
+  const std::string src = "a\r\nb\nc\rd\r\ne\n";
+  Fx f(src);
+  CHECK(f.doc->buffer().mixedLineEndings());
+  CHECK(!f.doc->dirty());
+  // an untouched mixed file is written byte for byte
+  CHECK(f.ed->save(*f.doc));
+  {
+    std::ifstream in(f.doc->path(), std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    CHECK_EQ(ss.str(), src);
+  }
+  // an edit does not normalise either
+  f.set({C(1, 1)});
+  f.ed->insertText("!");
+  CHECK(f.ed->save(*f.doc));
+  {
+    std::ifstream in(f.doc->path(), std::ios::binary);
+    std::stringstream ss;
+    ss << in.rdbuf();
+    CHECK_EQ(ss.str(), "a\r\nb!\nc\rd\r\ne\n");
+  }
+  CHECK(!f.doc->dirty());
+  f.ed->setLineEnding(*f.doc, LineEnding::LF);  // "Yes" in the load dialog / the status bar menu
+  CHECK(f.doc->dirty());
+  CHECK_EQ(disk(f), "a\nb!\nc\nd\ne\n");
+  CHECK(!f.doc->buffer().mixedLineEndings());
+  CHECK(f.ed->undo());  // one step
+  CHECK_EQ(disk(f), "a\r\nb!\nc\rd\r\ne\n");
+  CHECK(f.ed->redo());
+  CHECK_EQ(disk(f), "a\nb!\nc\nd\ne\n");
+  // the caret did not move
+  CHECK(f.caret() == (Position{1, 2}));
+}
+
+TEST(le_save_with_line_endings_converts_and_writes) {
+  Fx f("a\r\nb\nc");
+  CHECK(f.ed->saveWithLineEnding(*f.doc, LineEnding::CR));
+  std::ifstream in(f.doc->path(), std::ios::binary);
+  std::stringstream ss;
+  ss << in.rdbuf();
+  CHECK_EQ(ss.str(), "a\rb\rc");
+  CHECK(!f.doc->dirty());
+  CHECK(f.doc->buffer().lineEnding() == LineEnding::CR);
+  // the next plain Save keeps what the buffer holds
+  f.set({C(2, 1)});
+  f.ed->insertText("!");
+  CHECK(f.ed->save(*f.doc));
+  std::ifstream in2(f.doc->path(), std::ios::binary);
+  std::stringstream s2;
+  s2 << in2.rdbuf();
+  CHECK_EQ(s2.str(), "a\rb\rc!");
+}
+
+TEST(le_load_check_fires_once_for_a_mixed_file_and_only_when_enabled) {
+  const fs::path dir = fs::temp_directory_path() /
+                       ("tenfold_le_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  fs::create_directories(dir);
+  auto write = [&](const char* name, const std::string& t) {
+    std::ofstream out(dir / name, std::ios::binary);
+    out << t;
+  };
+  write("mixed.cpp", "a\r\nb\n");
+  write("crlf.cpp", "a\r\nb\r\n");
+  write("lf.cpp", "a\nb\n");
+  write("mixed2.cpp", "a\rb\n");
+  {
+    Editor ed(dir);
+    std::vector<std::string> asked;
+    ed.onInconsistentLineEndings([&](Document& d) { asked.push_back(d.path().filename().string()); });
+    CHECK(ed.open("crlf.cpp") != nullptr);
+    CHECK(ed.open("lf.cpp") != nullptr);
+    CHECK(asked.empty());
+    CHECK(ed.open("mixed.cpp") != nullptr);
+    CHECK(ed.open("mixed.cpp") != nullptr);  // already open: not a load
+    REQUIRE(asked.size() == 1);
+    CHECK_EQ(asked[0], "mixed.cpp");
+    ed.editing().checkLineEndings = false;
+    CHECK(ed.open("mixed2.cpp") != nullptr);
+    CHECK_EQ(asked.size(), size_t(1));
+    // typing a different ending later does not ask
+    ed.editing().checkLineEndings = true;
+    Document* d = ed.open("crlf.cpp");
+    ed.gotoLocation({d->path(), {0, 1}});
+    ed.insertText("x\ny", true);
+    CHECK(d->buffer().mixedLineEndings());
+    CHECK_EQ(asked.size(), size_t(1));
+  }
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+TEST(le_external_change_that_only_changes_line_endings_is_picked_up) {
+  Fx f("a\r\nb\r\n");
+  {
+    std::ofstream out(f.doc->path(), std::ios::binary | std::ios::trunc);
+    out << "a\nb\r\n";
+  }
+  std::string err;
+  CHECK(f.ed->reloadFromDisk(*f.doc, &err));
+  CHECK_EQ(disk(f), "a\nb\r\n");
+  CHECK(!f.doc->dirty());
+}

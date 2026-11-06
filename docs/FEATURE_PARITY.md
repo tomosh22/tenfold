@@ -55,7 +55,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Feature | Status | Notes |
 |---|---|---|
-| UTF-8 text, CRLF preserved | ✅ | |
+| UTF-8 text, CRLF preserved | ✅ | W10: every line keeps its own ending (LF / CRLF / CR); mixed files are saved as they are; Visual Studio's load check, status-bar conversion and Save with Line Endings |
 | Undo / redo | ✅ | Per document, linear; nestable undo groups restore caret sets; typed-word grouping (A5, setting). **verify** 10x's grouping of typed characters (OPEN_QUESTIONS #3). |
 | Multi-caret / column select | ✅ | Engine (A5) + TextView (B2a): click/drag/double/triple/Alt-drag column select, Ctrl/Alt-click add caret, multi-caret clipboard; keystroke-to-paint 0.36 ms with 1000 carets on 100k lines. |
 | Auto-indent, auto-close brackets and quotes | 🔶 | B8 / B8b: Enter copies / extends the indentation (brace and operator continuation), `}` dedents, closing and wrapping are split like 10x's settings (`editor.autoAddCloseBrace`, `editor.autoAddCloseBracket`, `editor.bracketSelectedText`, tenfold-only `editor.autoCloseQuotes`) with 10x's defaults (nothing pairs, selections are bracketed, tab indent, no detection). Formatting, case alignment, re-indent on paste are not done (see "10x settings not yet supported"). |
@@ -64,7 +64,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | Go to line | ✅ | B8: Ctrl+G, `line[:column]`, recorded in the navigation history. |
 | Bookmarks | 🔶 | B8: toggle / next / previous / list, per file, follow edits, `.tenfold/bookmarks.json`, gutter flag. **verify** 10x's behaviour (OPEN_QUESTIONS #8). |
 | Find / replace in file | 🔶 | B8: Ctrl+F / Ctrl+H bar, incremental highlight of all matches, case / word / regex, F3 / Shift+F3, replace one / all (one undo step). Regex group references in the replacement are not expanded. |
-| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off; 10x documents no such setting), `Editor.LineEndingLF/CRLF`. Encoding is UTF-8 only. |
+| Trim trailing whitespace on save, line ending switch | 🔶 | B8: `editor.trimTrailingWhitespace` (default off; 10x documents no such setting), `Editor.LineEndingLF/CRLF/CR`. Encoding is UTF-8 only. |
 | Word wrap | ✅ | B2c: soft wrap on by default (`editor.wordWrap`; smooth scrolling off by default), at word boundaries, continuation rows indented, line number on the first row; Up / Down / Home / End by visual row; `View.ToggleWordWrap` (Alt+Z, the Visual Studio binding). No hard wrap / reflow and no wrap at a fixed column (a possible later setting). |
 | Large files | ✅ | Line vector; tested approach, piece table as upgrade path. |
 

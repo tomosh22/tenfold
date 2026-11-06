@@ -414,11 +414,9 @@ Decided without a user decision because the alternative was the editor terminati
   **There is no command to change a document's encoding** (`Document::setEncoding` exists, nothing calls it), so the
   only way out of a refusal is to edit the text; "Save with encoding..." / "Reopen with encoding..." would be the
   next step (Visual Studio has both) and was not added here.
-* **Line endings.** A line ends at CRLF, LF or a lone CR. A document has one ending (the most frequent; ties LF, then
-  CRLF) written for every line, so a file with mixed endings is normalised when saved; saving is not triggered by
-  opening. Per-line preservation would need a parallel per-line array in `TextBuffer`; say if mixed files must
-  survive a save untouched. The status bar shows `CR` for classic Mac files; the line-ending commands only
-  switch between LF and CRLF.
+* **Line endings.** Replaced by the Visual Studio behaviour (user decision of 2026-11-06; see "W10 detail: line
+  endings like Visual Studio" below). The old default, one dominant ending per document written for every line on save,
+  no longer exists.
 * **Find in files / replace in files** still search the raw bytes of a file: for a Windows-1252 file the match text is
   not valid UTF-8 and its columns are raw byte columns. Replacing in a closed Windows-1252 file converts the
   replacement to Windows-1252 first (and refuses unencodable characters, see "Saving"); a UTF-16 file is never
@@ -428,9 +426,61 @@ Decided without a user decision because the alternative was the editor terminati
   such a location can be a few columns off in a line with non-ASCII bytes before the symbol, until clangd reparses.
   Fixing it fully needs either the UTF-16 offset encoding (full-text sync per keystroke) or a token check.
 * **Version control** (`src/vcs`, not touched by W9-FIX-ENC) splits the committed text at LF/CRLF only and compares it
-  with the buffer as raw bytes: for a Windows-1252 or UTF-16 file the gutter marks every non-ASCII line (and for a CR-only
-  file the whole file) as changed. The fix is the same decode (`decodeFileBytes`) and `TextBuffer`'s line rule applied to
+  with the buffer as raw bytes: for a Windows-1252 or UTF-16 file the gutter marks every non-ASCII line as changed (the
+  CR-only part was fixed by W10: `splitLines` uses `TextBuffer`'s line rule). The fix is the same decode (`decodeFileBytes`) and `TextBuffer`'s line rule applied to
   the base text.
+
+## W10 detail: line endings like Visual Studio (W10-LE)
+
+Implements docs/VS_BEHAVIOUR.md section 1.3. Where Visual Studio's behaviour is established (high / medium confidence) it is
+followed; the rows below are the places where it is not, so the most plausible reading was chosen. Each is one
+constant, branch or setting, easy to change.
+
+* **Implemented as documented:** per-line terminators (CRLF / LF / CR), load as is, save as stored (no normalisation), the
+  load check (`editor.checkLineEndings`, default on) with VS's message text and the Yes / No answer (Yes = one undoable
+  edit, document modified; No = unchanged, not asked again until reopened), Enter / generated lines replicating the
+  buffer's ending (`editor.replicateNewLine`, default on), paste keeping the pasted breaks, copy putting the stored breaks
+  on the clipboard, a status-bar indicator, Save with Line Endings (Advanced Save Options).
+* **Which line supplies the ending on Enter (L6, low):** the line the caret is on (the first line of a selection that is
+  replaced); the last line has no ending, so the line before it; a document without any break uses
+  `editor.defaultLineEnding`. `TextBuffer::endingForNewLine`, `Editor::newLineEndingAt`.
+* **Empty / break-less buffer (L6, L15):** `editor.defaultLineEnding`, default CRLF (VS's `NewLineCharacter` is `\r\n`;
+  10x's DefaultLineEnding is CRLF). On Linux and macOS a user who wants LF in new files sets `editor.defaultLineEnding =
+  LF`; a platform-dependent default was not chosen so that the settings file means the same everywhere. Note that a
+  loaded one-line file without a trailing newline also counts as a buffer without a break. **To confirm:** CRLF as the
+  default on Linux.
+* **`.editorconfig` `end_of_line` (L13):** tenfold reads no `.editorconfig`, so it is skipped. When `.editorconfig` support
+  arrives it replaces `defaultLineEnding` for new lines of files under the config (not the replicated ending of a file that
+  already has breaks, matching "VS does not convert existing styles").
+* **Pre-selected ending in the dialog (L4, unknown):** the document's most frequent ending (ties LF, then CRLF).
+  Buttons: VS has a drop-down plus Yes / No; tenfold's modal list has one "Yes: normalize line endings to <ending>" row
+  per ending plus "No" (a list popup has no drop-down). Escape and a click outside are No. The "do not show again"
+  check box is not drawn: switch `editor.checkLineEndings` off in the settings file.
+* **Unicode separators (L1, L4):** NEL, LS and PS are not line breaks and are not offered by the dialog (VS_BEHAVIOUR 1.3
+  item 8: clang / clangd would disagree on columns). A file using them keeps them as ordinary characters.
+* **Paste (L8, medium-low):** the Learn text says VS keeps the pasted breaks and one report says it does not; the Learn text
+  is followed (`editor.pasteKeepsLineBreaks`, default true; false converts to the Enter ending). Multi-caret paste of N
+  lines splits at any break. **To verify (V3).**
+* **Copy (L9):** the selection is put on the clipboard with the stored breaks (several selections are joined with the
+  document's dominant ending); without a selection the caret line with its own break (the last line: the ending the
+  document would use). tenfold does not convert LF to CRLF for other applications on Windows.
+* **Status bar label for a mixed file (L14, unknown, V1):** the dominant ending (`CRLF` / `LF` / `CR`), as for any file;
+  `lineEndingLabel` in `Workbench.cpp` has a constant `kShowMixedLabel` that shows `Mixed` instead. A click opens the
+  existing status menu (Windows (CR LF), Unix (LF), Macintosh (CR), Save with Line Endings...); the choice converts the
+  whole document as one undo step (VS's own click behaviour is unknown).
+* **Save with Line Endings (L11):** converts the document (an undoable edit, as the status-bar conversion) and saves it;
+  after the save the buffer holds the new endings, and the next plain Save keeps them ("not a persistent option" in VS
+  terms). It is not an encoding picker: Save with Encoding belongs to the encoding work.
+* **Commands that rewrite lines (move line, comment toggle over several lines):** their replacement text takes the ending of
+  the first line of the edited range, so in a mixed file the lines they rewrite become uniform. Edits that copy buffer text
+  (comment a selection, duplicate a selection, wrap in brackets, change case) keep each line's own ending.
+* **Reload of a changed file:** line-ending-only changes on disk are picked up (the diff compares terminators); the load
+  check is not repeated (VS: on load only).
+* **Version control:** the gutter compares lines without terminators (as before), so a line whose only difference is its
+  ending is never a changed line; the base text now splits at a lone CR too. The external diff tool gets a mixed buffer
+  with its dominant ending only.
+* **clangd:** gets CRLF and LF lines as they are and lone CR as LF (see ARCHITECTURE, "Text for clangd"), so lines and
+  columns always agree.
 
 ## W9 detail: Visual Studio configurations (W9-FIX-vs)
 

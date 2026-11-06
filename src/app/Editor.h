@@ -275,6 +275,9 @@ class Editor {
   void setSelections(std::vector<Selection> carets);
   // Selected text of every non-empty selection in document order, joined with '\n'.
   std::string selectedText() const;
+  // The same with the line breaks the buffer holds (CRLF / LF / CR; selections are joined with the document's ending):
+  // what Copy puts on the clipboard.
+  std::string selectedTextRaw() const;
   // Move every caret. `extend` keeps each anchor (grows the selection); otherwise selections collapse (Left/Right
   // with a selection and no extend jump to its edge). Up/Down/PageUp/PageDown keep a per-caret preferred column
   // (in code points). Word = run of identifier characters (CppLexer rules), punctuation run, or line break.
@@ -314,10 +317,13 @@ class Editor {
   // Every command edits at every caret and forms ONE undo step; undo()/redo() restore the caret set.
   // insertText replaces selections. A single typed character (one code point) is coalesced with the preceding
   // typing into one step according to Workspace::Settings::undoGrouping / undoGroupPauseMs.
-  void insertText(const std::string& text);
+  // Line breaks in `text` become the ending the document would use for a new line (newLineEndingAt: Visual Studio's
+  // ReplicateNewLineCharacter), so typed and generated text never makes a file mixed. `literal` = paste: the breaks
+  // stay as they are (CRLF / LF / CR), when editing().pasteKeepsLineBreaks.
+  void insertText(const std::string& text, bool literal = false);
   // One text per caret, in document order (texts.size() must equal selections().size(), else nothing happens): paste
-  // of N lines into N carets. One undo step.
-  void insertTextPerCaret(const std::vector<std::string>& texts);
+  // of N lines into N carets. One undo step. `literal` as for insertText.
+  void insertTextPerCaret(const std::vector<std::string>& texts, bool literal = false);
   void backspace();
   void del();
   void deleteRange(Range r);
@@ -330,16 +336,20 @@ class Editor {
   // Defaults are 10x's documented defaults (AutoIndent, AutoIndentBraces, FormatBracesOnEnterSplit, AutoAddCloseBrace,
   // AutoAddCloseBracket, BracketSelectedText, AutoDetectIndentMode, IndentMode).
   struct EditingOptions {
-    bool autoIndent = true;                    // Enter copies / extends the indentation
-    bool autoIndentBraces = true;              // '}' typed first on a line dedents to the line of its '{'
-    bool formatBracesOnEnterSplit = false;     // Enter between "{" and "}" moves the closer to its own line
-    bool autoCloseBrace = false;               // "{" inserts "}" (with skip-over and pair Backspace)
-    bool autoCloseBracket = false;             // "(" and "[" insert their closer (with skip-over and pair Backspace)
-    bool autoCloseQuotes = false;              // tenfold only: quotes pair (10x documents no setting for it)
-    bool bracketSelectedText = true;           // typing ( [ { over a selection encloses it (quotes: autoCloseQuotes)
-    bool detectIndent = false;                 // take the indent unit from the document's first lines
-    std::string indentUnit = "\t";             // "\t" or N spaces; the fallback when detection finds nothing
-    bool trimTrailingWhitespace = false;       // on save()
+    bool autoIndent = true;                 // Enter copies / extends the indentation
+    bool autoIndentBraces = true;           // '}' typed first on a line dedents to the line of its '{'
+    bool formatBracesOnEnterSplit = false;  // Enter between "{" and "}" moves the closer to its own line
+    bool autoCloseBrace = false;            // "{" inserts "}" (with skip-over and pair Backspace)
+    bool autoCloseBracket = false;          // "(" and "[" insert their closer (with skip-over and pair Backspace)
+    bool autoCloseQuotes = false;           // tenfold only: quotes pair (10x documents no setting for it)
+    bool bracketSelectedText = true;        // typing ( [ { over a selection encloses it (quotes: autoCloseQuotes)
+    bool detectIndent = false;              // take the indent unit from the document's first lines
+    std::string indentUnit = "\t";          // "\t" or N spaces; the fallback when detection finds nothing
+    bool trimTrailingWhitespace = false;    // on save()
+    LineEnding defaultLineEnding = LineEnding::CRLF;  // new lines of a document without any line break
+    bool replicateNewLine = true;      // VS ReplicateNewLineCharacter: a new line copies the caret line's ending
+    bool pasteKeepsLineBreaks = true;  // pasted text keeps its own line breaks (VS), else the Enter ending
+    bool checkLineEndings = true;      // VS "Check for consistent line endings on load"
     bool commentBlockUsesLineComments = true;  // 10x CommentBlockUsesLineComments: ToggleComment with a selection
     int tabWidth = 4;                          // columns per tab stop (alignCarets); the view's editor.tabWidth
   };
@@ -382,8 +392,18 @@ class Editor {
   // given (and then do not set `error`; without it they do).
   bool saveAll(std::string* error = nullptr, std::vector<SaveRefusal>* refused = nullptr);
   bool gotoLine(int line, int column = 1, std::string* error = nullptr);  // 1-based, through gotoLocation
-  // Line ending of `doc` (LF / CRLF): marks the document dirty; not an undo step.
+  // Makes every line break of `doc` `e` (CRLF / LF / CR) as ONE undo step; the document becomes modified (see
+  // Document::convertLineEndings). An empty / one-line document only gets the ending its next line break will use.
   void setLineEnding(Document& doc, LineEnding e);
+  // The ending a line break typed on `line` of `doc` gets (editing().replicateNewLine, defaultLineEnding).
+  LineEnding newLineEndingAt(const Document& doc, int line) const;
+  // File > Advanced Save Options / "Save with Line Endings": converts `doc` to `e` (undoable) and saves it.
+  bool saveWithLineEnding(Document& doc, LineEnding e, std::string* error = nullptr);
+  // "Check for consistent line endings on load": called (from open(), for a document read from disk whose lines do
+  // not all end the same way) when editing().checkLineEndings is on. The UI asks what to do and answers with
+  // setLineEnding() or nothing. Not called for reloads of a changed file or for typing / pasting afterwards.
+  using LineEndingsHandler = std::function<void(Document&)>;
+  void onInconsistentLineEndings(LineEndingsHandler h) { inconsistentEndings_ = std::move(h); }
   // Find / replace in the current document. Matches come from TextSearch's matcher (regex needs PCRE2; matches are
   // clipped to their first line). `error` carries "invalid regex: ..." and the like.
   std::vector<Range> findInDocument(const SearchOptions& opts, std::string* error = nullptr);
@@ -513,6 +533,7 @@ class Editor {
     std::string text;
     // Where the caret ends up, as byte offsets into `text` (npos = its end); anchorOffset npos = same as the head.
     size_t headOffset = std::string::npos, anchorOffset = std::string::npos;
+    bool literal = false;  // the breaks of `text` are final (paste, text copied from the buffer); else see insertText
   };
   void setCurrent(Document* d, Position p);
   void watchDocument(Document& doc);  // the change listener every open document has
@@ -526,6 +547,9 @@ class Editor {
     if (current_) lastEdit_ = cursor_;
   }
   void applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious);
+  // `text` for an edit at `line` of `doc`: its line breaks become newLineEndingAt(). Used for everything that is not
+  // pasted or copied from the buffer, so editing never mixes the endings of a file.
+  std::string withDocBreaks(const Document& doc, int line, std::string text) const;
   enum class LineCommentMode { Toggle, Comment, Uncomment };
   void lineComments(LineCommentMode mode);
   void changeSelectionCase(bool upper);
@@ -614,6 +638,7 @@ class Editor {
   std::unique_ptr<FileWatcher> watcher_;
   bool buildRefreshRunning_ = false, buildRefreshAgain_ = false, buildRefreshForce_ = false;
   std::vector<std::function<void()>> buildRefreshDone_;
+  LineEndingsHandler inconsistentEndings_;
   ExternalChangeHandler externalChange_;
   std::map<std::string, size_t> diskHash_;  // key: generic path; hash of the bytes last loaded / saved
   std::mutex qmu_;

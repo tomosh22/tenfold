@@ -28,6 +28,7 @@
 #include "ui/features/GoToLine.h"
 #include "ui/features/HoverTooltip.h"
 #include "ui/features/KeySequence.h"
+#include "ui/features/LineEndingPrompt.h"
 #include "ui/features/NavResultPicker.h"
 #include "ui/features/NavigationUi.h"
 #include "ui/features/OsLauncher.h"
@@ -110,6 +111,7 @@ class EditorApp {
   CompileInfo& compileInfo() { return *compileInfo_; }  // D4: Help.ShowCompileCommand
   UnsavedPrompt& unsavedPrompt() { return *unsaved_; }
   ExternalChanges& externalChanges() { return *external_; }
+  LineEndingPrompt& lineEndingPrompt() { return *lineEndings_; }  // load check + Advanced Save Options
   CommandPalette& commandPalette() { return *palette_; }
   bool confirmUnsaved() const { return confirmUnsaved_; }  // setting editor.confirmUnsaved
   // Quit like App.Quit and closing the window do: with dirty documents (and editor.confirmUnsaved) the Save All / Don't
@@ -282,6 +284,7 @@ class EditorApp {
   KeySequence keySeq_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
   std::unique_ptr<ExternalChanges> external_;
+  std::unique_ptr<LineEndingPrompt> lineEndings_;
   std::unique_ptr<CommandPalette> palette_;
   bool confirmUnsaved_ = true;
   // W8b

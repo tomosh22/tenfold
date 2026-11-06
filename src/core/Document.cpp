@@ -69,6 +69,23 @@ bool Document::saveToDisk(std::string* error, UnencodableReport* refused) {
   return true;
 }
 
+void Document::convertLineEndings(LineEnding e) {
+  std::vector<BatchEdit> edits;
+  const int n = buf_.lineCount();
+  for (int i = 0; i + 1 < n; ++i)
+    if (buf_.endingAfter(i) != e)
+      edits.push_back(
+          {{{i, static_cast<int>(buf_.line(i).size())}, {i + 1, 0}}, std::string(TextBuffer::terminatorText(e))});
+  if (edits.empty()) {
+    if (n == 1) buf_.setLineEnding(e);
+    return;
+  }
+  beginGroup();
+  replaceMany(std::move(edits));
+  endGroup();
+  buf_.compact();
+}
+
 std::string Document::uri() const { return pathToUri(path_); }
 
 Document::BatchResult Document::applyBatch(const std::vector<BatchEdit>& edits, Batch* rec, bool skipNoops) {
@@ -86,7 +103,7 @@ Document::BatchResult Document::applyBatch(const std::vector<BatchEdit>& edits, 
   std::vector<std::string> olds(n);
   std::vector<TextBuffer::Edit> be(n);
   for (size_t k = 0; k < n; ++k) {
-    olds[k] = buf_.textInRange(rs[k]);
+    olds[k] = buf_.textInRangeRaw(rs[k]);  // with the real line breaks, so undo restores them byte for byte
     be[k] = {rs[k], edits[k].text};
   }
   BatchResult out;

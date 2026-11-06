@@ -295,9 +295,27 @@ character jumps to it, **Escape** closes the dialog; remove or replace the chara
 for Save All (the other files are still saved), when you close a tab or quit and answer Save (the tab stays open, the
 quit is cancelled), and when a rename writes closed files (they stay open and modified). Replace in Files does not write
 a closed Windows-1252 file when the replacement text has such a character, and says so. There is no command to change a
-file's encoding yet. Line
-endings LF, CRLF and classic Mac CR are recognised; the most frequent one is written on save (`Editor.LineEndingLF` /
-`Editor.LineEndingCRLF` convert; they have no default key).
+file's encoding yet. Line endings are handled like Visual Studio does:
+
+* LF, CRLF and classic Mac CR are recognised, and **every line keeps its own ending**. A file is saved exactly as it was
+  loaded, also when its lines end in different ways; nothing is normalised behind your back.
+* **Enter** (and every command that adds a line) gives the new line the ending of the line the caret is on
+  (`editor.replicateNewLine`); a file without any line break uses `editor.defaultLineEnding`.
+* **Paste** keeps the line breaks of the pasted text (`editor.pasteKeepsLineBreaks`), so pasting CRLF text into an LF file
+  makes the file mixed. **Copy** puts the stored breaks on the clipboard.
+* **Opening a file** whose lines end differently asks "The line endings in the following files are not consistent. Do you
+  want to normalize the line endings?" (`editor.checkLineEndings`). The choices are *Yes* with an ending (Windows (CR LF),
+  Unix (LF), Macintosh (CR); the file's most frequent ending is pre-selected) and *No*. Yes rewrites the line endings as
+  one edit: the file becomes modified and Undo brings the old endings back. No (or Escape) opens the file as it is. The
+  question is asked when the file is opened, never while typing or pasting.
+* The **status bar** shows the document's line ending (`CRLF`, `LF` or `CR`; a mixed file shows its most frequent
+  one). Clicking it (or right-clicking) offers Windows (CR LF), Unix (LF) and Macintosh (CR): the whole document is
+  converted as one undoable edit. **Save with Line Endings...** (`File.SaveWithLineEndings`, also in that menu) is Visual
+  Studio's Advanced Save Options: Current Setting / Windows (CR LF) / Macintosh (CR) / Unix (LF); the choice converts the
+  document and saves it. `Editor.LineEndingLF`, `Editor.LineEndingCRLF` and `Editor.LineEndingCR` run the same
+  conversions from the command palette; none has a default key.
+* Not like Visual Studio: the Unicode separators NEL, LS and PS are not line breaks here (clangd does not treat them as
+  such), and `.editorconfig` `end_of_line` is not read.
 
 **Carets.** Shift+Alt+Up / Down (`MultiCursorMoveUp` / `Down`) add a caret above / below, **Ctrl+D** (`SelectNextMultiCursor`) selects the word under the caret and then adds the
 next occurrence, **Ctrl-click** adds a caret, **Alt-click** adds a caret and **Alt-drag** makes a column selection,
@@ -715,6 +733,9 @@ tests.)
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
 | `editor.reloadExternalChanges` | `auto` | string | A file that changed on disk behind the editor's back: `auto` reloads it unless it has unsaved edits (then asks Reload / Keep my version), `prompt` always asks, `never` leaves the buffer alone and only says so in the status bar. Follows Visual Studio's "reload modified files unless there are unsaved changes" (OPEN_QUESTIONS #5). |
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. Encoding of new files is UTF-8 (10x: DefaultEncoding). |
+| `editor.replicateNewLine` | `true` | bool | Enter (and every command that adds a line) copies the line ending of the line the caret is on, so a CRLF file stays CRLF and an LF file stays LF; only a document without any line break uses `editor.defaultLineEnding`. `false` always uses `editor.defaultLineEnding`. Visual Studio: `ReplicateNewLineCharacter`. |
+| `editor.pasteKeepsLineBreaks` | `true` | bool | Pasted text keeps its own line breaks (pasting LF text into a CRLF file makes the file mixed, as in Visual Studio). `false` turns them into the line ending Enter would use. |
+| `editor.checkLineEndings` | `true` | bool | Opening a file whose lines end in different ways (CRLF and LF, ...) asks "The line endings in the following files are not consistent. Do you want to normalize the line endings?" with a choice of ending. Visual Studio: Tools > Options > Environment > Documents > Check for consistent line endings on load. |
 | `editor.autoNameUntitledFiles` | `false` | bool | An untitled file is named after the first word typed in it; the name is what the Save As prompt offers. 10x: AutoNameUntitledFiles. |
 | `editor.internetSearchCommand` | `https://www.google.com/search?q=` | string | `InternetSearch` (F1) opens this address with the word under the caret or the selection appended (percent-encoded) in the default browser. 10x: InternetSearchCommand. |
 | `editor.pasteHistorySize` | `20` | int | How many recent clipboard texts `PasteHistory` (Ctrl+Shift+V) keeps; 0 turns it off. 10x documents no size. |

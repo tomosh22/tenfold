@@ -116,8 +116,14 @@ bool isPair(char open, char close) {
 // `p` moved forward over the first `bytes` bytes of `text`.
 Position advanceBy(Position p, const std::string& text, size_t bytes) {
   for (size_t i = 0; i < bytes && i < text.size(); ++i) {
-    if (text[i] == '\n') p = {p.line + 1, 0};
-    else ++p.column;
+    if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n' && i + 1 < bytes) {  // CRLF is one break
+      p = {p.line + 1, 0};
+      ++i;
+    } else if (text[i] == '\n' || text[i] == '\r') {
+      p = {p.line + 1, 0};
+    } else {
+      ++p.column;
+    }
   }
   return p;
 }
@@ -250,7 +256,7 @@ std::vector<Document*> Editor::documents() {
 
 void Editor::watchDocument(Document& doc) {
   doc.addListener([this](Document& d, const Document::Change& ch) {
-    int newLines = 1 + static_cast<int>(std::count(ch.newText.begin(), ch.newText.end(), '\n'));
+    int newLines = 1 + TextBuffer::countBreaks(ch.newText);
     nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
     bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
     breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
@@ -294,6 +300,8 @@ Document* Editor::open(const fs::path& pathIn, std::string* error) {
   diskHash_[key] = hashFile(path);
   if (semantic_) semantic_->didOpen(*raw);
   vcs_->documentOpened(*raw);
+  // Visual Studio's "Check for consistent line endings on load": once, when the file is read, never for later edits.
+  if (editing_.checkLineEndings && inconsistentEndings_ && raw->buffer().mixedLineEndings()) inconsistentEndings_(*raw);
   return raw;
 }
 
@@ -439,25 +447,23 @@ bool Editor::reloadFromDisk(Document& doc, std::string* error) {
   TextBuffer fresh(decodeFileBytes(bytes).text);  // the same UTF-8 view of the file that loadFromDisk builds
   const TextBuffer& old = doc.buffer();
   const int oldN = old.lineCount(), newN = fresh.lineCount();
-  // Replace only the lines that differ so history entries and clangd keep their place.
+  // Replace only the lines that differ (text or terminator) so history entries and clangd keep their place.
+  auto same = [&](int o, int n) {
+    if (old.line(o) != fresh.line(n)) return false;
+    const bool oLast = o + 1 == oldN, nLast = n + 1 == newN;
+    return oLast == nLast && (oLast || old.endingAfter(o) == fresh.endingAfter(n));
+  };
   int i = 0;
-  while (i < oldN && i < newN && old.line(i) == fresh.line(i)) ++i;
+  while (i < oldN && i < newN && same(i, i)) ++i;
   int j = 0;
-  while (j < oldN - i && j < newN - i && old.line(oldN - 1 - j) == fresh.line(newN - 1 - j)) ++j;
+  while (j < oldN - i && j < newN - i && same(oldN - 1 - j, newN - 1 - j)) ++j;
   if (!(i == oldN && i == newN)) {
-    auto join = [&](int from, int to, bool terminate) {
-      std::string t;
-      for (int k = from; k < to; ++k) {
-        t += fresh.line(k);
-        if (terminate || k + 1 < to) t += '\n';
-      }
-      return t;
-    };
     if (j > 0) {
-      doc.replace({{i, 0}, {oldN - j, 0}}, join(i, newN - j, true));
+      doc.replace({{i, 0}, {oldN - j, 0}}, fresh.textInRangeRaw({{i, 0}, {newN - j, 0}}));
     } else {
       int from = (i == oldN || i == newN) && i > 0 ? i - 1 : i;
-      doc.replace({{from, 0}, {oldN - 1, static_cast<int>(old.line(oldN - 1).size())}}, join(from, newN, false));
+      doc.replace({{from, 0}, {oldN - 1, static_cast<int>(old.line(oldN - 1).size())}},
+                  fresh.textInRangeRaw({{from, 0}, {newN - 1, static_cast<int>(fresh.line(newN - 1).size())}}));
     }
   }
   if (!doc.loadFromDisk(error)) return false;  // clean state, CRLF flag, empty undo stack
@@ -986,6 +992,22 @@ std::string Editor::selectedText() const {
   for (size_t i = 0; i < rs.size(); ++i) {
     if (i) out += '\n';
     out += current_->buffer().textInRange(rs[i]);
+  }
+  return out;
+}
+
+std::string Editor::selectedTextRaw() const {
+  if (!current_) return {};
+  std::vector<Range> rs;
+  for (const Selection& s : carets_)
+    if (!s.empty()) rs.push_back(s.range());
+  std::sort(rs.begin(), rs.end());
+  const TextBuffer& b = current_->buffer();
+  const std::string_view sep = TextBuffer::terminatorText(b.lineEnding());
+  std::string out;
+  for (size_t i = 0; i < rs.size(); ++i) {
+    if (i) out += sep;
+    out += b.textInRangeRaw(rs[i]);
   }
   return out;
 }
@@ -1579,6 +1601,19 @@ void Editor::applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious) {
   std::vector<std::string> placed(n);  // texts of edits that position their caret inside the inserted text
   for (size_t k = 0; k < n; ++k) {
     CaretEdit& ce = edits[order[k]];
+    if (!ce.literal && TextBuffer::countBreaks(ce.text) > 0) {  // line breaks -> the ending of the caret's line
+      const TextBuffer& b = doc.buffer();
+      const LineEnding le = newLineEndingAt(doc, b.clamp(ce.range.start).line);
+      auto offset = [&](size_t off) {  // a byte offset into the old text, in the converted one
+        return off == std::string::npos
+                   ? off
+                   : TextBuffer::withLineEnding(std::string_view(ce.text).substr(0, off), le).size();
+      };
+      const size_t head = offset(ce.headOffset), anchor = offset(ce.anchorOffset);
+      ce.text = TextBuffer::withLineEnding(ce.text, le);
+      ce.headOffset = head;
+      ce.anchorOffset = anchor;
+    }
     if (ce.headOffset != std::string::npos || ce.anchorOffset != std::string::npos) placed[k] = ce.text;
     batch[k] = {ce.range, std::move(ce.text)};
   }
@@ -1603,13 +1638,14 @@ void Editor::applyCaretEdits(std::vector<CaretEdit> edits, bool joinPrevious) {
   noteEdit();
 }
 
-void Editor::insertText(const std::string& text) {
+void Editor::insertText(const std::string& text, bool literal) {
   if (!current_ || carets_.empty()) return;
   const bool anySelection = std::any_of(carets_.begin(), carets_.end(), [](const Selection& s) { return !s.empty(); });
   if (text.empty() && !anySelection) return;
   std::vector<CaretEdit> edits;
   edits.reserve(carets_.size());
-  for (const Selection& s : carets_) edits.push_back({s.range(), text});
+  for (const Selection& s : carets_)
+    edits.push_back({s.range(), text, std::string::npos, std::string::npos, literal && editing_.pasteKeepsLineBreaks});
   typeEdits(std::move(edits), text);
 }
 
@@ -1635,14 +1671,16 @@ void Editor::typeEdits(std::vector<CaretEdit> edits, const std::string& typed) {
   }
 }
 
-void Editor::insertTextPerCaret(const std::vector<std::string>& texts) {
+void Editor::insertTextPerCaret(const std::vector<std::string>& texts, bool literal) {
   if (!current_ || carets_.empty() || texts.size() != carets_.size()) return;
   breakTyping();
   std::vector<size_t> order(carets_.size());
   for (size_t i = 0; i < order.size(); ++i) order[i] = i;
   std::sort(order.begin(), order.end(), [&](size_t a, size_t b) { return carets_[a].range() < carets_[b].range(); });
   std::vector<CaretEdit> edits(carets_.size());
-  for (size_t r = 0; r < order.size(); ++r) edits[order[r]] = {carets_[order[r]].range(), texts[r]};
+  for (size_t r = 0; r < order.size(); ++r)
+    edits[order[r]] = {carets_[order[r]].range(), texts[r], std::string::npos, std::string::npos,
+                       literal && editing_.pasteKeepsLineBreaks};
   applyCaretEdits(std::move(edits), false);
 }
 
@@ -1698,7 +1736,7 @@ void Editor::replaceRange(Range r, const std::string& text) {
   breakTyping();
   current_->beginGroup(carets_);
   inEdit_ = true;
-  current_->replace(r, text);
+  current_->replace(r, withDocBreaks(*current_, current_->buffer().clamp(r.start).line, text));
   inEdit_ = false;
   setPrimaryOnly(r.start);
   current_->endGroup(carets_);
@@ -2167,7 +2205,8 @@ bool Editor::applyEdits(const FileEdits& edits, std::string* error) {
     inEdit_ = true;
     for (size_t k = order.size(); k-- > 0;) {  // bottom-to-top: earlier ranges stay valid
       const auto& [range, text] = (*list)[order[k]];
-      const TextBuffer::EditResult res = d->replace(range, text);
+      const TextBuffer::EditResult res =
+          d->replace(range, withDocBreaks(*d, d->buffer().clamp(range.start).line, text));
       if (!cur) continue;
       auto remap = [&](Position p) {
         if (p < res.removed.start) return p;

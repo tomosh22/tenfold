@@ -75,7 +75,12 @@ std::vector<MenuEntry> tabMenuEntries(bool pinned) {
 std::vector<MenuEntry> statusMenuEntries(const std::string& segment) {
   if (segment == "config") return {{"Build.SelectConfiguration", "Select Configuration..."}};
   if (segment == "pos") return {{"Editor.GotoLine", "Go To Line..."}};
-  if (segment == "eol") return {{"Editor.LineEndingCRLF", "Windows (CRLF)"}, {"Editor.LineEndingLF", "Unix (LF)"}};
+  if (segment == "eol")
+    return {{"Editor.LineEndingCRLF", "Windows (CR LF)"},
+            {"Editor.LineEndingLF", "Unix (LF)"},
+            {"Editor.LineEndingCR", "Macintosh (CR)"},
+            {},
+            {"File.SaveWithLineEndings", "Save with Line Endings..."}};
   if (segment == "flags") return {{"Help.ShowCompileCommand", "Show Compile Command"}};
   if (segment == "clangd") return {{"Clangd.Restart", "Restart clangd"}};
   if (segment == "build")

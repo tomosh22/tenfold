@@ -962,14 +962,21 @@ void Workbench::sync() {
   refreshStatus();
 }
 
+// The line-ending segment: one item for the document, like Visual Studio's editor margin (CRLF / LF / CR). VS's label
+// for a document whose lines end differently is not established (docs/VS_BEHAVIOUR.md L14, check V1): until it is,
+// the dominant ending is shown; flip kShowMixedLabel to show "Mixed" instead.
+static std::string lineEndingLabel(const TextBuffer& b) {
+  constexpr bool kShowMixedLabel = false;
+  if (kShowMixedLabel && b.mixedLineEndings()) return "Mixed";
+  return b.lineEnding() == LineEnding::CRLF ? "CRLF" : b.lineEnding() == LineEnding::CR ? "CR" : "LF";
+}
+
 void Workbench::refreshStatus() {
   Document* cur = editor_.currentDocument();
   if (cur) {
     const Position p = editor_.cursor().pos;
     status_->setText("pos", "Ln " + std::to_string(p.line + 1) + ", Col " + std::to_string(p.column + 1));
-    status_->setText("eol", cur->buffer().lineEnding() == LineEnding::CRLF ? "CRLF"
-                            : cur->buffer().lineEnding() == LineEnding::CR ? "CR"
-                                                                           : "LF");
+    status_->setText("eol", lineEndingLabel(cur->buffer()));
     status_->setText("encoding", "UTF-8");
     status_->setText("vcs", vcsStatusText(editor_.vcs(), cur->path()));
     status_->setText("disk", fileMissing(cur->path()) ? "deleted on disk" : "");

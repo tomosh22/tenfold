@@ -3,24 +3,11 @@
 #include <algorithm>
 #include <unordered_map>
 
+#include "core/TextBuffer.h"
+
 namespace tf {
 
-std::vector<std::string> splitLines(std::string_view text) {
-  std::vector<std::string> lines;
-  size_t start = 0;
-  while (true) {
-    size_t nl = text.find('\n', start);
-    if (nl == std::string_view::npos) {
-      lines.emplace_back(text.substr(start));
-      break;
-    }
-    size_t end = nl;
-    if (end > start && text[end - 1] == '\r') --end;
-    lines.emplace_back(text.substr(start, end - start));
-    start = nl + 1;
-  }
-  return lines;
-}
+std::vector<std::string> splitLines(std::string_view text) { return TextBuffer(text).lines(); }
 
 std::string joinLines(const std::vector<std::string>& lines, size_t first, size_t count) {
   std::string out;

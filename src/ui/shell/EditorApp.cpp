@@ -35,15 +35,20 @@ std::vector<int> caretLines(const Editor& ed) {
   return {lines.begin(), lines.end()};
 }
 
-// Selected text (multi-caret: selections joined with '\n'); without a selection the caret lines (one caret: the line
-// plus its break, several: joined with '\n' so that pasting into the same number of carets round-trips).
+// Selected text with the line breaks the buffer holds (multi-caret: selections joined with the document's ending);
+// without a selection the caret lines (one caret: the line plus its own line break, several: joined with the document's
+// ending so that pasting into the same number of carets round-trips).
 std::string copyText(Editor& ed) {
-  if (anySelection(ed)) return ed.selectedText();
+  if (anySelection(ed)) return ed.selectedTextRaw();
   const TextBuffer& b = ed.currentDocument()->buffer();
+  const std::string_view sep = TextBuffer::terminatorText(b.lineEnding());
   std::string out;
   const std::vector<int> lines = caretLines(ed);
-  for (size_t i = 0; i < lines.size(); ++i) out += (i ? "\n" : "") + b.line(lines[i]);
-  if (lines.size() == 1) out += '\n';
+  for (size_t i = 0; i < lines.size(); ++i) {
+    if (i) out += sep;
+    out += b.line(lines[i]);
+  }
+  if (lines.size() == 1) out += TextBuffer::terminatorText(b.endingAfter(lines[0]));
   return out;
 }
 
@@ -68,23 +73,28 @@ bool doCut(Editor& ed, const SetClipboard& set) {
 }
 
 // N carets and exactly N lines on the clipboard (a final line break does not count): one line per caret, in document
-// order. Anything else pastes the whole text at every caret.
-bool pasteText(Editor& ed, std::string t) {
-  t.erase(std::remove(t.begin(), t.end(), '\r'), t.end());
+// order. Anything else pastes the whole text at every caret. The text keeps its own line breaks (CRLF, LF, CR) unless
+// editor.pasteKeepsLineBreaks is off.
+bool pasteText(Editor& ed, const std::string& t) {
   if (t.empty()) return false;
   const size_t carets = ed.selections().size();
   if (carets > 1) {
     std::vector<std::string> lines;
-    size_t from = 0;
-    for (size_t nl; (nl = t.find('\n', from)) != std::string::npos; from = nl + 1)
-      lines.push_back(t.substr(from, nl - from));
+    size_t from = 0, len = 0;
+    for (size_t i = 0; i < t.size(); ++i) {
+      if (t[i] != '\n' && t[i] != '\r') continue;
+      len = (t[i] == '\r' && i + 1 < t.size() && t[i + 1] == '\n') ? 2 : 1;
+      lines.push_back(t.substr(from, i - from));
+      i += len - 1;
+      from = i + 1;
+    }
     if (from < t.size() || lines.empty()) lines.push_back(t.substr(from));
     if (lines.size() == carets) {
-      ed.insertTextPerCaret(lines);
+      ed.insertTextPerCaret(lines, true);
       return true;
     }
   }
-  ed.insertText(t);
+  ed.insertText(t, true);
   return true;
 }
 
@@ -144,6 +154,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     setMessage("Saved " + to.filename().string(), kMessageMs);
   };
   external_ = std::make_unique<ExternalChanges>(pickerEnv_, bench_);
+  lineEndings_ = std::make_unique<LineEndingPrompt>(pickerEnv_);
   {
     CommandPalette::Hooks ph;
     ph.binding = [this](const std::string& id) { return bindingFor(id); };
@@ -197,6 +208,11 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     bench_->status().addSegment("config", StatusBar::Align::Left, [this](const std::string&) {
       runCommandId("Build.SelectConfiguration", "", activeContext());
     });
+    // A click on the line-ending indicator offers the conversion of the whole document, like the right-click menu.
+    bench_->status().setOnClick("eol", [this](const std::string&) {
+      const RectF r = bench_->status().segmentRect("eol");
+      if (editor_.currentDocument()) showContextMenu(buildCommandMenu(statusMenuEntries("eol")), r, false);
+    });
     bench_->status().setOnClick(
         "flags", [this](const std::string&) { runCommandId("Help.ShowCompileCommand", "", activeContext()); });
     bench_->status().addSegment("navcounts", StatusBar::Align::Right);
@@ -249,7 +265,8 @@ EditorApp::~EditorApp() {
   perforceUi_.reset();
   closePickers();  // their callbacks point into this object
   palette_.reset();
-  external_.reset();  // unhooks Editor::onExternalChange
+  external_.reset();     // unhooks Editor::onExternalChange
+  lineEndings_.reset();  // unhooks Editor::onInconsistentLineEndings
   unsaved_.reset();
   saveAs_.reset();
   saveRefused_.reset();
@@ -361,6 +378,14 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.autoCloseQuotes = s.getBool("editor.autoCloseQuotes");
   o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
+  o.replicateNewLine = s.getBool("editor.replicateNewLine");
+  o.pasteKeepsLineBreaks = s.getBool("editor.pasteKeepsLineBreaks");
+  o.checkLineEndings = s.getBool("editor.checkLineEndings");
+  {
+    std::string eol = s.getString("editor.defaultLineEnding");
+    for (char& c : eol) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+    o.defaultLineEnding = eol == "LF" ? LineEnding::LF : LineEnding::CRLF;
+  }
   o.commentBlockUsesLineComments = s.getBool("editor.commentBlockUsesLineComments");
   o.tabWidth = std::max(1, s.getInt("editor.tabWidth"));
 }
@@ -434,6 +459,7 @@ void EditorApp::closePickers() {
   saveAs_->close();
   saveRefused_->close();
   external_->close();
+  lineEndings_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
   if (pasteHistory_) pasteHistory_->close();
@@ -840,6 +866,16 @@ void EditorApp::bindUiCommands() {
         }
         setMessage("Cannot save " + d->path().filename().string() + (err.empty() ? std::string() : ": " + err),
                    kDiagMs);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "File.SaveWithLineEndings",
+      [this](const CommandContext& c, std::string_view) {
+        Document* d = c.editor->currentDocument();
+        if (!d || d->isUntitled()) return false;
+        closePickers();
+        lineEndings_->askSave(*d);
         return true;
       },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
@@ -1570,6 +1606,7 @@ int EditorApp::tick(int64_t nowMs) {
   if (const int due = replaceInFiles_->tick(nowMs); due >= 0) soonest(due);
   findReplace_->tick(nowMs);
   soonest(external_->tick(nowMs));
+  if (const int due = lineEndings_->tick(nowMs); due >= 0) soonest(due);
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
   if (explorer_) {
