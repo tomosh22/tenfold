@@ -1035,26 +1035,32 @@ TEST(pathological_churn_while_indexing) {
   CHECK(total > 100);
 
   auto onDisk = [&] {
+    // One directory_iterator per directory: a recursive_directory_iterator that fails to descend ends the whole walk
+    // on Windows (MSVC), which would hide files rather than report them.
     std::set<std::string> s;
-    std::error_code ec;
-    for (auto it = fs::recursive_directory_iterator(d.path, fs::directory_options::skip_permission_denied, ec);
-         it != fs::recursive_directory_iterator(); it.increment(ec)) {
-      if (ec) {
-        ec.clear();
-        continue;
-      }
-      if (it->path().generic_string().find("/.tenfold") != std::string::npos) continue;
-      if (it->is_regular_file(ec)) {
-        auto e = it->path().extension().string();
-        if (e == ".cpp" || e == ".h") s.insert(it->path().generic_string());
+    std::vector<fs::path> stack{d.path};
+    while (!stack.empty()) {
+      const fs::path dir = std::move(stack.back());
+      stack.pop_back();
+      std::error_code ec;
+      for (fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end; !ec && it != end;
+           it.increment(ec)) {
+        std::error_code e2;
+        if (it->path().filename() == ".tenfold") continue;
+        if (it->is_directory(e2)) {
+          if (!it->is_symlink(e2)) stack.push_back(it->path());
+        } else if (it->is_regular_file(e2)) {
+          const std::string e = pathUtf8(it->path().extension());
+          if (e == ".cpp" || e == ".h") s.insert(pathKeyUtf8(it->path()));
+        }
       }
     }
     return s;
   };
   auto inWorkspace = [&] {
     std::set<std::string> s;
-    for (auto& p : w.ed->workspace().sourceFiles()) s.insert(p.generic_string());
-    for (auto& p : w.ed->workspace().headerFiles()) s.insert(p.generic_string());
+    for (auto& p : w.ed->workspace().sourceFiles()) s.insert(pathKeyUtf8(p));
+    for (auto& p : w.ed->workspace().headerFiles()) s.insert(pathKeyUtf8(p));
     return s;
   };
   const bool consistent = w.ed->waitFor([&] { return inWorkspace() == onDisk(); }, 15000);

@@ -195,19 +195,14 @@ bool Workspace::isIgnoredDir(const fs::path& dir) const {
   return false;
 }
 
-void Workspace::scan(std::function<void(size_t)> progress) {
-  sources_.clear();
-  headers_.clear();
-  others_.clear();
-  ++revision_;
-  // One directory_iterator per directory instead of a single recursive_directory_iterator: when the recursive one
-  // fails to descend (a path past MAX_PATH on Windows, a directory deleted mid-scan, ...) the MSVC STL empties its
-  // stack, so the iterator becomes `end` and the rest of the tree is silently lost. Here a directory that cannot be
-  // read costs only itself.
+// One directory_iterator per directory instead of a single recursive_directory_iterator: when the recursive one
+// fails to descend (a path past MAX_PATH on Windows, a directory deleted mid-scan, ...) the MSVC STL empties its
+// stack, so the iterator becomes `end` and the rest of the tree is silently lost. Here a directory that cannot be
+// read costs only itself (and is logged).
+void Workspace::walkTree(const fs::path& start, const std::function<void(const fs::path&)>& onFile) const {
   constexpr size_t kMaxDepth = 256;  // also ends symlink cycles when followSymlinks is on
-  size_t n = 0;
   std::vector<std::pair<fs::path, size_t>> stack;
-  stack.emplace_back(root_, 0);
+  stack.emplace_back(start, 0);
   while (!stack.empty()) {
     auto [dir, depth] = std::move(stack.back());
     stack.pop_back();
@@ -230,15 +225,33 @@ void Workspace::scan(std::function<void(size_t)> progress) {
         if (!isIgnoredDir(e.path()) && (plain || settings_.followSymlinks) && depth < kMaxDepth)
           stack.emplace_back(e.path(), depth + 1);
       } else if (e.is_regular_file(ec2)) {
-        const fs::path& p = e.path();
-        if (isSource(p)) sources_.push_back(p);
-        else if (isHeader(p)) headers_.push_back(p);
-        else if (hasExt(p, settings_.otherExtensions)) others_.push_back(p);
-        if (progress && (++n % 1000) == 0) progress(n);
+        onFile(e.path());
       }
     }
-    if (ec) ec.clear();
   }
+}
+
+std::vector<fs::path> Workspace::noteTreeAdded(const fs::path& dir) {
+  std::vector<fs::path> added;
+  walkTree(dir, [&](const fs::path& p) {
+    if (noteFileAdded(p)) added.push_back(p);
+  });
+  return added;
+}
+
+void Workspace::scan(std::function<void(size_t)> progress) {
+  sources_.clear();
+  headers_.clear();
+  others_.clear();
+  ++revision_;
+  size_t n = 0;
+  walkTree(root_, [&](const fs::path& p) {
+    if (isSource(p)) sources_.push_back(p);
+    else if (isHeader(p)) headers_.push_back(p);
+    else if (hasExt(p, settings_.otherExtensions)) others_.push_back(p);
+    else return;
+    if (progress && (++n % 1000) == 0) progress(n);
+  });
   std::sort(sources_.begin(), sources_.end());
   std::sort(headers_.begin(), headers_.end());
   std::sort(others_.begin(), others_.end());
@@ -416,7 +429,7 @@ fs::path bundledBinDir() {
 
 std::vector<std::string> bundledSearchDirs(const fs::path& exeDir) {
   if (exeDir.empty()) return {};
-  return {exeDir.string(), (exeDir / "bin").string()};
+  return {pathUtf8(exeDir), pathUtf8(exeDir / "bin")};
 }
 
 std::string findExecutableIn(const std::string& name, const std::vector<std::string>& dirs, bool windows) {
@@ -424,7 +437,7 @@ std::string findExecutableIn(const std::string& name, const std::vector<std::str
     for (auto& c : executableCandidates(name, windows)) {
       fs::path cand = fs::path(d) / c;
       std::error_code ec;
-      if (fs::is_regular_file(cand, ec)) return cand.string();
+      if (fs::is_regular_file(cand, ec)) return pathUtf8(cand);
     }
   }
   return "";

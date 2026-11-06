@@ -5,6 +5,7 @@
 #include <cstdlib>
 #include <mutex>
 #include <set>
+#include "core/PathUtil.h"
 
 namespace tf {
 
@@ -200,7 +201,7 @@ bool PerforceProvider::detect(const fs::path& rootOrFile) {
   std::error_code ec;
   fs::path dir = rootOrFile;
   if (!fs::is_directory(dir, ec)) dir = dir.parent_path();
-  if (dir.empty() || !fs::is_directory(dir, ec)) return fail(nullptr, "not a directory: " + rootOrFile.string());
+  if (dir.empty() || !fs::is_directory(dir, ec)) return fail(nullptr, "not a directory: " + pathUtf8(rootOrFile));
   const std::string cacheKey = exe_ + "|" + keyOf(dir);
   {
     auto& c = negCache();
@@ -223,7 +224,7 @@ bool PerforceProvider::detect(const fs::path& rootOrFile) {
   const std::string clientRoot = trimEol(firstNonEmptyLine(info.out));
   if (!info.ok() || clientRoot.empty() || clientRoot == "*unknown*" || clientRoot == "null" ||
       clientRoot.compare(0, 3, "...") == 0)
-    return negative(info.ok() ? "no Perforce client for " + dir.string() : messageOf(info));
+    return negative(info.ok() ? "no Perforce client for " + pathUtf8(dir) : messageOf(info));
   // 2. the client maps the workspace directory: `p4 -ztag where <dir>/...`
   ExecResult where = p4({"where", escapePath(pathToUtf8(dir)) + "/..."}, detectTimeoutMs_);
   if (!where.started || where.timedOut) return negative(messageOf(where));
@@ -232,7 +233,7 @@ bool PerforceProvider::detect(const fs::path& rootOrFile) {
     auto d = r.find("depotFile");
     if (d != r.end() && !d->second.empty() && d->second[0] != '-') mapped = true;
   }
-  if (!mapped) return negative("not under the Perforce client's root: " + dir.string());
+  if (!mapped) return negative("not under the Perforce client's root: " + pathUtf8(dir));
   fs::path cr = pathFromUtf8(clientRoot);
   rootKey_ = keyOf(cr);
   root_ = cr;
@@ -474,14 +475,14 @@ bool PerforceProvider::p4vTarget(const fs::path& file, P4vTarget& out, std::stri
       break;
     }
   }
-  if (out.depotPath.empty()) return fail(error, file.filename().string() + " is not in the Perforce client view");
+  if (out.depotPath.empty()) return fail(error, pathUtf8(file.filename()) + " is not in the Perforce client view");
   lastError_.clear();
   return true;
 }
 
 bool PerforceProvider::revert(const fs::path& file, std::string* error) {
   if (error) error->clear();
-  if (!underRoot(file)) return fail(error, "not under the Perforce client: " + file.string());
+  if (!underRoot(file)) return fail(error, "not under the Perforce client: " + pathUtf8(file));
   std::map<std::string, Record> recs;
   std::string err;
   if (!fstat({file}, recs, err)) {
@@ -490,7 +491,7 @@ bool PerforceProvider::revert(const fs::path& file, std::string* error) {
   }
   auto it = recs.find(keyOf(file));
   if (it == recs.end() || !it->second.count("action"))
-    return fail(error, file.filename().string() + " is not opened in Perforce: nothing to revert");
+    return fail(error, pathUtf8(file.filename()) + " is not opened in Perforce: nothing to revert");
   ExecResult r = p4({"revert", arg(file)});
   if (!r.started || r.timedOut || r.exitCode != 0) return fail(error, messageOf(r));
   lastError_.clear();
@@ -528,14 +529,14 @@ bool PerforceProvider::beforeFirstEdit(const fs::path& file, std::string* error)
   }
   std::string msg = messageOf(e);
   if (e.started && !e.timedOut && e.exitCode == 0 && e.err.empty())
-    msg = opened ? file.filename().string() + " was opened by p4 but is still read-only on disk"
-                 : "p4 edit did not open " + file.filename().string();
+    msg = opened ? pathUtf8(file.filename()) + " was opened by p4 but is still read-only on disk"
+                 : "p4 edit did not open " + pathUtf8(file.filename());
   return fail(error, msg);
 }
 
 bool PerforceProvider::add(const fs::path& file, std::string* error) {
   if (error) error->clear();
-  if (!underRoot(file)) return fail(error, "not under the Perforce client: " + file.string());
+  if (!underRoot(file)) return fail(error, "not under the Perforce client: " + pathUtf8(file));
   ExecResult r = p4({"add", arg(file)});
   if (!r.started || r.timedOut || r.exitCode != 0) return fail(error, messageOf(r));
   lastError_.clear();

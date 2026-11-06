@@ -123,13 +123,13 @@ void VcsManager::detectJob(fs::path root) {
     }
   }
   if (!provider_) {
-    if (opt_.log) opt_.log("vcs: no version control system found for " + root.string());
+    if (opt_.log) opt_.log("vcs: no version control system found for " + pathUtf8(root));
     return;
   }
   auto all = std::make_shared<std::vector<VcsFileInfo>>(provider_->status({}));
   const std::string name = provider_->name();
   const fs::path pr = provider_->root();
-  if (opt_.log) opt_.log("vcs: " + name + " at " + pr.string());
+  if (opt_.log) opt_.log("vcs: " + name + " at " + pathUtf8(pr));
   post([this, name, pr, all] {
     active_ = true;
     providerName_ = name;
@@ -145,7 +145,7 @@ void VcsManager::detectJob(fs::path root) {
 // ---------------------------------------------------------------------------
 
 std::string VcsManager::keyOf(const fs::path& p) const {
-  const std::string raw = p.generic_string();
+  const std::string raw = pathKeyUtf8(p);
   auto it = keyCache_.find(raw);
   if (it != keyCache_.end()) return it->second;
   std::error_code ec;

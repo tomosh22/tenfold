@@ -236,10 +236,10 @@ void Document::removeListener(int id) {
   std::erase_if(listeners_, [id](auto& p) { return p.first == id; });
 }
 
-std::string pathToUri(const std::filesystem::path& p) { return pathToUri(p.generic_string(), nativePathStyle()); }
+std::string pathToUri(const std::filesystem::path& p) { return pathToUri(pathKeyUtf8(p), nativePathStyle()); }
 
 std::filesystem::path uriToPath(const std::string& uri) {
-  return std::filesystem::path(uriToPathString(uri, nativePathStyle()));
+  return pathFromUtf8(uriToPathString(uri, nativePathStyle()));
 }
 
 }  // namespace tf

@@ -104,7 +104,9 @@ struct FileWatcher::Impl {
       auto old = pending.find(oldKey);
       if (old != pending.end()) {
         const Event& oe = old->second.ev;
-        if (oe.kind == Event::Created) kind = Event::Created;
+        // A pending "created" folds a file rename into a creation at the new name. A directory stays a rename: the
+        // consumer may already list files under the old name (their own events were delivered), and they move.
+        if (oe.kind == Event::Created && !e.isDirectory) kind = Event::Created;
         else if (oe.kind == Event::Renamed) oldPath = oe.oldPath;
         pending.erase(old);
       }

@@ -482,7 +482,7 @@ std::string DebugSession::status() const {
   std::string s = "Debugger";
   if (!backendName_.empty()) s += " (" + backendName_ + ")";
   s += std::string(": ") + toString(mode_);
-  if (statement_) s += " at " + statement_->file.filename().string() + ":" + std::to_string(statement_->line + 1);
+  if (statement_) s += " at " + pathUtf8(statement_->file.filename()) + ":" + std::to_string(statement_->line + 1);
   if (!error_.empty()) s += " - " + error_;
   return s;
 }

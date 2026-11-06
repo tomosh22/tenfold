@@ -84,14 +84,14 @@ BuildCommand shellCommand(const std::string& line, const fs::path& cwd) {
 std::string keyOf(const fs::path& p) {
   std::error_code ec;
   fs::path c = fs::weakly_canonical(p, ec);
-  return pathKey((ec ? p : c).generic_string(), nativePathStyle());
+  return pathKey(pathKeyUtf8(ec ? p : c), nativePathStyle());
 }
 
 // The .vcxproj among `projects` that lists `file` as a ClCompile item (wildcards are not expanded).
 fs::path owningProject(const std::vector<fs::path>& projects, const fs::path& file) {
   const std::string want = keyOf(file);
   for (const fs::path& proj : projects) {
-    auto doc = xml::parseFile(proj.string());
+    auto doc = xml::parseFile(pathUtf8(proj));
     if (!doc) continue;
     std::vector<const xml::Node*> stack{doc.get()};
     while (!stack.empty()) {
@@ -128,7 +128,7 @@ bool detectFileBuild(const Workspace& ws, const BuildOverrides& o, BuildCommand*
   const auto& st = ws.settings();
   if (o.file.empty()) return fail("no file to build");
   const fs::path file = o.file.is_relative() ? root / o.file : o.file;
-  const std::string name = file.filename().string();
+  const std::string name = pathUtf8(file.filename());
   const std::string cfg = o.configuration.empty() ? st.vsConfiguration : o.configuration;
   const std::string plat = o.platform.empty() ? st.vsPlatform : o.platform;
 
@@ -151,9 +151,9 @@ bool detectFileBuild(const Workspace& ws, const BuildOverrides& o, BuildCommand*
               pplat = m->platform;
             }
     }
-    if (proj.empty()) return fail("no project of " + msb.filename().string() + " compiles " + name);
+    if (proj.empty()) return fail("no project of " + pathUtf8(msb.filename()) + " compiles " + name);
     *out = direct("msbuild",
-                  {proj.string(), "/t:ClCompile", "/p:SelectedFiles=" + file.string(), "/p:Configuration=" + pcfg,
+                  {pathUtf8(proj), "/t:ClCompile", "/p:SelectedFiles=" + pathUtf8(file), "/p:Configuration=" + pcfg,
                    "/p:Platform=" + pplat},
                   root);
     return true;
@@ -170,14 +170,14 @@ bool detectFileBuild(const Workspace& ws, const BuildOverrides& o, BuildCommand*
     const std::string obj = outputOf(cc.arguments);
     std::error_code ec;
     if (!obj.empty() && fs::exists(cc.directory / "build.ninja", ec)) {
-      *out = direct("ninja", {"-C", cc.directory.string(), obj}, root);
+      *out = direct("ninja", {"-C", pathUtf8(cc.directory), obj}, root);
     } else {
       *out =
           direct(cc.arguments[0], std::vector<std::string>(cc.arguments.begin() + 1, cc.arguments.end()), cc.directory);
     }
     return true;
   }
-  return fail("no compile command for " + name + " in " + db->filename().string());
+  return fail("no compile command for " + name + " in " + pathUtf8(db->filename()));
 }
 
 }  // namespace
@@ -208,14 +208,14 @@ bool detectBuildCommand(const Workspace& ws, const BuildOverrides& o, BuildComma
     }
   }
   if (const fs::path msb = msbuildTarget(ws); !msb.empty()) {
-    std::vector<std::string> args{msb.string()};
+    std::vector<std::string> args{pathUtf8(msb)};
     if (rebuild) args.push_back("/t:Rebuild");
     args.insert(args.end(), {"/m", "/p:Configuration=" + cfg, "/p:Platform=" + plat});
     *out = direct("msbuild", std::move(args), root);
     return true;
   }
   if (ws.hasCMake()) {
-    std::vector<std::string> args{"--build", cmakeBuildDir(ws, o).string(), "--config", cfg};
+    std::vector<std::string> args{"--build", pathUtf8(cmakeBuildDir(ws, o)), "--config", cfg};
     if (rebuild) args.push_back("--clean-first");
     *out = direct("cmake", std::move(args), root);
     return true;

@@ -74,6 +74,9 @@ class Workspace {
 
   // Enumerate files. Blocking; cheap enough for ~100k files.
   void scan(std::function<void(size_t)> progress = {});
+  // Lists the tree below `dir` on disk and adds every file not yet known (a directory that appeared or was renamed:
+  // the files inside it get no events of their own on every platform). Returns the files that were new.
+  std::vector<std::filesystem::path> noteTreeAdded(const std::filesystem::path& dir);
   const std::vector<std::filesystem::path>& sourceFiles() const { return sources_; }
   const std::vector<std::filesystem::path>& headerFiles() const { return headers_; }
   const std::vector<std::filesystem::path>& otherFiles() const { return others_; }
@@ -110,6 +113,7 @@ class Workspace {
   bool hasCMake() const;
 
  private:
+  void walkTree(const std::filesystem::path& start, const std::function<void(const std::filesystem::path&)>& onFile) const;
   std::filesystem::path root_;
   Settings settings_;
   std::vector<std::filesystem::path> sources_, headers_, others_;

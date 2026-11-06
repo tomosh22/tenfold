@@ -121,7 +121,7 @@ bool GitProvider::detect(const fs::path& rootOrFile) {
   std::error_code ec;
   fs::path dir = rootOrFile;
   if (!fs::is_directory(dir, ec)) dir = dir.parent_path();
-  if (dir.empty() || !fs::is_directory(dir, ec)) return fail(nullptr, "not a directory: " + rootOrFile.string());
+  if (dir.empty() || !fs::is_directory(dir, ec)) return fail(nullptr, "not a directory: " + pathUtf8(rootOrFile));
   ExecOptions o;
   o.exe = exe_;
   o.args = {"rev-parse", "--show-toplevel"};
@@ -267,7 +267,7 @@ std::optional<std::string> GitProvider::baseText(const fs::path& file, std::stri
   if (error) error->clear();
   auto rel = relative(file);
   if (!rel) {
-    fail(error, "not inside the git repository: " + file.string());
+    fail(error, "not inside the git repository: " + pathUtf8(file));
     return std::nullopt;
   }
   ExecResult r = git({"show", "HEAD:" + *rel});
@@ -285,7 +285,7 @@ std::optional<std::string> GitProvider::baseText(const fs::path& file, std::stri
 
 bool GitProvider::revert(const fs::path& file, std::string* error) {
   auto rel = relative(file);
-  if (!rel) return fail(error, "not inside the git repository: " + file.string());
+  if (!rel) return fail(error, "not inside the git repository: " + pathUtf8(file));
   ExecResult r = git({"restore", "--source=HEAD", "--staged", "--worktree", "--", *rel});
   if (r.ok()) {
     lastError_.clear();

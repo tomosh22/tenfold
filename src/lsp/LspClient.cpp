@@ -4,6 +4,7 @@
 
 #include "core/Document.h"
 #include "core/Platform.h"
+#include "core/PathUtil.h"
 
 namespace tf {
 
@@ -102,7 +103,7 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
   if (!opt.fallbackFlags.empty()) initOpts["fallbackFlags"] = opt.fallbackFlags;
   Json params = {
       {"processId", currentProcessId()},   {"rootUri", opt.rootPath.empty() ? Json() : Json(pathToUri(opt.rootPath))},
-      {"rootPath", opt.rootPath.string()}, {"capabilities", caps},
+      {"rootPath", pathUtf8(opt.rootPath)}, {"capabilities", caps},
       {"initializationOptions", initOpts}, {"trace", "off"}};
 
   std::mutex m;

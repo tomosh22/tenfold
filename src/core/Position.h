@@ -2,6 +2,7 @@
 #include <compare>
 #include <filesystem>
 #include <string>
+#include "core/PathUtil.h"
 
 namespace tf {
 
@@ -30,6 +31,6 @@ struct Location {
 };
 
 inline std::string toString(Position p) { return std::to_string(p.line + 1) + ":" + std::to_string(p.column + 1); }
-inline std::string toString(const Location& l) { return l.file.string() + ":" + toString(l.pos); }
+inline std::string toString(const Location& l) { return pathUtf8(l.file) + ":" + toString(l.pos); }
 
 }  // namespace tf

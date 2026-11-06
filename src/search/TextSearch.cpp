@@ -469,7 +469,7 @@ struct Worker {
       const std::string* over = nullptr;
       if (needRel) {
         auto it =
-            run.in.overrides.find(pathKey(file->lexically_relative(run.in.root).generic_string(), nativePathStyle()));
+            run.in.overrides.find(pathKey(pathKeyUtf8(file->lexically_relative(run.in.root)), nativePathStyle()));
         if (it != run.in.overrides.end()) over = &it->second;
       }
       if (over) {
@@ -550,7 +550,7 @@ SearchSummary execute(const SearchInput& in, const SearchOptions& opt, const Sea
   const bool globs = !opt.includeGlobs.empty() || !opt.excludeGlobs.empty();
   run.order.reserve(in.files.size());
   for (size_t i = 0; i < in.files.size(); ++i) {
-    if (globs && !passesGlobs(opt, in.files[i].lexically_relative(in.root).generic_string())) continue;
+    if (globs && !passesGlobs(opt, pathKeyUtf8(in.files[i].lexically_relative(in.root)))) continue;
     run.order.push_back(i);
   }
 

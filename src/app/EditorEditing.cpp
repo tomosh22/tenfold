@@ -836,7 +836,7 @@ bool Editor::saveAll(std::string* error, std::vector<SaveRefusal>* refused) {
       ok = false;
       continue;
     }
-    if (ok && error) *error = err.empty() ? "cannot save " + d->path().filename().string() : err;
+    if (ok && error) *error = err.empty() ? "cannot save " + pathUtf8(d->path().filename()) : err;
     ok = false;
   }
   return ok;
