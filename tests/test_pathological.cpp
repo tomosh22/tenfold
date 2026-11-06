@@ -44,6 +44,11 @@ constexpr size_t kSan = 1;
 constexpr size_t kSan = 1;
 #endif
 size_t scaled(size_t n) { return n / kSan; }
+#ifdef _WIN32
+constexpr bool kWindows = true;
+#else
+constexpr bool kWindows = false;
+#endif
 
 using clk = std::chrono::steady_clock;
 double msSince(clk::time_point t) { return std::chrono::duration<double, std::milli>(clk::now() - t).count(); }
@@ -71,6 +76,10 @@ struct TempDir {
         fs::permissions(it->path(), fs::perms::owner_all, fs::perm_options::add, ec);
     }
     fs::remove_all(path, ec);
+#ifdef _WIN32
+    // Trees deeper than MAX_PATH can only be removed through the extended-length form.
+    if (fs::exists(path, ec) || ec) fs::remove_all(fs::path(L"\\\\?\\" + path.wstring()), ec);
+#endif
   }
 };
 
@@ -422,18 +431,40 @@ TEST(pathological_many_files_wide_deep_and_flat) {
       put(d.path / "wide" / ("g" + std::to_string(i / 10)) / ("d" + std::to_string(i)) /
               ("u" + std::to_string(j) + ".cpp"),
           unit(i * per + j));
+  // Nesting: 40 levels. A Windows path is limited to MAX_PATH (260) unless the caller opts in with the extended-length
+  // prefix, so the tree stops at 240 characters there; the rest is built separately below with that prefix.
   fs::path deep = d.path / "deep";
+  int deepMade = 0;
   for (int i = 0; i < 40; ++i) {
     deep /= "level" + std::to_string(i);
+    if (kWindows && deep.native().size() + 10 > 240) break;
     put(deep / "leaf.cpp", "int deep_fn_" + std::to_string(i) + "() { return 0; }\n");
+    ++deepMade;
   }
+  size_t beyondLimit = 0;  // files made past MAX_PATH (Windows only); they may or may not be indexed
+#ifdef _WIN32
+  // Past MAX_PATH only the extended-length form can create files. The product must neither throw nor stop while it
+  // walks, watches and indexes such a tree, whether or not the system lets it see those files.
+  try {
+    fs::path cur = deep;
+    for (int i = deepMade; i < 40; ++i) {
+      cur /= "level" + std::to_string(i);
+      const fs::path ext = fs::path(L"\\\\?\\" + cur.wstring());
+      fs::create_directories(ext);
+      std::ofstream(ext / "leaf.cpp", std::ios::binary) << "int beyond_fn_" << i << "() { return 0; }\n";
+      ++beyondLimit;
+    }
+  } catch (const std::exception& e) { std::cerr << "    (beyond MAX_PATH stopped early: " << e.what() << ")\n"; }
+#endif
   Ws w(d.path);
-  stress("tree: start " + std::to_string(flat + dirs * per + 40) + " files", w.startMs);
+  stress("tree: start " + std::to_string(flat + dirs * per + deepMade) + " files", w.startMs);
   stress("tree: fast index", w.indexMs);
-  CHECK_EQ(w.ed->workspace().sourceFiles().size() + w.ed->workspace().headerFiles().size(),
-           static_cast<size_t>(flat + dirs * per + 40));
+  const size_t expected = static_cast<size_t>(flat + dirs * per + deepMade);
+  const size_t seen = w.ed->workspace().sourceFiles().size() + w.ed->workspace().headerFiles().size();
+  CHECK(seen >= expected && seen <= expected + beyondLimit);
   CHECK_EQ(w.exact("flat_fn_777"), 1u);
-  CHECK(w.exact("deep_fn_39") == 1);
+  CHECK(deepMade >= 10);
+  CHECK(w.exact("deep_fn_" + std::to_string(deepMade - 1)) == 1);
   CHECK(w.symbols("Widget123") >= 1);
   auto t = clk::now();
   auto approx = w.ed->semantic().approximateSymbols("update");

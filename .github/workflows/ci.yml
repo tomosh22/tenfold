@@ -107,7 +107,10 @@ jobs:
         shell: bash
         env:
           TENFOLD_ENFORCE_PERF: ${{ matrix.enforce_perf }}
-        run: ctest --preset "${{ matrix.preset }}" --timeout 300
+        # One ctest test runs the whole engine suite. Under ASan + UBSan (about 10x slower) it needs ~5-6 min even with
+        # no test waiting for a timeout; 300 s was hit (run 41758595100) while two tests each idled 60 s on a
+        # callback nobody posted (fixed). The timeout stays, at 900 s, to catch a real hang.
+        run: ctest --preset "${{ matrix.preset }}" --timeout ${{ matrix.preset == 'asan' && 900 || 300 }}
 
   # ThreadSanitizer on the engine suite only (the UI tests stay out: Mesa / SDL are noisy under TSan).
   # tsan.supp lists third-party false positives, each justified; races in our own code are fixed, not suppressed.

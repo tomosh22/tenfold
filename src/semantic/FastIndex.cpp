@@ -1117,7 +1117,16 @@ bool isCSourceFile(const std::filesystem::path& file) {
 // ---------------------------------------------------------------------------
 
 namespace {
-std::string keyFor(const std::filesystem::path& p) { return p.generic_string(); }
+std::string keyFor(const std::filesystem::path& p) {
+#ifdef _WIN32
+  // generic_string() converts through the ANSI code page and throws for a name it cannot hold; the key only has to be
+  // the same string for the same path.
+  const std::u8string u = p.generic_u8string();
+  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+#else
+  return p.generic_string();
+#endif
+}
 
 bool readFile(const std::filesystem::path& p, std::string& out) {
   if (!readRegularFile(p, out)) return false;
@@ -1251,25 +1260,29 @@ FastIndex::Stats FastIndex::indexFilesCached(const std::vector<std::filesystem::
       while (true) {
         size_t i = next++;
         if (i >= files.size()) break;
-        int64_t mtime = 0;
-        uint64_t size = 0;
-        if (statFile(files[i], &mtime, &size)) {
-          auto it = cache.find(keyFor(files[i]));  // read-only after construction: safe from all workers
-          if (it != cache.end()) ++inCache;
-          if (it != cache.end() && it->second->mtime == mtime && it->second->size == size && mtime != 0) {
-            results[i] = it->second;
-            ++reused;
-          } else if (readFile(files[i], content)) {
-            bytes += content.size();
-            auto fs = std::make_shared<FileSymbols>();
-            fs->file = files[i];
-            fs->mtime = mtime;
-            fs->size = size;
-            fs->symbols = extractSymbols(content, &fs->includes, isCSourceFile(files[i]));
-            results[i] = std::move(fs);
-            ++relexed;
+        // One unreadable or odd file (std::filesystem and path conversions throw on Windows for names beyond MAX_PATH
+        // or outside the ANSI code page) must not terminate the editor: it is left out of the index.
+        try {
+          int64_t mtime = 0;
+          uint64_t size = 0;
+          if (statFile(files[i], &mtime, &size)) {
+            auto it = cache.find(keyFor(files[i]));  // read-only after construction: safe from all workers
+            if (it != cache.end()) ++inCache;
+            if (it != cache.end() && it->second->mtime == mtime && it->second->size == size && mtime != 0) {
+              results[i] = it->second;
+              ++reused;
+            } else if (readFile(files[i], content)) {
+              bytes += content.size();
+              auto fs = std::make_shared<FileSymbols>();
+              fs->file = files[i];
+              fs->mtime = mtime;
+              fs->size = size;
+              fs->symbols = extractSymbols(content, &fs->includes, isCSourceFile(files[i]));
+              results[i] = std::move(fs);
+              ++relexed;
+            }
           }
-        }
+        } catch (const std::exception&) {}
         size_t d = ++done;
         if (progress) progress(d, files.size());
       }

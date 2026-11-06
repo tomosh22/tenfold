@@ -98,7 +98,11 @@ std::string uriToPathString(const std::string& uri, PathStyle style) {
 
 bool readRegularFile(const std::filesystem::path& path, std::string& out, std::string* error) {
   auto fail = [&](const std::string& why) {
-    if (error) *error = why + " " + path.string();
+    if (error) {
+      // path.string() throws on Windows for a name outside the ANSI code page.
+      const std::u8string u = path.generic_u8string();
+      *error = why + " " + std::string(reinterpret_cast<const char*>(u.data()), u.size());
+    }
     return false;
   };
 #ifndef _WIN32

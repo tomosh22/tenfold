@@ -463,6 +463,7 @@ TEST(crash_handler_writes_report) {
     ss << in.rdbuf();
     std::string text = ss.str();
     const char* name = std::string(how) == "segv" ? "SIGSEGV" : std::string(how) == "abort" ? "SIGABRT" : "SIGFPE";
+    if (!contains(text, name)) std::cerr << "    expected " << name << " in the report:\n" << text << "\n";
     CHECK(contains(text, name));
     CHECK(contains(text, "pid: "));
     CHECK(contains(text, "fault address: 0x"));

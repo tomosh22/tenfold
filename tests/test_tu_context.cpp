@@ -1,6 +1,7 @@
 // Translation-unit context for included files (src/semantic/TuContext.*): the pure planning logic, and, with a real
 // clangd, the engine giving a .tpp / unity part the context of its includer.
 #include <atomic>
+#include <chrono>
 #include <fstream>
 #include <iostream>
 #include <map>
@@ -251,12 +252,15 @@ std::unique_ptr<Editor> startEditor(const fs::path& root) {
   return ed;
 }
 
-std::vector<SymbolLocation> navigate(Editor& ed, const fs::path& file, int line, int col, bool refs) {
+// `anyAnswer`: the first reply counts, whatever its confidence (for queries clangd is not asked, which answer at once
+// with the fast tier and a reason; waiting for an Authoritative answer there only burns the whole timeout).
+std::vector<SymbolLocation> navigate(Editor& ed, const fs::path& file, int line, int col, bool refs,
+                                     bool anyAnswer = false) {
   std::vector<SymbolLocation> out;
   bool done = false;
   ed.gotoLocation({file, {line, col}});
   auto cb = [&](Confidence c, const std::vector<SymbolLocation>& l, const std::string&) {
-    if (c == Confidence::Authoritative || !ed.semantic().clangd()) {
+    if (anyAnswer || c == Confidence::Authoritative || !ed.semantic().clangd()) {
       out = l;
       done = true;
     }
@@ -386,7 +390,9 @@ TEST(tu_engine_class_body_fragments_are_not_sent_to_clangd) {
   CHECK(where.count("box_members.inl"));
   CHECK(where.count("main.cpp"));
   // A query inside the fragment is an error naming the reason, not a hang.
-  auto inside = navigate(*ed, inl, 0, 4, false);
+  const auto t0 = std::chrono::steady_clock::now();
+  auto inside = navigate(*ed, inl, 0, 4, false, true);
+  CHECK(std::chrono::steady_clock::now() - t0 < std::chrono::seconds(20));
   CHECK(inside.empty() || inside.front().confidence == Confidence::Approximate);
 }
 

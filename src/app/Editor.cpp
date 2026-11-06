@@ -1761,7 +1761,10 @@ bool Editor::waitFor(std::function<bool()> pred, int timeoutMs) {
     if (pred()) return true;
     std::unique_lock<std::mutex> lk(qmu_);
     if (queue_.empty()) {
-      if (qcv_.wait_until(lk, deadline) == std::cv_status::timeout) {
+      // Wake for posted work, but also re-check the predicate every few ms: a callback that runs on another thread and
+      // only sets a flag posts nothing, and would otherwise be noticed only when the whole timeout runs out.
+      const auto wakeAt = std::min(deadline, std::chrono::steady_clock::now() + std::chrono::milliseconds(20));
+      if (qcv_.wait_until(lk, wakeAt) == std::cv_status::timeout && wakeAt == deadline) {
         lk.unlock();
         pump();
         return pred();

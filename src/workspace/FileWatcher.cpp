@@ -761,7 +761,13 @@ bool FileWatcher::start(const fs::path& root, IgnoreFn ignoreFn, Callback cb) {
     return false;
   }
   d.running = true;
-  d.thread = std::thread([&d, usePoll, snap = std::move(snap)]() mutable { d.threadMain(usePoll, std::move(snap)); });
+  d.thread = std::thread([&d, usePoll, snap = std::move(snap)]() mutable {
+    // An exception escaping this thread would terminate the process (0xc0000409 on Windows); a path std::filesystem
+    // cannot handle must not take the editor down, it only ends watching.
+    try {
+      d.threadMain(usePoll, std::move(snap));
+    } catch (const std::exception& e) { d.log(std::string("file watcher stopped: ") + e.what()); }
+  });
   return true;
 }
 

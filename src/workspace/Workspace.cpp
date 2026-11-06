@@ -273,8 +273,10 @@ std::vector<fs::path> Workspace::codeFiles() const {
 std::vector<fs::path> Workspace::solutionFiles() const {
   std::vector<fs::path> out;
   std::error_code ec;
-  for (auto& e : fs::directory_iterator(root_, ec)) {
-    if (e.is_regular_file(ec) && lower(e.path().extension().string()) == ".sln") out.push_back(e.path());
+  fs::directory_iterator it(root_, fs::directory_options::skip_permission_denied, ec), end;
+  for (; !ec && it != end; it.increment(ec)) {  // the range-for form throws when the directory vanishes mid-walk
+    std::error_code e2;
+    if (it->is_regular_file(e2) && lower(it->path().extension().string()) == ".sln") out.push_back(it->path());
   }
   std::sort(out.begin(), out.end());
   return out;

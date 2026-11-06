@@ -1447,7 +1447,9 @@ std::vector<std::string> toHostStdlibArgs(const std::vector<std::string>& in, co
   if (in.empty()) return out;
   out.push_back(in[0]);
   out.push_back("--target=" + hostTarget);
-  for (auto& f : extraFlags) out.push_back(f);
+  // The extra flags are GCC-style (-isysroot <SDK>). The cl driver mode ignores those ("unknown argument ignored in
+  // clang-cl") and then reads the SDK path as an input file, so macOS found no <string>: they go through /clang:.
+  for (auto& f : extraFlags) out.push_back("/clang:" + f);
   out.push_back("-fms-extensions");
   bool hasMscVer = false;
   for (size_t i = 1; i < in.size(); ++i)
