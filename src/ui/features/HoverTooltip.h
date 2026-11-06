@@ -14,7 +14,8 @@ namespace tf::ui {
 // Hover tooltip (B5b): after the mouse rested kDwellMs over an identifier (or over a diagnostic's range) of a
 // TextView, the diagnostics' messages are shown at once (severity coloured) and Editor::hoverAt's text is added
 // when it arrives (clangd; without clangd it is the fast index's guess, greyed and marked approximate, constraint
-// 1.4). Moving to another word, a key press or a click dismisses it; moving onto the tooltip keeps it. EditorApp
+// 1.4). Resting on the {...} marker of a collapsed region shows the hidden code (Visual Studio's collapsed-region
+// tooltip). Moving to another word, a key press or a click dismisses it; moving onto the tooltip keeps it. EditorApp
 // feeds mouse moves (onMouse), dismisses on keys / clicks and ticks it.
 class HoverTooltip {
  public:
@@ -54,6 +55,7 @@ class HoverTooltip {
   float x_ = 0, y_ = 0;
   int64_t since_ = 0;
   bool pending_ = false, haveTarget_ = false, explicit_ = false;
+  int foldLine_ = -1;  // the pointer rests on the {...} marker of the collapsed region starting on this line
   uint64_t seq_ = 0;
   std::vector<PopupLine> diag_;
   std::string hoverText_;

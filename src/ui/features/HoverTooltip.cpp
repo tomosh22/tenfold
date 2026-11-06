@@ -50,6 +50,7 @@ void HoverTooltip::dismiss() {
   pending_ = false;
   haveTarget_ = false;
   explicit_ = false;
+  foldLine_ = -1;
   box_->hide();
 }
 
@@ -63,6 +64,20 @@ void HoverTooltip::onMouse(const InputEvent& e) {
     return;
   }
   const Position p = v->positionAt(e.x, e.y);
+  if (v->folds().isCollapsedAt(p.line) && ui::contains(v->foldMarkerRect(p.line), e.x, e.y)) {
+    if (haveTarget_ && foldLine_ == p.line && d->path() == file_) return;
+    dismiss();
+    haveTarget_ = true;
+    foldLine_ = p.line;
+    file_ = d->path();
+    target_ = Range{{p.line, 0}, {p.line, 0}};
+    pos_ = target_.start;
+    x_ = e.x;
+    y_ = e.y;
+    since_ = env_.clock ? env_.clock() : 0;
+    pending_ = true;
+    return;
+  }
   Range target{p, p};
   bool found = false;
   for (const auto* ds : {&env_.editor.diagnostics(d->path()), &env_.editor.buildDiagnostics(d->path())})
@@ -128,10 +143,38 @@ int HoverTooltip::tick(int64_t now) {
   return -1;
 }
 
+// The code a collapsed region hides, without the indentation they share, at most 15 lines.
 void HoverTooltip::fire() {
   pending_ = false;
   Document* d = env_.editor.document(file_);
   if (!d) return;
+  if (foldLine_ >= 0) {
+    TextView* v = viewAt(env_.root, x_, y_);
+    const FoldModel::Region* r = v ? v->folds().collapsedAt(foldLine_) : nullptr;
+    if (!r || r->end >= d->buffer().lineCount()) return;
+    const int kMax = 15;
+    std::vector<std::string> ls;
+    size_t common = std::string::npos;
+    for (int l = r->start + 1; l <= r->end && static_cast<int>(ls.size()) <= kMax; ++l) {
+      std::string t = d->buffer().line(l);
+      while (!t.empty() && (t.back() == '\r' || t.back() == '\n')) t.pop_back();
+      std::string x;
+      for (char ch : t) x += ch == '\t' ? std::string(4, ' ') : std::string(1, ch);
+      if (x.find_first_not_of(' ') != std::string::npos) common = std::min(common, x.find_first_not_of(' '));
+      ls.push_back(std::move(x));
+    }
+    diag_.clear();
+    hoverText_.clear();
+    for (size_t i = 0; i < ls.size(); ++i) {
+      std::string t = i == static_cast<size_t>(kMax)
+                          ? "..."
+                          : ls[i].substr(std::min(common == std::string::npos ? 0 : common, ls[i].size()));
+      if (t.size() > 120) t = t.substr(0, 117) + "...";
+      diag_.push_back({{{t, PopupSpan::Style::Text, false}}, "", false});
+    }
+    show();
+    return;
+  }
   diag_.clear();
   hoverText_.clear();
   using S = PopupSpan::Style;

@@ -46,6 +46,9 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.columnGuide", SettingType::Int},
                                              {"editor.showWhitespace", SettingType::Bool},
                                              {"editor.showFoldGlyphs", SettingType::Bool},
+                                             {"outline.enabled", SettingType::Bool},
+                                             {"outline.pragmaRegions", SettingType::Bool},
+                                             {"outline.statementBlocks", SettingType::Bool},
                                              {"editor.indentUnit", SettingType::String},
                                              {"editor.detectIndent", SettingType::Bool},
                                              {"editor.autoIndent", SettingType::Bool},
@@ -305,11 +308,13 @@ void Settings::load(const std::filesystem::path& workspaceRoot, const std::files
 }
 
 EditorSettings editorSettings(const Settings& s) {
-  return {s.getBool("editor.smoothScroll"),   s.getBool("editor.wordWrap"),
-          s.getBool("editor.caretBlink"),     s.getBool("editor.highlightCurrentLine"),
-          s.getBool("editor.showWhitespace"), s.getInt("editor.caretBlinkMs"),
-          s.getInt("editor.wheelLines"),      s.getInt("editor.tabWidth"),
-          s.getInt("editor.columnGuide"),     s.getBool("editor.showFoldGlyphs")};
+  return {s.getBool("editor.smoothScroll"),    s.getBool("editor.wordWrap"),
+          s.getBool("editor.caretBlink"),      s.getBool("editor.highlightCurrentLine"),
+          s.getBool("editor.showWhitespace"),  s.getInt("editor.caretBlinkMs"),
+          s.getInt("editor.wheelLines"),       s.getInt("editor.tabWidth"),
+          s.getInt("editor.columnGuide"),      s.getBool("editor.showFoldGlyphs"),
+          s.getBool("outline.enabled"),        s.getBool("outline.pragmaRegions"),
+          s.getBool("outline.statementBlocks")};
 }
 
 // ---- SettingsService ----

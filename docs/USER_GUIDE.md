@@ -347,17 +347,25 @@ clicks, the scrollbar and selections.
 | `Control Shift [` | `CollapseRegion` | `Editor.CollapseRegion` | collapses the innermost open region around the caret line |
 | `Control Shift ]` | `ExpandRegion` | `Editor.ExpandRegion` | expands the collapsed region whose first line has the caret |
 | `Control M, Control M` | `ToggleCollapseExpandRegion` | `Editor.ToggleCollapseExpandRegion` | the two above in one key |
-| `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | everything collapsed (or hidden by a collapsed region): expand all; otherwise collapse all |
+| `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | Visual Studio's Toggle All Outlining: nothing collapsed: collapse all; otherwise (all collapsed, or some of each) expand all |
+| `Control M, Control O` | (tenfold command) | `Editor.CollapseToDefinitions` | Visual Studio's Collapse to Definitions: collapses the bodies of functions (and other members) and leaves namespaces, classes, structs, enums, comments and `#pragma region` blocks open; everything else expands. 10x has no such command and does not bind this key |
 | | `CollapseAllRegions` / `ExpandAllRegions` | `Editor.CollapseAllRegions` / `Editor.ExpandAllRegions` | collapse the outermost regions / expand the collapsed ones that are visible; nested ones keep their state |
 | | `CollapseAllRegionsRecursive` / `ExpandAllRegionsRecursive` | `Editor.CollapseAllRegionsRecursive` / `Editor.ExpandAllRegionsRecursive` | every region of the file, at every depth |
 
 A caret that lands in a collapsed region (go to line, find, a build error, Left from the line below) opens it, and so
 does any edit that touches its lines, including typing at the end of its first line. Collapsed regions move with
-their lines when you edit elsewhere. Click the marker to expand. `editor.showFoldGlyphs` (default off; 10x's
-ShowCollapseRegionMargin defaults to on) adds a gutter lane with a triangle on every region start: click it to collapse
-or expand. The marker colours are the theme keys `foldMarkerBackground`, `foldMarkerText` and `foldGlyph`. Regions are
+their lines when you edit elsewhere. Click the marker to expand; resting the pointer on it shows the hidden code in a
+tooltip (Visual Studio does the same). `editor.showFoldGlyphs` (default on, like 10x's ShowCollapseRegionMargin and
+Visual Studio's outlining margin) draws the outlining margin between the line numbers and the text: a boxed minus on
+the first line of every open region with a guide line down to a short tick on its last line, a boxed plus on a
+collapsed one; click a box to collapse or expand. The three `outline.*` settings are Visual Studio's C/C++ options
+(Tools > Options > Text Editor > C/C++ > View > Outlining), all on there: `outline.enabled` (off: no regions and no
+margin), `outline.pragmaRegions` (`#pragma region` blocks) and `outline.statementBlocks` (off: braces inside a function
+body are not regions; functions, classes, namespaces and comments still are). The marker colours are the theme keys
+`foldMarkerBackground`, `foldMarkerText` and `foldGlyph` (the margin's lines and boxes). Regions are
 found in the background once typing pauses; the commands compute them on the spot when they are out of date. Folds are
-kept per open document view for the session, not saved.
+kept per open document view for the session, not saved (Visual Studio does not keep them either: a file opens
+fully expanded).
 
 ## Word wrap
 
@@ -655,7 +663,10 @@ tests.)
 | `editor.tabWidth` | `4` | int | Display width of a tab character, in columns. |
 | `editor.columnGuide` | `0` | int | Draw a vertical guide line at this column. 0 turns it off. 10x's VerticalRulers is empty by default. |
 | `editor.showWhitespace` | `false` | bool | Draw dots for spaces and arrows for tabs (first 4000 bytes of each line). |
-| `editor.showFoldGlyphs` | `false` | bool | A gutter lane between the line numbers and the change strip with a triangle on every region start (click to collapse / expand). 10x: ShowCollapseRegionMargin (default true there). |
+| `editor.showFoldGlyphs` | `true` | bool | The outlining margin between the line numbers and the change strip: a boxed minus / plus on every region start with a guide line through the open region (click to collapse / expand). 10x: ShowCollapseRegionMargin (default true); Visual Studio shows the margin by default. |
+| `outline.enabled` | `true` | bool | Visual Studio's Enable Outlining (C/C++). Off: no regions, no margin, the folding commands do nothing. |
+| `outline.pragmaRegions` | `true` | bool | Visual Studio's Outline Pragma Regions: `#pragma region` / `#pragma endregion` pairs are regions. |
+| `outline.statementBlocks` | `true` | bool | Visual Studio's Outline Statement Blocks: brace blocks inside a function body (if, for, while, try, plain blocks) are regions. Off: only function, class and namespace bodies and comments. |
 | `editor.indentUnit` | `tab` | string | One indent level: `tab`, or a number of spaces from 1 to 16 (anything else means 4). Used when `editor.detectIndent` finds nothing in the file, or is off. 10x: IndentMode (Tabs). |
 | `editor.detectIndent` | `false` | bool | Take the indent unit from the file itself (its first 400 lines: tabs, or the most common step) instead of `editor.indentUnit`. 10x: AutoDetectIndentMode (false). |
 | `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator). 10x: AutoIndent. |
@@ -932,7 +943,7 @@ differs from the 10x description:
 | `Control Shift [` | `CollapseRegion` | `Editor.CollapseRegion` | C/C++ files only; brace blocks, multi-line comments, `#pragma region` |
 | `Control Shift ]` | `ExpandRegion` | `Editor.ExpandRegion` | the collapsed region starting on the caret line |
 | `Control M, Control M` | `ToggleCollapseExpandRegion` | `Editor.ToggleCollapseExpandRegion` | |
-| `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | all folded: expand all, else collapse all (every depth) |
+| `Control M, Control L` | `ToggleCollapseExpandAllRegions` | `Editor.ToggleCollapseExpandAllRegions` | Visual Studio's Toggle All Outlining: nothing collapsed: collapse all (every depth), else expand all |
 | | `CollapseAllRegions`, `ExpandAllRegions` | `Editor.CollapseAllRegions`, `Editor.ExpandAllRegions` | outermost regions / visible collapsed regions only |
 | | `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive` | `Editor.CollapseAllRegionsRecursive`, `Editor.ExpandAllRegionsRecursive` | every depth |
 
@@ -1110,6 +1121,7 @@ Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in 
 | `Shift Tab` | `UnindentLine` |
 | `Control /` | `Editor.ToggleLineComment` |
 | `Control J` | `Editor.JoinLines` |
+| `Control M, Control O` | `Editor.CollapseToDefinitions` (Visual Studio's Collapse to Definitions; 10x has no such command) |
 | `Control Shift K` | `DeleteLine` |
 | `F12`, `Control F12`, `Shift F12` | `GotoSymbolDefinition`, `Editor.GotoDeclaration`, `FindSymbolReferences` |
 | `Control Comma` | `FindSymbol` (symbol search) |

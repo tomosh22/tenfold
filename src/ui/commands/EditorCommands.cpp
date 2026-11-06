@@ -336,6 +336,7 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.ExpandAllRegions", "Expand All Regions");
   addUi(r, "Editor.CollapseAllRegionsRecursive", "Collapse All Regions Recursively");
   addUi(r, "Editor.ExpandAllRegionsRecursive", "Expand All Regions Recursively");
+  addUi(r, "Editor.CollapseToDefinitions", "Collapse to Definitions");
   addUi(r, "Help.ShowCompileCommand", "Show Compile Command for Current File");
   addUi(r, "Vcs.NextChange", "Next Change");
   addUi(r, "Vcs.PrevChange", "Previous Change");

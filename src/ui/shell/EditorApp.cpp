@@ -546,7 +546,8 @@ void EditorApp::bindEditingCommands() {
       {"Editor.CollapseAllRegions", TextView::FoldOp::CollapseAll},
       {"Editor.ExpandAllRegions", TextView::FoldOp::ExpandAll},
       {"Editor.CollapseAllRegionsRecursive", TextView::FoldOp::CollapseAllRecursive},
-      {"Editor.ExpandAllRegionsRecursive", TextView::FoldOp::ExpandAllRecursive}};
+      {"Editor.ExpandAllRegionsRecursive", TextView::FoldOp::ExpandAllRecursive},
+      {"Editor.CollapseToDefinitions", TextView::FoldOp::CollapseToDefinitions}};
   for (const auto& [id, op] : kFoldCommands)
     registry_.bind(
         id,
@@ -557,7 +558,7 @@ void EditorApp::bindEditingCommands() {
           });
           if (!target) return false;
           if (!target->foldingActive()) {
-            setMessage("Code folding is available in C/C++ files", kMessageMs);
+            setMessage("Code folding is available in C/C++ files (outline.enabled)", kMessageMs);
             return true;
           }
           target->foldCommand(op);

@@ -110,7 +110,7 @@ struct Theme {
   Color foldMarkerBackground{0, 0, 0,
                              0};     // the {...} marker of a collapsed region; unset = panelBackground 12% towards text
   Color foldMarkerText{0, 0, 0, 0};  // its text; unset = textDim
-  Color foldGlyph{0, 0, 0, 0};       // the gutter triangles (editor.showFoldGlyphs); unset = gutterText
+  Color foldGlyph{0, 0, 0, 0};       // the outlining margin glyphs (editor.showFoldGlyphs); unset = gutterText
   Color tabVcsModified{0, 0, 0, 0};  // tab marker, file modified (Git / Perforce); unset = dirtyMarker
   Color tabVcsAdded{0, 0, 0, 0};     // new / untracked / opened for add; unset = the added colour
   Color tabVcsCheckedOut{0, 0, 0, 0};  // Perforce checked out; unset = the deleted colour (red)

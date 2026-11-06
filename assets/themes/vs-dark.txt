@@ -129,7 +129,8 @@ color.diffDeleted = #F14C4C
 color.diffBlockBackground = #4B1818
 color.diffBlockText = #D7BABA
 color.diffBlockHeader = #2D2D30
-# Collapsed region: the {...} marker after the head line, and the gutter triangles (editor.showFoldGlyphs).
+# Collapsed region: the {...} marker after the head line, and the outlining margin glyphs (the [-] / [+] boxes and lines;
+# editor.showFoldGlyphs, on by default). [?] No VS colour for any of the three was found (docs/VS_BEHAVIOUR.md 5, 9 O3).
 color.foldMarkerBackground = #3A3D41
 color.foldMarkerText = #A0A0A0
 color.foldGlyph = #A0A0A0

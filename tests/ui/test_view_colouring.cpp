@@ -136,6 +136,7 @@ struct Fx2 {
     tv->settings().smoothScroll = false;
     tv->settings().wordWrap = wrap;  // the colour scenarios are written for unwrapped lines
     tv->settings().caretBlink = false;
+    tv->settings().showFoldGlyphs = false;  // the outlining margin (default on) would move the text
     root->addChild(std::move(v));
     tv->setFocus();
     if (render) frame();
@@ -435,6 +436,11 @@ TEST(settings_change_repaints_with_new_tab_width_and_theme) {
   SettingsService::Options o;
   o.workspaceRoot = f.dir;
   o.userDir = user;
+  fs::create_directories(user);
+  {  // the outlining margin (default on) would move the text this test measures
+    std::ofstream out(user / "settings.txt", std::ios::binary);
+    out << "editor.showFoldGlyphs = false\n";
+  }
   SettingsService svc(o);
   EditorApp app(*f.root, *f.ed);  // after svc: it unregisters from it on destruction
   app.attachSettings(svc, 1.0f);
@@ -449,7 +455,8 @@ TEST(settings_change_repaints_with_new_tab_width_and_theme) {
   fs::create_directories(user);
   {
     std::ofstream out(user / "settings.txt", std::ios::binary);
-    out << "editor.tabWidth = 2\neditor.columnGuide = 20\neditor.showWhitespace = true\nui.theme = light\n"
+    out << "editor.showFoldGlyphs = false\neditor.tabWidth = 2\neditor.columnGuide = 20\neditor.showWhitespace = "
+           "true\nui.theme = light\n"
            "editor.bogus = 1\n";
   }
   svc.notifyFileChanged(user / "settings.txt");

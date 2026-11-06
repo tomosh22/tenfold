@@ -203,12 +203,84 @@ TEST(fold_model_toggle_all_follows_visible_state) {
   CHECK(m.collapsed().size() == 4);
   CHECK(m.toggleAll());  // all collapsed: everything opens
   CHECK(!m.hasCollapsed());
-  m.collapseAll(false);  // the outermost are collapsed, the inner ones are hidden by them: counts as all folded
+  m.collapseAll(false);  // the outermost are collapsed, the inner ones are hidden by them
   CHECK(m.toggleAll());
   CHECK(!m.hasCollapsed());
-  m.collapse(*m.regionStartingAt(9));  // one collapsed, one not: collapse all
+  // Visual Studio's Toggle All Outlining: some collapsed and some not -> the collapsed ones open (everything open).
+  m.collapse(*m.regionStartingAt(9));
   CHECK(m.toggleAll());
-  CHECK(m.collapsed().size() == 4);
+  CHECK(!m.hasCollapsed());
+  m.collapse(*m.regionStartingAt(1));  // a nested one only: still "mixed", so it opens
+  CHECK(m.toggleAll());
+  CHECK(!m.hasCollapsed());
+}
+
+namespace {
+const char* kDefs =
+    "namespace n {\n"                  // 0
+    "class C {\n"                      // 1
+    "  void m() {\n"                   // 2
+    "    if (x) {\n"                   // 3
+    "    }\n"                          // 4
+    "  }\n"                            // 5
+    "  int v = 0;\n"                   // 6
+    "};\n"                             // 7
+    "enum E {\n"                       // 8
+    "  A,\n"                           // 9
+    "  B\n"                            // 10
+    "};\n"                             // 11
+    "void f()\n"                       // 12
+    "{\n"                              // 13
+    "}\n"                              // 14
+    "extern \"C\" {\n"                 // 15
+    "void g() {\n"                     // 16
+    "}\n"                              // 17
+    "}\n"                              // 18
+    "}\n"                              // 19
+    "#pragma region R\n"               // 20
+    "#pragma endregion\n"              // 21
+    "template <class T> void h() {\n"  // 22
+    "  struct L {\n"                   // 23
+    "  };\n"                           // 24
+    "}\n";                             // 25
+}  // namespace
+
+TEST(fold_detect_marks_type_bodies) {
+  const auto rs = FoldModel::detect(foldLines(kDefs));
+  std::vector<int> types;
+  for (const Region& r : rs)
+    if (r.kind == Kind::Brace && r.type) types.push_back(r.start);
+  CHECK((types == std::vector<int>{0, 1, 8, 15, 23}));
+}
+
+TEST(fold_model_collapse_to_definitions_collapses_member_bodies_only) {
+  FoldModel m;
+  m.setRegions(FoldModel::detect(foldLines(kDefs)));
+  m.collapseAll(true);
+  CHECK(m.collapseToDefinitions());  // everything else opens
+  std::vector<int> c;
+  for (const Region& r : m.collapsed()) c.push_back(r.start);
+  CHECK((c == std::vector<int>{2, 13, 16, 22}));  // m, f (Allman), g, h; classes, namespaces, enum and pragma stay open
+  CHECK(!m.collapseToDefinitions());
+  CHECK(m.isHidden(3) && m.isHidden(14) && !m.isHidden(9) && m.isHidden(24));
+}
+
+TEST(fold_detect_outlining_options) {
+  FoldModel::Options off;
+  off.enabled = false;
+  CHECK(FoldModel::detect(foldLines(kDefs), off).empty());
+  FoldModel::Options noPragma;
+  noPragma.pragmaRegions = false;
+  const auto a = FoldModel::detect(foldLines(kDefs), noPragma);
+  CHECK(FoldModel::detect(foldLines(kDefs)).size() == a.size() + 1);
+  for (const Region& r : a) CHECK(r.kind != Kind::Pragma);
+  // Outline Statement Blocks off: the `if` block inside m() goes; functions, types and comments stay.
+  FoldModel::Options noStmt;
+  noStmt.statementBlocks = false;
+  const auto b = FoldModel::detect(foldLines(kDefs), noStmt);
+  std::vector<int> starts;
+  for (const Region& r : b) starts.push_back(r.start);
+  CHECK((starts == std::vector<int>{0, 1, 2, 8, 13, 15, 16, 20, 22, 23}));
 }
 
 TEST(fold_model_collapsed_regions_move_with_edits_and_open_when_touched) {
@@ -470,6 +542,7 @@ struct FFx {
     tv->settings().smoothScroll = false;
     tv->settings().caretBlink = false;
     tv->settings().wordWrap = wrap;
+    tv->settings().showFoldGlyphs = false;  // the default is on (VS); most tests count pixels without the lane
     tv->settings().clock = [this] { return now; };
     root->addChild(std::move(v));
     tv->setFocus();
@@ -609,6 +682,89 @@ TEST(foldview_toggle_region_and_toggle_all_chords) {
   f.key(Key('L'), ModCtrl);
   CHECK(!f.tv->folds().hasCollapsed());
   CHECK_EQ(f.tv->wrapLayout().totalRows(), 13);
+}
+
+TEST(foldview_toggle_all_with_a_mixed_state_expands_everything_like_visual_studio) {
+  FFx f(kSrc);
+  f.ed->setSelections({caretAt({9, 2})});
+  f.key(Key('M'), ModCtrl);
+  f.key(Key('M'), ModCtrl);  // beta collapsed, alpha open: mixed
+  CHECK(f.tv->folds().isCollapsedAt(9) && !f.tv->folds().isCollapsedAt(0));
+  f.key(Key('M'), ModCtrl);
+  f.key(Key('L'), ModCtrl);
+  CHECK(!f.tv->folds().hasCollapsed());
+  CHECK_EQ(f.tv->wrapLayout().totalRows(), 13);
+  f.key(Key('M'), ModCtrl);  // nothing collapsed: all collapse, then the next one opens all again
+  f.key(Key('L'), ModCtrl);
+  CHECK_EQ(f.tv->folds().collapsed().size(), 4u);
+  f.key(Key('M'), ModCtrl);
+  f.key(Key('L'), ModCtrl);
+  CHECK(!f.tv->folds().hasCollapsed());
+}
+
+TEST(foldview_collapse_to_definitions_chord_collapses_function_bodies_only) {
+  FFx f(kSrc);
+  f.ed->setSelections({caretAt({3, 6})});
+  f.key(Key('M'), ModCtrl);
+  f.key(Key('O'), ModCtrl);
+  const FoldModel& m = f.tv->folds();
+  CHECK(m.isCollapsedAt(0) && m.isCollapsedAt(9));  // alpha and beta; the nested `if` and the comment stay as they were
+  CHECK(!m.isCollapsedAt(2) && !m.isCollapsedAt(7));
+  CHECK(f.head() == (Position{0, 14}));  // the caret was inside alpha: it went to the head line
+  CHECK_EQ(f.tv->wrapLayout().totalRows(), 13 - 5 - 2);
+  // By name, from a fully collapsed state: the comment opens, only the bodies stay collapsed.
+  f.app->runCommand("CollapseAllRegionsRecursive");
+  CHECK(m.isCollapsedAt(7));
+  f.app->runCommand("Editor.CollapseToDefinitions");
+  CHECK(!m.isCollapsedAt(7) && m.isCollapsedAt(0) && m.isCollapsedAt(9) && m.collapsed().size() == 2u);
+}
+
+TEST(foldview_outline_options_switch_regions_off_and_back) {
+  FFx f(kSrc);
+  f.tv->settings().showFoldGlyphs = true;
+  f.tv->foldRefreshNow();
+  CHECK(f.tv->folds().regions().size() == 4);
+  CHECK(f.tv->foldLaneWidth() > 0);
+  EditorSettings es{false, false, false, true, false, 530, 3, 4, 0, true, false, true, true};
+  f.tv->applySettings(es);  // outline.enabled = false
+  f.tv->foldRefreshNow();
+  CHECK(f.tv->folds().regions().empty());
+  CHECK_EQ(f.tv->foldLaneWidth(), 0.0f);
+  CHECK(!f.tv->foldingActive());
+  CHECK(!f.tv->foldCommand(TextView::FoldOp::ToggleAll));
+  es.outlineEnabled = true;
+  es.outlineStatementBlocks = false;  // the `if` inside alpha is a statement block
+  f.tv->applySettings(es);
+  f.tv->foldRefreshNow();
+  CHECK(f.tv->folds().regions().size() == 3);
+  CHECK(f.tv->folds().regionStartingAt(2) == nullptr);
+}
+
+TEST(foldview_the_defaults_follow_visual_studio) {
+  TextView::Settings s;
+  CHECK(s.showFoldGlyphs && s.outlineEnabled && s.outlinePragmaRegions && s.outlineStatementBlocks);
+}
+
+TEST(foldview_hovering_the_marker_shows_the_hidden_code) {
+  FFx f(kSrc);
+  f.app->runCommand("CollapseAllRegions");
+  f.frame();
+  const gfx::RectF m = f.tv->foldMarkerRect(9);
+  REQUIRE(m.w > 0);
+  InputEvent e;
+  e.type = InputType::MouseMove;
+  e.x = m.x + 2;
+  e.y = m.y + 7;
+  f.app->hover().onMouse(e);
+  CHECK(f.app->hover().pending());
+  f.app->hover().tick(f.now + 10000);
+  f.frame();
+  CHECK(f.app->hover().shown());
+  // Away from the marker: dismissed.
+  e.x = 300;
+  e.y = f.y(0) + 7;
+  f.app->hover().onMouse(e);
+  CHECK(!f.app->hover().shown());
 }
 
 TEST(foldview_the_unbound_commands_by_name) {

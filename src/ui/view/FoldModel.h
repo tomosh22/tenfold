@@ -35,18 +35,36 @@ class FoldModel {
   struct Region {
     int start = 0, end = 0;  // lines, start < end
     Kind kind = Kind::Brace;
-    bool operator==(const Region& o) const { return start == o.start && end == o.end && kind == o.kind; }
+    bool type = false;  // Brace only: the body of a namespace / class / struct / union / enum / extern "C" block
+    bool operator==(const Region& o) const {
+      return start == o.start && end == o.end && kind == o.kind && type == o.type;
+    }
+  };
+
+  // The C++ outlining options of Visual Studio (Tools > Options > Text Editor > C/C++ > View > Outlining), all on by
+  // default. enabled = Enable Outlining (off: no regions at all); pragmaRegions = Outline Pragma Regions;
+  // statementBlocks = Outline Statement Blocks (off: brace blocks nested in a function body are not regions; function,
+  // class and namespace bodies and comments still are).
+  struct Options {
+    bool enabled = true, pragmaRegions = true, statementBlocks = true;
+    bool operator==(const Options& o) const {
+      return enabled == o.enabled && pragmaRegions == o.pragmaRegions && statementBlocks == o.statementBlocks;
+    }
   };
 
   // Regions of `lines`, sorted by start (one per start line, the outermost).
-  static std::vector<Region> detect(const std::vector<std::string>& lines);
+  static std::vector<Region> detect(const std::vector<std::string>& lines);  // all options on
+  static std::vector<Region> detect(const std::vector<std::string>& lines, const Options& opt);
 
   // ---- regions ----
   // Installs a result computed for the current text and reconciles the collapsed regions with it. True when the
   // collapsed set (hence the hidden lines) changed.
   bool setRegions(std::vector<Region> regions);
   const std::vector<Region>& regions() const { return regions_; }
-  bool fresh() const { return fresh_; }  // regions() were computed for the text as it is now
+  bool fresh() const { return fresh_; }
+  void invalidate() {
+    fresh_ = false;
+  }  // the options changed: the set must be recomputed  // regions() were computed for the text as it is now
   const Region* regionStartingAt(int line) const;
   // The innermost region with start <= line <= end that is not collapsed (null if none).
   const Region* innermostAt(int line) const;
@@ -72,8 +90,14 @@ class FoldModel {
   bool toggleAt(int line, Region* collapsedNow = nullptr);
   bool collapseAll(bool recursive);  // recursive: every region; else the outermost ones (not inside another region)
   bool expandAll(bool recursive);    // recursive: every region; else the collapsed ones whose head line is visible
-  bool toggleAll();                  // all collapsed (or hidden by a collapsed one) -> expand all, else collapse all
-  bool expandCovering(int line);     // expands every collapsed region hiding `line`; true if any
+  // Visual Studio's Toggle All Outlining: "sets all regions to the same state; if some are expanded and some
+  // collapsed, the collapsed ones are expanded". Nothing collapsed -> collapse all, otherwise expand all.
+  bool toggleAll();
+  // Visual Studio's Collapse to Definitions: exactly the member bodies are collapsed (function bodies and other brace
+  // blocks that are not a namespace / class / struct / union / enum body and not inside a function), everything
+  // else is expanded.
+  bool collapseToDefinitions();
+  bool expandCovering(int line);  // expands every collapsed region hiding `line`; true if any
 
   // Document change: moves / expands collapsed regions, patches the region set, marks it stale.
   // True when the collapsed set changed.

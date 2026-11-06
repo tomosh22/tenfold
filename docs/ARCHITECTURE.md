@@ -1972,6 +1972,10 @@ The 10x CollapseRegions commands. The model is split in three, each of which exi
   comments (the line where `LexState::Block` begins to the line where it ends) and `#pragma region` / `#pragma
   endregion` pairs (a `Preprocessor` span at the start of a directive). `#if` / `#endif` are not regions: the 10x
   documentation names no region syntax at all (OPEN_QUESTIONS, "W8f detail"). One region per start line, the outermost.
+  `detect(lines, Options)` takes Visual Studio's three C++ outlining options (`outline.enabled`, `outline.pragmaRegions`,
+  `outline.statementBlocks`); a brace region carries `type` (the text before its `{`, or the previous line for Allman
+  style, has namespace / class / struct / union / enum / `extern "C"` and no parenthesis), which `collapseToDefinitions()`
+  and the statement-block option use (a statement block is a non-type brace region inside another non-type one).
   A region is `{start, end}`; collapsing it hides `[start + 1, end]`, so the closing line is inside the marker.
   `collapsed_` is the model's own sorted list, independent of the region set: edits move it (`onChange`: before the
   edit it stays, after it it shifts by `lineDelta`, touching any of its lines expands it), `setRegions` reconciles it with
@@ -1994,9 +1998,11 @@ The 10x CollapseRegions commands. The model is split in three, each of which exi
   Cost: O(log ranges) per query, `rebuild()` is O(wrapped entries x log ranges) once per change.
 * **Display.** After the head line's last row the view draws a marker box (`...}` when the head line ends in `{`, else
   `{...}`; `...*/` for comments; `...` for pragma regions; theme keys `foldMarkerBackground`, `foldMarkerText`), a click on it
-  expands. With `editor.showFoldGlyphs` (default off, so every golden is byte-identical) `Layout::setFoldLane` widens
-  the gutter by one line height between the numbers and the change strip and each region start gets a triangle
-  (`foldGlyph`; down = open, right = collapsed); a click toggles. A collapsed region moves nothing else: the gutter,
+  expands. With `editor.showFoldGlyphs` (default on, like VS's outlining margin) `Layout::setFoldLane` widens
+  the gutter by one line height between the numbers and the change strip. `paintFoldGlyph` runs for every row: a boxed
+  minus (open) or plus (collapsed) on a region start, a 1 px guide through the open regions (`glyphRegions_`, collected once
+  per paint) and a tick on the last line (`foldGlyph`); a click on a box toggles. `HoverTooltip` shows the hidden code when the
+  pointer rests on the marker (`foldLine_`). A collapsed region moves nothing else: the gutter,
   the text origin and the wrap width are the same with and without folds.
 * **Carets and jumps.** After a collapse, carets and selection ends in hidden lines go to the end of the head line
   (`foldMoveCarets`). `syncState` opens every collapsed region that hides the head of any selection (go to line, find,
