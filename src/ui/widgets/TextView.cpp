@@ -24,6 +24,7 @@ struct TextView::FoldJob {
   const Document* doc = nullptr;
   int version = 0;
   std::vector<std::string> lines;
+  FoldModel::Options opt;
   std::vector<FoldModel::Region> out;
   std::atomic<bool> done{false};
 };
@@ -98,6 +99,14 @@ void TextView::applySettings(const EditorSettings& s) {
   settings_.columnGuide = s.columnGuide;
   settings_.showWhitespace = s.showWhitespace;
   settings_.showFoldGlyphs = s.showFoldGlyphs;
+  const FoldModel::Options before = foldOptions();
+  settings_.outlineEnabled = s.outlineEnabled;
+  settings_.outlinePragmaRegions = s.outlinePragmaRegions;
+  settings_.outlineStatementBlocks = s.outlineStatementBlocks;
+  if (!(before == foldOptions())) {  // the regions are recomputed (collapsed ones follow their region or open)
+    foldCancel();
+    fold_.invalidate();
+  }
   if (root()) root()->text().setTabWidth(s.tabWidth);
   setWordWrap(s.wordWrap);
   markDirty();
@@ -827,8 +836,15 @@ void TextView::paint(PaintContext& ctx) {
   bookmarkLines_ = editor_.bookmarks().lines(d->path());
   int spanLine = -1;
   const std::vector<gfx::ColorSpan>* spans = nullptr;
+  glyphRegions_.clear();
+  if (L.foldLane() > 0)  // the open regions the margin draws guides for
+    for (const FoldModel::Region& g : fold_.regions()) {
+      if (g.start >= last) break;
+      if (g.end >= first && !fold_.isCollapsedAt(g.start) && !fold_.isHidden(g.start)) glyphRegions_.push_back(g);
+    }
   for (const RowRef& r : vis_) {
     const float y = rowY(r);
+    if (L.foldLane() > 0) paintFoldGlyph(ctx, L, r, y);
     if (r.row == 0) {
       paintGlyphMargin(ctx, L, r, y, stmt && *stmt == r.line);
       if (std::binary_search(bookmarkLines_.begin(), bookmarkLines_.end(), r.line)) {  // bookmark: a flag in the gutter
@@ -836,7 +852,6 @@ void TextView::paint(PaintContext& ctx) {
         ctx.fill({b.x + L.glyphLane() + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
       }
       number_ = std::to_string(r.line + 1);
-      paintFoldGlyph(ctx, L, r, y);
       ctx.text(b.x + L.numbersRight(n) - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText,
                gutterClip);
     }
@@ -1044,8 +1059,12 @@ bool TextView::moveCaretsVisual(Editor::Direction dir, Editor::Unit unit, bool e
 
 // ---- code folding (W8f) ----
 
+FoldModel::Options TextView::foldOptions() const {
+  return {settings_.outlineEnabled, settings_.outlinePragmaRegions, settings_.outlineStatementBlocks};
+}
+
 float TextView::foldLaneWidth() const {
-  if (!settings_.showFoldGlyphs || !root() || !colouring()) return 0.0f;
+  if (!settings_.showFoldGlyphs || !settings_.outlineEnabled || !root() || !colouring()) return 0.0f;
   return std::max(8.0f, std::floor(root()->text().lineHeight()));
 }
 
@@ -1122,7 +1141,7 @@ void TextView::foldRefreshNow() {
   Document* d = document();
   foldCancel();
   if (!d || !colouring()) return;
-  if (fold_.setRegions(FoldModel::detect(d->buffer().lines()))) applyHidden(true);
+  if (fold_.setRegions(FoldModel::detect(d->buffer().lines(), foldOptions()))) applyHidden(true);
   markDirty();
 }
 
@@ -1142,16 +1161,17 @@ void TextView::foldPoll(int64_t nowMs) {
   job->doc = d;
   job->version = d->version();
   job->lines = d->buffer().lines();
+  job->opt = foldOptions();
   foldJob_ = job;
   foldThread_ = std::thread([job] {
-    job->out = FoldModel::detect(job->lines);
+    job->out = FoldModel::detect(job->lines, job->opt);
     job->done.store(true, std::memory_order_release);
   });
 }
 
 bool TextView::foldCommand(FoldOp op) {
   const Document* d = document();
-  if (!d || !root() || !colouring()) return false;
+  if (!d || !root() || !foldingActive()) return false;
   if (!fold_.fresh()) foldRefreshNow();
   const int line = isCurrent() ? std::clamp(editor_.selections()[0].head.line, 0, d->buffer().lineCount() - 1) : 0;
   bool changed = false;
@@ -1164,6 +1184,7 @@ bool TextView::foldCommand(FoldOp op) {
     case FoldOp::CollapseAllRecursive: changed = fold_.collapseAll(true); break;
     case FoldOp::ExpandAllRecursive: changed = fold_.expandAll(true); break;
     case FoldOp::ToggleAll: changed = fold_.toggleAll(); break;
+    case FoldOp::CollapseToDefinitions: changed = fold_.collapseToDefinitions(); break;
   }
   if (!changed) return false;
   applyHidden(true);
@@ -1173,7 +1194,7 @@ bool TextView::foldCommand(FoldOp op) {
 
 bool TextView::toggleFoldAt(int line) {
   const Document* d = document();
-  if (!d || !root() || !colouring()) return false;
+  if (!d || !root() || !foldingActive()) return false;
   if (!fold_.fresh()) foldRefreshNow();
   bool changed = false;
   if (fold_.isCollapsedAt(line)) {
@@ -1218,22 +1239,51 @@ RectF TextView::foldMarkerRect(int line) const {
   return {x, bounds().y + L.lineTop(r.vrow, std::floor(vp_.y())), static_cast<float>(txt.size()) * cw, L.lineHeight()};
 }
 
-// The gutter triangle of a line that starts a region: pointing down when open, right when collapsed.
+// The outlining margin, Visual Studio style: a boxed [-] on the first line of an open region with a guide line down
+// through the region to a short tick on its last line, a boxed [+] on a collapsed one (no guide). The lane is one
+// column; where regions nest the guides overlap. Called for every row (a wrapped line's guide continues).
 void TextView::paintFoldGlyph(PaintContext& ctx, const Layout& L, const RowRef& r, float y) {
   const float lane = L.foldLane();
   if (lane <= 0) return;
   const bool collapsed = fold_.isCollapsedAt(r.line);
-  if (!collapsed && !fold_.regionStartingAt(r.line)) return;
+  const FoldModel::Region* own = collapsed ? nullptr : fold_.regionStartingAt(r.line);
+  bool through = false, endsHere = false;
+  for (const FoldModel::Region& g : glyphRegions_) {
+    if (g.start > r.line) break;
+    if (g.start < r.line && g.end > r.line) through = true;
+    if (g.start < r.line && g.end == r.line) endsHere = true;
+  }
+  const bool firstRow = r.row == 0;
+  const bool box = firstRow && (collapsed || own);
+  const bool continues = own && own->end > r.line;  // an open region below its first line
+  if (!box && !through && !endsHere && !(continues && !firstRow)) return;
   const Color c = Theme::orElse(ctx.theme.foldGlyph, ctx.theme.gutterText);
   const float lh = L.lineHeight();
-  const int s = std::max(5, static_cast<int>(std::floor(std::min(lane, lh) * 0.45f)) | 1);  // odd: a symmetric tip
-  const int w = (s + 1) / 2;
+  int s = std::min(9, static_cast<int>(std::floor(std::min(lane, lh))) - 2);
+  if (s % 2 == 0) --s;  // odd: a centred cross
+  s = std::max(s, 3);
   const float cx = bounds().x + L.numbersRight(document()->buffer().lineCount()) + std::floor(lane / 2),
-              cy = y + std::floor(lh / 2);
-  for (int i = 0; i < w; ++i) {
-    const float len = static_cast<float>(s - 2 * i), fi = static_cast<float>(i);
-    if (collapsed) ctx.fill({cx - static_cast<float>(w / 2) + fi, cy - std::floor(len / 2), 1, len}, c);
-    else ctx.fill({cx - std::floor(len / 2), cy - static_cast<float>(w / 2) + fi, len, 1}, c);
+              cy = y + std::floor(lh / 2), half = static_cast<float>(s / 2);
+  const float top = y, bottom = y + lh;
+  if (box) {
+    const RectF bx{cx - half, cy - half, static_cast<float>(s), static_cast<float>(s)};
+    ctx.fill(bx, ctx.theme.gutterBackground);
+    ctx.fill({bx.x, bx.y, bx.w, 1}, c);
+    ctx.fill({bx.x, bx.y + bx.h - 1, bx.w, 1}, c);
+    ctx.fill({bx.x, bx.y, 1, bx.h}, c);
+    ctx.fill({bx.x + bx.w - 1, bx.y, 1, bx.h}, c);
+    const float arm = std::max(1.0f, half - 1);
+    ctx.fill({cx - arm, cy, 2 * arm + 1, 1}, c);                 // the minus
+    if (collapsed) ctx.fill({cx, cy - arm, 1, 2 * arm + 1}, c);  // the plus' stem
+    if (through) ctx.fill({cx, top, 1, bx.y - top}, c);          // the guide of an enclosing region
+    if (through || continues) ctx.fill({cx, bx.y + bx.h, 1, bottom - bx.y - bx.h}, c);
+    return;
+  }
+  if (through || (continues && !firstRow)) {
+    ctx.fill({cx, top, 1, lh}, c);
+  } else if (endsHere) {
+    ctx.fill({cx, top, 1, cy - top + 1}, c);  // the last line: up to the middle,
+    ctx.fill({cx, cy, half + 2, 1}, c);       // then a tick to the right
   }
 }
 

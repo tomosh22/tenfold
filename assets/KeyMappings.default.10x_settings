@@ -247,6 +247,9 @@ Control /: Editor.ToggleLineComment
 Control J: Editor.JoinLines
 Control Shift K: DeleteLine
 
+# --- Outlining (Visual Studio's Collapse to Definitions; 10x binds only Control M, Control M / Control L) ---
+Control M, Control O: Editor.CollapseToDefinitions
+
 # --- Semantic navigation ---
 F12: GotoSymbolDefinition
 Control F12: Editor.GotoDeclaration

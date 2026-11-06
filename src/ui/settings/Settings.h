@@ -96,6 +96,7 @@ struct EditorSettings {
   bool smoothScroll, wordWrap, caretBlink, highlightCurrentLine, showWhitespace;
   int caretBlinkMs, wheelLines, tabWidth, columnGuide;
   bool showFoldGlyphs;
+  bool outlineEnabled, outlinePragmaRegions, outlineStatementBlocks;
 };
 EditorSettings editorSettings(const Settings& s);
 
