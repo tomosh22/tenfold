@@ -25,6 +25,21 @@ decided by the user). Each has a default we implement until answered.
 | 18 | Licence for tenfold itself (the repository has no LICENSE file; packages ship third-party notices only) | none chosen; packaging picks up `LICENSE` automatically once it exists | D1 |
 | 19 | Visual Studio 2022 Dark colours: the `vs-dark` theme was written from memory (values marked `[?]` in assets/themes/vs-dark.txt: panel background, tabs, scrollbars, squiggles, diff and debugger colours). Corrections or a screenshot would let us match exactly | current values | B7b, C2c, C3c |
 
+
+## User decisions of 2026-11-06 (these override the defaults written further down)
+
+* **Characters the file's encoding cannot hold:** show the user the character(s) (each one, with its line and column and
+  its code point) and **refuse to save**. Replaces the W9-FIX-ENC default "save as UTF-8".
+* **Line endings:** handle them **the same way as Visual Studio** (load, display, typing new lines, mixed endings, the
+  consistency check, save). Replaces the W9-FIX-ENC default "normalise to the dominant ending on save".
+* **Go to definition through a `using` declaration or a `typedef` / alias:** let the user **choose** between the
+  declaration (the using-declaration / typedef) and the real entity.
+* **Go to definition on a constructor call such as `Widget(2)`, `Widget{2}`, `new Widget(2)`:** let the user **choose**
+  between the class and the constructor that is called.
+* **Every other unanswered question** (rows still open below and the defaults chosen in the detail sections where the
+  10x documentation is silent): **match Visual Studio's behaviour where Visual Studio has one** (research it, cite the
+  source). Where Visual Studio has no equivalent, keep the documented default.
+
 ## #8 detail: editing behaviours and their 10x settings
 
 Settings are `editor.*` in `settings.txt`; key bindings are 10x's (#1) in `assets/KeyMappings.default.10x_settings`.
