@@ -296,6 +296,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/FindReplace.cpp
     src/ui/features/GoToLine.cpp
     src/ui/features/SaveAsPrompt.cpp
+    src/ui/features/ExplorerPrompt.cpp
     src/ui/features/SaveRefusedDialog.cpp
     src/ui/features/OsLauncher.cpp
     src/ui/features/ConfigurationPicker.cpp
@@ -409,6 +410,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8e.cpp
     tests/ui/test_w8d_commands.cpp
     tests/ui/test_w8f_tree.cpp
+    tests/ui/test_vs_tree.cpp
     tests/ui/test_w8f_fold.cpp
     tests/ui/test_w8f_ctx.cpp
     tests/ui/test_w8f_misc.cpp

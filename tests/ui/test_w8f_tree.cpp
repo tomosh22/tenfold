@@ -592,6 +592,7 @@ TEST(w8f_show_in_workspace_tree_without_a_tree_node_says_so) {
 TEST(w8f_typing_in_the_tree_filters_and_enter_opens_the_match) {
   Env env("Explorer");
   env.key(kKeyE, kCS);
+  env.key(static_cast<Key>(';'), ModCtrl);  // VS-TREE X5: plain typing jumps, Ctrl+; starts the filter
   env.type("impl");
   CHECK_EQ(env.tree().filter(), "impl");
   CHECK(has(env.shownNames(), "impl.cpp") && !has(env.shownNames(), "main.cpp"));

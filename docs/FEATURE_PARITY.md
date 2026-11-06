@@ -297,7 +297,8 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | BackslashPaths | true | Show paths with backslashes | S |
 | WindowTitle, WorkspaceTextInTitleBar, RememberWindowPosition | Name, Name, true | Window title and position | S each |
 | HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt (and the secondary-menu variants) | false, true, true | Menu bar visibility | Needs a menu bar |
-| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert, EnableWorkspaceTreeDragDrop | true, false, true, true | Floating tool windows and tree drag and drop (the tree exists, W8f, without drag and drop) | Skipped unless tool windows float |
+| AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert | true, false, true | Floating tool windows | Skipped unless tool windows float |
+| EnableWorkspaceTreeDragDrop | true | Drag and drop in the workspace tree | Done (VS-TREE): `explorer.dragDrop`; dragging moves a file or folder after a confirmation (`explorer.promptBeforeMoving`), Ctrl copies; the tree also has New File / New Folder / Rename / Delete / Properties, type-ahead, Solution / Folder view, Show All Files and a saved expansion state (USER_GUIDE "Workspace explorer", VS_BEHAVIOUR section 11) |
 
 ### Workspace search
 

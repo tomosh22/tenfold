@@ -50,6 +50,14 @@ decided by the user). Each has a default we implement until answered.
   `editor.reloadUnlessUnsaved`, with `editor.reloadExternalChanges` kept as an optional override); pinned tabs cannot be
   crossed by moves or drags; Ctrl+K, Ctrl+Z restores the last closed tab (a tenfold addition). T3, T4, T5, T7, T8, T10
   and T13 are unchanged.
+  *Implemented for the workspace explorer (VS-TREE), see docs/VS_BEHAVIOUR.md section 11 rows X2, X3, X5, X6, X7, X8 and
+  X9 and row C10 of section 8:* typing in the tree jumps to the next name that starts with the letters (type-ahead, one
+  second reset) and Ctrl+; starts the old fuzzy filter; Switch Views (Solution / Folder) and Show All Files; the expanded
+  nodes, the selection and both switches are saved in `.tenfold/explorer.json`; the explorer opens by itself the first
+  time a workspace with a solution is started; New File / New Folder / Rename (F2) / Delete (confirmed, permanent) and
+  drag and drop (move with the "Prompt before moving" question, Ctrl copies) that keep the `.vcxproj` / `.filters`
+  Include values in step; a read-only Properties page. X1 (External Dependencies, optional), X4 (low: 10x wins) and X10
+  (search dropdown, optional) are unchanged, and the medium-low context-menu rows C6-C9 are not done.
 
 ### W10-CHOOSE: how the two choosers were implemented (and what was decided where the decision said nothing)
 
@@ -245,10 +253,39 @@ state, so these are choices, taken from Visual Studio's Solution Explorer:
 * `ShowInWorkspaceTreeWithToggle` "if it's already being shown": read as the panel is open and the current file is the
   selection and is on screen. Otherwise it reveals.
 * Single click selects and opens the file in the italic preview tab (VS-TABS, T2; `tabs.previewTab`), double click or
-  Enter opens it as a normal tab. Typing filters instead of jumping to the next name starting with the letters.
+  Enter opens it as a normal tab. Typing **jumps** to the next name starting with the letters (VS-TREE, X5: Windows
+  type-ahead, the typed text is forgotten after one second); the fuzzy filter is still there behind **Ctrl+;** (10x
+  documents neither, so there is no 10x behaviour to keep).
 * `TrackActiveFileInWorkspaceTree` (default false in 10x) is `explorer.trackActiveFile`; tracking never takes the keys.
-* `EnableWorkspaceTreeDragDrop`, the 10x workspace file's "Sync Folder" and exclude filters, and file operations (new,
-  rename, delete, show in file manager from the tree) are not implemented.
+* `EnableWorkspaceTreeDragDrop` is `explorer.dragDrop` (default true, like 10x); drag and drop and the file operations
+  (new file / folder, rename, delete, properties) are implemented by VS-TREE (VS_BEHAVIOUR section 11 X6 / X7, C10), see
+  "VS-TREE detail" below. The 10x workspace file's "Sync Folder" and exclude filters are not implemented.
+
+### VS-TREE detail: what was decided where Visual Studio's behaviour was not certain
+
+* **Where the state lives.** VS_BEHAVIOUR X9 says `.tenfold/layout.json`; it is a separate `.tenfold/explorer.json`
+  because `layout.json` belongs to the Workbench (panels, tabs, dock widths) and the explorer is a separate object that
+  is built after it. The file holds the view, Show All Files, the expanded nodes (by the names from the root) and the
+  selection.
+* **Default open (X8).** Only when no `layout.json` was restored (a first start) and the workspace has a solution that lists
+  projects; it never takes the keys. After that the layout remembers, including a closed explorer.
+* **Type-ahead (X5).** One second reset (the Windows tree-view default); the same letter again cycles; the search starts at
+  the selection (after it for a single letter, at it for a longer prefix) and wraps; only visible rows are searched. The
+  filter key is **Ctrl+;**, which is where Visual Studio puts the Solution Explorer search box; filtering remains fuzzy.
+* **Show All Files (X2).** Applies to the Solution view only; the extra files come from the workspace scan, not from a
+  fresh walk of the disk, and are placed in their folders on disk under the project (merged with a filter of the same name).
+* **Delete (X7).** Visual Studio's Delete key in Solution Explorer offers Remove or Delete; tenfold has no "Remove from
+  project only", so Delete means delete from disk **and** from the projects, with the wording "'x' will be deleted
+  permanently." (the Visual Studio text, from memory). VS_BEHAVIOUR says "to the recycle bin"; there is no portable recycle
+  bin API in the code base and the task asked for undo-free operations, so the file is deleted for good.
+* **Project files are edited as text.** Rename, move and delete change only the `Include="..."` attribute values (and remove
+  whole items) in `.vcxproj` and `.vcxproj.filters`; wildcards and items that need other MSBuild properties are left as
+  they are. A new file or folder, and a copy, are not added to any project (VS_BEHAVIOUR C8 "Include In Project" is
+  medium-low).
+* **F2 and Delete in the tree.** With the tree focused they rename and delete (Visual Studio); in the editor F2 is still
+  10x's `NextBookmark`. Alt Enter is 10x's `ToggleFullscreen`, so Properties has no key.
+* **Move confirmation text.** "Move 'a.cpp' to 'Lib'?" with OK / Cancel is tenfold's wording; the exact Visual Studio text of
+  the "Prompt before moving files to a new location" question was not verified.
 ## W8f detail: code folding (CollapseRegions)
 
 The 10x documentation gives one sentence per command and one setting (ShowCollapseRegionMargin); nothing on what a

@@ -20,6 +20,7 @@ struct TreeNode {
   int32_t parent = -1;
   TreeKind kind = TreeKind::File;
   std::vector<int32_t> kids;
+  bool dim = false;  // a file on disk that no project lists (Show All Files): painted dimmed
   bool expandable() const { return !kids.empty(); }
 };
 
@@ -52,9 +53,14 @@ class TreeModel {
 // A virtualised tree view (the workspace explorer's widget): only the rows inside the viewport are painted, rows are
 // a flat list rebuilt on expand / collapse / filter (50k files in a few ms). Keyboard: Up/Down/PageUp/PageDown/Home/
 // End select, Right expands (or enters the first child), Left collapses (or goes to the parent), Enter activates a
-// file / toggles a folder, typing filters (fuzzy, every space-separated token must match a node name; matching nodes
-// and their ancestors stay, expanded), Backspace edits the filter, Escape clears it or, when empty, calls onClose.
+// file / toggles a folder. Typing is type-ahead (VS-TREE X5, as every Windows tree view and Solution Explorer): the
+// typed letters select the next visible node whose name starts with them (case-insensitive; the same letter again
+// cycles through the names starting with it); the typed text is forgotten after kTypeAheadMs without a key, Backspace
+// takes the last letter back. Ctrl+; starts the filter instead (fuzzy, every space-separated token must match a node
+// name; matching nodes and their ancestors stay, expanded; typing then edits the filter, Backspace deletes, Escape
+// clears it and leaves filter mode). Escape with nothing typed calls onClose.
 // Mouse: click selects (on the arrow it toggles), double click activates / toggles, wheel and the scrollbar scroll.
+// Dragging a row (when `canDrop` is set) shows the drop target under the pointer and calls `onDrop` on release.
 class TreeView : public Widget {
  public:
   using Mark = TabStrip::VcsMark;
@@ -92,13 +98,35 @@ class TreeView : public Widget {
 
   void setFilter(const std::string& f);
   const std::string& filter() const { return filter_; }
+  bool filterMode() const { return filterMode_; }
+  void startFilter();  // Ctrl+;: typing edits the filter until Escape
+  // Type-ahead state: the letters typed so far (empty after the timeout).
+  const std::string& typeAhead() const { return ahead_; }
+  static constexpr int64_t kTypeAheadMs = 1000;
+  std::function<int64_t()> clockMs;  // monotonic ms for the type-ahead timeout; default steady_clock (tests inject)
+
+  // Persisted state (VS-TREE X9): the keys (TreeModel::keyOf) of the expanded nodes and of the selection.
+  std::vector<std::string> expandedKeys() const;
+  void setExpandedKeys(const std::vector<std::string>& keys);
+  std::string selectedKey() const { return selected_ > 0 ? model_.keyOf(selected_) : std::string(); }
+  bool selectKey(const std::string& key);  // false when no node has the key
+  int nodeForKey(const std::string& key) const;
 
   // Per-node decoration; called for the visible rows only.
   std::function<Mark(const TreeNode&)> markOf;
   std::function<void(int node)> onActivate;  // Enter / double click on a node without children (a file)
   std::function<void(int node)> onSelected;  // the selection changed by the user
   std::function<void(int node)> onClicked;   // a single left click on a row (not on its expander arrow)
-  std::function<void()> onClose;             // Escape with an empty filter
+  std::function<void()> onClose;             // Escape with nothing typed
+  std::function<void()> onExpansionChanged;  // a node was expanded or collapsed (by the user or by reveal)
+  // Called first for every key press (selected node or -1); true = consumed (F2, Delete in the explorer).
+  std::function<bool(const InputEvent&, int node)> onKeyDown;
+  // Drag and drop: `canDrop(source, target)` says whether `target` accepts `source`; `onDrop(source, target, copy)`
+  // runs on release over an accepting row (copy = Ctrl held). Dragging starts after the pointer moved a few pixels.
+  std::function<bool(int source, int target)> canDrop;
+  std::function<void(int source, int target, bool copy)> onDrop;
+  int dragSource() const { return dragging_ ? dragNode_ : -1; }
+  int dropTarget() const { return dragging_ ? dropNode_ : -1; }
 
   // ---- geometry (window coordinates), for tests ----
   float rowHeight() const;
@@ -140,7 +168,17 @@ class TreeView : public Widget {
   std::string filter_;
   float scrollY_ = 0;
   int hoverRow_ = -1;
+  void typeAheadKey(const std::string& text);
+  int64_t now() const;
+  void cancelDrag();
   bool dragThumb_ = false, hotThumb_ = false;
+  std::string ahead_;
+  int64_t aheadAt_ = 0;
+  bool filterMode_ = false;
+  int pressNode_ = -1;  // the row pressed with the left button, a candidate drag source
+  float pressX_ = 0, pressY_ = 0;
+  bool dragging_ = false;
+  int dragNode_ = -1, dropNode_ = -1;
   float dragGrab_ = 0;
   bool focused_ = false;
   float metricLh_ = 16, metricCell_ = 8, metricPad_ = 4;  // cached from the last paint / layout
