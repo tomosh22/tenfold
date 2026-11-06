@@ -88,6 +88,12 @@ void put(const fs::path& p, const std::string& data) {
   std::ofstream(p, std::ios::binary) << data;
 }
 
+// True when `p` is strictly below directory `dir`. Compared per component, so it holds for either separator.
+bool under(const fs::path& p, const fs::path& dir) {
+  auto [a, b] = std::mismatch(dir.begin(), dir.end(), p.begin(), p.end());
+  return a == dir.end() && b != p.end();
+}
+
 Editor::Options fastOnly() {
   Editor::Options o;
   o.semantic.useClangd = false;
@@ -659,7 +665,8 @@ TEST(pathological_binary_and_oddly_encoded_files) {
   put(d.path / "latin1.cpp", std::string("// caf\xe9 \xfc"
                                          "ber\nint latin1_marker() { return 1; }\n"));
   static const char kNul[] = "int before_nul;\n\0\0\0\0 int in_nul;\n";
-  put(d.path / "nul.cpp", std::string(kNul, sizeof(kNul) - 1) + std::string(100000, '\0') + "\nint after_nul;\n");
+  // (not "nul.cpp": NUL is a reserved device name on Windows, with any extension, and no such file can be made)
+  put(d.path / "nul_bytes.cpp", std::string(kNul, sizeof(kNul) - 1) + std::string(100000, '\0') + "\nint after_nul;\n");
   put(d.path / "nul_ident.cpp", std::string("int na\0me = 1;\nint nul_after;\n", 30));
   put(d.path / "all_nul.cpp", std::string(500000, '\0'));
   put(d.path / "cr_only.cpp", rep("int cr_a;\rint cr_b;\r// comment\rint cr_c;\r", 2000));
@@ -692,6 +699,7 @@ TEST(pathological_binary_and_oddly_encoded_files) {
     if (e.path().filename() == ".tenfold") continue;
     std::string err;
     Document* doc = w.ed->open(e.path(), &err);
+    if (!doc) std::cerr << "    open failed: " << pathUtf8(e.path()) << ": " << err << "\n";
     REQUIRE(doc != nullptr);
     w.ed->gotoLocation({doc->path(), {0, 0}});
     w.ed->moveCarets(Editor::Direction::DocEnd);
@@ -708,7 +716,7 @@ TEST(pathological_binary_and_oddly_encoded_files) {
     CHECK(w.ed->waitFor([&] { return done; }, 20000));
   }
   // A round trip through the editor does not change bytes it did not touch (binary, Latin-1, NULs).
-  for (const char* f : {"random.cpp", "latin1.cpp", "nul.cpp", "bad_utf8.cpp"}) {
+  for (const char* f : {"random.cpp", "latin1.cpp", "nul_bytes.cpp", "bad_utf8.cpp"}) {
     Document* doc = w.ed->document(d.path / f);
     REQUIRE(doc != nullptr);
     std::string a, b;
@@ -764,15 +772,22 @@ TEST(pathological_symlinks_unreadable_and_odd_names) {
                                           std::string(250, 'a') + ".cpp",
                                           "back\\slash.cpp",
                                           "percent%20.cpp"};
+  // The names are UTF-8: fs::path(std::string) would read them in the ANSI code page on Windows and make different
+  // files
+  // ("cafÃ©"), so they go through pathFromUtf8. `made` counts the files that really exist afterwards: a Windows file
+  // system refuses control characters, '"' and '|' in a name (and, past MAX_PATH, the 254-character one), and
+  // std::ofstream does not throw for that.
   size_t made = 0;
   for (size_t i = 0; i < names.size(); ++i) {
     try {
-      put(ws / "names" / names[i], "int name_marker_" + std::to_string(i) + "() { return 1; }\n");
-      ++made;
+      const fs::path f = ws / "names" / pathFromUtf8(names[i]);
+      put(f, "int name_marker_" + std::to_string(i) + "() { return 1; }\n");
+      std::error_code ec;
+      if (fs::is_regular_file(f, ec)) ++made;
     } catch (...) {}
   }
   for (const char* dn : {"dir with spaces", "d\xc3\xbcr", "\xe7\x9b\xae\xe5\xbd\x95", "dir.cpp", "-dash"})
-    put(ws / "names" / dn / "inner.cpp", "int inner_marker() { return 1; }\n");
+    put(ws / "names" / pathFromUtf8(dn) / "inner.cpp", "int inner_marker() { return 1; }\n");
 #ifndef _WIN32
   // a path of about 3500 bytes, built one component at a time
   fs::path cur = ws / "longpath";
@@ -976,9 +991,7 @@ TEST(pathological_churn_while_indexing) {
             fs::remove_all(dd, ec);
             std::ofstream(dd) << "int was_a_dir;\n";
             live.erase(std::remove_if(live.begin(), live.end(),
-                                      [&](const fs::path& x) {
-                                        return x.parent_path() == dd || x.string().rfind(dd.string() + "/", 0) == 0;
-                                      }),
+                                      [&](const fs::path& x) { return x.parent_path() == dd || under(x, dd); }),
                        live.end());
             ++ops["dir2file"];
           }
@@ -996,7 +1009,7 @@ TEST(pathological_churn_while_indexing) {
             fs::rename(a, b, ec);
             if (!ec) {
               for (auto& x : live)
-                if (x.string().rfind(a.string() + "/", 0) == 0) x = b / fs::relative(x, a);
+                if (under(x, a)) x = b / fs::relative(x, a);
               ++ops["rename_dir"];
             }
           }
@@ -1030,18 +1043,18 @@ TEST(pathological_churn_while_indexing) {
         ec.clear();
         continue;
       }
-      if (it->path().string().find("/.tenfold") != std::string::npos) continue;
+      if (it->path().generic_string().find("/.tenfold") != std::string::npos) continue;
       if (it->is_regular_file(ec)) {
         auto e = it->path().extension().string();
-        if (e == ".cpp" || e == ".h") s.insert(it->path().string());
+        if (e == ".cpp" || e == ".h") s.insert(it->path().generic_string());
       }
     }
     return s;
   };
   auto inWorkspace = [&] {
     std::set<std::string> s;
-    for (auto& p : w.ed->workspace().sourceFiles()) s.insert(p.string());
-    for (auto& p : w.ed->workspace().headerFiles()) s.insert(p.string());
+    for (auto& p : w.ed->workspace().sourceFiles()) s.insert(p.generic_string());
+    for (auto& p : w.ed->workspace().headerFiles()) s.insert(p.generic_string());
     return s;
   };
   const bool consistent = w.ed->waitFor([&] { return inWorkspace() == onDisk(); }, 15000);

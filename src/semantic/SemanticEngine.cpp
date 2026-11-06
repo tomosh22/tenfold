@@ -81,7 +81,7 @@ std::string readLineOfFile(const fs::path& p, int line) {
 }
 
 std::string languageIdFor(const fs::path& p) {
-  std::string e = p.extension().string();
+  std::string e = pathUtf8(p.extension());
   for (auto& c : e) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   if (e == ".c") return "c";
   if (e == ".m") return "objective-c";
@@ -576,7 +576,11 @@ void SemanticEngine::startFastIndex() {
       if (auto loaded = FastIndexStore::load(ws_.cacheDir() / "fastindex.bin", &err)) cached = std::move(*loaded);
       else log("fast index store not used: " + err);
     }
-    fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
+    try {
+      fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
+    } catch (const std::exception& e) {  // never leave fastDone_ unset or take the process down
+      log(std::string("fast index failed: ") + e.what());
+    }
     {
       std::lock_guard<std::mutex> g(saveMu_);
       // Nothing to write back if every entry came from the store untouched.
@@ -1364,7 +1368,7 @@ std::string prefixFileName(const fs::path& file, int line) {
 }
 
 bool isSourceLikeExtension(const fs::path& p) {
-  std::string e = p.extension().string();
+  std::string e = pathUtf8(p.extension());
   for (auto& ch : e) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
   return e == ".c" || e == ".cpp" || e == ".cc" || e == ".cxx" || e == ".c++" || e == ".cp" || e == ".m" ||
          e == ".mm" || e == ".cu";
@@ -1414,7 +1418,7 @@ bool SemanticEngine::provideTuContext(LspClient& c, const Document& doc) {
   };
   env.includersOf = [this](const fs::path& target) {
     std::vector<fs::path> out;
-    const std::string name = target.filename().string();
+    const std::string name = pathUtf8(target.filename());
     for (const auto& fsyms : fast_.exportFiles()) {
       for (const auto& inc : fsyms->includes) {
         if (includeBaseName(inc) == name) {
@@ -1493,7 +1497,7 @@ std::string SemanticEngine::remapUri(const std::string& uri) const {
   const fs::path p = uriToPath(uri);
   if (p.parent_path().filename() != "tu") return uri;
   std::lock_guard<std::mutex> lk(tuMu_);
-  auto it = tuPrefixOwner_.find(p.filename().string());
+  auto it = tuPrefixOwner_.find(pathUtf8(p.filename()));
   return it == tuPrefixOwner_.end() ? uri : pathToUri(it->second);
 }
 
@@ -1595,7 +1599,7 @@ SemanticEngine::RenameCoverage SemanticEngine::renameCoverage(const std::string&
   std::unordered_map<std::string, std::vector<const FileSymbols*>> byBase;
   std::unordered_map<std::string, const FileSymbols*> byKey;
   for (const auto& f : all) {
-    byBase[f->file.filename().string()].push_back(f.get());
+    byBase[pathUtf8(f->file.filename())].push_back(f.get());
     byKey[pathKey(f->file)] = f.get();
   }
   auto baseOf = [](const std::string& s) {
@@ -1610,7 +1614,7 @@ SemanticEngine::RenameCoverage SemanticEngine::renameCoverage(const std::string&
       for (const auto& f : all) {
         bool hit = false;
         for (const auto& inc : f->includes)
-          if (baseOf(inc) == target.filename().string() && tu::includeSpellingResolves(inc, f->file, target)) {
+          if (baseOf(inc) == pathUtf8(target.filename()) && tu::includeSpellingResolves(inc, f->file, target)) {
             hit = true;
             break;
           }

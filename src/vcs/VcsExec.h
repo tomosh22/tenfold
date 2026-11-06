@@ -3,6 +3,7 @@
 #include <string>
 #include <vector>
 
+#include "core/PathUtil.h"
 #include "lsp/Process.h"
 
 namespace tf {
@@ -29,7 +30,7 @@ struct ExecResult {
 ExecResult runCommand(const ExecOptions& opt);
 
 // Command line tools speak UTF-8; fs::path's narrow conversions use the ANSI code page on Windows.
-std::filesystem::path pathFromUtf8(const std::string& s);
+// pathFromUtf8 is in core/PathUtil.h
 std::string pathToUtf8(const std::filesystem::path& p);  // generic ('/') separators
 
 }  // namespace tf

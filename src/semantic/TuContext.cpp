@@ -207,7 +207,7 @@ bool endsInsideBody(std::string_view t) {
 }
 
 bool isStandardHeaderExtension(const fs::path& p) {
-  const std::string e = lowerCopy(p.extension().string());
+  const std::string e = lowerCopy(pathUtf8(p.extension()));
   return e == ".h" || e == ".hh" || e == ".hpp" || e == ".hxx" || e == ".h++" || e == ".hp" || e == ".cuh";
 }
 

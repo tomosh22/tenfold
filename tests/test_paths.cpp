@@ -246,3 +246,15 @@ TEST(vcxproj_additional_options_fixture) {
   CHECK(has(a, "/std:c++latest"));
   CHECK(!has(a, "%(AdditionalOptions)"));
 }
+
+TEST(utf8_path_conversions_round_trip_and_do_not_collide) {
+  // pathFromUtf8 / pathUtf8 / pathKeyUtf8 never go through the ANSI code page (Windows path::string() would turn both
+  // names below into "??.cpp"), so different names stay different keys.
+  const std::string a = "dir/caf\xc3\xa9/\xe4\xb8\xad\xe6\x96\x87.cpp",
+                    b = "dir/caf\xc3\xa9/\xe7\x9b\xae\xe5\xbd\x95.cpp";
+  CHECK(pathKeyUtf8(pathFromUtf8(a)) != pathKeyUtf8(pathFromUtf8(b)));
+  CHECK_EQ(pathKeyUtf8(pathFromUtf8(a)), a);
+  CHECK_EQ(pathUtf8(pathFromUtf8(b).filename()), "\xe7\x9b\xae\xe5\xbd\x95.cpp");
+  CHECK(pathKey(pathFromUtf8(a)) != pathKey(pathFromUtf8(b)));
+  CHECK_EQ(pathKeyUtf8(fs::path("a") / "b" / "c.cpp"), "a/b/c.cpp");
+}

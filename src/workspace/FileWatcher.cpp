@@ -10,6 +10,8 @@
 #include <unordered_map>
 #include <vector>
 
+#include "core/PathUtil.h"
+
 #if defined(__linux__)
 #include <errno.h>
 #include <poll.h>
@@ -74,13 +76,13 @@ struct FileWatcher::Impl {
       }
     }
     auto remap = [&](const fs::path& p) {
-      const std::string s = p.string();
-      return s.compare(0, prefix.size(), prefix) == 0 ? fs::path(to + s.substr(from.size())) : p;
+      const std::string s = pathKeyUtf8(p);
+      return s.compare(0, prefix.size(), prefix) == 0 ? pathFromUtf8(to + s.substr(from.size())) : p;
     };
     for (Pending& p : moved) {
       p.ev.path = remap(p.ev.path);
       p.ev.oldPath = remap(p.ev.oldPath);
-      auto& slot = pending[p.ev.path.string()];
+      auto& slot = pending[pathKeyUtf8(p.ev.path)];
       if (slot.ev.path.empty() || slot.seq < p.seq) slot = std::move(p);
     }
   }
@@ -96,7 +98,7 @@ struct FileWatcher::Impl {
       return;
     }
     if (e.kind == Event::Renamed) {
-      std::string oldKey = e.oldPath.string();
+      std::string oldKey = pathKeyUtf8(e.oldPath);
       Event::Kind kind = Event::Renamed;
       fs::path oldPath = e.oldPath;
       auto old = pending.find(oldKey);
@@ -109,11 +111,11 @@ struct FileWatcher::Impl {
       if (kind == Event::Renamed && oldPath == e.path) kind = Event::Modified;
       e.kind = kind;
       e.oldPath = kind == Event::Renamed ? oldPath : fs::path();
-      if (e.isDirectory) remapPendingUnder(oldKey, e.path.string());
-      pending[e.path.string()] = Pending{e, now, seq++};
+      if (e.isDirectory) remapPendingUnder(oldKey, pathKeyUtf8(e.path));
+      pending[pathKeyUtf8(e.path)] = Pending{e, now, seq++};
       return;
     }
-    std::string key = e.path.string();
+    std::string key = pathKeyUtf8(e.path);
     auto it = pending.find(key);
     if (it == pending.end()) {
       pending[key] = Pending{std::move(e), now, seq++};
@@ -205,7 +207,7 @@ struct FileWatcher::Impl {
         auto t = fs::last_write_time(it->path(), e2);
         if (!e2) s.mtime = static_cast<long long>(t.time_since_epoch().count());
         s.size = fs::file_size(it->path(), e2);
-        out[it->path().string()] = s;
+        out[pathUtf8(it->path())] = s;
       }
     }
   }
@@ -238,7 +240,7 @@ struct FileWatcher::Impl {
         for (auto& [path, stamp] : cur) {
           auto it = snap.find(path);
           Event e;
-          e.path = path;
+          e.path = pathFromUtf8(path);
           if (it == snap.end()) {
             e.kind = Event::Created;
             note(std::move(e));
@@ -251,7 +253,7 @@ struct FileWatcher::Impl {
           if (cur.count(path)) continue;
           Event e;
           e.kind = Event::Deleted;
-          e.path = path;
+          e.path = pathFromUtf8(path);
           note(std::move(e));
         }
         snap = std::move(cur);
@@ -610,41 +612,46 @@ struct FileWatcher::Impl {
     const char* p = bytes.data();
     for (;;) {
       const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(p);
-      fs::path rel(std::wstring(info->FileName, info->FileNameLength / sizeof(WCHAR)));
-      fs::path path = root / rel;
-      if (!underIgnored(path)) {
-        Event e;
-        e.path = path;
-        std::error_code ec;
-        switch (info->Action) {
-          case FILE_ACTION_ADDED:
-            e.kind = Event::Created;
-            e.isDirectory = fs::is_directory(path, ec);
-            if (e.isDirectory && !ignore(path)) walkFiles(path);
-            if (!e.isDirectory || !ignore(path)) note(std::move(e));
-            break;
-          case FILE_ACTION_REMOVED:
-            e.kind = Event::Deleted;  // directory-ness unknown once gone; consumers match by prefix
-            note(std::move(e));
-            break;
-          case FILE_ACTION_MODIFIED:
-            if (!fs::is_directory(path, ec)) {
-              e.kind = Event::Modified;
+      try {
+        fs::path rel(std::wstring(info->FileName, info->FileNameLength / sizeof(WCHAR)));
+        fs::path path = root / rel;
+        if (!underIgnored(path)) {
+          Event e;
+          e.path = path;
+          std::error_code ec;
+          switch (info->Action) {
+            case FILE_ACTION_ADDED:
+              e.kind = Event::Created;
+              e.isDirectory = fs::is_directory(path, ec);
+              if (e.isDirectory && !ignore(path)) walkFiles(path);
+              if (!e.isDirectory || !ignore(path)) note(std::move(e));
+              break;
+            case FILE_ACTION_REMOVED:
+              e.kind = Event::Deleted;  // directory-ness unknown once gone; consumers match by prefix
               note(std::move(e));
-            }
-            break;
-          case FILE_ACTION_RENAMED_OLD_NAME: pendingOld = path; break;
-          case FILE_ACTION_RENAMED_NEW_NAME:
-            e.kind = Event::Renamed;
-            e.oldPath = pendingOld;
-            e.isDirectory = fs::is_directory(path, ec);
-            pendingOld.clear();
-            note(std::move(e));
-            break;
-          default: break;
+              break;
+            case FILE_ACTION_MODIFIED:
+              if (!fs::is_directory(path, ec)) {
+                e.kind = Event::Modified;
+                note(std::move(e));
+              }
+              break;
+            case FILE_ACTION_RENAMED_OLD_NAME: pendingOld = path; break;
+            case FILE_ACTION_RENAMED_NEW_NAME:
+              e.kind = Event::Renamed;
+              e.oldPath = pendingOld;
+              e.isDirectory = fs::is_directory(path, ec);
+              pendingOld.clear();
+              note(std::move(e));
+              break;
+            default: break;
+          }
+        } else if (info->Action == FILE_ACTION_RENAMED_OLD_NAME) {
+          pendingOld.clear();
         }
-      } else if (info->Action == FILE_ACTION_RENAMED_OLD_NAME) {
-        pendingOld.clear();
+      } catch (const std::exception& ex) {
+        // One path std::filesystem cannot handle costs that event, not the watcher.
+        log(std::string("file watcher: event skipped: ") + ex.what());
       }
       if (info->NextEntryOffset == 0) break;
       p += info->NextEntryOffset;

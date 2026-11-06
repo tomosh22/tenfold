@@ -11,6 +11,7 @@
 #include <thread>
 #include <unordered_map>
 
+#include "core/PathUtil.h"
 #include "core/Platform.h"
 
 namespace tf {
@@ -143,7 +144,7 @@ std::string FastIndexStore::serialize(const Entries& files) {
   // Intern every string once.
   std::unordered_map<std::string_view, uint32_t> ids;
   std::vector<std::string_view> table;
-  std::vector<std::string> pathStrings;  // generic_string() results must outlive the views
+  std::vector<std::string> pathStrings;  // UTF-8 path strings must outlive the views
   pathStrings.reserve(files.size());
   auto intern = [&](std::string_view s) -> uint32_t {
     auto [it, inserted] = ids.try_emplace(s, static_cast<uint32_t>(table.size()));
@@ -157,7 +158,7 @@ std::string FastIndexStore::serialize(const Entries& files) {
   std::string body;
   body.reserve(symTotal * kSymbolRecord + files.size() * 32);
   for (auto& f : files) {
-    pathStrings.push_back(f->file.generic_string());
+    pathStrings.push_back(pathKeyUtf8(f->file));
     put<uint32_t>(body, intern(pathStrings.back()));
     put<int64_t>(body, f->mtime);
     put<uint64_t>(body, f->size);
@@ -272,7 +273,7 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         failed = true;
         return;
       }
-      fs->file = std::filesystem::path(std::string(strs[path]));
+      fs->file = pathFromUtf8(std::string(strs[path]));
       fs->symbols.resize(nsym);
       for (auto& s : fs->symbols) {
         uint32_t name = fr.get<uint32_t>();

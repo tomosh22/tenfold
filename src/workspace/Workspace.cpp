@@ -6,6 +6,8 @@
 #include <limits>
 
 #include "core/JsonUtil.h"
+#include "core/Log.h"
+#include "core/PathUtil.h"
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -31,7 +33,7 @@ std::string lower(std::string s) {
   return s;
 }
 bool hasExt(const fs::path& p, const std::vector<std::string>& exts) {
-  std::string e = lower(p.extension().string());
+  std::string e = lower(pathUtf8(p.extension()));
   return std::find(exts.begin(), exts.end(), e) != exts.end();
 }
 }  // namespace
@@ -176,14 +178,14 @@ bool Workspace::isSource(const fs::path& p) const { return hasExt(p, settings_.s
 bool Workspace::isHeader(const fs::path& p) const {
   if (p.extension().empty()) {
     // Extensionless files are headers only in include-ish directories (e.g. <vector>-style).
-    std::string parent = lower(p.parent_path().filename().string());
+    std::string parent = lower(pathUtf8(p.parent_path().filename()));
     return parent == "include" || parent.find("inc") != std::string::npos;
   }
   return hasExt(p, settings_.headerExtensions);
 }
 
 bool Workspace::isIgnoredDir(const fs::path& dir) const {
-  std::string name = dir.filename().string();
+  std::string name = pathUtf8(dir.filename());
   if (settings_.ignoreDirs.count(name)) return true;
   std::string ln = lower(name);
   for (auto& n : settings_.ignoreDirNames)
@@ -198,24 +200,44 @@ void Workspace::scan(std::function<void(size_t)> progress) {
   headers_.clear();
   others_.clear();
   ++revision_;
-  std::error_code ec;
-  auto opts = fs::directory_options::skip_permission_denied;
-  if (settings_.followSymlinks) opts |= fs::directory_options::follow_directory_symlink;
-  fs::recursive_directory_iterator it(root_, opts, ec), end;
+  // One directory_iterator per directory instead of a single recursive_directory_iterator: when the recursive one
+  // fails to descend (a path past MAX_PATH on Windows, a directory deleted mid-scan, ...) the MSVC STL empties its
+  // stack, so the iterator becomes `end` and the rest of the tree is silently lost. Here a directory that cannot be
+  // read costs only itself.
+  constexpr size_t kMaxDepth = 256;  // also ends symlink cycles when followSymlinks is on
   size_t n = 0;
-  while (it != end) {
-    const fs::directory_entry& e = *it;
-    if (e.is_directory(ec)) {
-      if (isIgnoredDir(e.path())) it.disable_recursion_pending();
-    } else if (e.is_regular_file(ec)) {
-      const fs::path& p = e.path();
-      if (isSource(p)) sources_.push_back(p);
-      else if (isHeader(p)) headers_.push_back(p);
-      else if (hasExt(p, settings_.otherExtensions)) others_.push_back(p);
-      if (progress && (++n % 1000) == 0) progress(n);
+  std::vector<std::pair<fs::path, size_t>> stack;
+  stack.emplace_back(root_, 0);
+  while (!stack.empty()) {
+    auto [dir, depth] = std::move(stack.back());
+    stack.pop_back();
+    std::error_code ec;
+    fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
+    if (ec) {
+      Log::warn("workspace", "scan: cannot read " + pathUtf8(dir) + ": " + ec.message());
+      continue;
     }
-    it.increment(ec);
-    if (ec) { ec.clear(); }
+    for (; it != end; it.increment(ec)) {
+      if (ec) {
+        ec.clear();
+        continue;
+      }
+      const fs::directory_entry& e = *it;
+      std::error_code ec2;
+      if (e.is_directory(ec2)) {
+        // A symlink or (Windows) junction to a directory is entered only when followSymlinks says so.
+        const bool plain = e.symlink_status(ec2).type() == fs::file_type::directory;
+        if (!isIgnoredDir(e.path()) && (plain || settings_.followSymlinks) && depth < kMaxDepth)
+          stack.emplace_back(e.path(), depth + 1);
+      } else if (e.is_regular_file(ec2)) {
+        const fs::path& p = e.path();
+        if (isSource(p)) sources_.push_back(p);
+        else if (isHeader(p)) headers_.push_back(p);
+        else if (hasExt(p, settings_.otherExtensions)) others_.push_back(p);
+        if (progress && (++n % 1000) == 0) progress(n);
+      }
+    }
+    if (ec) ec.clear();
   }
   std::sort(sources_.begin(), sources_.end());
   std::sort(headers_.begin(), headers_.end());
@@ -276,7 +298,7 @@ std::vector<fs::path> Workspace::solutionFiles() const {
   fs::directory_iterator it(root_, fs::directory_options::skip_permission_denied, ec), end;
   for (; !ec && it != end; it.increment(ec)) {  // the range-for form throws when the directory vanishes mid-walk
     std::error_code e2;
-    if (it->is_regular_file(e2) && lower(it->path().extension().string()) == ".sln") out.push_back(it->path());
+    if (it->is_regular_file(e2) && lower(pathUtf8(it->path().extension())) == ".sln") out.push_back(it->path());
   }
   std::sort(out.begin(), out.end());
   return out;

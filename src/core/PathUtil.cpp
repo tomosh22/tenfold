@@ -42,7 +42,7 @@ std::string pathKey(const std::string& p, PathStyle style) {
   return out;
 }
 
-std::string pathKey(const std::filesystem::path& p) { return pathKey(p.generic_string(), nativePathStyle()); }
+std::string pathKey(const std::filesystem::path& p) { return pathKey(pathKeyUtf8(p), nativePathStyle()); }
 
 bool pathsEqual(const std::string& a, const std::string& b, PathStyle style) {
   return pathKey(a, style) == pathKey(b, style);
@@ -96,13 +96,23 @@ std::string uriToPathString(const std::string& uri, PathStyle style) {
   return out;
 }
 
+std::string pathUtf8(const std::filesystem::path& p) {
+  const std::u8string u = p.u8string();
+  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+
+std::string pathKeyUtf8(const std::filesystem::path& p) {
+  const std::u8string u = p.generic_u8string();
+  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
+}
+
+std::filesystem::path pathFromUtf8(const std::string& s) {
+  return std::filesystem::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size()));
+}
+
 bool readRegularFile(const std::filesystem::path& path, std::string& out, std::string* error) {
   auto fail = [&](const std::string& why) {
-    if (error) {
-      // path.string() throws on Windows for a name outside the ANSI code page.
-      const std::u8string u = path.generic_u8string();
-      *error = why + " " + std::string(reinterpret_cast<const char*>(u.data()), u.size());
-    }
+    if (error) { *error = why + " " + pathKeyUtf8(path); }
     return false;
   };
 #ifndef _WIN32
