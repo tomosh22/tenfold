@@ -104,12 +104,12 @@ std::vector<CompileCommand> CompileDatabase::load(const fs::path& jsonFile, std:
   std::vector<CompileCommand> out;
   std::ifstream in(jsonFile);
   if (!in) {
-    if (error) *error = "cannot open " + jsonFile.string();
+    if (error) *error = "cannot open " + pathUtf8(jsonFile);
     return out;
   }
   Json j = Json::parse(in, nullptr, false);
   if (!j.is_array()) {
-    if (error) *error = "not a JSON array: " + jsonFile.string();
+    if (error) *error = "not a JSON array: " + pathUtf8(jsonFile);
     return out;
   }
   // A compile_commands.json is written by other tools: an entry that is not an object, or a field of the wrong type,
@@ -138,8 +138,8 @@ bool CompileDatabase::save(const std::vector<CompileCommand>& cmds, const fs::pa
   Json arr = Json::array();
   for (auto& c : cmds) {
     Json e;
-    e["directory"] = c.directory.generic_string();
-    e["file"] = c.file.generic_string();
+    e["directory"] = pathKeyUtf8(c.directory);
+    e["file"] = pathKeyUtf8(c.file);
     e["arguments"] = c.arguments;
     std::string cmd;
     for (auto& a : c.arguments) {
@@ -153,7 +153,7 @@ bool CompileDatabase::save(const std::vector<CompileCommand>& cmds, const fs::pa
   fs::create_directories(jsonFile.parent_path(), ec);
   std::ofstream out(jsonFile);
   if (!out) {
-    if (error) *error = "cannot write " + jsonFile.string();
+    if (error) *error = "cannot write " + pathUtf8(jsonFile);
     return false;
   }
   out << dumpSafe(arr, 2);
@@ -170,7 +170,7 @@ std::optional<fs::path> fromCMake(const fs::path& root, const fs::path& buildDir
   std::error_code ec;
   if (!fs::is_regular_file(root / "CMakeLists.txt", ec)) return std::nullopt;
   fs::create_directories(buildDir, ec);
-  std::string cmd = "cmake -S " + quoteArg(root.string()) + " -B " + quoteArg(buildDir.string()) +
+  std::string cmd = "cmake -S " + quoteArg(pathUtf8(root)) + " -B " + quoteArg(pathUtf8(buildDir)) +
                     " -DCMAKE_EXPORT_COMPILE_COMMANDS=ON 2>&1";
   std::string output;
   if (FILE* p = openShellPipe(cmd, "r")) {
@@ -361,7 +361,7 @@ void globInto(const std::string& dir, const std::vector<std::string>& segs, size
   if (seg == "**") {
     globInto(dir, segs, k + 1, out);
     for (auto& e : fs::directory_iterator(fs::path(dir), ec))
-      if (e.is_directory(ec)) globInto(e.path().generic_string(), segs, k, out);
+      if (e.is_directory(ec)) globInto(pathKeyUtf8(e.path()), segs, k, out);
     return;
   }
   if (seg.find_first_of("*?") == std::string::npos) {
@@ -373,7 +373,7 @@ void globInto(const std::string& dir, const std::vector<std::string>& segs, size
   }
   std::vector<std::string> names;
   for (auto& e : fs::directory_iterator(fs::path(dir), ec)) {
-    std::string n = e.path().filename().string();
+    std::string n = pathUtf8(e.path().filename());
     if (wildcardMatch(seg, n) && (last ? e.is_regular_file(ec) : e.is_directory(ec))) names.push_back(n);
   }
   std::sort(names.begin(), names.end());
@@ -682,7 +682,7 @@ std::string expandProperties(const std::string& s, const std::map<std::string, s
 
 bool evaluateCondition(const std::string& cond, const std::map<std::string, std::string>& props,
                        const fs::path& baseDir) {
-  return evalCondition(cond, ctxFromMap(props), baseDir.generic_string());
+  return evalCondition(cond, ctxFromMap(props), pathKeyUtf8(baseDir));
 }
 
 // ---------------------------------------------------------------------------
@@ -693,7 +693,7 @@ bool SolutionConfiguration::operator==(const SolutionConfiguration& o) const {
   return lower(configuration) == lower(o.configuration) && lower(platform) == lower(o.platform);
 }
 
-bool SolutionProject::isVcxproj() const { return lower(path.extension().string()) == ".vcxproj"; }
+bool SolutionProject::isVcxproj() const { return lower(pathUtf8(path.extension())) == ".vcxproj"; }
 
 SolutionConfiguration parseSolutionConfiguration(const std::string& name) {
   size_t bar = name.find('|');
@@ -738,10 +738,10 @@ SolutionInfo readSolution(const fs::path& sln, std::string* error) {
   info.path = sln;
   std::ifstream in(sln);
   if (!in) {
-    if (error) *error = "cannot open " + sln.string();
+    if (error) *error = "cannot open " + pathUtf8(sln);
     return info;
   }
-  const std::string dir = hostPath(sln.parent_path().generic_string());
+  const std::string dir = hostPath(pathKeyUtf8(sln.parent_path()));
   std::string line;
   enum class Section { None, SolutionConfigs, ProjectConfigs } section = Section::None;
   bool first = true;
@@ -1018,7 +1018,7 @@ void enterScope(ProjectState& st, const ProjectState::Scope& g) {
 }
 
 bool isSourceExt(const std::string& path) {
-  std::string e = lower(fs::path(path).extension().string());
+  std::string e = lower(pathUtf8(fs::path(path).extension()));
   return e == ".cpp" || e == ".cc" || e == ".cxx" || e == ".c" || e == ".cu" || e == ".mm" || e == ".m" ||
          e == ".ixx" || e == ".cppm";
 }
@@ -1042,36 +1042,35 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
   ProjectState st;
   st.cx.env = opt.environment;
   st.cx.processEnv = opt.useProcessEnvironment;
-  st.projectDir = normalizePathStr(projectDirPath.generic_string());
-  const std::string projPath = normalizePathStr(proj.generic_string());
+  st.projectDir = normalizePathStr(pathKeyUtf8(projectDirPath));
+  const std::string projPath = normalizePathStr(pathKeyUtf8(proj));
   const std::string platformLow = lower(opt.platform);
   auto& P = st.cx.props;
   P["configuration"] = opt.configuration;
   P["platform"] = opt.platform;
   P["projectdir"] = st.projectDir + "/";
-  P["projectname"] = proj.stem().string();
-  P["projectfilename"] = proj.filename().string();
+  P["projectname"] = pathUtf8(proj.stem());
+  P["projectfilename"] = pathUtf8(proj.filename());
   P["projectpath"] = projPath;
-  P["projectext"] = proj.extension().string();
-  const std::string slnDir =
-      opt.solutionDir.empty() ? st.projectDir : normalizePathStr(opt.solutionDir.generic_string());
+  P["projectext"] = pathUtf8(proj.extension());
+  const std::string slnDir = opt.solutionDir.empty() ? st.projectDir : normalizePathStr(pathKeyUtf8(opt.solutionDir));
   P["solutiondir"] = slnDir + "/";
   if (!opt.solutionFile.empty()) {
-    const std::string slnPath = normalizePathStr(opt.solutionFile.generic_string());
+    const std::string slnPath = normalizePathStr(pathKeyUtf8(opt.solutionFile));
     P["solutionpath"] = slnPath;
-    P["solutionfilename"] = opt.solutionFile.filename().string();
-    P["solutionname"] = opt.solutionFile.stem().string();
-    P["solutionext"] = opt.solutionFile.extension().string();
+    P["solutionfilename"] = pathUtf8(opt.solutionFile.filename());
+    P["solutionname"] = pathUtf8(opt.solutionFile.stem());
+    P["solutionext"] = pathUtf8(opt.solutionFile.extension());
   }
   P["msbuildprojectdirectory"] = st.projectDir;
-  P["msbuildprojectname"] = proj.stem().string();
-  P["msbuildprojectfile"] = proj.filename().string();
+  P["msbuildprojectname"] = pathUtf8(proj.stem());
+  P["msbuildprojectfile"] = pathUtf8(proj.filename());
   P["msbuildprojectfullpath"] = projPath;
-  P["msbuildprojectextension"] = proj.extension().string();
+  P["msbuildprojectextension"] = pathUtf8(proj.extension());
   P["platformtarget"] = platformLow == "win32" ? "x86" : opt.platform;
   P["outdir"] = slnDir + "/" + (platformLow == "win32" ? "" : opt.platform + "/") + opt.configuration + "/";
   P["intdir"] = (platformLow == "win32" ? "" : opt.platform + "/") + opt.configuration + "/";
-  P["targetname"] = proj.stem().string();
+  P["targetname"] = pathUtf8(proj.stem());
   for (auto& [k, v] : opt.extraProperties) P[lower(k)] = v;
 
   // Pass 1: properties and imports, in document order (the project body between Directory.Build.props and .targets).
@@ -1084,7 +1083,7 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
     }
     st.visited.insert(projPath);
     st.cx.props["msbuildthisfiledirectory"] = st.projectDir + "/";
-    st.cx.props["msbuildthisfile"] = proj.filename().string();
+    st.cx.props["msbuildthisfile"] = pathUtf8(proj.filename());
     st.cx.props["msbuildthisfilefullpath"] = projPath;
     const xml::Node* rootNode = doc.get();
     st.roots.push_back(std::move(doc));
@@ -1105,7 +1104,7 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
     }
     collect(*rootNode, st, st.projectDir, projPath, true);
     st.cx.props["msbuildthisfiledirectory"] = st.projectDir + "/";
-    st.cx.props["msbuildthisfile"] = proj.filename().string();
+    st.cx.props["msbuildthisfile"] = pathUtf8(proj.filename());
     if (opt.directoryBuildFiles) importDirectoryBuild(st, "Directory.Build.targets");
   }
 
@@ -1193,7 +1192,7 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
       cmd.file = f.is_absolute() ? fs::weakly_canonical(f, ec) : f;
     }
     const std::string compileAs = lower(metaOf(item, "CompileAs"));
-    const std::string ext = lower(fs::path(item.file).extension().string());
+    const std::string ext = lower(pathUtf8(fs::path(item.file).extension()));
     bool isC = ext == ".c";
     if (compileAs == "compileasc") isC = true;
     else if (compileAs.rfind("compileascpp", 0) == 0) isC = false;
@@ -1318,7 +1317,7 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
     }
     a.push_back(isC ? "/TC" : "/TP");
     a.push_back("/c");
-    a.push_back(cmd.file.generic_string());
+    a.push_back(pathKeyUtf8(cmd.file));
     cmd.arguments = opt.hostTarget.empty() ? std::move(a) : toHostStdlibArgs(a, opt.hostTarget, opt.hostExtraFlags);
     out.push_back(std::move(cmd));
   }
@@ -1374,9 +1373,9 @@ std::set<std::string> filesReachableFrom(const std::vector<CompileCommand>& cmds
     fs::path file = c.file.is_absolute() ? c.file : c.directory / c.file;
     g.roots.push_back(file.lexically_normal());
     std::string key;
-    for (auto& d : g.dirs) key += d.generic_string() + '\n';
+    for (auto& d : g.dirs) key += pathKeyUtf8(d) + '\n';
     key += '\x01';
-    for (auto& f : g.forced) key += f.generic_string() + '\n';
+    for (auto& f : g.forced) key += pathKeyUtf8(f) + '\n';
     auto& slot = groups[key];
     if (slot.dirs.empty() && slot.forced.empty()) {
       slot.dirs = std::move(g.dirs);
@@ -1493,7 +1492,7 @@ std::vector<CompileCommand> fromSolution(const fs::path& sln, const VcxprojOptio
     if (!map || map->configuration.empty()) continue;
     fs::path path = fs::weakly_canonical(p.path, ec);
     if (!fs::is_regular_file(path, ec)) {
-      err += "missing project " + path.string() + "\n";
+      err += "missing project " + pathUtf8(path) + "\n";
       continue;
     }
     VcxprojOptions po = opt;
@@ -1516,7 +1515,7 @@ std::vector<fs::path> inferIncludeDirs(const std::vector<fs::path>& headers,
                                        const std::vector<std::string>& includePaths) {
   // filename -> header paths with that filename
   std::map<std::string, std::vector<std::string>> byName;
-  for (auto& h : headers) byName[h.filename().string()].push_back(h.generic_string());
+  for (auto& h : headers) byName[pathUtf8(h.filename())].push_back(pathKeyUtf8(h));
 
   // For each include path, the candidate directories that would satisfy it.
   std::map<std::string, std::vector<std::string>> candidatesFor;  // include -> dirs
@@ -1525,7 +1524,7 @@ std::vector<fs::path> inferIncludeDirs(const std::vector<fs::path>& headers,
     std::replace(inc.begin(), inc.end(), '\\', '/');
     while (inc.rfind("./", 0) == 0) inc.erase(0, 2);
     if (inc.empty()) continue;
-    std::string fname = fs::path(inc).filename().string();
+    std::string fname = pathUtf8(fs::path(inc).filename());
     auto it = byName.find(fname);
     if (it == byName.end()) continue;
     std::string suffix = "/" + inc;
@@ -1566,11 +1565,11 @@ std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs
                                       const std::vector<std::string>& includePaths, bool clDriver) {
   std::vector<std::string> incs;
   if (!includePaths.empty()) {
-    for (auto& d : inferIncludeDirs(headers, includePaths)) incs.push_back(d.generic_string());
+    for (auto& d : inferIncludeDirs(headers, includePaths)) incs.push_back(pathKeyUtf8(d));
   } else {
     // No include information: every directory that contains a header. Capped.
     std::set<std::string> dirs;
-    for (auto& h : headers) dirs.insert(h.parent_path().generic_string());
+    for (auto& h : headers) dirs.insert(pathKeyUtf8(h.parent_path()));
     incs.assign(dirs.begin(), dirs.end());
     std::stable_sort(incs.begin(), incs.end(), [](const std::string& a, const std::string& b) {
       return std::count(a.begin(), a.end(), '/') < std::count(b.begin(), b.end(), '/');
@@ -1581,7 +1580,7 @@ std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs
   for (auto name : {"", "include", "inc", "src", "source", "public"}) {
     std::error_code ec;
     fs::path d = *name ? root / name : root;
-    std::string ds = d.generic_string();
+    std::string ds = pathKeyUtf8(d);
     if (fs::is_directory(d, ec) && std::find(incs.begin(), incs.end(), ds) == incs.end()) incs.push_back(ds);
   }
 
@@ -1590,7 +1589,7 @@ std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs
     CompileCommand c;
     c.directory = root;
     c.file = s;
-    bool isC = lower(s.extension().string()) == ".c";
+    bool isC = lower(pathUtf8(s.extension())) == ".c";
     if (clDriver) {
       c.arguments.push_back("clang-cl");
       c.arguments.push_back(isC ? "/std:c11" : "/std:" + stdVersion);
@@ -1601,7 +1600,7 @@ std::vector<CompileCommand> heuristic(const fs::path& root, const std::vector<fs
     }
     for (auto& d : incs) c.arguments.push_back("-I" + d);
     c.arguments.push_back(clDriver ? "/c" : "-c");
-    c.arguments.push_back(s.generic_string());
+    c.arguments.push_back(pathKeyUtf8(s));
     out.push_back(std::move(c));
   }
   return out;
@@ -1642,7 +1641,7 @@ std::optional<fs::path> clExeInVsInstall(const fs::path& installationPath) {
   fs::path msvc = installationPath / "VC" / "Tools" / "MSVC";
   std::vector<std::pair<std::vector<int>, fs::path>> versions;
   for (auto& e : fs::directory_iterator(msvc, ec)) {
-    if (e.is_directory(ec)) versions.emplace_back(versionParts(e.path().filename().string()), e.path());
+    if (e.is_directory(ec)) versions.emplace_back(versionParts(pathUtf8(e.path().filename())), e.path());
   }
   std::sort(versions.begin(), versions.end(), [](auto& a, auto& b) { return a.first > b.first; });
   for (auto& v : versions)
@@ -1681,7 +1680,7 @@ MsvcProbe systemMsvcProbe() {
     if (const char* pf = std::getenv("ProgramFiles(x86)")) {
       fs::path cand = fs::path(pf) / "Microsoft Visual Studio" / "Installer" / "vswhere.exe";
       std::error_code ec;
-      if (fs::is_regular_file(cand, ec)) exe = cand.string();
+      if (fs::is_regular_file(cand, ec)) exe = pathUtf8(cand);
     }
     std::string cmd = "\"" + exe +
                       "\" -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 "
@@ -1716,7 +1715,7 @@ std::vector<std::string> platformSystemFlags() {
 }
 
 std::string queryDriverArg(const fs::path& clExe) {
-  return "--query-driver=" + clExe.parent_path().generic_string() + "/**";
+  return "--query-driver=" + pathKeyUtf8(clExe.parent_path()) + "/**";
 }
 
 std::vector<std::string> msvcClangdArgs(const fs::path& clExe) {

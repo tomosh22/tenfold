@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/PathUtil.h"
 #include "search/ReplaceInFiles.h"
 
 namespace tf {
@@ -178,7 +179,7 @@ bool Editor::start(std::string* error) {
   }
   semantic_ = std::make_unique<SemanticEngine>(ws_, opt_.semantic);
   semantic_->onDiagnostics([this](const fs::path& file, std::vector<Diagnostic> ds) {
-    post([this, file, ds = std::move(ds)]() mutable { diagnostics_[file.generic_string()] = std::move(ds); });
+    post([this, file, ds = std::move(ds)]() mutable { diagnostics_[pathKeyUtf8(file)] = std::move(ds); });
   });
   semantic_->onApplyEdit([this](const std::string&, FileEdits edits) {
     post([this, edits = std::move(edits)] {
@@ -210,7 +211,7 @@ bool Editor::start(std::string* error) {
   // so a regenerated compile_commands.json is noticed.
   if (watcher_) {
     fs::path dir = semantic_->status().compdbPath.parent_path();
-    const std::string inCache = dir.lexically_relative(ws_.cacheDir()).generic_string();
+    const std::string inCache = pathKeyUtf8(dir.lexically_relative(ws_.cacheDir()));
     const bool underCache = !inCache.empty() && inCache.rfind("..", 0) != 0 && inCache != ".";
     if (!dir.empty() && dir != ws_.cacheDir() && !underCache && dir != ws_.root() && ws_.isIgnoredDir(dir))
       watcher_->addDirectory(dir);
@@ -354,7 +355,7 @@ bool Editor::save(Document& doc, std::string* error, UnencodableReport* refused)
     if (fs::is_regular_file(doc.path(), ec) &&
         (fs::status(doc.path(), ec).permissions() & fs::perms::owner_write) == fs::perms::none) {
       if (error)
-        *error = doc.path().filename().string() + " is read-only" +
+        *error = pathUtf8(doc.path().filename()) + " is read-only" +
                  (vcs_ && vcs_->active() && vcs_->providerName() == "perforce"
                       ? " (not checked out in Perforce; run p4 edit, or revert the edit)"
                       : " (clear the read-only attribute to save)");
@@ -399,9 +400,9 @@ bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error, U
   if (pathIn.empty()) return fail("no file name");
   const fs::path path = pathIn.is_absolute() ? pathIn : ws_.root() / pathIn;
   std::error_code ec;
-  if (document(path) || fs::exists(path, ec)) return fail(path.filename().string() + " already exists");
+  if (document(path) || fs::exists(path, ec)) return fail(pathUtf8(path.filename()) + " already exists");
   if (!fs::is_directory(path.parent_path(), ec))
-    return fail("the folder " + path.parent_path().string() + " does not exist");
+    return fail("the folder " + pathUtf8(path.parent_path()) + " does not exist");
   const std::string oldKey = docKey(doc.path());
   auto it = docs_.find(oldKey);
   if (it == docs_.end() || it->second.get() != &doc) return fail("not an open document");
@@ -433,7 +434,7 @@ bool Editor::saveAs(Document& doc, const fs::path& pathIn, std::string* error, U
 
 // A refused save (a character the file's encoding cannot hold) is logged.
 void Editor::noteSaveRefused(const Document& doc, const UnencodableReport& rep) {
-  if (opt_.log) opt_.log("warning: " + doc.path().filename().string() + " was not saved: " + describeUnencodable(rep));
+  if (opt_.log) opt_.log("warning: " + pathUtf8(doc.path().filename()) + " was not saved: " + describeUnencodable(rep));
 }
 
 bool Editor::reloadFromDisk(Document& doc, std::string* error) {
@@ -647,7 +648,7 @@ std::vector<std::string> readClangdConfigFlags(const fs::path& config) {
 Editor::CompileCommandInfo Editor::compileCommandInfo(const fs::path& fileIn) {
   CompileCommandInfo info;
   info.file = fileIn.is_absolute() ? fileIn : ws_.root() / fileIn;
-  info.fallbackFlags = {"-std=" + ws_.settings().cppStandard, "-I" + ws_.root().string()};
+  info.fallbackFlags = {"-std=" + ws_.settings().cppStandard, "-I" + pathUtf8(ws_.root())};
   const auto slns = ws_.solutionFiles();
   if (!slns.empty()) {
     info.solution = slns.front();
@@ -671,10 +672,10 @@ Editor::CompileCommandInfo Editor::compileCommandInfo(const fs::path& fileIn) {
   info.clangdRunning = st.clangdInitialized;
   info.clangdStatus = semantic_->clangdStatusText();
   info.vsConfigurationUsed = info.source == "vcxproj";
-  const std::string slnName = info.solution.filename().string();
+  const std::string slnName = pathUtf8(info.solution.filename());
   std::error_code relEc;
   const std::string db =
-      info.databasePath.empty() ? std::string() : fs::relative(info.databasePath, ws_.root(), relEc).generic_string();
+      info.databasePath.empty() ? std::string() : pathKeyUtf8(fs::relative(info.databasePath, ws_.root(), relEc));
   if (info.source == "existing")
     info.sourceText = "an existing compile_commands.json found in the workspace (" + db +
                       "); tenfold does not change it, and it takes precedence over the solution and CMake";
@@ -732,14 +733,13 @@ Editor::CompileCommandInfo Editor::compileCommandInfo(const fs::path& fileIn) {
 
 std::string Editor::CompileCommandInfo::text(int width) const {
   std::ostringstream os;
-  putField(os, "File:", file.generic_string(), 0);
+  putField(os, "File:", pathKeyUtf8(file), 0);
   putField(os, "Compile flags:", sourceText, width);
   if (!databasePath.empty())
-    putField(os, "Database:", databasePath.generic_string() + " (" + std::to_string(databaseEntries) + " entries)",
-             width);
+    putField(os, "Database:", pathKeyUtf8(databasePath) + " (" + std::to_string(databaseEntries) + " entries)", width);
   if (!solution.empty())
     putField(os, "Visual Studio:",
-             solution.filename().string() + ", active configuration " + vsConfiguration +
+             pathUtf8(solution.filename()) + ", active configuration " + vsConfiguration +
                  (vsConfigurationUsed ? " (the database was generated for it)"
                                       : " (not used: the compile flags do not come from the solution)"),
              width);
@@ -747,7 +747,7 @@ std::string Editor::CompileCommandInfo::text(int width) const {
     putField(os, "In database:", "unknown", 0);
   } else if (listed) {
     putField(os, "In database:", "yes", 0);
-    putField(os, "Directory:", directory.generic_string(), width);
+    putField(os, "Directory:", pathKeyUtf8(directory), width);
     putArgs(os, "Command (argv):", argv, width);
   } else {
     putField(os, "In database:",
@@ -798,6 +798,12 @@ void Editor::rescanWorkspace() {
   for (auto* d : documents()) checkExternalChange(*d);
 }
 
+void Editor::addTree(const fs::path& dir) {
+  std::vector<fs::path> added = ws_.noteTreeAdded(dir);
+  for (auto& f : added) semantic_->watchedFileChanged(f, 1);
+  if (!added.empty()) semantic_->indexFilesAsync(std::move(added));
+}
+
 void Editor::handleFileEvent(const FileWatcher::Event& ev) {
   if (!semantic_) return;  // shut down while the event was queued
   vcs_->fileEvent(ev.path);
@@ -816,7 +822,11 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
       return;
     case E::Created:
     case E::Modified:
-      if (ev.isDirectory) return;
+      if (ev.isDirectory) {
+        // The files inside a directory that appeared may have been made before it was watched or after its listing.
+        if (ev.kind == E::Created) addTree(ev.path);
+        return;
+      }
       {
         // Events are debounced and handled later: the path may be gone or have become a directory since (churn).
         std::error_code ec;
@@ -857,6 +867,7 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           moved.push_back(to);
         }
         semantic_->indexFilesAsync(std::move(moved));
+        addTree(ev.path);  // files under the new name that were never listed (made while the rename was pending)
       } else {
         ws_.noteFileRenamed(ev.oldPath, ev.path);
         nav_.onFileRenamed(ev.oldPath, ev.path);
@@ -865,11 +876,11 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
         semantic_->watchedFileChanged(ev.oldPath, 3);
         semantic_->watchedFileChanged(ev.path, 1);
         touched(ev.path);  // editors save by renaming a temp file over the target
-        if (isBuildInputFile(ev.oldPath.filename().string())) refreshBuildSystem();
+        if (isBuildInputFile(pathUtf8(ev.oldPath.filename()))) refreshBuildSystem();
       }
       break;
   }
-  const std::string name = buildFile.filename().string();
+  const std::string name = pathUtf8(buildFile.filename());
   if (!ev.isDirectory && isBuildInputFile(name)) refreshBuildSystem();
 }
 
@@ -1859,7 +1870,7 @@ bool Editor::waitFor(std::function<bool()> pred, int timeoutMs) {
 
 const std::vector<Diagnostic>& Editor::diagnostics(const fs::path& file) const {
   static const std::vector<Diagnostic> empty;
-  auto it = diagnostics_.find(file.generic_string());
+  auto it = diagnostics_.find(pathKeyUtf8(file));
   return it == diagnostics_.end() ? empty : it->second;
 }
 
@@ -1877,7 +1888,7 @@ bool Editor::build(const BuildOverrides& overrides, BuildLines onLines, BuildDon
   if (!detectBuildCommand(ws_, overrides, &cmd, error)) return false;
   if (!buildRunner_)
     buildRunner_ = std::make_unique<BuildRunner>([this](std::function<void()> fn) { post(std::move(fn)); });
-  auto session = std::make_shared<BuildSession>(cmd.cwd.generic_string());
+  auto session = std::make_shared<BuildSession>(pathKeyUtf8(cmd.cwd));
   auto lines = [this, session, onLines = std::move(onLines)](std::vector<std::string> ls) {
     if (session != buildSession_) return;  // output of a build that was replaced
     BuildMessage m;
@@ -1987,7 +1998,7 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
     // (macOS /var -> /private/var, Windows 8.3 names and case), so canonicalise first.
     std::error_code ec;
     std::string rel =
-        pathKey(fs::weakly_canonical(d->path(), ec).lexically_relative(ws_.root()).generic_string(), nativePathStyle());
+        pathKey(pathKeyUtf8(fs::weakly_canonical(d->path(), ec).lexically_relative(ws_.root())), nativePathStyle());
     if (!rel.empty() && rel.compare(0, 2, "..") != 0) in.overrides[rel] = d->buffer().text();
   }
   searches_.erase(
@@ -2080,7 +2091,7 @@ Editor::ReplaceInFilesResult Editor::replaceInFiles(const std::vector<SearchMatc
 // ---------------------------------------------------------------------------
 
 void Editor::setDiagnostics(const fs::path& file, std::vector<Diagnostic> ds) {
-  diagnostics_[file.generic_string()] = std::move(ds);
+  diagnostics_[pathKeyUtf8(file)] = std::move(ds);
 }
 
 void Editor::hookTokens() {

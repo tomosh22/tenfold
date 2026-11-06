@@ -16,6 +16,14 @@ constexpr PathStyle nativePathStyle() {
 #endif
 }
 
+// Paths <-> UTF-8 text. On Windows a path is UTF-16: path::string() / generic_string() convert through the ANSI code
+// page (non-ANSI characters become '?', so two different names can collide, and the result is not valid UTF-8 for
+// JSON or the index), and path(std::string) reads narrow text as ANSI. Everything that turns a path into text, or text
+// into a path, goes through these. pathUtf8 keeps the native separators, pathKeyUtf8 uses '/' (a stable map key).
+std::string pathUtf8(const std::filesystem::path& p);
+std::string pathKeyUtf8(const std::filesystem::path& p);
+std::filesystem::path pathFromUtf8(const std::string& s);
+
 // Canonical comparison key. Windows: separators become '/', repeated
 // separators collapse (a leading "//" for UNC is kept), the trailing
 // separator goes (roots excepted) and ASCII letters are lower-cased. Posix:

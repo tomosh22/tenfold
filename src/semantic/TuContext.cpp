@@ -132,8 +132,8 @@ bool includeSpellingResolves(const std::string& spelling, const fs::path& includ
   const fs::path near = (includer.parent_path() / sp).lexically_normal();
   if (pathKey(near) == pathKey(tn)) return true;
   // Include path: the target's path ends with the spelling.
-  const std::string ts = pathKey(tn.generic_string());
-  std::string ss = pathKey(sp.generic_string());
+  const std::string ts = pathKey(pathKeyUtf8(tn));
+  std::string ss = pathKey(pathKeyUtf8(sp));
   if (ss.rfind("../", 0) == 0 || ss == "..") return false;
   if (ts.size() <= ss.size() || ts.compare(ts.size() - ss.size(), ss.size(), ss) != 0 ||
       ts[ts.size() - ss.size() - 1] != '/')
@@ -207,7 +207,7 @@ bool endsInsideBody(std::string_view t) {
 }
 
 bool isStandardHeaderExtension(const fs::path& p) {
-  const std::string e = lowerCopy(p.extension().string());
+  const std::string e = lowerCopy(pathUtf8(p.extension()));
   return e == ".h" || e == ".hh" || e == ".hpp" || e == ".hxx" || e == ".h++" || e == ".hp" || e == ".cuh";
 }
 
@@ -313,13 +313,13 @@ std::vector<std::string> buildArguments(const Plan& plan, const fs::path& orphan
   }
   for (size_t i = 0; i < plan.links.size() && i < prefixFiles.size(); ++i) {
     if (opt.clMode) {
-      out.push_back("/FI" + prefixFiles[i].string());
-      out.push_back("/I" + plan.links[i].file.parent_path().string());
+      out.push_back("/FI" + pathUtf8(prefixFiles[i]));
+      out.push_back("/I" + pathUtf8(plan.links[i].file.parent_path()));
     } else {
       out.push_back("-include");
-      out.push_back(prefixFiles[i].string());
+      out.push_back(pathUtf8(prefixFiles[i]));
       out.push_back("-iquote");
-      out.push_back(plan.links[i].file.parent_path().string());
+      out.push_back(pathUtf8(plan.links[i].file.parent_path()));
     }
   }
   if (opt.clMode) {
@@ -329,7 +329,7 @@ std::vector<std::string> buildArguments(const Plan& plan, const fs::path& orphan
     const std::string lang = opt.isC ? "c" : "c++";
     out.push_back(opt.headerLike ? lang + "-header" : lang);
   }
-  out.push_back(orphan.string());
+  out.push_back(pathUtf8(orphan));
   return out;
 }
 

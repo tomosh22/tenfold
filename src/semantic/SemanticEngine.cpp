@@ -81,7 +81,7 @@ std::string readLineOfFile(const fs::path& p, int line) {
 }
 
 std::string languageIdFor(const fs::path& p) {
-  std::string e = p.extension().string();
+  std::string e = pathUtf8(p.extension());
   for (auto& c : e) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   if (e == ".c") return "c";
   if (e == ".m") return "objective-c";
@@ -340,7 +340,8 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     }
   }
   auto cmds = CompileDatabase::load(compdbPath);
-  log("compile database: " + compdbSource + " (" + std::to_string(cmds.size()) + " entries) at " + compdbPath.string());
+  log("compile database: " + compdbSource + " (" + std::to_string(cmds.size()) + " entries) at " +
+      pathUtf8(compdbPath));
   bool locationChanged;
   {
     std::lock_guard<std::mutex> lk(mu_);
@@ -370,7 +371,7 @@ void SemanticEngine::pruneVsConfigDirs(const fs::path& vsRoot, const fs::path& k
   std::sort(dirs.begin(), dirs.end(), [](const auto& a, const auto& b) { return a.first > b.first; });
   for (size_t i = room; i < dirs.size(); ++i) {
     log("vs configuration cache dropped (limit " + std::to_string(opt_.maxVsConfigIndexes) +
-        "): " + dirs[i].second.filename().string());
+        "): " + pathUtf8(dirs[i].second.filename()));
     fs::remove_all(dirs[i].second, ec);
   }
 }
@@ -421,7 +422,7 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
     if (error) {
       *error = "clangd not found: " + (setting.empty() ? std::string("clangd") : setting);
       if (setting.empty()) {
-        *error += " (executable dir: " + executableDir().string() + "; looked next to it, in its bin/, and on PATH)";
+        *error += " (executable dir: " + pathUtf8(executableDir()) + "; looked next to it, in its bin/, and on PATH)";
       }
     }
     return nullptr;
@@ -437,9 +438,9 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   lo.serverPath = resolved;
   lo.rootPath = ws_.root();
   lo.logFile = opt_.logDir / "clangd.log";
-  log("clangd: starting " + resolved + " (compile commands: " + compdbSource + ", stderr: " + lo.logFile.string() +
+  log("clangd: starting " + resolved + " (compile commands: " + compdbSource + ", stderr: " + pathUtf8(lo.logFile) +
       ")");
-  lo.args = {"--compile-commands-dir=" + compdbPath.parent_path().string(),
+  lo.args = {"--compile-commands-dir=" + pathUtf8(compdbPath.parent_path()),
              "--background-index",
              "--pch-storage=memory",
              "--header-insertion=never",
@@ -472,12 +473,12 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   }
   for (auto& a : ws_.settings().clangdExtraArgs) lo.args.push_back(a);
   for (auto& a : opt_.clangdArgs) lo.args.push_back(a);
-  lo.fallbackFlags = {"-std=" + ws_.settings().cppStandard, "-I" + ws_.root().string()};
-  lo.env = {{"XDG_CONFIG_HOME", (ws_.cacheDir() / "clangd-config").string()}};
+  lo.fallbackFlags = {"-std=" + ws_.settings().cppStandard, "-I" + pathUtf8(ws_.root())};
+  lo.env = {{"XDG_CONFIG_HOME", pathUtf8(ws_.cacheDir() / "clangd-config")}};
 #ifdef _WIN32
   // clangd on Windows reads its user config from %LOCALAPPDATA%\clangd, ignoring XDG_CONFIG_HOME;
   // without this the shared -I flags in our private config.yaml would never be applied.
-  lo.env.emplace_back("LOCALAPPDATA", (ws_.cacheDir() / "clangd-config").string());
+  lo.env.emplace_back("LOCALAPPDATA", pathUtf8(ws_.cacheDir() / "clangd-config"));
 #endif
   if (opt_.traceLsp) {
     lo.trace = [this](const std::string& dir, const Json& j) { log(dir + " " + dumpSafe(j).substr(0, 400)); };
@@ -576,7 +577,11 @@ void SemanticEngine::startFastIndex() {
       if (auto loaded = FastIndexStore::load(ws_.cacheDir() / "fastindex.bin", &err)) cached = std::move(*loaded);
       else log("fast index store not used: " + err);
     }
-    fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
+    try {
+      fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
+    } catch (const std::exception& e) {  // never leave fastDone_ unset or take the process down
+      log(std::string("fast index failed: ") + e.what());
+    }
     {
       std::lock_guard<std::mutex> g(saveMu_);
       // Nothing to write back if every entry came from the store untouched.
@@ -853,7 +858,7 @@ void SemanticEngine::reopenDocuments(LspClient& c) {
   {
     // A new server knows none of the translation-unit contexts given to the old one.
     std::lock_guard<std::mutex> lk(tuMu_);
-    for (auto& [k, o] : tuOverrides_) c.setCompileCommand(o.file.string(), o.directory.string(), o.info.arguments);
+    for (auto& [k, o] : tuOverrides_) c.setCompileCommand(pathUtf8(o.file), pathUtf8(o.directory), o.info.arguments);
   }
   if (from && to) {
     // After a configuration switch: a document that the previous configuration compiled or included and the new one
@@ -875,7 +880,7 @@ void SemanticEngine::reopenDocuments(LspClient& c) {
     parked = std::move(next);
     for (auto* d : docs)
       if (parked.count(d->uri()))
-        log("not part of the active configuration, left out of clangd until used: " + d->path().string());
+        log("not part of the active configuration, left out of clangd until used: " + pathUtf8(d->path()));
     std::lock_guard<std::mutex> lk(mu_);
     parkedDocs_ = parked;
   }
@@ -1139,7 +1144,7 @@ Encoding SemanticEngine::diskEncoding(const fs::path& file) const {
   const auto size = fs::file_size(file, ec);
   if (ec || size > (64u << 20)) return Encoding::Utf8;
   const int64_t mtime = fs::last_write_time(file, ec).time_since_epoch().count();
-  const std::string key = file.generic_string();
+  const std::string key = pathKeyUtf8(file);
   {
     std::lock_guard<std::mutex> lk(encMu_);
     auto it = diskEnc_.find(key);
@@ -1360,11 +1365,11 @@ std::string prefixFileName(const fs::path& file, int line) {
   }
   char buf[20];
   std::snprintf(buf, sizeof buf, "%08x", static_cast<unsigned>(h ^ (h >> 32)));
-  return std::string(buf) + "-" + file.filename().string() + ".h";
+  return std::string(buf) + "-" + pathUtf8(file.filename()) + ".h";
 }
 
 bool isSourceLikeExtension(const fs::path& p) {
-  std::string e = p.extension().string();
+  std::string e = pathUtf8(p.extension());
   for (auto& ch : e) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
   return e == ".c" || e == ".cpp" || e == ".cc" || e == ".cxx" || e == ".c++" || e == ".cp" || e == ".m" ||
          e == ".mm" || e == ".cu";
@@ -1414,7 +1419,7 @@ bool SemanticEngine::provideTuContext(LspClient& c, const Document& doc) {
   };
   env.includersOf = [this](const fs::path& target) {
     std::vector<fs::path> out;
-    const std::string name = target.filename().string();
+    const std::string name = pathUtf8(target.filename());
     for (const auto& fsyms : fast_.exportFiles()) {
       for (const auto& inc : fsyms->includes) {
         if (includeBaseName(inc) == name) {
@@ -1433,7 +1438,7 @@ bool SemanticEngine::provideTuContext(LspClient& c, const Document& doc) {
     // gave the background index. Not sending it keeps those; queries inside it get the fast tier.
     std::lock_guard<std::mutex> lk(mu_);
     unsent_.insert(doc.uri());
-    log("tu context: " + file.string() + " is included inside a class body; not sent to clangd");
+    log("tu context: " + pathUtf8(file) + " is included inside a class body; not sent to clangd");
     return false;
   }
 
@@ -1456,11 +1461,11 @@ bool SemanticEngine::provideTuContext(LspClient& c, const Document& doc) {
   }
   tu::CommandOptions co;
   const std::string driver =
-      plan->root.arguments.empty() ? std::string() : fs::path(plan->root.arguments[0]).stem().string();
+      plan->root.arguments.empty() ? std::string() : pathUtf8(fs::path(plan->root.arguments[0]).stem());
   std::string lowerDriver = driver;
   for (auto& ch : lowerDriver) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
   co.clMode = lowerDriver == "cl" || lowerDriver == "clang-cl";
-  std::string rootExt = plan->root.file.extension().string();
+  std::string rootExt = pathUtf8(plan->root.file.extension());
   co.isC = rootExt == ".c";
   co.headerLike = !isSourceLikeExtension(file);
   TuOverride ov;
@@ -1469,8 +1474,8 @@ bool SemanticEngine::provideTuContext(LspClient& c, const Document& doc) {
   ov.info.root = plan->root.file;
   for (const auto& l : plan->links) ov.info.chain.push_back(l.file);
   ov.info.arguments = tu::buildArguments(*plan, file, prefixFiles, co);
-  c.setCompileCommand(file.string(), ov.directory.string(), ov.info.arguments);
-  log("tu context: " + file.string() + " <- " + plan->root.file.string() + " (" + std::to_string(plan->links.size()) +
+  c.setCompileCommand(pathUtf8(file), pathUtf8(ov.directory), ov.info.arguments);
+  log("tu context: " + pathUtf8(file) + " <- " + pathUtf8(plan->root.file) + " (" + std::to_string(plan->links.size()) +
       " include level" + (plan->links.size() == 1 ? "" : "s") + ")");
   {
     std::lock_guard<std::mutex> lk(tuMu_);
@@ -1493,7 +1498,7 @@ std::string SemanticEngine::remapUri(const std::string& uri) const {
   const fs::path p = uriToPath(uri);
   if (p.parent_path().filename() != "tu") return uri;
   std::lock_guard<std::mutex> lk(tuMu_);
-  auto it = tuPrefixOwner_.find(p.filename().string());
+  auto it = tuPrefixOwner_.find(pathUtf8(p.filename()));
   return it == tuPrefixOwner_.end() ? uri : pathToUri(it->second);
 }
 
@@ -1595,7 +1600,7 @@ SemanticEngine::RenameCoverage SemanticEngine::renameCoverage(const std::string&
   std::unordered_map<std::string, std::vector<const FileSymbols*>> byBase;
   std::unordered_map<std::string, const FileSymbols*> byKey;
   for (const auto& f : all) {
-    byBase[f->file.filename().string()].push_back(f.get());
+    byBase[pathUtf8(f->file.filename())].push_back(f.get());
     byKey[pathKey(f->file)] = f.get();
   }
   auto baseOf = [](const std::string& s) {
@@ -1610,7 +1615,7 @@ SemanticEngine::RenameCoverage SemanticEngine::renameCoverage(const std::string&
       for (const auto& f : all) {
         bool hit = false;
         for (const auto& inc : f->includes)
-          if (baseOf(inc) == target.filename().string() && tu::includeSpellingResolves(inc, f->file, target)) {
+          if (baseOf(inc) == pathUtf8(target.filename()) && tu::includeSpellingResolves(inc, f->file, target)) {
             hit = true;
             break;
           }
@@ -2294,7 +2299,7 @@ void SemanticEngine::aliasChoices(std::shared_ptr<DefQuery> q, SymbolLocation al
     int hops = 0;
   };
   auto w = std::make_shared<Walk>();
-  q->seen.insert({alias.loc.file.generic_string(), alias.loc.pos.line});
+  q->seen.insert({pathKeyUtf8(alias.loc.file), alias.loc.pos.line});
   w->chain.push_back(std::move(alias));
 
   auto finish = [this, q, w] {
@@ -2345,7 +2350,7 @@ void SemanticEngine::aliasChoices(std::shared_ptr<DefQuery> q, SymbolLocation al
     auto next = [this, q, w, finish, isAlias, step, cur](std::optional<SymbolLocation> n) {
       if (q->g->done.load()) return;
       if (!n || sameSpotLoc(n->loc, cur.loc)) return finish();
-      if (!q->seen.insert({n->loc.file.generic_string(), n->loc.pos.line}).second || ++w->hops > 8) return finish();
+      if (!q->seen.insert({pathKeyUtf8(n->loc.file), n->loc.pos.line}).second || ++w->hops > 8) return finish();
       if (isAlias(*n)) {
         w->chain.push_back(*n);
         return (*step)(*n, false);
@@ -2601,10 +2606,9 @@ void SemanticEngine::workspaceSymbolsBudgeted(const std::string& query, std::vec
       }
       // clangd also indexes system headers it has seen; 10x-style symbol
       // search wants the workspace's own symbols first.
-      const std::string rootPrefix = ws_.root().generic_string() + "/";
-      std::stable_partition(out.begin(), out.end(), [&](const SymbolLocation& l) {
-        return l.loc.file.generic_string().rfind(rootPrefix, 0) == 0;
-      });
+      const std::string rootPrefix = pathKeyUtf8(ws_.root()) + "/";
+      std::stable_partition(out.begin(), out.end(),
+                            [&](const SymbolLocation& l) { return pathKeyUtf8(l.loc.file).rfind(rootPrefix, 0) == 0; });
       done(std::move(out), err);
     });
   });
@@ -2648,10 +2652,10 @@ void SemanticEngine::switchSourceHeader(const Document& doc, Callback<fs::path> 
     return;
   }
   // Fallback: same stem, sibling extension, anywhere in the workspace.
-  std::string stem = doc.path().stem().string();
+  std::string stem = pathUtf8(doc.path().stem());
   bool isHeader = ws_.isHeader(doc.path());
   for (auto& f : isHeader ? ws_.sourceFiles() : ws_.headerFiles()) {
-    if (f.stem().string() == stem) return cb(f, {});
+    if (pathUtf8(f.stem()) == stem) return cb(f, {});
   }
   cb({}, "no counterpart found");
 }

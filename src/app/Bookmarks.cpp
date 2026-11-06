@@ -132,7 +132,7 @@ bool Bookmarks::save(const fs::path& jsonFile, const fs::path& root, std::string
   for (const auto& [key, e] : files_) {
     const fs::path rel = e.file.lexically_relative(root);
     const bool inside = !rel.empty() && *rel.begin() != "..";
-    files[(inside ? rel : e.file).generic_string()] = std::vector<int>(e.lines.begin(), e.lines.end());
+    files[pathKeyUtf8(inside ? rel : e.file)] = std::vector<int>(e.lines.begin(), e.lines.end());
   }
   nlohmann::json j;
   j["version"] = 1;
@@ -141,7 +141,7 @@ bool Bookmarks::save(const fs::path& jsonFile, const fs::path& root, std::string
   fs::create_directories(jsonFile.parent_path(), ec);
   std::ofstream out(jsonFile, std::ios::binary | std::ios::trunc);
   if (!out) {
-    if (error) *error = "cannot write " + jsonFile.string();
+    if (error) *error = "cannot write " + pathUtf8(jsonFile);
     return false;
   }
   out << dumpSafe(j, 2);
@@ -152,12 +152,12 @@ bool Bookmarks::save(const fs::path& jsonFile, const fs::path& root, std::string
 bool Bookmarks::load(const fs::path& jsonFile, const fs::path& root, std::string* error) {
   std::ifstream in(jsonFile, std::ios::binary);
   if (!in) {
-    if (error) *error = "cannot open " + jsonFile.string();
+    if (error) *error = "cannot open " + pathUtf8(jsonFile);
     return false;
   }
   nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
   if (j.is_discarded() || !j.is_object() || !j.contains("bookmarks") || !j["bookmarks"].is_object()) {
-    if (error) *error = jsonFile.string() + " is not a bookmarks file";
+    if (error) *error = pathUtf8(jsonFile) + " is not a bookmarks file";
     return false;
   }
   std::map<std::string, Entry> next;

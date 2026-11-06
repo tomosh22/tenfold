@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/PathUtil.h"
+
 namespace tf {
 
 namespace fs = std::filesystem;
@@ -70,7 +72,7 @@ bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& 
   std::string text;
   {
     std::ifstream in(file, std::ios::binary);
-    if (!in) return fail("cannot read " + file.string());
+    if (!in) return fail("cannot read " + pathUtf8(file));
     std::ostringstream ss;
     ss << in.rdbuf();
     text = ss.str();
@@ -106,11 +108,11 @@ bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& 
         bad.total += one.total - one.chars.size();
       }
       if (refused) *refused = bad;
-      return fail(file.filename().string() + " was not changed: " + describeUnencodable(bad) +
+      return fail(pathUtf8(file.filename()) + " was not changed: " + describeUnencodable(bad) +
                   " (the replacement text)");
     }
   } else if (enc != Encoding::Utf8) {
-    return fail(file.filename().string() + " was not changed: it is " + encodingName(enc) +
+    return fail(pathUtf8(file.filename()) + " was not changed: it is " + encodingName(enc) +
                 ", which find in files does not read");
   }
   ReplaceCounts local;
@@ -125,13 +127,13 @@ bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& 
   std::error_code ec;
   {
     std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
-    if (!o) return fail("cannot write " + file.string());
+    if (!o) return fail("cannot write " + pathUtf8(file));
     o.write(out.data(), static_cast<std::streamsize>(out.size()));
     o.flush();
     if (!o) {
       o.close();
       fs::remove(tmp, ec);
-      return fail("cannot write " + file.string());
+      return fail("cannot write " + pathUtf8(file));
     }
   }
   fs::permissions(tmp, fs::status(file, ec).permissions(), ec);
@@ -139,7 +141,7 @@ bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& 
   fs::rename(tmp, file, ec);
   if (ec) {
     fs::remove(tmp, ec);
-    return fail("cannot replace " + file.string() + ": " + ec.message());
+    return fail("cannot replace " + pathUtf8(file) + ": " + ec.message());
   }
   return true;
 }

@@ -193,7 +193,7 @@ DebugResult FakeDebugger::State::enter(const std::string& method, const std::str
 
 namespace {
 std::string describe(const Breakpoint& b) {
-  return b.file.generic_string() + ":" + std::to_string(b.line) + ":" + (b.enabled ? "1" : "0") + ":" + b.condition;
+  return pathKeyUtf8(b.file) + ":" + std::to_string(b.line) + ":" + (b.enabled ? "1" : "0") + ":" + b.condition;
 }
 }  // namespace
 
@@ -224,7 +224,7 @@ DebugResult FakeDebugger::connect(const DebugWorkspaceInfo& workspace) {
     Lock lk(st_->mu);
     st_->connectFlags_.push_back(workspace.launchIfMissing);
   }
-  DebugResult r = st_->enter("connect", workspace.solution.generic_string());
+  DebugResult r = st_->enter("connect", pathKeyUtf8(workspace.solution));
   if (!r.ok) return r;
   {
     Lock lk(st_->mu);
@@ -250,7 +250,7 @@ DebugResult FakeDebugger::stepInto() { return go("stepInto", DebugMode::Break, t
 DebugResult FakeDebugger::stepOut() { return go("stepOut", DebugMode::Break, true); }
 
 DebugResult FakeDebugger::runToCursor(const std::filesystem::path& file, int line) {
-  DebugResult r = st_->enter("runToCursor", file.generic_string() + ":" + std::to_string(line));
+  DebugResult r = st_->enter("runToCursor", pathKeyUtf8(file) + ":" + std::to_string(line));
   if (!r.ok) return r;
   {
     Lock lk(st_->mu);
@@ -266,7 +266,7 @@ DebugResult FakeDebugger::setActiveConfiguration(const std::string& configuratio
 }
 
 DebugResult FakeDebugger::openInEditor(const std::filesystem::path& file, int line, int column) {
-  return st_->enter("openInEditor", file.generic_string() + ":" + std::to_string(line) + ":" + std::to_string(column));
+  return st_->enter("openInEditor", pathKeyUtf8(file) + ":" + std::to_string(line) + ":" + std::to_string(column));
 }
 
 DebugResult FakeDebugger::setBreakpoint(const Breakpoint& bp) {
@@ -277,7 +277,7 @@ DebugResult FakeDebugger::setBreakpoint(const Breakpoint& bp) {
 }
 
 DebugResult FakeDebugger::removeBreakpoint(const std::filesystem::path& file, int line) {
-  DebugResult r = st_->enter("removeBreakpoint", file.generic_string() + ":" + std::to_string(line));
+  DebugResult r = st_->enter("removeBreakpoint", pathKeyUtf8(file) + ":" + std::to_string(line));
   if (!r.ok) return r;
   st_->injectRemoveBreakpoint(file, line);
   return r;

@@ -564,6 +564,7 @@ class Editor {
   void breakTyping() { typingOpen_ = false; }
   void startWatching();
   void handleFileEvent(const FileWatcher::Event& ev);  // pump thread
+  void addTree(const std::filesystem::path& dir);      // list a new or renamed directory: add the files not yet known
   void checkExternalChange(Document& doc);
   void rescanWorkspace();
   // forceRestart: restart clangd even if the compile database stays where it is (its content changed).

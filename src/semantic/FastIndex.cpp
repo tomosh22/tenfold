@@ -14,6 +14,7 @@
 #include <sys/stat.h>
 #endif
 
+#include "core/Log.h"
 #include "core/PathUtil.h"
 #include "core/TextEncoding.h"
 #include "semantic/CppLexer.h"
@@ -1108,7 +1109,7 @@ std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::str
 }
 
 bool isCSourceFile(const std::filesystem::path& file) {
-  const std::string e = file.extension().string();  // ".C" means C++ with gcc/clang, so only lower case
+  const std::string e = pathUtf8(file.extension());  // ".C" means C++ with gcc/clang, so only lower case
   return e == ".c";
 }
 
@@ -1117,16 +1118,7 @@ bool isCSourceFile(const std::filesystem::path& file) {
 // ---------------------------------------------------------------------------
 
 namespace {
-std::string keyFor(const std::filesystem::path& p) {
-#ifdef _WIN32
-  // generic_string() converts through the ANSI code page and throws for a name it cannot hold; the key only has to be
-  // the same string for the same path.
-  const std::u8string u = p.generic_u8string();
-  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
-#else
-  return p.generic_string();
-#endif
-}
+std::string keyFor(const std::filesystem::path& p) { return pathKeyUtf8(p); }
 
 bool readFile(const std::filesystem::path& p, std::string& out) {
   if (!readRegularFile(p, out)) return false;
@@ -1252,7 +1244,7 @@ FastIndex::Stats FastIndex::indexFilesCached(const std::vector<std::filesystem::
   cached.clear();
 
   std::vector<std::shared_ptr<const FileSymbols>> results(files.size());
-  std::atomic<size_t> next{0}, done{0}, bytes{0}, reused{0}, relexed{0}, inCache{0};
+  std::atomic<size_t> next{0}, done{0}, bytes{0}, reused{0}, relexed{0}, inCache{0}, failed{0};
   std::vector<std::thread> pool;
   for (int t = 0; t < threads; ++t) {
     pool.emplace_back([&] {
@@ -1282,13 +1274,26 @@ FastIndex::Stats FastIndex::indexFilesCached(const std::vector<std::filesystem::
               ++relexed;
             }
           }
-        } catch (const std::exception&) {}
+        } catch (const std::exception& e) {
+          // Left out of the index, but never silently: the other files are unaffected.
+          ++failed;
+          if (failed.load() <= 5) {
+            std::string name;
+            try {
+              name = pathKeyUtf8(files[i]);
+            } catch (...) { name = "<unprintable path>"; }
+            Log::warn("fastindex", "skipped " + name + ": " + e.what());
+          }
+        }
         size_t d = ++done;
         if (progress) progress(d, files.size());
       }
     });
   }
   for (auto& th : pool) th.join();
+  if (failed > 0)
+    Log::warn("fastindex",
+              std::to_string(failed.load()) + " of " + std::to_string(files.size()) + " files could not be indexed");
 
   size_t kept = reused;
   std::vector<std::shared_ptr<const FileSymbols>> batch;

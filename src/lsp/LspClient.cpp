@@ -3,6 +3,7 @@
 #include <condition_variable>
 
 #include "core/Document.h"
+#include "core/PathUtil.h"
 #include "core/Platform.h"
 
 namespace tf {
@@ -101,9 +102,9 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
   Json initOpts = {{"clangdFileStatus", opt.clangdFileStatus}};
   if (!opt.fallbackFlags.empty()) initOpts["fallbackFlags"] = opt.fallbackFlags;
   Json params = {
-      {"processId", currentProcessId()},   {"rootUri", opt.rootPath.empty() ? Json() : Json(pathToUri(opt.rootPath))},
-      {"rootPath", opt.rootPath.string()}, {"capabilities", caps},
-      {"initializationOptions", initOpts}, {"trace", "off"}};
+      {"processId", currentProcessId()},    {"rootUri", opt.rootPath.empty() ? Json() : Json(pathToUri(opt.rootPath))},
+      {"rootPath", pathUtf8(opt.rootPath)}, {"capabilities", caps},
+      {"initializationOptions", initOpts},  {"trace", "off"}};
 
   std::mutex m;
   std::condition_variable cv;

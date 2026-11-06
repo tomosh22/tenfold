@@ -3,6 +3,8 @@
 #include <filesystem>
 #include <string>
 
+#include "core/PathUtil.h"
+
 namespace tf {
 
 // A position inside a text buffer. `line` is 0-based. `column` is the 0-based
@@ -30,6 +32,6 @@ struct Location {
 };
 
 inline std::string toString(Position p) { return std::to_string(p.line + 1) + ":" + std::to_string(p.column + 1); }
-inline std::string toString(const Location& l) { return l.file.string() + ":" + toString(l.pos); }
+inline std::string toString(const Location& l) { return pathUtf8(l.file) + ":" + toString(l.pos); }
 
 }  // namespace tf

@@ -74,13 +74,6 @@ ExecResult runCommand(const ExecOptions& opt) {
   return res;
 }
 
-std::filesystem::path pathFromUtf8(const std::string& s) {
-  return fs::path(std::u8string(reinterpret_cast<const char8_t*>(s.data()), s.size()));
-}
-
-std::string pathToUtf8(const std::filesystem::path& p) {
-  const std::u8string u = p.generic_u8string();
-  return std::string(reinterpret_cast<const char*>(u.data()), u.size());
-}
+std::string pathToUtf8(const std::filesystem::path& p) { return pathKeyUtf8(p); }
 
 }  // namespace tf

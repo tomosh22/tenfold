@@ -4,6 +4,8 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/PathUtil.h"
+
 namespace tf {
 
 Document::Document(std::filesystem::path path) : path_(std::move(path)) {}
@@ -48,19 +50,19 @@ UnencodableReport Document::findUnencodable(Encoding e) const {
 bool Document::saveToDisk(std::string* error, UnencodableReport* refused) {
   UnencodableReport rep = findUnencodable();
   if (!rep.empty()) {
-    if (error) *error = path_.filename().string() + " was not saved: " + describeUnencodable(rep);
+    if (error) *error = pathUtf8(path_.filename()) + " was not saved: " + describeUnencodable(rep);
     if (refused) *refused = std::move(rep);
     return false;
   }
   std::string bytes;
   if (!encodeText(buf_.textForDisk(), encoding_, bytes)) {  // cannot happen: the scan above found nothing
     if (error)
-      *error = path_.filename().string() + " was not saved: " + encodingName(encoding_) + " cannot hold its text";
+      *error = pathUtf8(path_.filename()) + " was not saved: " + encodingName(encoding_) + " cannot hold its text";
     return false;
   }
   std::ofstream out(path_, std::ios::binary | std::ios::trunc);
   if (!out) {
-    if (error) *error = "cannot write " + path_.string();
+    if (error) *error = "cannot write " + pathUtf8(path_);
     return false;
   }
   out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
@@ -234,10 +236,10 @@ void Document::removeListener(int id) {
   std::erase_if(listeners_, [id](auto& p) { return p.first == id; });
 }
 
-std::string pathToUri(const std::filesystem::path& p) { return pathToUri(p.generic_string(), nativePathStyle()); }
+std::string pathToUri(const std::filesystem::path& p) { return pathToUri(pathKeyUtf8(p), nativePathStyle()); }
 
 std::filesystem::path uriToPath(const std::string& uri) {
-  return std::filesystem::path(uriToPathString(uri, nativePathStyle()));
+  return pathFromUtf8(uriToPathString(uri, nativePathStyle()));
 }
 
 }  // namespace tf

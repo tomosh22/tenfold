@@ -18,7 +18,7 @@ std::string breakpointFileKey(const fs::path& file) {
 
 const std::string& Breakpoints::fileKey(const fs::path& file) const {
   if (keyCache_.size() > 4096) keyCache_.clear();
-  std::string spelling = file.generic_string();
+  std::string spelling = pathKeyUtf8(file);
   auto it = keyCache_.find(spelling);
   if (it == keyCache_.end()) it = keyCache_.emplace(std::move(spelling), breakpointFileKey(file)).first;
   return it->second;
@@ -179,7 +179,7 @@ bool Breakpoints::save(const fs::path& jsonFile, const fs::path& root, std::stri
       o["condition"] = bp.condition;
       arr.push_back(std::move(o));
     }
-    files[(inside ? rel : e.file).generic_string()] = std::move(arr);
+    files[pathKeyUtf8(inside ? rel : e.file)] = std::move(arr);
   }
   nlohmann::json j;
   j["version"] = 1;
@@ -188,7 +188,7 @@ bool Breakpoints::save(const fs::path& jsonFile, const fs::path& root, std::stri
   fs::create_directories(jsonFile.parent_path(), ec);
   std::ofstream out(jsonFile, std::ios::binary | std::ios::trunc);
   if (!out) {
-    if (error) *error = "cannot write " + jsonFile.string();
+    if (error) *error = "cannot write " + pathUtf8(jsonFile);
     return false;
   }
   out << dumpSafe(j, 2);
@@ -199,16 +199,16 @@ bool Breakpoints::save(const fs::path& jsonFile, const fs::path& root, std::stri
 bool Breakpoints::load(const fs::path& jsonFile, const fs::path& root, std::string* error) {
   std::ifstream in(jsonFile, std::ios::binary);
   if (!in) {
-    if (error) *error = "cannot open " + jsonFile.string();
+    if (error) *error = "cannot open " + pathUtf8(jsonFile);
     return false;
   }
   nlohmann::json j = nlohmann::json::parse(in, nullptr, false);
   if (j.is_discarded() || !j.is_object() || !j.contains("breakpoints") || !j["breakpoints"].is_object()) {
-    if (error) *error = jsonFile.string() + " is not a breakpoints file";
+    if (error) *error = pathUtf8(jsonFile) + " is not a breakpoints file";
     return false;
   }
   if (j.contains("version") && j["version"].is_number_integer() && j["version"].get<int>() > 1) {
-    if (error) *error = jsonFile.string() + " has a newer format version";
+    if (error) *error = pathUtf8(jsonFile) + " has a newer format version";
     return false;
   }
   std::map<std::string, Entry> next;
