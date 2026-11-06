@@ -340,7 +340,8 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     }
   }
   auto cmds = CompileDatabase::load(compdbPath);
-  log("compile database: " + compdbSource + " (" + std::to_string(cmds.size()) + " entries) at " + pathUtf8(compdbPath));
+  log("compile database: " + compdbSource + " (" + std::to_string(cmds.size()) + " entries) at " +
+      pathUtf8(compdbPath));
   bool locationChanged;
   {
     std::lock_guard<std::mutex> lk(mu_);
@@ -2606,9 +2607,8 @@ void SemanticEngine::workspaceSymbolsBudgeted(const std::string& query, std::vec
       // clangd also indexes system headers it has seen; 10x-style symbol
       // search wants the workspace's own symbols first.
       const std::string rootPrefix = pathKeyUtf8(ws_.root()) + "/";
-      std::stable_partition(out.begin(), out.end(), [&](const SymbolLocation& l) {
-        return pathKeyUtf8(l.loc.file).rfind(rootPrefix, 0) == 0;
-      });
+      std::stable_partition(out.begin(), out.end(),
+                            [&](const SymbolLocation& l) { return pathKeyUtf8(l.loc.file).rfind(rootPrefix, 0) == 0; });
       done(std::move(out), err);
     });
   });

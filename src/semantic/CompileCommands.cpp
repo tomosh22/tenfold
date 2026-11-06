@@ -1053,8 +1053,7 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
   P["projectfilename"] = pathUtf8(proj.filename());
   P["projectpath"] = projPath;
   P["projectext"] = pathUtf8(proj.extension());
-  const std::string slnDir =
-      opt.solutionDir.empty() ? st.projectDir : normalizePathStr(pathKeyUtf8(opt.solutionDir));
+  const std::string slnDir = opt.solutionDir.empty() ? st.projectDir : normalizePathStr(pathKeyUtf8(opt.solutionDir));
   P["solutiondir"] = slnDir + "/";
   if (!opt.solutionFile.empty()) {
     const std::string slnPath = normalizePathStr(pathKeyUtf8(opt.solutionFile));

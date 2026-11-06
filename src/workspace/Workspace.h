@@ -113,7 +113,8 @@ class Workspace {
   bool hasCMake() const;
 
  private:
-  void walkTree(const std::filesystem::path& start, const std::function<void(const std::filesystem::path&)>& onFile) const;
+  void walkTree(const std::filesystem::path& start,
+                const std::function<void(const std::filesystem::path&)>& onFile) const;
   std::filesystem::path root_;
   Settings settings_;
   std::vector<std::filesystem::path> sources_, headers_, others_;

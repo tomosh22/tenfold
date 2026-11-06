@@ -468,8 +468,7 @@ struct Worker {
       run.searched++;
       const std::string* over = nullptr;
       if (needRel) {
-        auto it =
-            run.in.overrides.find(pathKey(pathKeyUtf8(file->lexically_relative(run.in.root)), nativePathStyle()));
+        auto it = run.in.overrides.find(pathKey(pathKeyUtf8(file->lexically_relative(run.in.root)), nativePathStyle()));
         if (it != run.in.overrides.end()) over = &it->second;
       }
       if (over) {

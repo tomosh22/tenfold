@@ -14,8 +14,8 @@
 
 #include <nlohmann/json.hpp>
 
-#include "search/ReplaceInFiles.h"
 #include "core/PathUtil.h"
+#include "search/ReplaceInFiles.h"
 
 namespace tf {
 
@@ -736,8 +736,7 @@ std::string Editor::CompileCommandInfo::text(int width) const {
   putField(os, "File:", pathKeyUtf8(file), 0);
   putField(os, "Compile flags:", sourceText, width);
   if (!databasePath.empty())
-    putField(os, "Database:", pathKeyUtf8(databasePath) + " (" + std::to_string(databaseEntries) + " entries)",
-             width);
+    putField(os, "Database:", pathKeyUtf8(databasePath) + " (" + std::to_string(databaseEntries) + " entries)", width);
   if (!solution.empty())
     putField(os, "Visual Studio:",
              pathUtf8(solution.filename()) + ", active configuration " + vsConfiguration +
