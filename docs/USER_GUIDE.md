@@ -855,7 +855,7 @@ message.
   The names are the members of the theme; `assets/themes/vs-dark.txt` lists every one and a wrong name is reported with its
   line. The editor, debugger and version-control colours are optional: leaving them out gives the built-in look. The
   Visual Studio details are optional too and unset in `dark` and `light`: `tabDocumentHover` (hovered document tab),
-  `tabPreviewActive` (preview tab, for later), `scrollbarThumbHover` / `scrollbarThumbPressed`, `inputBackground`,
+  `tabPreviewActive` / `tabPreviewInactive` (the preview tab), `scrollbarThumbHover` / `scrollbarThumbPressed`, `inputBackground`,
   `inputBorder`, `inputSelection` (text fields), `menuText` / `menuGlyph` / `menuDisabled`, `link` and
   `statusBackgroundNoSolution` (status bar when no workspace is open).
 * `token.<kind>[.<modifier>]`: colours of the lexical kinds (`keyword identifier number string char comment
