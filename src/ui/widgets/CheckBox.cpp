@@ -22,6 +22,12 @@ RectF CheckBox::boxRect() const {
   return {b.x + 1, b.y + (b.h - s) / 2, s, s};
 }
 
+void CheckBox::setCover(const RectF& r) {
+  if (r.x == cover_.x && r.y == cover_.y && r.w == cover_.w && r.h == cover_.h) return;
+  cover_ = r;
+  markDirty();
+}
+
 void CheckBox::setLabel(std::string s) {
   label_ = std::move(s);
   markDirty();
@@ -78,6 +84,8 @@ void CheckBox::paint(PaintContext& ctx) {
   }
   const RectF& b = bounds();
   const float tx = r.x + r.w + ctx.textRenderer.cellWidth();
+  const RectF both = intersect(b, cover_);
+  if (both.w > 0 && both.h > 0) return;
   ctx.text(tx, b.y + (b.h - ctx.lineHeight()) / 2, label_, t.text, {tx, b.y, std::max(0.0f, b.x + b.w - tx), b.h});
 }
 

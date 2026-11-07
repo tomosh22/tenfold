@@ -171,6 +171,7 @@ void LineEndingDialog::paint(PaintContext& ctx) {
   const Theme& t = ctx.theme;
   const Color bg = Theme::orElse(t.popupBackground, t.tabInactive);
   const Color border = Theme::orElse(t.popupBorder, t.splitterHot);
+  checkBox_->setCover(dropDown_->listRect());
   ctx.fill({dialog_.x - 1, dialog_.y - 1, dialog_.w + 2, dialog_.h + 2}, border);
   ctx.fill(dialog_, bg);
   ctx.fill(captionR_, t.tabStripBackground);

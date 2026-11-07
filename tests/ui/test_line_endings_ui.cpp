@@ -7,9 +7,11 @@
 #include <sstream>
 
 #include "../text/text_test_util.h"
+#include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Clipboard.h"
 #include "ui/settings/Settings.h"
+#include "ui/settings/Theme.h"
 #include "ui/shell/EditorApp.h"
 #include "ui/features/LineEndingDialog.h"
 #include "ui/widgets/ListPopup.h"
@@ -540,4 +542,99 @@ TEST(le_ui_copy_puts_the_stored_breaks_on_the_clipboard_and_paste_keeps_them) {
   // line 0 ends with CR, so the pasted CRLF became CR
   CHECK_EQ(env.disk(lf), std::string("t\rur\rsint a;\nint b;p\r\nq\n"));
   (void)m;
+}
+
+// --- golden: the dialog in vs-dark (open drop-down list on top of the buttons in the second image) -----------------
+
+namespace {
+bool compareGolden(const std::vector<uint8_t>& px, int w, int h, const char* name) {
+  const std::string path = std::string(TENFOLD_SOURCE_DIR "/tests/golden/") + name + ".png";
+  if (uitest::updateGoldens) {
+    gfx::writePngFile(path, px.data(), w, h);
+    std::cerr << "    golden updated: " << path << "\n";
+    return true;
+  }
+  int gw = 0, gh = 0;
+  std::vector<uint8_t> golden;
+  if (!gfx::readPngFile(path, gw, gh, golden)) {
+    std::cerr << "    golden missing or unreadable; run tenfold-ui-tests --update-goldens\n";
+    return false;
+  }
+  if (gw != w || gh != h) return false;
+  size_t bad = 0;
+  for (size_t i = 0; i < golden.size(); i += 4) {
+    int d = 0;
+    for (int ch = 0; ch < 4; ++ch) d = std::max(d, std::abs(int(golden[i + ch]) - int(px[i + ch])));
+    if (d > 3) ++bad;
+  }
+  if (bad > golden.size() / 4 / 500) {
+    gfx::writePngFile(std::string(name) + ".actual.png", px.data(), w, h);
+    std::cerr << "    " << bad << " pixels differ; wrote " << name << ".actual.png\n";
+    return false;
+  }
+  return true;
+}
+}  // namespace
+
+TEST(le_ui_golden_dialog_vs_dark) {
+  SKIP_IF_NO_GL(fx);
+  std::string font;
+  for (const char* p : {"/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+                        "/usr/share/fonts/dejavu/DejaVuSansMono.ttf", "/usr/share/fonts/TTF/DejaVuSansMono.ttf"})
+    if (std::ifstream(p).good()) {
+      font = p;
+      break;
+    }
+  if (font.empty()) {
+    std::cerr << "    SKIP golden: DejaVuSansMono not installed; goldens are only comparable with the same font\n";
+    return;
+  }
+  std::string err;
+  auto tr = gfx::TextRenderer::create(font, 15.0f, 1.0f, &err);
+  REQUIRE(tr != nullptr);
+  std::vector<SettingsDiag> diags;
+  const Theme vs = loadTheme("vs-dark", {}, {}, diags);
+  CHECK(diags.empty());
+  const fs::path tmp = uitest::tempRoot() / "tf_le_golden";  // the folder name is in the status bar: fixed
+  std::error_code rm;
+  fs::remove_all(tmp, rm);
+  fs::create_directories(tmp / "src");
+  writeFile(tmp / "src/main.cpp", "int main() {\r\n  return 0;\r\n}\n");
+  writeFile(tmp / "src/util.cpp", "int a;\nint b;\nint c;\r\n");
+  {
+    Editor::Options o;
+    o.semantic.useClangd = false;
+    o.semantic.persistFastIndex = false;
+    o.watchForcePolling = true;
+    o.watchPollMs = 60000;
+    Editor ed(tmp, o);
+    Workbench wb(*tr, ed, vs);
+    EditorApp app(wb, ed, &wb);
+    wb.openFile("src/main.cpp");
+    wb.openFile("src/util.cpp");
+    wb.sync();
+    uitest::wrapOff(wb);
+    int64_t now = 1000;
+    gfx::GlRenderer& r = *fx->renderer;
+    r.setOffscreen(true);
+    ed.pump();
+    app.tick(now += 10);
+    const int w = 1024, h = 640;
+    wb.render(r, w, h);
+    REQUIRE(app.lineEndingPrompt().dialog() != nullptr);
+    wb.render(r, w, h);
+    std::vector<uint8_t> px(static_cast<size_t>(w) * h * 4);
+    REQUIRE(r.readPixels(w, h, px.data()));
+    CHECK(compareGolden(px, w, h, "le_dialog_vs_dark"));
+    // the drop-down open: its list lies over the check box and the buttons
+    DropDown* dd = app.lineEndingPrompt().dialog()->dropDown();
+    dd->setFocus();
+    dd->open();
+    wb.render(r, w, h);
+    REQUIRE(r.readPixels(w, h, px.data()));
+    CHECK(compareGolden(px, w, h, "le_dialog_dropdown_vs_dark"));
+    tr->releaseTexture(r);
+    app.closePickers();
+  }
+  fs::remove_all(tmp, rm);
 }

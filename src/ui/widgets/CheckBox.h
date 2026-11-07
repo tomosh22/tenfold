@@ -19,6 +19,10 @@ class CheckBox : public Widget {
   void toggle();             // as a user would: flips and calls onChanged
   void onChanged(ChangedFn fn) { changed_ = std::move(fn); }
 
+  // A rectangle painted on top of this widget later (an open DropDown list): the label is not drawn while it overlaps
+  // it, because text is drawn after all rects and would show through. Empty = none.
+  void setCover(const RectF& r);
+
   float preferredWidth() const;  // box + gap + label
   float preferredHeight() const;
   RectF boxRect() const;  // the square (valid after layout)
@@ -35,6 +39,7 @@ class CheckBox : public Widget {
   float boxSize() const;
   std::string label_;
   bool checked_ = false, hover_ = false;
+  RectF cover_{0, 0, 0, 0};
   ChangedFn changed_;
 };
 
