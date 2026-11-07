@@ -190,8 +190,7 @@ void PerforceUi::showActions(const PerforceProvider::Revision& rev) {
       PerforceProvider::Revision h;
       h.rev = haveRev_;
       if (have != revs_.end()) h = *have;
-      add(Act::Have, "have", "Diff against have revision (#" + std::to_string(haveRev_) + ")", "external diff tool",
-          h);
+      add(Act::Have, "have", "Diff against have revision (#" + std::to_string(haveRev_) + ")", "external diff tool", h);
     }
   }
   auto p = std::make_unique<ListPopup>(false);
@@ -232,20 +231,20 @@ void PerforceUi::diffRevisions(const PerforceProvider::Revision& left, const Per
     hooks_.diff(r);
   };
   auto fetch = [&](int rev, bool isLeft) {
-    env_.editor.vcs().perforceRevisionText(
-        file, rev,
-        [this, pr, finish, rev, title, isLeft, life = std::weak_ptr<int>(life_)](bool ok, std::string text,
-                                                                                std::string err) {
-          if (life.expired() || pr->failed) return;
-          if (!ok) {
-            pr->failed = true;
-            say("Cannot read " + title + "#" + std::to_string(rev) + ": " + err, 8000);
-            return;
-          }
-          (isLeft ? pr->a : pr->b) = std::move(text);
-          ++pr->done;
-          finish();
-        });
+    env_.editor.vcs().perforceRevisionText(file, rev,
+                                           [this, pr, finish, rev, title, isLeft, life = std::weak_ptr<int>(life_)](
+                                               bool ok, std::string text, std::string err) {
+                                             if (life.expired() || pr->failed) return;
+                                             if (!ok) {
+                                               pr->failed = true;
+                                               say("Cannot read " + title + "#" + std::to_string(rev) + ": " + err,
+                                                   8000);
+                                               return;
+                                             }
+                                             (isLeft ? pr->a : pr->b) = std::move(text);
+                                             ++pr->done;
+                                             finish();
+                                           });
   };
   fetch(left.rev, true);
   fetch(right.rev, false);

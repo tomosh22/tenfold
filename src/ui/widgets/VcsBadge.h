@@ -41,10 +41,10 @@ inline void drawVcsGlyph(PaintContext& ctx, TabStrip::VcsMark m, const RectF& bo
   static const char* const kPlus[7] = {".....", "..#..", "..#..", "#####", "..#..", "..#..", "....."};
   static const char* const kQuestion[7] = {".###.", "#...#", "....#", "..##.", "..#..", ".....", "..#.."};
   static const char* const kTriangle[7] = {".....", "..#..", "..#..", ".###.", ".###.", "#####", "#####"};
-  const char* const* bm = m == M::CheckedOut ? kCheck
+  const char* const* bm = m == M::CheckedOut     ? kCheck
                           : m == M::OpenedForAdd ? kPlus
-                          : m == M::OutOfDate ? kTriangle
-                                              : kQuestion;
+                          : m == M::OutOfDate    ? kTriangle
+                                                 : kQuestion;
   const float cs = std::max(1.0f, std::floor(std::min(box.w / 5.0f, box.h / 7.0f)));
   const float x0 = box.x + std::floor((box.w - 5 * cs) / 2), y0 = box.y + std::floor((box.h - 7 * cs) / 2);
   for (int y = 0; y < 7; ++y)

@@ -20,7 +20,8 @@ class Settings;
 //  * PerforceHistory (Control P, Control H): `p4 filelog` of the current file in a modal ListPopup, newest first. A row
 //    shows "#rev  change N  date  user  action" and the first line of the description; the input filters by any of
 //    that text. Enter on a revision opens its action menu (VC6, P4VS File History: Revisions > Show History):
-//      Open                          the revision (`p4 print`) in a new tab, read-only: the text is written to a temp file
+//      Open                          the revision (`p4 print`) in a new tab, read-only: the text is written to a temp
+//      file
 //                                    `<temp>/tenfold-p4/<id>/<name>#<rev><ext>` made read-only on disk (the editor
 //                                    refuses to save it)
 //      Diff against previous (#N-1)  external diff tool (vcs.diffTool, p4merge by default) on the two revisions; absent
@@ -36,7 +37,8 @@ class PerforceUi {
   struct Hooks {
     std::function<void(const std::string& text, int ttlMs)> message;
     std::function<const OsLauncher&()> launcher;
-    // Runs the external diff tool on a request (VcsUi::launchDiff; it reports in the status bar). Null: no diff actions.
+    // Runs the external diff tool on a request (VcsUi::launchDiff; it reports in the status bar). Null: no diff
+    // actions.
     std::function<bool(const DiffTool::Request&)> diff;
   };
   PerforceUi(PickerEnv& env, Hooks hooks);

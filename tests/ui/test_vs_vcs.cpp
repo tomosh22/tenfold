@@ -86,8 +86,9 @@ struct P4App {
     PerforceProvider::clearDetectCache();
     ws = p4.ws;
     static int n = 0;
-    tmp = uitest::tempRoot() / ("tf_vsvcs_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                                "_" + std::to_string(n++));
+    tmp = uitest::tempRoot() /
+          ("tf_vsvcs_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+           std::to_string(n++));
     fs::create_directories(tmp);
     p4.depotFile("a.cpp", "third\n");
     if (badges) {
@@ -222,9 +223,9 @@ TEST(vsvcs_tabs_carry_the_same_marks_and_status_text) {
   P4App a;
   REQUIRE(a.waitUntil([&] { return a.ed->vcs().active(); }));
   for (auto [file, mark] : std::vector<std::pair<const char*, Mark>>{{"new.cpp", Mark::NotInDepot},
-                                                                      {"add.cpp", Mark::OpenedForAdd},
-                                                                      {"old.cpp", Mark::OutOfDate},
-                                                                      {"co.cpp", Mark::CheckedOut}}) {
+                                                                     {"add.cpp", Mark::OpenedForAdd},
+                                                                     {"old.cpp", Mark::OutOfDate},
+                                                                     {"co.cpp", Mark::CheckedOut}}) {
     a.bench->openFile(file);
     a.bench->sync();
     CHECK(a.waitUntil([&] { return a.tabMark() == mark; }));
@@ -272,7 +273,8 @@ TEST(vsvcs_theme_keys_vs_dark_and_fallbacks) {
   std::vector<SettingsDiag> d;
   const Theme vs = loadTheme("vs-dark", {}, {}, d);
   CHECK(d.empty());
-  CHECK(vs.tabVcsOpenedForAdd.a > 0 && vs.tabVcsNotInDepot.a > 0 && vs.tabVcsOutOfDate.a > 0 && vs.tabVcsConflict.a > 0);
+  CHECK(vs.tabVcsOpenedForAdd.a > 0 && vs.tabVcsNotInDepot.a > 0 && vs.tabVcsOutOfDate.a > 0 &&
+        vs.tabVcsConflict.a > 0);
   CHECK(vs.tabVcsNotInDepot.b > vs.tabVcsNotInDepot.r);  // blue ?
   CHECK(vs.tabVcsOutOfDate.r > vs.tabVcsOutOfDate.b);    // yellow triangle
   const Theme dark = loadTheme("dark", {}, {}, d);
@@ -412,10 +414,11 @@ TEST(vsvcs_history_menu_omits_actions_that_make_no_sense) {
 TEST(vsvcs_history_diff_actions_run_the_diff_tool_on_the_two_revisions) {
   P4App a(false);
   const fs::path out = tfvcs::tempDir("vsvcs_difftool");
-  makeExecutable(out / "fake-diff", "#!/bin/sh\nout='" + out.string() +
-                                        "'\nprintf '%s\\n' \"$@\" > \"$out/args.txt\"\nfor a in \"$@\"; do case \"$a\" in "
-                                        "*/base/*) cp \"$a\" \"$out/base.copy\";; */current/*) cp \"$a\" "
-                                        "\"$out/current.copy\";; esac; done\necho done > \"$out/done\"\n");
+  makeExecutable(out / "fake-diff",
+                 "#!/bin/sh\nout='" + out.string() +
+                     "'\nprintf '%s\\n' \"$@\" > \"$out/args.txt\"\nfor a in \"$@\"; do case \"$a\" in "
+                     "*/base/*) cp \"$a\" \"$out/base.copy\";; */current/*) cp \"$a\" "
+                     "\"$out/current.copy\";; esac; done\necho done > \"$out/done\"\n");
   a.apply("vcs.diffTool = " + (out / "fake-diff").string() + "\n");
   openHistory(a);
   a.key(Key::Down);  // #2, against the previous one (#1)

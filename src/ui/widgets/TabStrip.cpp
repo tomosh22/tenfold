@@ -1,9 +1,9 @@
 #include "ui/widgets/TabStrip.h"
 
-#include "ui/widgets/VcsBadge.h"
-
 #include <algorithm>
 #include <cmath>
+
+#include "ui/widgets/VcsBadge.h"
 
 namespace tf::ui {
 
