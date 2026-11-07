@@ -11,7 +11,7 @@ fast def use_live -> Countable_live
 fast def use_kind_ptr -> kind_ptr | kind_val
 xfail fast def use_kind_ptr -> kind_ptr  # fast tier returns every kind() overload
 xfail fast def use_name_int -> Printer_int_name  # fast tier returns every Printer<..>::name
-xfail fast def use_circle_area -> Shape_area  # fast tier returns Shape::area and Square::area
+fast def use_circle_area -> Shape_area
 fast sym "Printer" ∋ Printer
 fast sym "Registry" ∋ Registry
 fast hover use_total_area ~ "total_area"

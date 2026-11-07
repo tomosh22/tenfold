@@ -726,8 +726,8 @@ class Extractor {
     // / typedef void (*Fn)(int);
     // The name of the typedef is the last identifier outside braces and parentheses (or the one in `(*Fn)`). A tag
     // with a body (`struct Tag {`, `enum Tag {`) is indexed too, and so are the enumerators of an enum body, which
-    // matters most for the anonymous `typedef enum { A, B } Name;` of C. The members of a struct / union body are indexed in
-    // the scope of its tag (else of its first declarator).
+    // matters most for the anonymous `typedef enum { A, B } Name;` of C. The members of a struct / union body are
+    // indexed in the scope of its tag (else of its first declarator).
     std::vector<Token> idents, names;  // identifiers of the current declarator; the finished declarators' names
     Token fnPtrName{};
     bool haveFnPtr = false;
@@ -775,7 +775,8 @@ class Extractor {
               else if (toks_[close].text == "}" && --d == 0) break;
             }
             size_t n = close + 1;
-            while (n < toks_.size() && toks_[n].kind == Tok::Punct && (toks_[n].text == "*" || toks_[n].text == "&")) ++n;
+            while (n < toks_.size() && toks_[n].kind == Tok::Punct && (toks_[n].text == "*" || toks_[n].text == "&"))
+              ++n;
             scopeNm = n < toks_.size() && toks_[n].kind == Tok::Identifier ? std::string(toks_[n].text) : "(anonymous)";
           }
           advance(open - i_ + 1);  // the tag is not the typedef name; step into the body
@@ -1450,9 +1451,9 @@ size_t FastIndex::symbolCount() const {
 }
 
 std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::filesystem::path& file,
-                                                                  const std::vector<std::filesystem::path>& quoteDirs,
-                                                                  const std::vector<std::filesystem::path>& angleDirs,
-                                                                  size_t maxFiles) const {
+                                                                 const std::vector<std::filesystem::path>& quoteDirs,
+                                                                 const std::vector<std::filesystem::path>& angleDirs,
+                                                                 size_t maxFiles) const {
   std::string start = keyFor(file);
   const uint64_t gen = reachGen_.load(std::memory_order_acquire);
   std::string cacheKey = start;

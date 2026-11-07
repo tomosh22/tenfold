@@ -4,29 +4,29 @@
 # A name-based guess is wrong almost everywhere here.
 
 # ---- fast tier ----
-xfail fast def use_a_Node_get -> a_Node_get | a_Node_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_b_Node_get -> b_Node_get | b_Node_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+fast def use_a_Node_get -> a_Node_get | a_Node_get_def
+fast def use_b_Node_get -> b_Node_get | b_Node_get_def
 xfail fast def use_a_get -> a_get | a_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_b_get -> b_get | b_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_a_get_tpl -> a_get_tpl  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_a_size -> a_size | a_size_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_a_Node_in_Widget -> a_Node  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_b_Impl_in_Widget -> b_Impl | b_Impl_decl  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_a_Impl_in_Widget -> a_Impl | a_Impl_fwd  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_c_Node_in_Edge -> c_Node  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_a_Id -> a_Id  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_b_Id -> b_Id  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_Stat_struct -> Stat  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_Stat_func -> Stat_func | Stat_func_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_g_get -> g_get | g_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_g_log -> g_log | g_log_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_log_ns_log -> log_ns_log | log_ns_log_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_c_get -> c_get | c_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+fast def use_b_get -> b_get | b_get_def
+fast def use_a_get_tpl -> a_get_tpl
+fast def use_a_size -> a_size | a_size_def
+fast def use_a_Node_in_Widget -> a_Node
+fast def use_b_Impl_in_Widget -> b_Impl | b_Impl_decl
+fast def use_a_Impl_in_Widget -> a_Impl | a_Impl_fwd
+fast def use_c_Node_in_Edge -> c_Node
+fast def use_a_Id -> a_Id
+fast def use_b_Id -> b_Id
+fast def use_Stat_struct -> Stat
+fast def use_Stat_func -> Stat_func | Stat_func_def
+fast def use_g_get -> g_get | g_get_def
+fast def use_g_log -> g_log | g_log_def
+fast def use_log_ns_log -> log_ns_log | log_ns_log_def
+fast def use_c_get -> c_get | c_get_def
 xfail fast def use_c_static_get -> c_static_get  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_c_anon_Impl_get -> c_anon_Impl_get  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_a_Widget_node -> a_Widget_node | a_Widget_node_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
-xfail fast def use_i_a1 -> i_a  # fast tier has no local scope: parameter/loop variable not found, an unrelated same-named member (Holder::i) is answered instead
-xfail fast def use_param_i -> Holder_param_i  # fast tier has no local scope: parameter/loop variable not found, an unrelated same-named member (Holder::i) is answered instead
+fast def use_c_anon_Impl_get -> c_anon_Impl_get
+fast def use_a_Widget_node -> a_Widget_node | a_Widget_node_def
+fast def use_i_a1 -> i_a
+fast def use_param_i -> Holder_param_i
 fast def use_Holder_n3 -> Holder_n
 fast sym "Edge" ∋ c_Edge
 fast sym "Stat" ∋ Stat

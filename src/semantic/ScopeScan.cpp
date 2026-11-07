@@ -48,15 +48,15 @@ size_t skipAngle(const Toks& T, size_t i, size_t limit) {
 
 const std::unordered_set<std::string_view>& skippedKeywords() {
   static const std::unordered_set<std::string_view> s = {
-      "static", "const",   "constexpr", "consteval", "constinit", "volatile", "thread_local", "register", "inline",
-      "extern", "mutable", "typename",  "struct",    "class",     "union",    "enum",         "signed",   "unsigned",
-      "friend", "virtual", "explicit",  "__extension__"};
+      "static", "const",    "constexpr", "consteval", "constinit", "volatile",     "thread_local", "register",
+      "inline", "extern",   "mutable",   "typename",  "struct",    "class",        "union",        "enum",
+      "signed", "unsigned", "friend",    "virtual",   "explicit",  "__extension__"};
   return s;
 }
 const std::unordered_set<std::string_view>& builtinTypes() {
-  static const std::unordered_set<std::string_view> s = {
-      "int",    "char",     "short",    "long",     "float",   "double",   "bool", "void",
-      "wchar_t", "char8_t", "char16_t", "char32_t", "__int64", "__int128", "_Bool"};
+  static const std::unordered_set<std::string_view> s = {"int",      "char",     "short",   "long",     "float",
+                                                         "double",   "bool",     "void",    "wchar_t",  "char8_t",
+                                                         "char16_t", "char32_t", "__int64", "__int128", "_Bool"};
   return s;
 }
 
@@ -84,7 +84,8 @@ bool readQName(const Toks& T, size_t i, size_t e, QName& q) {
       // first identifier chain inside the arguments
       std::string chain;
       size_t k = i + 1;
-      while (k + 1 < after && (isK(T[k], "const") || isK(T[k], "typename") || isK(T[k], "struct") || isK(T[k], "class")))
+      while (k + 1 < after &&
+             (isK(T[k], "const") || isK(T[k], "typename") || isK(T[k], "struct") || isK(T[k], "class")))
         ++k;
       if (k + 1 < after && isP(T[k], "::")) ++k;
       while (k + 1 < after && isId(T[k])) {
@@ -121,9 +122,8 @@ struct Decl {
 };
 
 bool isTerminator(const Token& t) {
-  return t.kind == Tok::Punct &&
-         (t.text == "=" || t.text == "(" || t.text == "{" || t.text == "[" || t.text == "," || t.text == ";" ||
-          t.text == ":");
+  return t.kind == Tok::Punct && (t.text == "=" || t.text == "(" || t.text == "{" || t.text == "[" || t.text == "," ||
+                                  t.text == ";" || t.text == ":");
 }
 
 // Parses "type-specifiers declarator-name" at [b, e) up to the first top-level terminator. False when the tokens are
@@ -169,8 +169,8 @@ bool parseDecl(const Toks& T, size_t b, size_t e, Decl& d) {
     if (t.kind == Tok::Identifier || isP(t, "::")) {
       QName q;
       if (!readQName(T, i, e, q)) return false;
-      items.push_back({Item::Type, q.name, q.targ, q.name.find("::") != std::string::npos || isP(t, "::"),
-                       q.templated, i});
+      items.push_back(
+          {Item::Type, q.name, q.targ, q.name.find("::") != std::string::npos || isP(t, "::"), q.templated, i});
       i = q.next;
       continue;
     }
@@ -242,7 +242,9 @@ void deduceAuto(const Toks& T, size_t term, size_t e, ScanVar& v) {
   if (i >= e || !readQName(T, i, e, q)) return;
   if (q.next >= e || !(isP(T[q.next], "(") || isP(T[q.next], "{"))) return;
   const std::string& n = q.name;
-  auto endsWith = [&](std::string_view s) { return n.size() >= s.size() && n.compare(n.size() - s.size(), s.size(), s) == 0; };
+  auto endsWith = [&](std::string_view s) {
+    return n.size() >= s.size() && n.compare(n.size() - s.size(), s.size(), s) == 0;
+  };
   if (q.templated && (endsWith("make_unique") || endsWith("make_shared"))) {
     v.type = q.targ;
     v.pointer = true;
@@ -284,9 +286,7 @@ struct Scanner {
     return stack.back();
   }
 
-  void addVar(ScanRegion& r, const Decl& d) {
-    r.vars.push_back(d.v);
-  }
+  void addVar(ScanRegion& r, const Decl& d) { r.vars.push_back(d.v); }
 
   // Declaration statement over [b, e): registers the declared names in region `r`.
   void declStatement(ScanRegion& r, size_t b, size_t e, bool allowParen) {
@@ -522,7 +522,7 @@ struct Scanner {
     // namespace
     {
       size_t k = h0;
-      while (k < i && (isK(T[k], "inline") || isP(T[k], "[") )) {
+      while (k < i && (isK(T[k], "inline") || isP(T[k], "["))) {
         if (isP(T[k], "[")) k = matchClose(T, k, i) + 1;
         else ++k;
       }
@@ -585,8 +585,9 @@ struct Scanner {
           }
           if (isP(t, "(")) {
             // alignas(...) / __declspec(...) / __attribute__((...)) belong to the header; any other call is not a class
-            if (k > 0 && (isK(T[k - 1], "alignas") || T[k - 1].text == "__declspec" || T[k - 1].text == "__attribute__" ||
-                          isK(T[k - 1], "__declspec") || isK(T[k - 1], "__attribute__") || isK(T[k - 1], "alignas"))) {
+            if (k > 0 &&
+                (isK(T[k - 1], "alignas") || T[k - 1].text == "__declspec" || T[k - 1].text == "__attribute__" ||
+                 isK(T[k - 1], "__declspec") || isK(T[k - 1], "__attribute__") || isK(T[k - 1], "alignas"))) {
               k = matchClose(T, k, i);
               continue;
             }
@@ -786,8 +787,7 @@ struct Scanner {
         } else if (t.text == ":" && paren == 0) {
           if (i == stmt + 1 && (isK(T[stmt], "public") || isK(T[stmt], "private") || isK(T[stmt], "protected")))
             stmt = i + 1;
-          else if (i > stmt && inBody() && (isK(T[stmt], "case") || isK(T[stmt], "default")))
-            stmt = i + 1;
+          else if (i > stmt && inBody() && (isK(T[stmt], "case") || isK(T[stmt], "default"))) stmt = i + 1;
         }
       } else if (t.kind == Tok::Keyword && inBody() &&
                  (t.text == "if" || t.text == "for" || t.text == "while" || t.text == "switch" || t.text == "catch")) {

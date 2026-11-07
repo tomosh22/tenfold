@@ -150,8 +150,7 @@ std::string stripAnonymous(const std::string& s) {
     if (v == anon) return {};
     if (v.size() > anon.size() + 2 && v.ends_with(anon) && v.substr(v.size() - anon.size() - 2, 2) == "::")
       v = v.substr(0, v.size() - anon.size() - 2);
-    else
-      break;
+    else break;
   }
   return std::string(v);
 }
@@ -172,7 +171,9 @@ bool isSmartPointer(std::string_view last) {
   return last == "unique_ptr" || last == "shared_ptr" || last == "weak_ptr" || last == "optional" ||
          last == "scoped_ptr" || last == "intrusive_ptr" || last == "auto_ptr" || last == "unique_ref";
 }
-bool isIndexable(std::string_view last) { return last == "vector" || last == "array" || last == "deque" || last == "span"; }
+bool isIndexable(std::string_view last) {
+  return last == "vector" || last == "array" || last == "deque" || last == "span";
+}
 
 // Levels of the lookup chain at the caret, innermost first, ending with the global scope.
 std::vector<Level> buildLevels(const ScopeEnv& env, const CaretInfo& ci, int region) {
@@ -575,7 +576,8 @@ int constructionArgCount(const CaretInfo& ci) {
   return -2;
 }
 
-std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const CaretInfo& ci, const std::string& qualifier) {
+std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const CaretInfo& ci,
+                                                const std::string& qualifier) {
   std::string q = qualifier;
   int region = 0;
   if (ci.map) region = ci.map->regionAt(ci.at);
@@ -720,14 +722,16 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
         // a function (not a constructor) hides a class of the same name in its scope: `Stat(...)` calls the function
         std::set<std::string> fnScopes;
         for (auto& m : matches)
-          if (m.sym().kind == SymbolKind::Function || m.sym().kind == SymbolKind::Method) fnScopes.insert(m.sym().scope);
+          if (m.sym().kind == SymbolKind::Function || m.sym().kind == SymbolKind::Method)
+            fnScopes.insert(m.sym().scope);
         if (!fnScopes.empty())
           keepIf([&](const FastIndex::Match& m) { return !isTag(m.sym().kind) || !fnScopes.count(m.sym().scope); });
       }
       if (p < t.size() && t[p] == '<' && matches.size() > 1) {
         // explicit template arguments name a template: `get<int>(x)`
         const size_t close = t.find('>', p);
-        if (close != std::string_view::npos && skipSpacesFwd(t, close + 1) < t.size() && t[skipSpacesFwd(t, close + 1)] == '(')
+        if (close != std::string_view::npos && skipSpacesFwd(t, close + 1) < t.size() &&
+            t[skipSpacesFwd(t, close + 1)] == '(')
           keepIf([](const FastIndex::Match& m) { return m.sym().isTemplate; });
       }
     }
@@ -766,7 +770,8 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
         };
         // a definition in a file the caret cannot see stays when its prototype / declaration is visible
         auto pairable = [](const Symbol& s) {
-          return s.definition && (isFunctionKind(s.kind) || s.kind == SymbolKind::Variable || s.kind == SymbolKind::Field);
+          return s.definition &&
+                 (isFunctionKind(s.kind) || s.kind == SymbolKind::Variable || s.kind == SymbolKind::Field);
         };
         size_t nVisible = 0, nHiddenDefs = 0;
         for (auto& m : matches) {
@@ -801,14 +806,23 @@ std::shared_ptr<const ScopeMap> ScopeCache::get(const std::string& key, uint64_t
   }
   std::shared_ptr<const ScopeMap> built = build();
   if (cache && built) {
+    // bounded by entries and by size (regions and variables), least recently used first out
+    size_t weight = built->regions.size();
+    for (const ScanRegion& r : built->regions) weight += r.vars.size();
     std::lock_guard<std::mutex> lk(mu_);
-    if (map_.size() >= 48) {
+    if (auto old = map_.find(key); old != map_.end()) {
+      weight_ -= old->second.weight;
+      map_.erase(old);
+    }
+    while (!map_.empty() && (map_.size() >= 48 || weight_ + weight > kMaxWeight)) {
       auto oldest = map_.begin();
       for (auto it = map_.begin(); it != map_.end(); ++it)
         if (it->second.tick < oldest->second.tick) oldest = it;
+      weight_ -= oldest->second.weight;
       map_.erase(oldest);
     }
-    map_[key] = {a, b, built, ++tick_};
+    weight_ += weight;
+    map_[key] = {a, b, built, ++tick_, weight};
   }
   return built;
 }
@@ -816,6 +830,7 @@ std::shared_ptr<const ScopeMap> ScopeCache::get(const std::string& key, uint64_t
 void ScopeCache::clear() {
   std::lock_guard<std::mutex> lk(mu_);
   map_.clear();
+  weight_ = 0;
 }
 
 }  // namespace tf

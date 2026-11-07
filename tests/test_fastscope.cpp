@@ -24,24 +24,30 @@ const ScanVar* var(const ScanRegion& r, const std::string& name) {
 
 TEST(scopescan_regions_namespaces_classes_functions) {
   const char* src = R"cpp(
-namespace geo::detail {
-struct Base { int b; };
-class Vec : public Base, private geo::Other<int> {
- public:
-  int x = 0;
-  std::unique_ptr<Base> owned;
-  double len(int a, const Vec& o = {}) const { return a; }
-};
-}
-namespace { int hidden; }
-void geo::detail::Vec::run(int n) {
-  int local = 1, *p = nullptr;
-  auto it = new Vec();
-  for (int i = 0; i < n; ++i) { Vec inner; }
-  auto f = [&](int q) { return q + local; };
-}
-extern "C" { int c_fn(void) { return 0; } }
-)cpp";
+    namespace geo::detail {
+    struct Base {
+      int b;
+    };
+    class Vec : public Base, private geo::Other<int> {
+     public:
+      int x = 0;
+      std::unique_ptr<Base> owned;
+      double len(int a, const Vec& o = {}) const { return a; }
+    };
+    }  // namespace geo::detail
+    namespace {
+    int hidden;
+    }
+    void geo::detail::Vec::run(int n) {
+      int local = 1, *p = nullptr;
+      auto it = new Vec();
+      for (int i = 0; i < n; ++i) { Vec inner; }
+      auto f = [&](int q) { return q + local; };
+    }
+    extern "C" {
+    int c_fn(void) { return 0; }
+    }
+  )cpp";
   ScopeMap m = scanScopes(src);
   const ScanRegion* ns = find(m, ScanRegion::Namespace, "geo::detail");
   REQUIRE(ns != nullptr);
@@ -84,16 +90,16 @@ extern "C" { int c_fn(void) { return 0; } }
 
 TEST(scopescan_using_aliases_and_initializer_braces) {
   const char* src = R"cpp(
-namespace fs = std::filesystem;
-using namespace geo::util;
-using geo::Other;
-struct S {
-  int a{1};
-  int b = {2};
-  S() : a{3}, b{4} {}
-  void m() { int z; }
-};
-)cpp";
+    namespace fs = std::filesystem;
+    using namespace geo::util;
+    using geo::Other;
+    struct S {
+      int a{1};
+      int b = {2};
+      S() : a{3}, b{4} {}
+      void m() { int z; }
+    };
+  )cpp";
   ScopeMap m = scanScopes(src);
   REQUIRE(!m.regions[0].aliases.empty());
   CHECK_EQ(m.regions[0].aliases[0].alias, std::string("fs"));
@@ -123,12 +129,16 @@ TEST(scopescan_is_bounded_and_never_throws) {
 
 TEST(extract_static_and_default_arguments) {
   const char* src = R"cpp(
-static int counter;
-static void helper(int a, int b = 2);
-int plain(int a, ...);
-template <class... A> void pack(int a, A... rest);
-struct S { static int member; static void sm(); };
-)cpp";
+    static int counter;
+    static void helper(int a, int b = 2);
+    int plain(int a, ...);
+    template <class... A>
+    void pack(int a, A... rest);
+    struct S {
+      static int member;
+      static void sm();
+    };
+  )cpp";
   auto syms = extractSymbols(src);
   auto get = [&](const std::string& n) -> const Symbol* {
     for (auto& s : syms)
@@ -158,35 +168,35 @@ TEST(engine_fast_answers_use_the_scope_of_the_caret) {
   fs::create_directories(root);
   auto write = [&](const char* name, const std::string& text) { std::ofstream(root / name, std::ios::binary) << text; };
   write("shapes.h",
-        "#pragma once\n"                       // 0
-        "namespace a { struct P { int v; int get(); }; int mk(int x); }\n"      // 1
+        "#pragma once\n"                                                           // 0
+        "namespace a { struct P { int v; int get(); }; int mk(int x); }\n"         // 1
         "namespace b { struct P { int w; int get(); }; int mk(int x, int y); }\n"  // 2
-        "struct Base { int shared(); int own(); };\n"                           // 3
-        "struct Derived : Base { int own(); int run(); };\n");                  // 4
+        "struct Base { int shared(); int own(); };\n"                              // 3
+        "struct Derived : Base { int own(); int run(); };\n");                     // 4
   write("shapes.cpp",
-        "#include \"shapes.h\"\n"                          // 0
-        "static int helper() { return 1; }\n"              // 1
-        "int a::P::get() { return v; }\n"                  // 2
-        "int b::P::get() { return w; }\n"                  // 3
-        "int Base::shared() { return 1; }\n"               // 4
-        "int Base::own() { return 1; }\n"                  // 5
-        "int Derived::own() { return 2; }\n"               // 6
+        "#include \"shapes.h\"\n"                            // 0
+        "static int helper() { return 1; }\n"                // 1
+        "int a::P::get() { return v; }\n"                    // 2
+        "int b::P::get() { return w; }\n"                    // 3
+        "int Base::shared() { return 1; }\n"                 // 4
+        "int Base::own() { return 1; }\n"                    // 5
+        "int Derived::own() { return 2; }\n"                 // 6
         "int Derived::run() { return shared() + own(); }\n"  // 7
-        "int a::mk(int x) { return x; }\n"                 // 8
-        "int b::mk(int x, int y) { return x + y; }\n");    // 9
+        "int a::mk(int x) { return x; }\n"                   // 8
+        "int b::mk(int x, int y) { return x + y; }\n");      // 9
   write("other.cpp",
-        "#include \"shapes.h\"\n"                           // 0
-        "static int helper() { return 2; }\n"               // 1
-        "int use_helper() { return helper(); }\n"           // 2
-        "namespace b {\n"                                   // 3
-        "int use_mk() { return mk(1, 2); }\n"               // 4
-        "int use_p() { P p; return p.get(); }\n"            // 5
-        "}\n"                                               // 6
-        "int use_a() {\n"                                   // 7
-        "  a::P p;\n"                                       // 8
-        "  b::P q;\n"                                       // 9
-        "  int get = 0;\n"                                  // 10
-        "  Derived d; Base* bp = &d;\n"                     // 11
+        "#include \"shapes.h\"\n"                                               // 0
+        "static int helper() { return 2; }\n"                                   // 1
+        "int use_helper() { return helper(); }\n"                               // 2
+        "namespace b {\n"                                                       // 3
+        "int use_mk() { return mk(1, 2); }\n"                                   // 4
+        "int use_p() { P p; return p.get(); }\n"                                // 5
+        "}\n"                                                                   // 6
+        "int use_a() {\n"                                                       // 7
+        "  a::P p;\n"                                                           // 8
+        "  b::P q;\n"                                                           // 9
+        "  int get = 0;\n"                                                      // 10
+        "  Derived d; Base* bp = &d;\n"                                         // 11
         "  return p.get() + q.get() + get + d.own() + bp->own() + a::mk(1);\n"  // 12
         "}\n");
   Editor::Options o;
@@ -235,4 +245,62 @@ TEST(engine_fast_answers_use_the_scope_of_the_caret) {
   CHECK_EQ(ask("other.cpp", 12, "a::|mk(1)"), "shapes.cpp:8");
   // a local variable hides the functions of the same name
   CHECK_EQ(ask("other.cpp", 12, "+ |get +"), "other.cpp:10");
+}
+
+#include "semantic/FastIndexStore.h"
+
+TEST(fastindexstore_roundtrips_arity_range_variadic_and_file_local) {
+  FastIndex a;
+  a.updateFile("/w/a.cpp",
+               "static int counter;\n"
+               "static void helper(int a, int b = 2);\n"
+               "int plain(int a, ...);\n"
+               "struct S { static int member; };\n");
+  const std::string blob = FastIndexStore::serialize(a.exportFiles());
+  std::string err;
+  auto back = FastIndexStore::deserialize(blob.data(), blob.size(), &err);
+  REQUIRE(back.has_value());
+  REQUIRE(back->size() == 1);
+  const FileSymbols& f = *(*back)[0];
+  auto get = [&](const std::string& n) -> const Symbol* {
+    for (auto& s : f.symbols)
+      if (s.name == n) return &s;
+    return nullptr;
+  };
+  REQUIRE(get("counter") && get("helper") && get("plain") && get("member"));
+  CHECK(get("counter")->fileLocal);
+  CHECK(get("helper")->fileLocal);
+  CHECK_EQ(static_cast<int>(get("helper")->arity), 2);
+  CHECK_EQ(static_cast<int>(get("helper")->minArity), 1);
+  CHECK(get("plain")->variadic);
+  CHECK(!get("plain")->fileLocal);
+  CHECK(!get("member")->definition);  // `static int member;` in a class declares
+}
+
+TEST(fastindex_reachability_follows_includes_and_include_directories) {
+  FastIndex idx;
+  idx.updateFile("/w/src/main.cpp", "#include \"engine.h\"\n#include \"util/log.h\"\n");
+  idx.updateFile("/w/sub1/include/engine.h", "#include \"detail.h\"\nstruct Engine {};\n");
+  idx.updateFile("/w/sub2/include/engine.h", "struct Engine {};\n");
+  idx.updateFile("/w/sub1/include/detail.h", "int d1;\n");
+  idx.updateFile("/w/sub2/include/detail.h", "int d2;\n");
+  idx.updateFile("/w/inc/util/log.h", "void log();\n");
+  // path-suffix rule alone: both engine.h are candidates
+  auto both = idx.reachableFrom("/w/src/main.cpp");
+  REQUIRE(both != nullptr);
+  CHECK(both->count(FastIndex::pathKey("/w/sub1/include/engine.h")) == 1);
+  CHECK(both->count(FastIndex::pathKey("/w/sub2/include/engine.h")) == 1);
+  CHECK(both->count(FastIndex::pathKey("/w/inc/util/log.h")) == 1);
+  // the compile command's include directory picks one, and the nested include follows the includer's directory
+  auto one = idx.reachableFrom("/w/src/main.cpp", {}, {"/w/sub1/include", "/w/inc"});
+  REQUIRE(one != nullptr);
+  CHECK(one->count(FastIndex::pathKey("/w/sub1/include/engine.h")) == 1);
+  CHECK(one->count(FastIndex::pathKey("/w/sub2/include/engine.h")) == 0);
+  CHECK(one->count(FastIndex::pathKey("/w/sub1/include/detail.h")) == 1);
+  CHECK(one->count(FastIndex::pathKey("/w/sub2/include/detail.h")) == 0);
+  // an edit that changes the include list is seen
+  idx.updateFile("/w/src/main.cpp", "#include \"util/log.h\"\n");
+  auto after = idx.reachableFrom("/w/src/main.cpp");
+  REQUIRE(after != nullptr);
+  CHECK(after->count(FastIndex::pathKey("/w/sub1/include/engine.h")) == 0);
 }

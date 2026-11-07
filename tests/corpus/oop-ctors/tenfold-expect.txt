@@ -13,21 +13,21 @@ fast def use_take_feet -> take_feet | take_feet_def
 fast def use_take_meters -> take_meters | take_meters_def
 fast def use_make -> Widget_make | Widget_make_def
 fast def use_live -> Widget_live | Widget_live_def
-xfail fast def use_Red -> Color_Red  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_Mode_Red -> Mode_Red  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_ui_Red -> ui_Color_Red  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast def use_Red -> Color_Red
+fast def use_Mode_Red -> Mode_Red
+fast def use_ui_Red -> ui_Color_Red
 fast def case_Mode_Fast -> Mode_Fast
 fast def use_Low -> Level_Low
-xfail fast def use_Tagged_i -> Tagged_i  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_Variant_i -> Variant_i  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_Node_get -> Node_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_Tree_Node_get -> Tree_Node_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
-xfail fast def use_List_Node_get -> List_Node_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast def use_Tagged_i -> Tagged_i
+fast def use_Variant_i -> Variant_i
+fast def use_Node_get -> Node_get
+fast def use_Tree_Node_get -> Tree_Node_get
+fast def use_List_Node_get -> List_Node_get
 xfail fast def use_Local_get -> Local_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
 fast def use_Flags_b -> Flags_b
 fast def use_Registry_max -> Registry_max
 fast def use_Feet_to_Meters -> Feet_to_Meters
-xfail fast def use_Widget_size -> Widget_size  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast def use_Widget_size -> Widget_size
 fast def use_dtor_call -> Widget_dtor_def
 fast decl use_dtor_call -> Widget_dtor
 fast def Widget_dtor -> Widget_dtor_def
@@ -35,7 +35,7 @@ fast decl Widget_dtor_def -> Widget_dtor
 # the caret on a constructor's name: constructors of that signature, not the class and not the other overloads' kin
 fast def Widget_ctor0 -> Widget_ctor0_def
 fast decl Widget_ctor0_def -> Widget_ctor0
-xfail fast def use_Derived_get -> Derived_get  # fast tier is name-only: returns every same-named enumerator/member/function (other enums, classes, unions)
+fast def use_Derived_get -> Derived_get
 fast sym "Registry" ∋ Registry
 fast sym "Widget" ∋ Widget
 fast sym "Flags" ∋ Flags

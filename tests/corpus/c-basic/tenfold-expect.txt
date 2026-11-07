@@ -11,14 +11,14 @@ fast def use_list_sum -> list_sum_def
 fast def use_handle_open -> handle_open_def
 fast def use_next_id -> next_id_def
 fast def use_apply -> apply_def
-xfail fast def use_knr_add -> knr_add_def  # fast tier answers the prototype in the header as well as the definition (two results instead of one jump)
+fast def use_knr_add -> knr_add_def
 fast def use_SQUARE -> SQUARE_def
 fast def use_LIMIT -> LIMIT_def
 fast def use_F_READ -> F_READ
 fast def use_node_td_main -> node_td
-xfail fast def use_helper_a -> helper_a  # fast tier is name-only: the static helper() of static_b.c is answered too
-xfail fast def use_helper_b -> helper_b  # fast tier is name-only: the static helper() of static_a.c is answered too
-xfail fast def use_counter_a -> counter_a  # fast tier is name-only: both static counters are answered
+fast def use_helper_a -> helper_a
+fast def use_helper_b -> helper_b
+fast def use_counter_a -> counter_a
 fast def use_binop_count -> binop_count_def
 fast def use_binop_table -> binop_table_def
 fast sym "list_push" -> list_push_def

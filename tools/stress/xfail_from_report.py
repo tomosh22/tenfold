@@ -19,6 +19,10 @@ def reason(r):
         return ('implementation answers the declaration (or a forward declaration) instead of the definition once an earlier go to '
                 'definition has opened the declaring header (clangd dynamic index shadows the background index; '
                 'STRESS_RESULTS G-1)')
+    if r.get('tier') == 'fast' and r['kind'] in ('def', 'decl'):
+        return ('fast tier: the scope-aware lexer lookup cannot tell this entity from same-named ones (overloads by '
+                'parameter type, explicit specialisations, #if branches, macro-declared names), '
+                'docs/ARCHITECTURE.md "Scope-aware lookup in the fast tier"')
     return 'generated-corpus mismatch, see docs/STRESS_RESULTS.md "Generated codebases" findings'
 
 

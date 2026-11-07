@@ -36,8 +36,8 @@ const char* symbolKindName(SymbolKind k);
 struct Symbol {
   std::string name;   // unqualified, e.g. "length_sq"
   std::string scope;  // qualified enclosing scope, e.g. "geo::Vec2" ("" at global scope)
-  int line = 0;  // 0-based
-  int col = 0;   // 0-based byte column of the name token
+  int line = 0;       // 0-based
+  int col = 0;        // 0-based byte column of the name token
   SymbolKind kind = SymbolKind::Unknown;
   bool definition = true;
   bool isTemplate = false;

@@ -24,12 +24,13 @@ constexpr char kMagic[8] = {'T', 'F', 'F', 'I', 'D', 'X', 0, 1};
 constexpr size_t kHeaderSize = 48;
 constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1 + 1;
 constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4;
-constexpr uint32_t kExtractorSalt = 5;  // 5: minArity, variadic and fileLocal (static) per symbol, `static int x;` in a class is a
-                                        // declaration. 4: NEL / LS / PS count as line breaks in token positions (stored lines of
-                                        // files that have them were off). 3: arity in the flags byte, operator names,
-                                        // macros behind comments, friends, typedef bodies. 2: BOM skipped, lone CR
-                                        // ends lines, C keywords for .c
-                                        // bump by hand for changes the probe below cannot observe
+constexpr uint32_t kExtractorSalt =
+    5;  // 5: minArity, variadic and fileLocal (static) per symbol, `static int x;` in a class is a
+        // declaration. 4: NEL / LS / PS count as line breaks in token positions (stored lines of
+        // files that have them were off). 3: arity in the flags byte, operator names,
+        // macros behind comments, friends, typedef bodies. 2: BOM skipped, lone CR
+        // ends lines, C keywords for .c
+        // bump by hand for changes the probe below cannot observe
 
 uint64_t hashBytes(const char* p, size_t n) {
   uint64_t h = 0x9E3779B97F4A7C15ull ^ n;
@@ -116,10 +117,14 @@ uint32_t FastIndexStore::extractorFingerprint() {
       enum Old { O1, O2 };
       operator bool() const;
       static int sv;
-      struct SD { static int sd; static const int ic = 1; };
+      struct SD {
+        static int sd;
+        static const int ic = 1;
+      };
       static void sf(int a, int b = 1);
       void vf(const char* f, ...);
-      template <class... A> void pk(int a, A... r);
+      template <class... A>
+      void pk(int a, A... r);
     )cpp";
     std::vector<std::string> inc;
     auto syms = extractSymbols(probe, &inc);

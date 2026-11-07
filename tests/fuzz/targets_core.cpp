@@ -290,7 +290,8 @@ void runScopeScan(const uint8_t* d, size_t n) {
     FUZZ_REQUIRE(i == 0 ? r.parent == -1 : (r.parent >= 0 && static_cast<size_t>(r.parent) < i));
     FUZZ_REQUIRE(r.begin.line >= 0 && static_cast<size_t>(r.begin.line) < lines);
     FUZZ_REQUIRE(!r.closed || r.begin <= r.end);
-    for (const ScanVar& v : r.vars) FUZZ_REQUIRE(!v.name.empty() && v.at.line >= 0 && static_cast<size_t>(v.at.line) < lines);
+    for (const ScanVar& v : r.vars)
+      FUZZ_REQUIRE(!v.name.empty() && v.at.line >= 0 && static_cast<size_t>(v.at.line) < lines);
   }
   // every position maps to a region that contains it (or the global scope)
   for (int line = 0; line < static_cast<int>(std::min<size_t>(lines, 64)); ++line) {
@@ -773,16 +774,17 @@ Registrar r2(
       "struct S { operator bool() const; S& operator=(const S&) = default; };\n"},
      kCppDict,
      4096});
-Registrar r2b(
-    {"scopescan",
-     runScopeScan,
-     {"src/semantic:.cpp,.h", "src/app:.cpp,.h", "examples:.cpp,.h,.c,.hpp,.inl", "tests/corpus:.cpp,.h,.c,.hpp,.inl"},
-     {"namespace n::m { class C : public B<int>, private ns::D { int x{1}; C() : x{2} {} int f(int a) const { int l = a; for (auto i : v) { T t; } return l; } }; }\n"
-      "void n::m::C::g(Foo* p, std::unique_ptr<Bar> q = {}) { auto s = new C(); s->f(1); }\n"
-      "extern \"C\" { typedef struct { int x; } P; static int fn(void) { return 0; } }\n"
-      "using namespace std; namespace fs = std::filesystem; auto lam = [&](int z) { return z; };\n"},
-     kCppDict,
-     4096});
+Registrar r2b({"scopescan",
+               runScopeScan,
+               {"src/semantic:.cpp,.h", "src/app:.cpp,.h", "examples:.cpp,.h,.c,.hpp,.inl",
+                "tests/corpus:.cpp,.h,.c,.hpp,.inl"},
+               {"namespace n::m { class C : public B<int>, private ns::D { int x{1}; C() : x{2} {} int f(int a) const "
+                "{ int l = a; for (auto i : v) { T t; } return l; } }; }\n"
+                "void n::m::C::g(Foo* p, std::unique_ptr<Bar> q = {}) { auto s = new C(); s->f(1); }\n"
+                "extern \"C\" { typedef struct { int x; } P; static int fn(void) { return 0; } }\n"
+                "using namespace std; namespace fs = std::filesystem; auto lam = [&](int z) { return z; };\n"},
+               kCppDict,
+               4096});
 Registrar r3({"indexstore",
               runIndexStore,
               {},

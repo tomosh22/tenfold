@@ -1785,7 +1785,7 @@ SymbolLocation fromFast(const FastIndex::Match& m) {
 }  // namespace
 
 void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vector<std::filesystem::path>& quote,
-                                    std::vector<std::filesystem::path>& angle) const {
+                                   std::vector<std::filesystem::path>& angle) const {
   const auto snap = compileCommands();
   if (snap->empty()) return;
   const CompileCommand* cc = nullptr;
@@ -1811,7 +1811,7 @@ void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vecto
 }
 
 std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem::path& file,
-                                                              const Document* doc) const {
+                                                           const Document* doc) const {
   constexpr size_t kMaxBytes = 4u << 20;
   if (!doc) {
     std::lock_guard<std::mutex> lk(mu_);
@@ -1945,7 +1945,9 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     env.index = &fast_;
     env.includeDirsOf = [this](const std::filesystem::path& f, std::vector<std::filesystem::path>& q,
                                std::vector<std::filesystem::path>& a) { includeDirsOf(f, q, a); };
-    env.mapOf = [this, &doc](const std::filesystem::path& f) { return scopeMapOf(f, f == doc.path() ? &doc : nullptr); };
+    env.mapOf = [this, &doc](const std::filesystem::path& f) {
+      return scopeMapOf(f, f == doc.path() ? &doc : nullptr);
+    };
     // A parameter or local variable of the enclosing function is what an unqualified, unaccessed name means.
     if (qualifier.empty() && !ci.globalQualifier && accessKindOf(ci) == AccessKind::None) {
       if (auto v = findLocal(ci)) {

@@ -6,19 +6,19 @@
 fast def use_Thing -> est_Thing
 fast def use_make -> est_make | est_make_def
 xfail fast def use_Opts -> v1_Opts  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def use_v2_Opts -> v2_Opts  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def use_inner_value -> inner_value | inner_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def use_outer_value -> outer_value | outer_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def use_oi_value -> inner_value | inner_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def use_global_value -> global_value | global_value_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def anon_a_helper_use -> anon_a_helper  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def anon_b_helper_use -> anon_b_helper  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def static_a_tick_use -> static_a_tick  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def static_b_tick_use -> static_b_tick  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def anon_a_get_use -> anon_a_Impl_get  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def anon_b_get_use -> anon_b_Impl_get  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+fast def use_v2_Opts -> v2_Opts
+fast def use_inner_value -> inner_value | inner_value_def
+fast def use_outer_value -> outer_value | outer_value_def
+fast def use_oi_value -> inner_value | inner_value_def
+fast def use_global_value -> global_value | global_value_def
+fast def anon_a_helper_use -> anon_a_helper
+fast def anon_b_helper_use -> anon_b_helper
+fast def static_a_tick_use -> static_a_tick
+fast def static_b_tick_use -> static_b_tick
+fast def anon_a_get_use -> anon_a_Impl_get
+fast def anon_b_get_use -> anon_b_Impl_get
 xfail fast def use_call -> v1_call | v1_call_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
-xfail fast def use_call_v2 -> v2_call | v2_call_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+fast def use_call_v2 -> v2_call | v2_call_def
 xfail fast def use_Node_get -> outer_Node_get | outer_Node_get_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
 xfail fast def use_dir_get -> inner_Node_get | inner_Node_get_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
 fast def use_dee -> dee_alias
@@ -153,4 +153,4 @@ decl edit_value -> inner_value
 hover edit_value ~ "value" "outer::inner"
 refs inner_value >= inner_value use_inner_value edit_value
 refs outer_value >= outer_value use_outer_value edit_outer
-xfail fast def edit_value -> inner_value | inner_value_def  # fast tier is name-only: also answers outer::value and ::value(int)
+fast def edit_value -> inner_value | inner_value_def

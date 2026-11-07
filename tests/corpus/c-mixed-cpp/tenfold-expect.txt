@@ -6,7 +6,7 @@ fast def use_on_code -> on_code_def
 fast def use_codec_new -> codec_new_def
 fast def use_cpp_notify_in_c -> cpp_notify_def
 fast def use_c_checksum_main -> c_checksum_def
-xfail fast def use_Codec_run -> Codec_run_def  # fast tier is name-only: every run() (ICodec, Codec in class and out of line, NullCodec) is answered
+fast def use_Codec_run -> Codec_run_def
 fast def use_cpp_only_c -> cpp_only_c_def | cpp_only_c_decl
 fast def use_version -> CODEC_VERSION_def
 fast sym "codec_encode" -> codec_encode_def | codec_encode_decl

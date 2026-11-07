@@ -6,24 +6,24 @@
 # ---- fast tier ----
 fast def use_Engine -> Engine
 fast def use_Counter_count -> Counter_count
-xfail fast def use_Bag_size -> Bag_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_Bag_size -> Bag_size
 fast def use_duck_walk -> Walker_walk
 fast def use_duck_swim -> Swimmer_swim
-xfail fast def use_Engine_Impl_size -> Engine_Impl_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_Cache_Impl_size -> Cache_Impl_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_area_ptr -> Shape_area  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_rd_size -> Readable_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_wr_size -> Writable_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_fs_size -> FileStream_size  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_Engine_size -> Engine_size | Engine_size_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_Cache_size -> Cache_size | Cache_size_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_Engine_Impl_size -> Engine_Impl_size
+fast def use_Cache_Impl_size -> Cache_Impl_size
+fast def use_area_ptr -> Shape_area
+fast def use_rd_size -> Readable_size
+fast def use_wr_size -> Writable_size
+fast def use_fs_size -> FileStream_size
+fast def use_Engine_size -> Engine_size | Engine_size_def
+fast def use_Cache_size -> Cache_size | Cache_size_def
 fast def use_duck_legs -> Animal_legs
-xfail fast def use_this_helper -> TBase_helper  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_this_helper -> TBase_helper
 xfail fast def use_unqual_helper -> g_helper | g_helper_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
 fast def use_pm_r -> Circle_r
-xfail fast def use_circle_get -> Circle_get  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_get_ptr -> Shape_get  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
-xfail fast def use_clone_rect -> Rect_clone | Rect_clone_def  # fast tier is name-only: returns every same-named member/function (all classes), no scope or receiver-type lookup
+fast def use_circle_get -> Circle_get
+fast def use_get_ptr -> Shape_get
+fast def use_clone_rect -> Rect_clone | Rect_clone_def
 fast sym "Duck" ∋ Duck
 fast sym "Impl" ∋ Engine_Impl Cache_Impl
 fast sym "speak" ∋ Animal_speak Walker_speak Duck_speak
