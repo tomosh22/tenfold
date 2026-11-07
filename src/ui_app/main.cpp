@@ -185,6 +185,7 @@ int main(int argc, char** argv) {
   std::unique_ptr<ui::SettingsService> settings;  // layered settings + theme, hot-reloaded (B7)
   std::unique_ptr<ui::RootWidget> demoRoot;       // --shell: ShellDemo
   std::unique_ptr<ui::Workbench> bench;           // default: the editor
+  bool layoutRestored = false;                    // .tenfold/layout.json was found
   std::unique_ptr<ui::EditorApp> app;
   namespace fs = std::filesystem;
   if (shell || !demo) {
@@ -215,6 +216,7 @@ int main(int argc, char** argv) {
 #endif
     bench = std::make_unique<ui::Workbench>(*text, *editor, theme);
     const bool restored = bench->restoreLayout();
+    layoutRestored = restored;
     if (!file.empty()) {
       fs::path path = fs::absolute(fs::path(workspace) / file);
       if (!fs::exists(path) && fs::exists(file)) path = fs::absolute(file);
@@ -237,7 +239,8 @@ int main(int argc, char** argv) {
       text = std::move(next);
       return true;
     });
-    app->setWindowHooks({[&](bool on) { win->setFullscreen(on); }});  // View.ToggleFullscreen
+    app->setWindowHooks({[&](bool on) { win->setFullscreen(on); }});                           // View.ToggleFullscreen
+    if (!layoutRestored && shot.empty() && app->explorer()) app->explorer()->openByDefault();  // VS-TREE X8
     if (shot.empty()) settings->startWatching();
   }
   auto drawFrame = [&](int w, int h, float mx, float my) {

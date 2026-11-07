@@ -1,6 +1,7 @@
 #include "ui/widgets/TreeView.h"
 
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 
 #include "core/PathUtil.h"
@@ -227,6 +228,49 @@ void TreeView::applyExpandedKeys(const std::unordered_set<std::string>& keys) {
   }
 }
 
+int TreeView::nodeForKey(const std::string& key) const {
+  if (model_.empty()) return -1;
+  int cur = 0;
+  size_t pos = 0;
+  while (pos < key.size() && cur >= 0) {  // walk the key back down to the node
+    const size_t end = key.find('\x1f', pos + 1);
+    const std::string name = key.substr(pos + 1, end == std::string::npos ? std::string::npos : end - pos - 1);
+    int next = -1;
+    for (int k : model_.node(cur).kids)
+      if (model_.node(k).name == name) {
+        next = k;
+        break;
+      }
+    cur = next;
+    pos = end == std::string::npos ? key.size() : end;
+  }
+  return cur;
+}
+
+std::vector<std::string> TreeView::expandedKeys() const {
+  std::unordered_set<std::string> set;
+  collectExpandedKeys(set);
+  std::vector<std::string> out(set.begin(), set.end());
+  std::sort(out.begin(), out.end());
+  return out;
+}
+
+void TreeView::setExpandedKeys(const std::vector<std::string>& keys) {
+  if (model_.empty()) return;
+  applyExpandedKeys(std::unordered_set<std::string>(keys.begin(), keys.end()));
+  rebuildRows();
+  clampScroll();
+  markDirty();
+}
+
+bool TreeView::selectKey(const std::string& key) {
+  if (key.empty()) return false;
+  const int n = nodeForKey(key);
+  if (n <= 0) return false;
+  reveal(n);
+  return true;
+}
+
 void TreeView::setModel(TreeModel&& m) {
   const bool first = model_.empty();
   std::unordered_set<std::string> keys;
@@ -247,24 +291,7 @@ void TreeView::setModel(TreeModel&& m) {
     applyExpandedKeys(keys);
   }
   selected_ = -1;
-  if (hadSel) {
-    // Walk the key back down to the node.
-    int cur = 0;
-    size_t pos = 0;
-    while (pos < selKey.size() && cur >= 0) {
-      const size_t end = selKey.find('\x1f', pos + 1);
-      const std::string name = selKey.substr(pos + 1, end == std::string::npos ? std::string::npos : end - pos - 1);
-      int next = -1;
-      for (int k : model_.node(cur).kids)
-        if (model_.node(k).name == name) {
-          next = k;
-          break;
-        }
-      cur = next;
-      pos = end == std::string::npos ? selKey.size() : end;
-    }
-    if (cur >= 0 && !selKey.empty()) selected_ = cur;
-  }
+  if (hadSel && !selKey.empty()) selected_ = nodeForKey(selKey);
   rebuildRows();
   clampScroll();
   markDirty();
@@ -323,6 +350,7 @@ void TreeView::setExpanded(int node, bool on) {
   rebuildRows();
   clampScroll();
   markDirty();
+  if (onExpansionChanged) onExpansionChanged();
 }
 
 void TreeView::expandAll(bool on) {
@@ -331,6 +359,7 @@ void TreeView::expandAll(bool on) {
   rebuildRows();
   clampScroll();
   markDirty();
+  if (onExpansionChanged) onExpansionChanged();
 }
 
 void TreeView::setFilter(const std::string& f) {
@@ -363,6 +392,60 @@ void TreeView::setFilter(const std::string& f) {
   markDirty();
 }
 
+void TreeView::startFilter() {
+  filterMode_ = true;
+  ahead_.clear();
+  markDirty();
+}
+
+int64_t TreeView::now() const {
+  if (clockMs) return clockMs();
+  return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
+      .count();
+}
+
+void TreeView::typeAheadKey(const std::string& text) {
+  const int64_t t = now();
+  if (t - aheadAt_ > kTypeAheadMs) ahead_.clear();
+  aheadAt_ = t;
+  ahead_ += text;
+  if (rows_.empty()) return;
+  // The same letter again and again cycles through the names that start with it; otherwise the typed prefix is
+  // searched from the selected row on (a longer prefix may still match the selected row).
+  bool repeat = true;
+  size_t first = 0;
+  while (first < ahead_.size() && (static_cast<unsigned char>(ahead_[first]) & 0xC0) == 0x80) ++first;
+  size_t unit = first + 1;
+  while (unit < ahead_.size() && (static_cast<unsigned char>(ahead_[unit]) & 0xC0) == 0x80) ++unit;
+  const std::string head = lowerAscii(ahead_.substr(first, unit - first));
+  for (size_t i = unit; i < ahead_.size() && repeat; i += head.size())
+    repeat = lowerAscii(ahead_.substr(i, head.size())) == head;
+  const std::string prefix = repeat ? head : lowerAscii(ahead_);
+  const int n = static_cast<int>(rows_.size());
+  const int cur = selectedRow();
+  const int start = cur < 0 ? 0 : (repeat ? cur + 1 : cur);
+  for (int i = 0; i < n; ++i) {
+    const int row = (start + i) % n;
+    if (rows_[static_cast<size_t>(row)].node == 0) continue;
+    const std::string name = lowerAscii(model_.node(rows_[static_cast<size_t>(row)].node).name);
+    if (name.compare(0, prefix.size(), prefix) == 0) {
+      setSelectedRow(row, true);
+      return;
+    }
+  }
+}
+
+void TreeView::cancelDrag() {
+  const bool was = dragging_;
+  dragging_ = false;
+  pressNode_ = -1;
+  dragNode_ = dropNode_ = -1;
+  if (was) {
+    releaseMouse();
+    markDirty();
+  }
+}
+
 void TreeView::select(int node) {
   if (node < 0 || static_cast<size_t>(node) >= model_.size()) return;
   reveal(node);
@@ -377,6 +460,7 @@ bool TreeView::reveal(int node) {
       changed = true;
     }
   if (changed) rebuildRows();
+  if (changed && onExpansionChanged) onExpansionChanged();
   selected_ = node;
   int row = selectedRow();
   if (row < 0 && !filter_.empty()) {  // hidden by the filter
@@ -449,8 +533,14 @@ void TreeView::onFocusChanged(bool gained) {
 bool TreeView::onEvent(const InputEvent& e) {
   switch (e.type) {
     case InputType::KeyDown: {
+      if (onKeyDown && onKeyDown(e, selected_)) return true;
+      if (dragging_ && e.key == Key::Escape) {
+        cancelDrag();
+        return true;
+      }
       if (e.mods & (ModCtrl | ModAlt | ModSuper)) {
         if ((e.mods & ModCtrl) && !(e.mods & (ModAlt | ModSuper))) {
+          if (e.key == static_cast<Key>(';') && !(e.mods & ModShift)) return startFilter(), true;
           if (e.key == Key::Home) return setSelectedRow(0, true), true;
           if (e.key == Key::End) return setSelectedRow(static_cast<int>(rows_.size()) - 1, true), true;
         }
@@ -485,15 +575,22 @@ bool TreeView::onEvent(const InputEvent& e) {
           return true;
         case Key::Enter:
         case Key::KpEnter: activateOrToggle(selected_); return true;
-        case Key::Backspace:
-          if (!filter_.empty()) {
-            size_t cut = filter_.size() - 1;
-            while (cut > 0 && (static_cast<unsigned char>(filter_[cut]) & 0xC0) == 0x80) --cut;
-            setFilter(filter_.substr(0, cut));
+        case Key::Backspace: {
+          std::string& buf = filterMode_ ? filter_ : ahead_;
+          if (!buf.empty()) {
+            size_t cut = buf.size() - 1;
+            while (cut > 0 && (static_cast<unsigned char>(buf[cut]) & 0xC0) == 0x80) --cut;
+            if (filterMode_) setFilter(buf.substr(0, cut));
+            else buf.resize(cut);
           }
           return true;
+        }
         case Key::Escape:
-          if (!filter_.empty()) setFilter({});
+          if (filterMode_ || !filter_.empty()) {
+            filterMode_ = false;
+            if (!filter_.empty()) setFilter({});
+            markDirty();
+          } else if (!ahead_.empty()) ahead_.clear();
           else if (onClose) onClose();
           return true;
         default: return false;
@@ -501,9 +598,29 @@ bool TreeView::onEvent(const InputEvent& e) {
     }
     case InputType::Text:
       if (e.text.empty() || static_cast<unsigned char>(e.text[0]) < 0x20) return false;
-      setFilter(filter_ + e.text);
+      if (filterMode_) setFilter(filter_ + e.text);
+      else typeAheadKey(e.text);
       return true;
     case InputType::MouseMove: {
+      if (pressNode_ >= 0 && canDrop && (e.buttons & 1)) {
+        if (!dragging_ && std::abs(e.x - pressX_) + std::abs(e.y - pressY_) >= 6) {
+          dragging_ = true;
+          dragNode_ = pressNode_;
+          captureMouse();
+        }
+        if (dragging_) {
+          const int r = rowAtY(e.y);
+          const int over = r >= 0 && contains(e.x, e.y) ? rows_[static_cast<size_t>(r)].node : -1;
+          const int target = over >= 0 && over != dragNode_ && canDrop(dragNode_, over) ? over : -1;
+          if (target != dropNode_) {
+            dropNode_ = target;
+            markDirty();
+          }
+          hoverRow_ = r;
+          markDirty();
+          return true;
+        }
+      }
       if (dragThumb_) {
         const RectF l = listRect(), t = thumbRect();
         const float track = l.h - t.h, maxScroll = contentHeight() - l.h;
@@ -526,6 +643,13 @@ bool TreeView::onEvent(const InputEvent& e) {
       return true;
     }
     case InputType::MouseUp:
+      if (dragging_) {
+        const int src = dragNode_, dst = dropNode_;
+        cancelDrag();
+        if (src >= 0 && dst >= 0 && onDrop) onDrop(src, dst, (e.mods & ModCtrl) != 0);
+        return true;
+      }
+      pressNode_ = -1;
       if (dragThumb_) {
         dragThumb_ = false;
         markDirty();
@@ -547,6 +671,9 @@ bool TreeView::onEvent(const InputEvent& e) {
       if (row < 0) return true;
       const int node = rows_[static_cast<size_t>(row)].node;
       setSelectedRow(row, true);
+      pressNode_ = node;
+      pressX_ = e.x;
+      pressY_ = e.y;
       const bool onArrow = model_.node(node).expandable() && filter_.empty() && ui::contains(arrowRect(row), e.x, e.y);
       if (onArrow) toggle(node);
       else if (e.clicks >= 2) activateOrToggle(node);
@@ -573,7 +700,8 @@ void TreeView::paint(PaintContext& ctx) {
   const RectF hd = headerRect();
   ctx.fill(hd, th.tabStripBackground);
   const float ty = hd.y + (hd.h - ctx.lineHeight()) / 2;
-  if (filter_.empty()) ctx.text(hd.x + th.padding, ty, "Type to filter", th.textDim, hd);
+  if (filter_.empty())
+    ctx.text(hd.x + th.padding, ty, filterMode_ ? "Type to filter" : "Ctrl+; to filter", th.textDim, hd);
   else {
     ctx.text(hd.x + th.padding, ty, filter_, th.text, hd);
     const std::string cnt = std::to_string(rows_.empty() ? 0 : rows_.size() - 1) + " shown";
@@ -594,6 +722,7 @@ void TreeView::paint(PaintContext& ctx) {
       ctx.fill(rr, focused_ ? Theme::orElse(th.treeSelection, th.selection)
                             : Theme::orElse(th.treeSelectionInactive, th.currentLine));
     else if (i == hoverRow_) ctx.fill(rr, th.tabHover);
+    if (dragging_ && r.node == dropNode_) ctx.fill(rr, Theme::orElse(th.treeSelection, th.selection));
     const RectF full = rowRect(i);
     const float x0 = full.x + pad + static_cast<float>(r.depth) * 2 * cell;
     const float cy = full.y + full.h / 2;
@@ -631,7 +760,7 @@ void TreeView::paint(PaintContext& ctx) {
     }
     Mark mark = Mark::None;
     if (markOf && nd.kind == TreeKind::File) mark = markOf(nd);
-    Color nameColor = th.text;
+    Color nameColor = nd.dim ? th.textDim : th.text;
     Color mc = th.dirtyMarker;
     if (mark != Mark::None) {
       mc = mark == Mark::Modified     ? Theme::orElse(th.tabVcsModified, th.dirtyMarker)

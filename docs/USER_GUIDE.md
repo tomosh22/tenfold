@@ -662,7 +662,8 @@ Not done: blame, commit or stage UI, side-by-side diff inside tenfold.
 
 **Control Shift E** (`ToggleWorkspaceExplorer`) opens the explorer on the left of the window and focuses it; the same key
 closes it. It is a dock like the Build panel: drag its divider to resize it; whether it is open and how wide is saved in
-`.tenfold/layout.json`. It starts closed.
+`.tenfold/layout.json`. It starts closed, except the very first time a workspace with a solution is opened (no
+`layout.json` yet): then it opens, without taking the keys, like Solution Explorer (`explorer.openWithSolution`).
 
 **What it shows.** For a workspace with a `.sln` (the first one in the folder): the solution, its solution folders, the
 projects and each project's files, as the `.vcxproj` lists them (`gen\*.cpp` style wildcards are expanded; items that need
@@ -674,9 +675,15 @@ workspace scan found, so ignored folders (`.git`, `build`, `node_modules`, ...) 
 
 **Keys** (with the tree focused): Up / Down / PageUp / PageDown / Home / End move the selection; Right expands a folder (or
 moves to its first child), Left collapses it (or moves to the parent); **Enter** opens the selected file through
-`gotoLocation` (so Back returns) and gives the editor the keys, or expands / collapses a folder. Typing filters the tree:
-fuzzy, like the pickers, every space-separated word has to match a name; matching nodes and their folders stay, expanded.
-Backspace edits the filter, Escape clears it, and with no filter Escape gives the keys back to the editor. **Mouse:** a click
+`gotoLocation` (so Back returns) and gives the editor the keys, or expands / collapses a folder. **Typing jumps** (type-ahead,
+as in Solution Explorer): the letters you type select the next visible node whose name starts with them, ignoring case; the
+same letter again cycles through the names that start with it. The typed letters are forgotten after one second without a
+key, Backspace takes the last one back, and the first Escape forgets them. **Control ;** starts the **filter** instead:
+typing then filters the tree, fuzzy like the pickers, every space-separated word has to match a name; matching nodes and
+their folders stay, expanded. Backspace edits the filter, Escape clears it and leaves filter mode, and with nothing typed
+Escape gives the keys back to the editor. **F2** renames the selected file or folder and **Delete** deletes it (see "File
+operations" below); the tree has these two keys while it is focused (in the editor F2 is still `NextBookmark`). Alt Enter
+stays 10x's `ToggleFullscreen`, so Properties is in the right-click menu and the palette only. **Mouse:** a click
 selects (a file also opens in the italic **preview tab**, `tabs.previewTab`, keeping the keys in the tree), the arrow (or Enter)
 expands, a double click opens a file permanently, the wheel and the thin scroll bar scroll.
 
@@ -692,9 +699,61 @@ folders and the selection stay. With `explorer.trackActiveFile = true` the selec
 and focuses the tree. `ShowInWorkspaceTreeWithToggle` (no default key) does the same but closes the panel when the tree
 already shows that file selected on screen. Both say so in the status bar when the file is in no project of the solution.
 
-Not done: renaming, deleting and creating files in the tree, drag and drop (`EnableWorkspaceTreeDragDrop`), a context menu,
-`.10x` workspaces with their own file lists, a tree of non-C++ projects (a `.csproj` with explicit items works, an
-SDK-style one shows an empty project), version-control state on folders.
+**Solution view and Folder view.** In a workspace with a solution the explorer starts in the Solution view above. *Switch
+to Folder View* (context menu, or the palette command `View.ToggleExplorerFolderView`) shows the folders of the workspace
+on disk instead (the workspace scan's file list, so the usual ignore rules apply) with the workspace folder as the root;
+*Switch to Solution View* goes back. Without a solution there is only the folder tree and the command says so.
+
+**Show All Files.** *Show All Files* (context menu, or `View.ToggleExplorerShowAllFiles`) adds, under each project, the
+files of the workspace below the project's folder that the project does not list, in their folders on disk and dimmed.
+It works in the Solution view; in the Folder view every file is already there. The switch applies to the files the
+workspace scan knows (the known source, header and text extensions), not to every file on disk.
+
+**It remembers.** The expanded nodes, the selected node, the view and Show All Files are saved a half second after a change
+(and when the window closes) in `<workspace>/.tenfold/explorer.json` and restored the first time the explorer is built in
+the next session (Visual Studio: "Restore Solution Explorer project hierarchy state on solution load"). A node that no
+longer exists is skipped; a damaged file is ignored.
+
+**File operations.** The right-click menu (and the palette commands `Explorer.NewFile`, `Explorer.NewFolder`,
+`Explorer.Rename`, `Explorer.Delete`, `Explorer.Properties`, which act on the selected node) offers:
+
+* *New File...* / *New Folder...*: a box asks for the name (it says "already exists" or what is wrong with it); the
+  item is made in the node's folder (a file's own folder; a project's folder; a filter or solution folder: the nearest
+  folder above). A new file is **not added to a project** (tenfold does not write new items into `.vcxproj` files): in the
+  Solution view it shows with Show All Files, dimmed. A new folder is shown even while it is empty.
+* *Rename* (F2): the same box, filled with the old name. The file or folder is renamed on disk; the `Include="..."` values
+  of the projects and of their `.vcxproj.filters` files that name it (or, for a folder, anything below it) are rewritten in
+  the style they were written (backslashes stay backslashes); wildcard items (`gen\*.cpp`) need no change. An open file is
+  closed and reopened under its new name when it was the current one. A file with unsaved changes is not renamed: save it first.
+* *Delete* (Delete key): asks "'name' will be moved to the Recycle Bin." (Windows) or "... moved to the Trash." (Linux,
+  freedesktop.org Trash: `~/.local/share/Trash`, or `$topdir/.Trash-<uid>` for another file system), OK / Cancel; a folder
+  says that everything in it goes and a modified open file says its changes are lost. The item can be restored from the
+  bin. Where there is no trash (macOS, or a Linux file system with no usable trash folder) the question says "will be
+  deleted permanently." and the delete is permanent with no undo. After confirming, tabs are closed and the matching
+  project items are removed from the `.vcxproj` and its filters file; a failed move to the trash never turns into a
+  permanent delete.
+* Only files and folders that exist on disk can be renamed or deleted: solutions, projects and filters (virtual folders
+  of a `.vcxproj.filters` file) cannot.
+
+**Drag and drop.** Drag a file or folder onto a folder, a project or the root to **move** it: the drop target is
+highlighted, a box asks "Move 'a.cpp' to 'Lib'?" (OK / Cancel; `explorer.promptBeforeMoving`, Visual Studio's "Prompt
+before moving files to a new location", default on), then the item is moved on disk and in the projects that list it,
+exactly like Rename. **Control** held at the drop **copies** instead (no question; the copy is in no project). Escape while
+dragging cancels. A folder cannot be dropped into itself and a name that exists at the target refuses the move. Dropping
+on a filter does nothing (a filter is not a folder). `explorer.dragDrop = false` (10x: `EnableWorkspaceTreeDragDrop`)
+turns the whole thing off.
+
+**Properties** (context menu, `Explorer.Properties`): a read-only page with the node's name, type and full path, and for
+a file its size, the project that lists it, the active configuration (`Debug|x64`) and *Excluded From Build* (Yes / No,
+from the project's `<ExcludedFromBuild>` items, with the configurations it names); for a folder, project or solution the
+number of files (and projects). Escape closes it. There is no settings dialog, so nothing on it can be changed.
+
+Not done: adding new or existing files to a project (Include In Project / Exclude From Project), moving a file between
+filters (a drop on a filter), dragging a file onto the editor to open it, dropping files from the file manager, a recycle
+undo for moves, a recycle-bin delete on macOS, "External Dependencies", `.10x` workspaces with their own file lists, a tree of
+non-C++ projects (a `.csproj` with explicit items works, an SDK-style one shows an empty project), version-control state on
+folders. Visual Studio's richer solution, project and file menus (Build / Rebuild / Clean, Set as Startup Project, Open
+With...) are not in the menu: the research rates them medium-low (VS_BEHAVIOUR C6-C9).
 
 ## Building
 
@@ -809,6 +868,9 @@ tests.)
 | `keys.import10x` | `true` | bool | On Windows, read the 10x key mappings file `%APPDATA%\10x\Settings\KeyMappings.10x_settings` as a key-binding layer. |
 | `picker.preview` | `true` | bool | Symbol search shows a preview of the target line on the right (10x documents nothing about it, OPEN_QUESTIONS #6). |
 | `explorer.trackActiveFile` | `false` | bool | Keep the active file selected in the workspace explorer while it is open (10x: TrackActiveFileInWorkspaceTree). |
+| `explorer.openWithSolution` | `true` | bool | Open the workspace explorer the first time a workspace with a solution is started (no `.tenfold/layout.json` yet), like Solution Explorer. |
+| `explorer.dragDrop` | `true` | bool | Dragging in the explorer moves (Ctrl: copies) files and folders (10x: EnableWorkspaceTreeDragDrop, default true). |
+| `explorer.promptBeforeMoving` | `true` | bool | Ask before a drop moves a file (Visual Studio: "Prompt before moving files to a new location"). |
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
 | `vcs.p4vPath` | (empty) | string | The program `PerforceShowInP4v` starts; empty means `p4v` from `PATH`. |
@@ -1285,9 +1347,11 @@ listed (see FEATURE_PARITY).
   right-clicked tab becomes the active tab first. The two "close all" items ask once about the modified documents they
   would close (the list dialog, see "Read this first").
 * **Explorer tree**: right-click a node (it is selected first), or Shift F10 / AppsKey with the tree focused. Files: Open,
-  Collapse All, Open Containing Folder, Copy Full Path, Build Current File (C/C++ sources). Folders, projects and the
-  solution: Expand / Collapse, Collapse All, Open Containing Folder, Copy Full Path. 10x's "Settings..." on the workspace
-  and project nodes is not there (no settings dialog).
+  Collapse All, New File..., New Folder..., Rename, Delete, Open Containing Folder, Copy Full Path, Open in Terminal,
+  Build Current File (C/C++ sources), then Switch to Folder / Solution View, Show All Files and Properties. Folders,
+  projects and the solution: Expand / Collapse, Collapse All, New File..., New Folder..., (Rename and Delete for folders
+  on disk), Open Containing Folder, Copy Full Path, Open in Terminal and the same last group. 10x's "Settings..." on the
+  workspace and project nodes is not there (no settings dialog). See "Workspace explorer".
 * **Status bar**: the position (Go To Line), line ending (CRLF / LF), configuration, compile flags, clangd and build
   segments each offer the commands that belong to them.
 

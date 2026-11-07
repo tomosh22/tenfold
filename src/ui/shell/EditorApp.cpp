@@ -254,6 +254,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     WorkspaceExplorer::Hooks eh;
     eh.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
     eh.focusEditor = [this] { bench_->setActivePanel(bench_->activePanel()); };
+    eh.env = &pickerEnv_;
     explorer_ = std::make_unique<WorkspaceExplorer>(editor_, *bench_, std::move(eh));
     addContextMenuProvider([this](Widget& target, float x, float y, bool keyboard, ContextMenuRequest& out) {
       return explorerMenu(target, x, y, keyboard, out);
@@ -454,7 +455,12 @@ void EditorApp::applySettings(const Settings& s) {
   if (bench_) bench_->setPreviewSettings(s.getBool("tabs.previewTab"), s.getBool("tabs.previewFromFindResults"));
   vcsUi_->applySettings(s);
   if (terminals_) terminals_->applySettings(s, scale_);
-  if (explorer_) explorer_->setTrackActiveFile(s.getBool("explorer.trackActiveFile"));
+  if (explorer_) {
+    explorer_->setTrackActiveFile(s.getBool("explorer.trackActiveFile"));
+    explorer_->setOpenWithSolution(s.getBool("explorer.openWithSolution"));
+    explorer_->setDragDrop(s.getBool("explorer.dragDrop"));
+    explorer_->setPromptBeforeMoving(s.getBool("explorer.promptBeforeMoving"));
+  }
   pasteHistory_->applySettings(s);
   perforceUi_->applySettings(s);
 }
@@ -1095,6 +1101,32 @@ void EditorApp::bindUiCommands() {
     explorer_->showCurrentFile(true);
     return true;
   });
+  // VS-TREE: the explorer's view switches and file operations act on the tree's selected node.
+  registry_.bind("View.ToggleExplorerFolderView", [this](const CommandContext&, std::string_view) {
+    if (!explorer_) return false;
+    explorer_->toggleFolderView();
+    return true;
+  });
+  registry_.bind("View.ToggleExplorerShowAllFiles", [this](const CommandContext&, std::string_view) {
+    if (!explorer_) return false;
+    explorer_->toggleShowAllFiles();
+    return true;
+  });
+  struct NodeCommand {
+    const char* id;
+    bool (WorkspaceExplorer::*fn)(int);
+  };
+  for (const NodeCommand& nc : {NodeCommand{"Explorer.NewFile", &WorkspaceExplorer::newFile},
+                                NodeCommand{"Explorer.NewFolder", &WorkspaceExplorer::newFolder},
+                                NodeCommand{"Explorer.Rename", &WorkspaceExplorer::rename},
+                                NodeCommand{"Explorer.Delete", &WorkspaceExplorer::remove},
+                                NodeCommand{"Explorer.Properties", &WorkspaceExplorer::properties}})
+    registry_.bind(nc.id, [this, fn = nc.fn](const CommandContext&, std::string_view) {
+      if (!explorer_ || !explorer_->visible()) return false;
+      const int node = explorer_->view()->selectedNode();
+      if (node < 0) return false;
+      return (explorer_.get()->*fn)(node);
+    });
   registry_.bind("Workbench.FocusPanel", [this](const CommandContext&, std::string_view arg) {
     const auto ps = bench_->panels();
     const int n = std::atoi(std::string(arg).c_str());  // 1-based
@@ -1537,6 +1569,11 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (e.type == InputType::KeyDown && !root_.modal() && !keys_.pending() &&
       dynamic_cast<TerminalView*>(root_.focused()) && !terminalSkipsShell(chord))
     return root_.dispatch(e);
+  // VS-TREE: the focused explorer tree owns F2 (rename) and Delete before the global bindings (F2 is NextBookmark).
+  if (e.type == InputType::KeyDown && !root_.modal() && !keys_.pending() && explorer_ &&
+      root_.focused() == explorer_->view() && !(e.mods & (ModCtrl | ModAlt | ModShift | ModSuper)) &&
+      (e.key == Key::F2 || e.key == Key::Delete))
+    return root_.dispatch(e);
   const char* ctx = activeContext();
   const KeyMap::Result r = keys_.feed(chord, ctx, nowMs);
   switch (r.status) {
@@ -1965,7 +2002,7 @@ bool EditorApp::explorerMenu(Widget& target, float x, float y, bool keyboard, Co
     if (w == tv) inside = true;
   if (!inside) return false;
   const int node = keyboard ? tv->selectedNode() : tv->nodeAt(x, y);
-  if (node <= 0) return false;
+  if (node < 0) return false;
   if (!keyboard) {
     tv->select(node);  // right click selects first
     tv->setFocus();
@@ -1993,17 +2030,24 @@ bool EditorApp::explorerMenu(Widget& target, float x, float y, bool keyboard, Co
     m.action = [tv] { tv->expandAll(false); };
     items.push_back(std::move(m));
   }
+  {
+    std::vector<MenuItem> ops = explorer_->operationItems(node);  // New File, New Folder, Rename, Delete
+    if (!ops.empty()) items.push_back(MenuItem::sep());
+    for (MenuItem& m : ops) items.push_back(std::move(m));
+  }
   if (!n.path.empty()) {
     items.push_back(MenuItem::sep());
     std::vector<MenuEntry> entries = {{"File.ShowInFolder", "Open Containing Folder", false, n.path},
                                       {"File.CopyPath", "Copy Full Path", false, n.path},
                                       {"Terminal.OpenAt", "Open in Terminal", false, n.path}};
-    std::string ext = std::filesystem::path(n.path).extension().string();
+    std::string ext = pathUtf8(pathFromUtf8(n.path).extension());
     for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     if (isFile && (ext == ".c" || ext == ".cc" || ext == ".cpp" || ext == ".cxx"))
       entries.push_back({"Build.BuildCurrentFile", "Build Current File", false, n.path});
     for (MenuItem& m : buildCommandMenu(entries)) items.push_back(std::move(m));
   }
+  items.push_back(MenuItem::sep());
+  for (MenuItem& m : explorer_->viewItems(node)) items.push_back(std::move(m));  // views, Show All Files, Properties
   out.items = std::move(items);
   if (keyboard) {
     const int row = tv->selectedRow();

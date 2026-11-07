@@ -391,7 +391,8 @@ TEST(w8f_treeview_filter_is_fuzzy_keeps_ancestors_and_escape_clears) {
   TreeView v;
   v.layout({0, 0, 300, 400});
   v.setModel(sampleModel());
-  v.onEvent(textEv("hlp"));  // fuzzy: helpers.cpp
+  v.onEvent(keyEv(static_cast<Key>(';'), ModCtrl));  // VS-TREE X5: Ctrl+; starts the filter, plain typing jumps
+  v.onEvent(textEv("hlp"));                          // fuzzy: helpers.cpp
   CHECK((names(v) == std::vector<std::string>{"root", "src", "util", "helpers.cpp"}));
   CHECK_EQ(v.model().node(v.selectedNode()).name, "helpers.cpp");  // lands on the first matching file
   v.onEvent(keyEv(Key::Backspace));
@@ -410,6 +411,7 @@ TEST(w8f_treeview_filter_is_fuzzy_keeps_ancestors_and_escape_clears) {
   CHECK_EQ(v.model().node(v.selectedNode()).name, "guide.md");  // the selection survives the filter
   v.onEvent(keyEv(Key::Escape));
   CHECK_EQ(closed, 1);
+  v.onEvent(keyEv(static_cast<Key>(';'), ModCtrl));
   v.onEvent(textEv("zzz"));
   CHECK(v.rows().empty());
 }
@@ -592,6 +594,7 @@ TEST(w8f_show_in_workspace_tree_without_a_tree_node_says_so) {
 TEST(w8f_typing_in_the_tree_filters_and_enter_opens_the_match) {
   Env env("Explorer");
   env.key(kKeyE, kCS);
+  env.key(static_cast<Key>(';'), ModCtrl);  // VS-TREE X5: plain typing jumps, Ctrl+; starts the filter
   env.type("impl");
   CHECK_EQ(env.tree().filter(), "impl");
   CHECK(has(env.shownNames(), "impl.cpp") && !has(env.shownNames(), "main.cpp"));

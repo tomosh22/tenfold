@@ -342,6 +342,13 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "View.ToggleWorkspaceExplorer", "Toggle Workspace Explorer");
   addUi(r, "View.ShowInWorkspaceTree", "Show Current File in Workspace Tree");
   addUi(r, "View.ShowInWorkspaceTreeWithToggle", "Show Current File in Workspace Tree (Close if Shown)");
+  addUi(r, "View.ToggleExplorerFolderView", "Switch Workspace Explorer View (Solution / Folder)");
+  addUi(r, "View.ToggleExplorerShowAllFiles", "Workspace Explorer: Show All Files");
+  addUi(r, "Explorer.NewFile", "Workspace Explorer: New File");
+  addUi(r, "Explorer.NewFolder", "Workspace Explorer: New Folder");
+  addUi(r, "Explorer.Rename", "Workspace Explorer: Rename");
+  addUi(r, "Explorer.Delete", "Workspace Explorer: Delete");
+  addUi(r, "Explorer.Properties", "Workspace Explorer: Properties");
   addUi(r, "View.ToggleWordWrap", "Toggle Word Wrap");
   // Code folding (W8f): bound to the focused text view by EditorApp.
   addUi(r, "Editor.CollapseRegion", "Collapse Region");

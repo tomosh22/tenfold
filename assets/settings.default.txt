@@ -120,6 +120,12 @@ picker.preview = true
 # Workspace explorer (W8f): keep the active file selected in the tree while the panel is open (10x:
 # TrackActiveFileInWorkspaceTree).
 explorer.trackActiveFile = false
+# VS-TREE (VS_BEHAVIOUR section 11): open the explorer at the first start of a workspace that has a solution (X8);
+# drag and drop in the tree (10x: EnableWorkspaceTreeDragDrop; default true); ask before a drop moves a file (VS:
+# "Prompt before moving files to a new location", on).
+explorer.openWithSolution = true
+explorer.dragDrop = true
+explorer.promptBeforeMoving = true
 
 # Version control (C3c). vcs.diffTool: the external diff program of Vcs.DiffFileExternal; empty = auto: on Windows
 # p4merge.exe from PATH, then %ProgramFiles%\Perforce\p4merge.exe; elsewhere p4merge from PATH.

@@ -2,11 +2,14 @@
 #include <cstdint>
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "app/Editor.h"
+#include "ui/features/ExplorerPrompt.h"
 #include "ui/shell/Workbench.h"
+#include "ui/widgets/ContextMenu.h"
 #include "ui/widgets/TreeView.h"
 
 namespace tf::ui {
@@ -16,6 +19,9 @@ namespace tf::ui {
 struct ProjectFile {
   std::string path;    // absolute, generic '/' form, lexically normalised
   std::string filter;  // "Source Files\\Sub" ('\\' separated, as in the filters file); empty = at the project root
+  // Configurations the item is excluded from the build in (`<ExcludedFromBuild Condition="...=='Debug|x64'">true`):
+  // "Debug|x64", or "*" for an unconditional exclusion.
+  std::vector<std::string> excluded;
 };
 struct ProjectContents {
   std::vector<ProjectFile> files;
@@ -33,11 +39,26 @@ struct ProjectContents {
 // state is the tab marker's (vcsTabMark). The model is rebuilt (debounced) when the file lists change, when the
 // solution or a project / filters file changes on disk and while the panel is open only; expansion and selection
 // survive.
+//
+// VS-TREE (docs/VS_BEHAVIOUR.md section 11): typing jumps to the next name that starts with the typed letters (Ctrl+;
+// filters, TreeView); "Switch Views" toggles Solution view (projects, filters) and Folder view (the folders on disk
+// of the workspace scan); "Show All Files" adds, under each project, the files on disk that the project does not list
+// (dimmed); the expanded folders, the selection and both toggles are saved in <workspace>/.tenfold/explorer.json and
+// restored the first time the tree is built; a workspace with a solution opens the panel by default when no
+// layout.json was restored; New File / New Folder / Rename (F2) / Delete (Delete key, "will be deleted permanently"
+// confirmation) / drag and drop (move, Ctrl copies; confirmed) work on the disk and keep the `.vcxproj` and
+// `.vcxproj.filters` Include attributes of moved, renamed and deleted files in step; Properties is a read-only page.
 class WorkspaceExplorer {
  public:
   struct Hooks {
     std::function<void(const std::string&)> message;  // status-bar notice
     std::function<void()> focusEditor;                // give the keys back to the editor view
+    PickerEnv* env = nullptr;                         // for the name / confirmation / properties dialogs; null = none
+  };
+  struct TreeOptions {
+    bool folderView = false;  // the folders of the workspace scan instead of the solution
+    bool showAll = false;     // Solution view: also the files under each project that it does not list (dimmed)
+    std::vector<std::filesystem::path> extraDirs;  // empty folders to show (made from the tree this session)
   };
   static constexpr const char* kPanel = "Explorer";
 
@@ -47,14 +68,29 @@ class WorkspaceExplorer {
   // ---- model (pure; no window needed) ----
   // The tree of a workspace: the first root-level .sln (its projects) when it lists any project, else the folder tree.
   static TreeModel buildTree(const Workspace& ws);
+  static TreeModel buildTree(const Workspace& ws, const TreeOptions& opts);
   static TreeModel buildFolderTree(const Workspace& ws);
-  static TreeModel buildFolderTree(const std::filesystem::path& root, const std::vector<std::filesystem::path>& files);
-  static TreeModel buildSolutionTree(const std::filesystem::path& sln);
+  static TreeModel buildFolderTree(const std::filesystem::path& root, const std::vector<std::filesystem::path>& files,
+                                   const std::vector<std::filesystem::path>& extraDirs = {});
+  // `unlisted` (Show All Files): the workspace's files; those under a project's folder that the project does not
+  // list are added to it, dimmed. `extraDirs` as in TreeOptions.
+  static TreeModel buildSolutionTree(const std::filesystem::path& sln,
+                                     const std::vector<std::filesystem::path>* unlisted = nullptr,
+                                     const std::vector<std::filesystem::path>& extraDirs = {});
   static ProjectContents readProject(const std::filesystem::path& project);
 
   TreeView* view() const { return view_; }
   bool visible() const { return bench_.sideVisible() && bench_.sidePanelName() == kPanel; }
   bool solutionMode() const { return solutionMode_; }
+  bool hasSolution() const;  // the workspace has a .sln that lists projects (Switch Views has something to switch)
+  bool folderView() const { return folderView_; }
+  bool showAllFiles() const { return showAll_; }
+  static std::filesystem::path stateFile(const Workspace& ws);  // <workspace>/.tenfold/explorer.json
+
+  // ---- settings ----
+  void setOpenWithSolution(bool on) { openWithSolution_ = on; }  // explorer.openWithSolution
+  void setDragDrop(bool on) { dragDrop_ = on; }                  // explorer.dragDrop (10x EnableWorkspaceTreeDragDrop)
+  void setPromptBeforeMoving(bool on) { promptMove_ = on; }      // explorer.promptBeforeMoving
 
   // ---- commands ----
   void toggle();                 // ToggleWorkspaceExplorer
@@ -67,15 +103,58 @@ class WorkspaceExplorer {
   void setTrackActiveFile(bool on) { track_ = on; }  // 10x TrackActiveFileInWorkspaceTree
   void rebuild();                                    // now, keeping expansion and selection
 
+  // ---- VS-TREE ----
+  void setFolderView(bool on);  // Switch Views: Folder view (true) / Solution view
+  void toggleFolderView() { setFolderView(!folderView_); }
+  void setShowAllFiles(bool on);
+  void toggleShowAllFiles() { setShowAllFiles(!showAll_); }
+  // First start with no restored layout: opens the panel (without the keys) when the workspace has a solution and
+  // explorer.openWithSolution is on. Returns whether it opened.
+  bool openByDefault();
+  bool saveState();  // now (also done debounced after a change, and when the explorer is destroyed)
+
+  // File operations on a node (the dialogs ask first; the operations are not undoable). Each returns false, with a
+  // status message, when the node does not allow it; true when the dialog opened or the operation ran.
+  bool newFile(int node);
+  bool newFolder(int node);
+  bool rename(int node);
+  bool remove(int node);
+  bool properties(int node);
+  // Moves (or copies) the file / folder `src` into the folder (or project, or root) `dst`; asks first unless copying
+  // or explorer.promptBeforeMoving is off.
+  bool move(int src, int dst, bool copy);
+  bool canDrop(int src, int dst) const;
+  // The tree's context-menu entries for `node`: `head` (New File, New Folder, Rename, Delete) and `tail` (Switch
+  // Views, Show All Files, Properties).
+  std::vector<MenuItem> operationItems(int node);
+  std::vector<MenuItem> viewItems(int node);
+  ExplorerPrompt* prompt() const { return prompt_.get(); }
+
   // Per event batch: notices file-list / solution / VCS changes (the rebuild is debounced to 250 ms) and the active
   // file for tracking. Returns the ms until it wants another call, -1 for none.
   int tick(int64_t nowMs);
 
   static constexpr int kDebounceMs = 250;
   static constexpr int kPollMs = 300;
+  static constexpr int kStateSaveMs = 500;
 
  private:
   void opened(int node);
+  void loadState();
+  void markState();
+  std::filesystem::path dirFor(int node) const;  // where New File / a drop on `node` puts things; empty = nowhere
+  std::string nameProblem(const std::string& name, const std::filesystem::path& dir,
+                          const std::filesystem::path& self) const;
+  std::vector<std::filesystem::path> projectFiles() const;  // every project of the displayed solution
+  bool relocate(const std::filesystem::path& from, const std::filesystem::path& to, bool isDir);
+  void erase(const std::filesystem::path& path, bool isDir);
+  void closeDocsUnder(const std::filesystem::path& path, bool isDir, bool discard,
+                      std::filesystem::path* reopen = nullptr);
+  bool dirtyUnder(const std::filesystem::path& path, bool isDir, std::string* which) const;
+  void afterChange(const std::filesystem::path& select);
+  void say(const std::string& m) const {
+    if (hooks_.message) hooks_.message(m);
+  }
   void previewed(int node);
   Position caretFor(const std::filesystem::path& file) const;
   uint64_t inputStamp() const;
@@ -94,6 +173,15 @@ class WorkspaceExplorer {
   int64_t pendingSince_ = 0;
   int64_t lastPoll_ = -1000000;
   std::string trackedFile_;
+  bool folderView_ = false, showAll_ = false;
+  bool openWithSolution_ = true, dragDrop_ = true, promptMove_ = true;
+  bool stateLoaded_ = false, stateDirty_ = false;
+  int64_t stateSince_ = 0, lastTick_ = 0;
+  std::vector<std::string> pendingKeys_;
+  bool havePending_ = false;
+  std::string pendingSel_;
+  std::vector<std::filesystem::path> extraDirs_;
+  std::unique_ptr<ExplorerPrompt> prompt_;
   std::vector<std::filesystem::path> inputs_;  // .sln / project / filters files watched for changes
 };
 
