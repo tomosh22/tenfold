@@ -726,7 +726,8 @@ class Extractor {
     // / typedef void (*Fn)(int);
     // The name of the typedef is the last identifier outside braces and parentheses (or the one in `(*Fn)`). A tag
     // with a body (`struct Tag {`, `enum Tag {`) is indexed too, and so are the enumerators of an enum body, which
-    // matters most for the anonymous `typedef enum { A, B } Name;` of C. Members of struct bodies are not indexed.
+    // matters most for the anonymous `typedef enum { A, B } Name;` of C. The members of a struct / union body are indexed in
+    // the scope of its tag (else of its first declarator).
     std::vector<Token> idents, names;  // identifiers of the current declarator; the finished declarators' names
     Token fnPtrName{};
     bool haveFnPtr = false;
@@ -757,9 +758,30 @@ class Extractor {
         const SymbolKind k = atKw("struct")  ? SymbolKind::Struct
                              : atKw("union") ? SymbolKind::Union
                                              : SymbolKind::Class;
-        if (tok(1).kind == Tok::Identifier && tok(2).is("{")) {
-          emit(tok(1), std::string(tok(1).text), k, true);
-          advance(2);  // the tag is not the typedef name
+        const bool tagged = tok(1).kind == Tok::Identifier && tok(2).is("{");
+        if (tagged || tok(1).is("{")) {
+          const size_t open = i_ + (tagged ? 2 : 1);
+          std::string scopeNm;
+          if (tagged) {
+            emit(tok(1), std::string(tok(1).text), k, true);
+            scopeNm = std::string(tok(1).text);
+          } else {
+            // `typedef struct { ... } Name;`: the members live in the scope of the first declarator
+            int d = 0;
+            size_t close = open;
+            for (; close < toks_.size() && toks_[close].kind != Tok::End; ++close) {
+              if (toks_[close].kind != Tok::Punct) continue;
+              if (toks_[close].text == "{") ++d;
+              else if (toks_[close].text == "}" && --d == 0) break;
+            }
+            size_t n = close + 1;
+            while (n < toks_.size() && toks_[n].kind == Tok::Punct && (toks_[n].text == "*" || toks_[n].text == "&")) ++n;
+            scopeNm = n < toks_.size() && toks_[n].kind == Tok::Identifier ? std::string(toks_[n].text) : "(anonymous)";
+          }
+          advance(open - i_ + 1);  // the tag is not the typedef name; step into the body
+          openScope(scopeNm, k);
+          const int target = depth_;
+          while (!at(Tok::End) && depth_ >= target) step();
           continue;
         }
       }
@@ -847,7 +869,7 @@ class Extractor {
     std::string lastName;
     Token lastNameTok{};
     bool haveName = false;
-    bool isExtern = false, isStatic = false;
+    bool isExtern = false, isStatic = false, isInlineLike = false;
 
     while (!at(Tok::End)) {
       const Token& t = tok();
@@ -858,6 +880,7 @@ class Extractor {
       if (t.kind == Tok::Keyword) {
         if (t.is("extern")) isExtern = true;
         if (t.is("static")) isStatic = true;
+        if (t.is("inline") || t.is("constexpr") || t.is("constinit") || t.is("consteval")) isInlineLike = true;
         if (t.is("operator")) {
           std::string nm;
           Token lt{};
@@ -1024,8 +1047,10 @@ class Extractor {
         }
         if (t.is("=") || t.is(";") || t.is(",") || t.is("{") || t.is("[")) {
           if (haveName && typeTokens > 0 && lastName.find("::") == std::string::npos) {
-            emit(lastNameTok, lastName, inClass() ? SymbolKind::Field : SymbolKind::Variable, !isExtern, "\x01", -1, -1, false,
-           isStatic && !inClass());
+            // `static int x;` in a class declares; the definition is `int C::x = 0;` elsewhere
+            const bool declaresOnly = isExtern || (inClass() && isStatic && !isInlineLike && !t.is("=") && !t.is("{"));
+            emit(lastNameTok, lastName, inClass() ? SymbolKind::Field : SymbolKind::Variable, !declaresOnly, "\x01", -1,
+                 -1, false, isStatic && !inClass());
           } else if (haveName && typeTokens > 0) {
             // out-of-line static member definition: "int Foo::count = 0;"
             size_t q = lastName.rfind("::");
@@ -1042,8 +1067,9 @@ class Extractor {
             while (!at(Tok::End) && !atP(";")) {
               while (atP("*") || atP("&") || atP("&&")) advance();
               if (at(Tok::Identifier)) {
-                emit(tok(), std::string(tok().text), inClass() ? SymbolKind::Field : SymbolKind::Variable, !isExtern, "\x01", -1,
-                     -1, false, isStatic && !inClass());
+                emit(tok(), std::string(tok().text), inClass() ? SymbolKind::Field : SymbolKind::Variable,
+                     !(isExtern || (inClass() && isStatic && !isInlineLike)), "\x01", -1, -1, false,
+                     isStatic && !inClass());
                 advance();
               }
               // skip initializer / array / to next ',' or ';'

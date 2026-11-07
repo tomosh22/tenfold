@@ -55,6 +55,7 @@ struct CaretInfo {
   std::string word;
   std::string qualifier;      // "A::B" written to the left of the word
   bool globalQualifier = false;  // `::word`
+  bool afterTagKeyword = false;  // the word is written right after struct / class / union / enum
   // The following lines (for an argument list that continues), `lineCount` lines in total; may be empty.
   std::function<const std::string&(int)> lineAt;
   int lineCount = 0;

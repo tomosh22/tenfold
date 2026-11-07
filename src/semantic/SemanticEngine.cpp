@@ -1843,7 +1843,8 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
       i = skipBack(i);
       int e = i;
       while (i > 0 && (std::isalnum(static_cast<unsigned char>(line[static_cast<size_t>(i) - 1])) ||
-                       line[static_cast<size_t>(i) - 1] == '_'))
+                       line[static_cast<size_t>(i) - 1] == '_' ||
+                       static_cast<unsigned char>(line[static_cast<size_t>(i) - 1]) >= 0x80))
         --i;
       qualifier =
           line.substr(static_cast<size_t>(i), static_cast<size_t>(e - i)) + (qualifier.empty() ? "" : "::" + qualifier);
@@ -1905,12 +1906,15 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     ci.wordEnd = wEnd;
     ci.word = word.text;
     ci.qualifier = qualifier;
+    ci.afterTagKeyword = shape.afterTagKeyword;
     ci.lineAt = [&doc](int l) -> const std::string& { return doc.buffer().line(l); };
     ci.lineCount = doc.buffer().lineCount();
     (void)lineNo;
     ci.globalQualifier = qualifier.empty() && [&] {
       size_t q = b;
-      return q >= 2 && text[q - 1] == ':' && text[q - 2] == ':' && !(q >= 3 && (std::isalnum(static_cast<unsigned char>(text[q - 3])) || text[q - 3] == '_'));
+      return q >= 2 && text[q - 1] == ':' && text[q - 2] == ':' &&
+             !(q >= 3 && (std::isalnum(static_cast<unsigned char>(text[q - 3])) || text[q - 3] == '_' ||
+                          static_cast<unsigned char>(text[q - 3]) >= 0x80));
     }();
     env.index = &fast_;
     env.mapOf = [this, &doc](const std::filesystem::path& f) { return scopeMapOf(f, f == doc.path() ? &doc : nullptr); };

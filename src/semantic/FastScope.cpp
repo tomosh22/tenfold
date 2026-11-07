@@ -10,7 +10,9 @@ namespace tf {
 
 namespace {
 
-bool isIdentCh(char c) { return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$'; }
+bool isIdentCh(char c) {
+  return std::isalnum(static_cast<unsigned char>(c)) || c == '_' || c == '$' || static_cast<unsigned char>(c) >= 0x80;
+}
 
 std::string_view lastComponent(std::string_view s) {
   const size_t q = s.rfind("::");
@@ -80,13 +82,24 @@ std::vector<FastIndex::Match> classesNamed(const FastIndex& idx, std::string_vie
   return out;
 }
 
-// Keeps the classes that share the longest namespace prefix with `ctx` (the caret's own scope path).
+// Narrows classes that share a name to the one the written name means at `ctx` (the caret's namespace / class path):
+// a class declared in an enclosing scope of the caret (the innermost such scope wins), else the classes sharing the
+// longest namespace prefix with it, the least nested first.
 void preferNear(std::vector<FastIndex::Match>& cls, const std::string& ctx) {
   if (cls.size() < 2) return;
+  const std::vector<std::string> chain = prefixVariants(ctx);  // innermost first, "" last
+  for (const std::string& scope : chain) {
+    std::vector<FastIndex::Match> hit;
+    for (auto& c : cls)
+      if (c.sym().scope == scope) hit.push_back(c);
+    if (!hit.empty()) {
+      cls = std::move(hit);
+      return;
+    }
+  }
   auto common = [&](const std::string& scope) {
     size_t n = 0;
     while (n < scope.size() && n < ctx.size() && scope[n] == ctx[n]) ++n;
-    // only whole components count
     while (n > 0 && n < scope.size() && !(scope[n] == ':' && n + 1 < scope.size())) --n;
     return n;
   };
@@ -129,10 +142,29 @@ std::vector<std::vector<std::string>> classLevels(const ScopeEnv& env, std::vect
   return out;
 }
 
+// Members of an anonymous struct / union (and entities of an unnamed namespace) are found in the scope around it.
+std::string stripAnonymous(const std::string& s) {
+  constexpr std::string_view anon = "(anonymous)";
+  std::string_view v = s;
+  for (;;) {
+    if (v == anon) return {};
+    if (v.size() > anon.size() + 2 && v.ends_with(anon) && v.substr(v.size() - anon.size() - 2, 2) == "::")
+      v = v.substr(0, v.size() - anon.size() - 2);
+    else
+      break;
+  }
+  return std::string(v);
+}
+
 struct Level {
   std::vector<std::string> scopes;
   bool isClass = false;
-  bool has(const std::string& s) const { return std::find(scopes.begin(), scopes.end(), s) != scopes.end(); }
+  bool contains(const std::string& s) const { return std::find(scopes.begin(), scopes.end(), s) != scopes.end(); }
+  bool has(const std::string& s) const {
+    if (contains(s)) return true;
+    const std::string t = stripAnonymous(s);
+    return t != s && contains(t);
+  }
 };
 
 bool isSmartPointer(std::string_view last) {
@@ -600,10 +632,12 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
         if (known) {
           // the most derived class that has the member hides the same name in its bases
           for (auto& lv : classLevels(env, std::move(cls), ctxPath)) {
+            Level level;
+            level.scopes = lv;
             bool hit = false;
-            for (auto& m : matches) hit = hit || std::find(lv.begin(), lv.end(), m.sym().scope) != lv.end();
+            for (auto& m : matches) hit = hit || level.has(m.sym().scope);
             if (!hit) continue;
-            keepIf([&](const FastIndex::Match& m) { return std::find(lv.begin(), lv.end(), m.sym().scope) != lv.end(); });
+            keepIf([&](const FastIndex::Match& m) { return level.has(m.sym().scope); });
             break;
           }
         }
@@ -626,6 +660,33 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
       if (r >= 0) best = std::min(best, r);
     }
     if (best != INT32_MAX) keepIf([&](const FastIndex::Match& m) { return rankOf(m) <= best; });
+  }
+
+  // 3b. what kind of name the position can mean
+  {
+    auto isTag = [](SymbolKind k) {
+      return k == SymbolKind::Class || k == SymbolKind::Struct || k == SymbolKind::Union || k == SymbolKind::Enum;
+    };
+    if (ci.afterTagKeyword) {
+      keepIf([&](const FastIndex::Match& m) { return isTag(m.sym().kind); });
+    } else if (matches.size() > 1 && acc == AccessKind::None) {
+      std::string_view t = ci.text;
+      size_t p = skipSpacesFwd(t, ci.wordEnd);
+      if (p < t.size() && t[p] == '(') {
+        // a function (not a constructor) hides a class of the same name in its scope: `Stat(...)` calls the function
+        std::set<std::string> fnScopes;
+        for (auto& m : matches)
+          if (m.sym().kind == SymbolKind::Function || m.sym().kind == SymbolKind::Method) fnScopes.insert(m.sym().scope);
+        if (!fnScopes.empty())
+          keepIf([&](const FastIndex::Match& m) { return !isTag(m.sym().kind) || !fnScopes.count(m.sym().scope); });
+      }
+      if (p < t.size() && t[p] == '<' && matches.size() > 1) {
+        // explicit template arguments name a template: `get<int>(x)`
+        const size_t close = t.find('>', p);
+        if (close != std::string_view::npos && skipSpacesFwd(t, close + 1) < t.size() && t[skipSpacesFwd(t, close + 1)] == '(')
+          keepIf([](const FastIndex::Match& m) { return m.sym().isTemplate; });
+      }
+    }
   }
 
   // 4. the call's argument count against the overloads' parameter counts
