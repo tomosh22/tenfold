@@ -14,11 +14,12 @@ namespace tf::ui {
 // "Hierarchy".
 //
 // Call hierarchy is Visual Studio's "View Call Hierarchy" (Ctrl+K, Ctrl+T): the root is the symbol at the caret, with
-// the two nodes "Calls To 'x'" (its callers) and "Calls From 'x'" (what it calls). Type hierarchy has no Visual Studio
+// the two nodes "Calls To 'x'" (its callers) and "Calls From 'x'" (what it calls); every caller or callee below them
+// has the same two nodes (VS: "You can then expand each calling member to see its Calls To, and for C++, Calls From"). Type hierarchy has no Visual Studio
 // C++ window; tenfold adds it in the same panel: the root is the class at the caret with "Base Types" and "Derived
-// Types". Every entry reads "name   file:line" (workspace-relative path; a call edge adds "(N calls)"). Entries below
-// a "Calls To" node expand to their own callers, below "Calls From" to their callees, below the type nodes to the
-// next level of bases / derived classes.
+// Types". Every entry reads "name   file:line" (workspace-relative path; a call edge adds "(N calls)"). Type
+// hierarchy entries have "Base Types" and "Derived Types" nodes in the same way. (Visual Studio's extra "Overrides" /
+// "Implements" nodes for virtual members are not there.)
 //
 // Everything is lazy and asynchronous: opening the panel asks clangd for the symbol (Editor::callHierarchy /
 // typeHierarchy); a node's children are requested when the node is first expanded (incomingCalls / outgoingCalls /
@@ -96,7 +97,7 @@ class HierarchyPanel : public Widget {
   };
   float headerHeight() const;
   std::string itemLabel(const HierarchyItem& it) const;
-  std::unique_ptr<Entry> symbolEntry(const HierarchyItem& it) const;
+  std::unique_ptr<Entry> symbolEntry(const HierarchyItem& it, bool edge) const;
   static std::unique_ptr<Entry> note(const std::string& text);
   void setRoot(std::unique_ptr<Entry> root);
   void rebuild();

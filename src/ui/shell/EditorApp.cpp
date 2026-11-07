@@ -1845,7 +1845,8 @@ std::pair<TextView*, Position> EditorApp::identifierUnderMouse(float x, float y)
 
 void EditorApp::syncBulb() {
   forEachView([&](TextView& v) {
-    v.setLightBulb(quick_->bulbDocument() && v.document() == quick_->bulbDocument() ? quick_->bulbLine() : -1);
+    const bool mine = quick_->bulbDocument() && v.document() == quick_->bulbDocument();
+    v.setLightBulb(mine ? quick_->bulbLine() : -1, mine && quick_->bulbIsError());
     if (!v.onLightBulb) v.onLightBulb = [this] { runCommandId("Editor.QuickActions", "", activeContext()); };
   });
 }

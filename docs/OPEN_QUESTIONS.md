@@ -50,6 +50,12 @@ decided by the user). Each has a default we implement until answered.
   `editor.reloadUnlessUnsaved`, with `editor.reloadExternalChanges` kept as an optional override); pinned tabs cannot be
   crossed by moves or drags; Ctrl+K, Ctrl+Z restores the last closed tab (a tenfold addition). T3, T4, T5, T7, T8, T10
   and T13 are unchanged.
+  *Implemented for quick actions, hierarchies and inlay hints (W11-GUI-LSP), see docs/VS_BEHAVIOUR.md section 15 rows Q1
+  to Q8:* Ctrl+. opens Quick Actions and Refactorings, a light bulb marks lines with a quick fix (red for an error),
+  Ctrl+K, Ctrl+T opens a call hierarchy window (Calls To / Calls From), inlay hints show while Alt+F1 is held
+  (`editor.inlayHints`, default `while-pressed`); the type hierarchy has no Visual Studio counterpart and is a tenfold
+  addition without a key. **Still open:** whether Visual Studio's own default for C++ inlay hints is "off with the Alt+F1
+  peek" (what `while-pressed` does) or really off; the Learn page for the option was not found (Q5, low).
   *Implemented for the workspace explorer (VS-TREE), see docs/VS_BEHAVIOUR.md section 11 rows X2, X3, X5, X6, X7, X8 and
   X9 and row C10 of section 8:* typing in the tree jumps to the next name that starts with the letters (type-ahead, one
   second reset) and Ctrl+; starts the old fuzzy filter; Switch Views (Solution / Folder) and Show All Files; the expanded

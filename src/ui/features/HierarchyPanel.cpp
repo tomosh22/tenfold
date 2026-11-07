@@ -54,9 +54,9 @@ std::string HierarchyPanel::itemLabel(const HierarchyItem& it) const {
   return s;
 }
 
-std::unique_ptr<HierarchyPanel::Entry> HierarchyPanel::symbolEntry(const HierarchyItem& it) const {
+std::unique_ptr<HierarchyPanel::Entry> HierarchyPanel::symbolEntry(const HierarchyItem& it, bool edge) const {
   auto e = std::make_unique<Entry>();
-  e->kind = Entry::Kind::Symbol;
+  e->kind = edge ? Entry::Kind::Edge : Entry::Kind::Symbol;
   e->item = it;
   e->label = itemLabel(it);
   e->state = Entry::State::Loaded;
@@ -96,8 +96,8 @@ int HierarchyPanel::addNode(TreeModel& m, int parent, Entry& e) {
   nodes_[static_cast<size_t>(id)] = &e;
   m.node(id).jumpable = e.kind == Entry::Kind::Symbol || e.kind == Entry::Kind::Edge;
   for (auto& kid : e.kids) addNode(m, id, *kid);
-  // An entry that was not asked yet is expandable through a placeholder; a loaded one without children is a leaf.
-  if (e.kids.empty() && e.state != Entry::State::Loaded && (e.kind == Entry::Kind::Group || e.kind == Entry::Kind::Edge)) {
+  // A group that was not asked yet is expandable through a placeholder.
+  if (e.kids.empty() && e.state != Entry::State::Loaded && e.kind == Entry::Kind::Group) {
     auto ph = note("Loading...");
     addNode(m, id, *ph);
     e.kids.push_back(std::move(ph));
@@ -109,7 +109,7 @@ int HierarchyPanel::addNode(TreeModel& m, int parent, Entry& e) {
 void HierarchyPanel::rebuild() {
   // Placeholders live in `kids` while the entry has not loaded; drop them so addNode makes fresh ones.
   std::function<void(Entry&)> strip = [&](Entry& e) {
-    if (e.state != Entry::State::Loaded && (e.kind == Entry::Kind::Group || e.kind == Entry::Kind::Edge)) e.kids.clear();
+    if (e.state != Entry::State::Loaded && e.kind == Entry::Kind::Group) e.kids.clear();
     for (auto& k : e.kids) strip(*k);
   };
   if (root_) strip(*root_);
@@ -157,13 +157,13 @@ void HierarchyPanel::open(Mode mode) {
     }
     if (items.size() == 1) {
       rootName_ = items[0].name;
-      setRoot(symbolEntry(items[0]));
+      setRoot(symbolEntry(items[0], false));
     } else {  // several candidates: a heading over each of them
       auto c = std::make_unique<Entry>();
       c->kind = Entry::Kind::Note;
       c->label = mode_ == Mode::Call ? "Call Hierarchy" : "Type Hierarchy";
       c->state = Entry::State::Loaded;
-      for (const HierarchyItem& it : items) c->kids.push_back(symbolEntry(it));
+      for (const HierarchyItem& it : items) c->kids.push_back(symbolEntry(it, false));
       setRoot(std::move(c));
     }
     // The first group (callers / base types) opens at once; selecting the root puts the keys on the symbol.
@@ -183,7 +183,7 @@ void HierarchyPanel::loadExpanded() {
   std::vector<Entry*> todo;
   for (size_t i = 0; i < nodes_.size(); ++i) {
     Entry* e = nodes_[i];
-    if (e && e->state == Entry::State::NotLoaded && (e->kind == Entry::Kind::Group || e->kind == Entry::Kind::Edge) &&
+    if (e && e->state == Entry::State::NotLoaded && e->kind == Entry::Kind::Group &&
         tree_->isExpanded(static_cast<int>(i)))
       todo.push_back(e);
   }
@@ -206,8 +206,8 @@ void HierarchyPanel::finish(Entry& e, std::vector<std::unique_ptr<Entry>> kids, 
 }
 
 void HierarchyPanel::load(Entry& e) {
-  // Entries of the Group kind ask about the symbol they belong to; Edge entries ask about their own item, in the
-  // direction of the group they hang under (kept in `dir`).
+  // A group asks about the symbol it hangs under, in its own direction; the answers become entries that have both
+  // groups themselves (Visual Studio: each calling member expands to its own Calls To and Calls From).
   e.state = Entry::State::Loading;
   ++pending_;
   const int gen = gen_;
@@ -224,16 +224,11 @@ void HierarchyPanel::load(Entry& e) {
   };
   const Dir dir = e.dir;
   const bool edges = dir == Dir::Incoming || dir == Dir::Outgoing;
-  const Dir childDir = dir;
   if (edges) {
-    auto cb = done([this, childDir](const std::vector<CallEdge>& es, std::vector<std::unique_ptr<Entry>>& out) {
+    auto cb = done([this](const std::vector<CallEdge>& es, std::vector<std::unique_ptr<Entry>>& out) {
       for (const CallEdge& c : es) {
-        auto k = std::make_unique<Entry>();
-        k->kind = Entry::Kind::Edge;
-        k->dir = childDir;
-        k->item = c.item;
+        auto k = symbolEntry(c.item, true);
         k->calls = c.ranges.size();
-        k->label = itemLabel(c.item);
         if (k->calls > 1) k->label += "  (" + std::to_string(k->calls) + " calls)";
         out.push_back(std::move(k));
       }
@@ -246,15 +241,8 @@ void HierarchyPanel::load(Entry& e) {
       rebuild();
     }
   } else {
-    auto cb = done([this, childDir](const std::vector<HierarchyItem>& is, std::vector<std::unique_ptr<Entry>>& out) {
-      for (const HierarchyItem& it : is) {
-        auto k = std::make_unique<Entry>();
-        k->kind = Entry::Kind::Edge;
-        k->dir = childDir;
-        k->item = it;
-        k->label = itemLabel(it);
-        out.push_back(std::move(k));
-      }
+    auto cb = done([this](const std::vector<HierarchyItem>& is, std::vector<std::unique_ptr<Entry>>& out) {
+      for (const HierarchyItem& it : is) out.push_back(symbolEntry(it, true));
     });
     auto& fn = dir == Dir::Super ? backend_.supertypes : backend_.subtypes;
     if (fn) fn(e.item, cb);

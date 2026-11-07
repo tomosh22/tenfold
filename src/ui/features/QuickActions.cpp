@@ -154,7 +154,12 @@ int QuickActions::tick(int64_t nowMs) {
     if (env_.editor.currentDocument() != d || d->version() != version) return;
     const bool fix = std::any_of(as.begin(), as.end(), [](const CodeAction& a) { return a.kind.rfind("quickfix", 0) == 0; });
     const int nl = fix ? line : -1;
-    if (nl == bulbLine_ && (fix ? d : nullptr) == bulbDoc_) return;
+    bool error = false;
+    if (fix)
+      for (const Diagnostic& g : env_.editor.diagnostics(d->path()))
+        if (g.severity <= 1 && g.range.start.line <= line && g.range.end.line >= line) error = true;
+    if (nl == bulbLine_ && (fix ? d : nullptr) == bulbDoc_ && error == bulbError_) return;
+    bulbError_ = error;
     bulbLine_ = nl;
     bulbDoc_ = fix ? d : nullptr;
     if (onBulbChanged) onBulbChanged();

@@ -105,6 +105,7 @@ const std::vector<ColorMember>& colorMembers() {
       {"inlayHint", &Theme::inlayHint, true},
       {"inlayHintBackground", &Theme::inlayHintBackground, true},
       {"lightBulb", &Theme::lightBulb, true},
+      {"lightBulbError", &Theme::lightBulbError, true},
       {"tabVcsModified", &Theme::tabVcsModified, true},
       {"tabVcsAdded", &Theme::tabVcsAdded, true},
       {"tabVcsCheckedOut", &Theme::tabVcsCheckedOut, true},

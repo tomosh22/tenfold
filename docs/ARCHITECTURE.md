@@ -363,6 +363,33 @@ data. Everything is converted to byte columns like the other queries and the
   and applied later on the pump thread.
 * **Hierarchy items** carry a byte-column `Location` of the name, so
   `Editor::gotoHierarchyItem` is a plain `gotoLocation` (navigation history).
+* **GUI (W11-GUI-LSP).** Three front-end features own no engine logic; each has a `Backend` struct of `std::function`s
+  whose defaults call the `Editor` (tests replace them), runs nothing on the UI thread but cheap bookkeeping, tags every
+  request with a generation / sequence number (an answer for an older request, document version or line is dropped) and
+  captures `std::weak_ptr` life tokens, never a `shared_ptr` to itself:
+  * `HierarchyPanel` (`src/ui/features`, bottom-dock panel "Hierarchy", a header over a `TreeView`): keeps its own entry
+    tree (`Entry`: symbol, group, edge, note; a group is `NotLoaded` / `Loading` / `Loaded`) and rebuilds a `TreeModel`
+    from it on every answer (`TreeView::setModel` carries expansion and selection by key). A group is requested when the
+    tree first reports it expanded (`onExpansionChanged`), shows a "Loading..." placeholder child until then. Entries use
+    the new `TreeNode::jumpable` flag (Enter / double click calls `onActivate` although the node has children) and the
+    `TreeKind::Symbol` icon. `EditorApp::openHierarchy` shows the dock and calls `open(mode)`.
+  * `QuickActions`: the Ctrl+. popup (a `ListPopup` anchored at the caret) and the light bulb. `tick()` (from
+    `EditorApp::tick`) watches (document, version, caret line, diagnostics on the line); 300 ms after the last change it
+    asks `Editor::codeActions` for the caret line and publishes `bulbLine()` / `bulbIsError()` when a quick fix came back;
+    `EditorApp::syncBulb` hands it to every `TextView::setLightBulb` (gutter glyph, click opens the list).
+  * `InlayHints` (setting `editor.inlayHints`, `Alt F1` -> `Editor.InlayHintsHold`; `EditorApp` clears the hold on key
+    up of F1 or Alt and on focus loss): when shown, asks `Editor::inlayHints` for the visible lines of the current
+    document plus a margin (150 ms debounce, re-asked when the version, the visible range or the mode changes) and
+    gives the result to the views of that document. `TextView` keeps it in an `InlayMap` (`src/ui/view`, pure data and
+    maths): hints are virtual text, a hint takes `cells + 1` cells of its row and moves the text right of it. Everything
+    that turns a column into x (caret, selection and squiggle rectangles, the bracket match, the fold marker) adds
+    `hintShift()`, `positionAt` turns an x back into a column with `InlayMap::unshift`, and `drawRowText` draws the row
+    in pieces around the hints. Columns, `Position`s and the document never see a hint, so caret movement, selections
+    and the status bar are untouched; `WrapLayout` ignores hints (a row with hints can be wider than the wrap width) and
+    visible whitespace is not drawn on such rows. Editing drops the hints of the touched lines and renumbers the rest
+    (`InlayMap::onChange`) until the next answer.
+  The misc-files rule is applied once, in `EditorApp::clangdResultsAllowed` (clangd running, and
+  `SemanticEngine::isMiscFile` false unless `diagnostics.miscFiles`), which all three features use.
 * **Watched files**: `workspace/didChangeWatchedFiles` is sent from the
   Editor's FileWatcher events (created / changed / deleted, renames as
   delete + create) for files that are not open in a Document.

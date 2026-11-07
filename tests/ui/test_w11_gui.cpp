@@ -176,9 +176,10 @@ HierarchyItem item(const fs::path& file, const std::string& name, int line, int 
   return it;
 }
 
-int nodeByLabel(HierarchyPanel& p, const std::string& prefix) {
+// The first node whose label starts with `prefix`, searching from node `from`.
+int nodeByLabel(HierarchyPanel& p, const std::string& prefix, int from = 0) {
   const TreeModel& m = p.tree().model();
-  for (size_t i = 0; i < m.size(); ++i)
+  for (size_t i = static_cast<size_t>(from); i < m.size(); ++i)
     if (m.node(static_cast<int>(i)).name.rfind(prefix, 0) == 0) return static_cast<int>(i);
   return -1;
 }
@@ -382,9 +383,14 @@ TEST(w11_call_hierarchy_opens_the_panel_and_expands_lazily) {
   fake.outgoingDone[0]({}, "");
   env.frame();
   CHECK_EQ(env.hp().rowLabels().back(), std::string("No calls"));
-  // A caller expands to its own callers.
+  // A caller expands to its own Calls To / Calls From nodes (Visual Studio), which are asked when opened.
   const int bar = nodeByLabel(env.hp(), "bar");
   env.hp().tree().setExpanded(bar, true);
+  CHECK_EQ(fake.incomingAsked, 1);
+  const int barTo = nodeByLabel(env.hp(), "Calls To 'bar'");
+  REQUIRE(barTo > 0);
+  CHECK(nodeByLabel(env.hp(), "Calls From 'bar'") > 0);
+  env.hp().tree().setExpanded(barTo, true);
   CHECK_EQ(fake.incomingAsked, 2);
   CHECK_EQ(fake.askedFor.back(), std::string("in:bar"));
   fake.incomingDone[1]({}, "");
@@ -508,7 +514,10 @@ TEST(w11_type_hierarchy_shows_base_and_derived_types) {
   CHECK_EQ(rows.size(), 6u);
   CHECK_EQ(rows[4], std::string("Derived   t.cpp:5"));
   CHECK_EQ(rows[5], std::string("Other   t.cpp:9"));
-  env.hp().tree().setExpanded(nodeByLabel(env.hp(), "Derived   "), true);
+  env.hp().tree().setExpanded(nodeByLabel(env.hp(), "Derived   "), true);  // each entry has both nodes again
+  const int below = nodeByLabel(env.hp(), "Derived Types", 5);
+  REQUIRE(below > 0);
+  env.hp().tree().setExpanded(below, true);
   CHECK_EQ(fake.askedFor.back(), std::string("sub:Derived"));  // the next level
 }
 
@@ -930,6 +939,7 @@ TEST(w11_clangd_quick_fix_applies_with_ctrl_dot_and_is_one_undo_step) {
   CHECK_EQ(v->lightBulbLine(), -1);
   env.caret(1, 1);
   REQUIRE(env.until([&] { return v->lightBulbLine() == 1; }, 20000));
+  CHECK(v->lightBulbIsError());  // an error with a fix: Visual Studio's red "error light bulb"
   CHECK(env.key(Key('.'), ModCtrl));
   REQUIRE(env.until([&] { return env.popup() != nullptr; }, 20000));
   REQUIRE(!env.popup()->rows().empty());

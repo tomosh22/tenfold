@@ -214,8 +214,9 @@ class TextView : public Widget {
 
   // ---- Quick Actions light bulb and inlay hints (W11-GUI-LSP) ----
   // The light bulb sits in the gutter, left of the line number of `line` (-1: none); a click on it calls onLightBulb.
-  void setLightBulb(int line);
+  void setLightBulb(int line, bool error = false);  // `error`: the red variant (a fix for an error)
   int lightBulbLine() const { return bulbLine_; }
+  bool lightBulbIsError() const { return bulbError_; }
   RectF lightBulbRect() const;  // window pixels; empty when there is no bulb or its line is off screen
   std::function<void()> onLightBulb;
   // Inlay hints (InlayMap): virtual text between characters. They are drawn only while `shown`; they move the text to
@@ -354,6 +355,7 @@ class TextView : public Widget {
   InlayMap hints_;
   bool hintsShown_ = false;
   int bulbLine_ = -1;
+  bool bulbError_ = false;
 
   // What was last seen, to detect changes.
   const Document* seenDoc_ = nullptr;

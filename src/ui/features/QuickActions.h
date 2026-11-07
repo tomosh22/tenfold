@@ -56,6 +56,8 @@ class QuickActions {
   int tick(int64_t nowMs);
   // The line of the current document that has a quick fix, -1 for none.
   int bulbLine() const { return bulbLine_; }
+  // Visual Studio draws an "error light bulb" (red) for a fix of an error and a yellow one for the rest.
+  bool bulbIsError() const { return bulbError_; }
   const Document* bulbDocument() const { return bulbDoc_; }
   std::function<void()> onBulbChanged;
   void setBulbEnabled(bool on);
@@ -80,6 +82,7 @@ class QuickActions {
   bool needAsk_ = false;
   uint64_t bulbSeq_ = 0;
   int bulbLine_ = -1;
+  bool bulbError_ = false;
   const Document* bulbDoc_ = nullptr;
   std::shared_ptr<int> alive_ = std::make_shared<int>(0);
 };

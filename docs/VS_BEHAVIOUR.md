@@ -384,6 +384,19 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 
 ---
 
+## 15. Quick actions, call hierarchy, inlay hints (W11-GUI-LSP)
+
+| Item | tenfold | VS 2022 | Source | Conf. | Change |
+|---|---|---|---|---|---|
+| Q1 Quick Actions key and menu | `Editor.QuickActions` on **Ctrl+.**, first item of the editor context menu "Quick Actions and Refactorings..." | "Right-click a line of code and choose Quick Actions and Refactorings ... Select Ctrl + period (.) anywhere on a line." VS also lists Alt+Enter; Alt+Enter is 10x's `ToggleFullscreen`, so tenfold does not bind it. Ctrl+. is not bound in 10x's map. | [S58] | high | **Implemented (W11-GUI-LSP).** Ctrl+. works anywhere on the line: tenfold asks clangd for the caret's line (trimmed of blanks) or the selection. |
+| Q2 Light bulb | a light bulb in the gutter, left of the line number, on the caret's line when clangd has a quick fix; click opens the list; red when the line has an error | Icons beside the line: **screwdriver** (suggested action to improve code), **yellow light bulb** (recommended action for noncritical issues), **error light bulb** (critical action to fix an error). "Move the insertion cursor into a line of code, and check for Quick Action icons that appear inline" | [S58] | high (icons), low (exact glyph / hex colours) | **Implemented** for the yellow and the red bulb. **Not done:** the screwdriver: clangd answers a refactoring ("Extract subexpression to variable") for almost any line, so it would be everywhere; Ctrl+. still lists those actions. Colours `lightBulb` #FFCC00 and `lightBulbError` #F14C4C are guesses (`[?]`). |
+| Q3 Applying an action | one undo step per file | "To apply the recommended change to your code, select the fix from the menu." Undo of a Quick Action is one step in VS (a single edit transaction). | [S58], memory | medium | **Implemented** (`Editor::applyCodeAction`, one undo group per document). No preview of the change (VS has "Preview changes" for some actions): not done. |
+| Q4 Call Hierarchy | **Ctrl+K, Ctrl+T** (`View.CallHierarchy`), the Hierarchy panel in the bottom dock, editor menu item "View Call Hierarchy" | "Right-click on the name of a method ... select View Call Hierarchy. The member name appears in a tree view pane in the Call Hierarchy window. If you expand the member node, **Calls To** *member*, and for C++, **Calls From** *member*, subnodes appear ... You can then expand each calling member to see its Calls To, and for C++, Calls From nodes." For virtual / abstract members an **Overrides** node appears. C++ implicit calls (constructors, conversions) may be missing. Shortcut Ctrl+K, Ctrl+T (editor menu in section 8 C1). | [S59], [S19] | high | **Implemented.** Every entry has Calls To and Calls From nodes (type entries have Base / Derived), lazily asked. Not done: the Overrides / Implements nodes and VS's details pane of call sites. The first group is opened at once (VS shows both collapsed). |
+| Q5 Type hierarchy | `View.TypeHierarchy`, command palette and editor menu, no key | Visual Studio has no C++ type hierarchy window (Class View and Object Browser show bases, not this). | memory | medium | **Implemented as a tenfold addition** in the same panel; no key because no free key is obvious. |
+| Q6 Inlay hints (C++) | `editor.inlayHints` = `off` / `on` / `while-pressed`, default `while-pressed`; parameter names and deduced types; dim text; the setting description names the VS option Tools > Options > Text Editor > C/C++ > IntelliSense > Inlay Hints | The C++ inlay hint options live under Text Editor > C/C++ > IntelliSense (a shorter list than C#'s). Hints are off until asked; **Alt+F1** shows them while it is held (a Stack Overflow answer for 17.2 Preview also names pressing Ctrl twice, and says Alt+F1 is Visual Assist's). The Learn page of the option could not be found (404) and the C++ hints page does not exist; this row rests on a forum answer and the user's description. | search result (Stack Overflow, "inline hints on/off shortcut in visual studio 2022"), user brief | low | **Implemented.** Default `while-pressed`: nothing is shown until Alt+F1 is held, which is how VS behaves out of the box; `off` also disables the key, `on` shows them always. Verify in a real VS 2022 (checklist V15). |
+| Q7 Inlay hint colours | `inlayHint` #A9A8A7 on `inlayHintBackground` #3E3E3E in vs-dark; other themes derive them from the text colour | #3E3E3E background, #A9A8A7 foreground (the cpptools "Visual Studio 2019 Dark (C++)" theme; section 5.1) | [S35] | medium | **Implemented** (theme keys with fallbacks). |
+| Q8 Inlay hints as text | virtual: they push the text right but are not part of the document or of any column; a caret never stops inside one | VS draws hints inline between the characters; the caret skips them, they are not text. | memory | medium | **Implemented** (`InlayMap`, `TextView::hintShift`). The caret before a parameter hint is drawn after the hint; a caret after a type hint's anchor is drawn before it. |
+
 ## Proposed implementation tasks (grouped; one task = one area)
 
 | Task | Area | Files likely touched | Depends |
@@ -430,6 +443,7 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 * **V12** (Z1) C++ file: type `"` and `'` (after a space and after a letter), type the closing quote, Backspace in an empty pair, a quote over a selection: which pair, which step over?
 * **V13** (Z14) File > New > File: exact name offered for a Text File, a C++ File and a Header File (`TextFile1.txt`, `Source1.cpp`, `Header1.h`?), and the first-save dialog.
 * **V14** (Z19) `.editorconfig` with `trim_trailing_whitespace = true` and `insert_final_newline = true`: does a plain Ctrl+S change the file, or only Format Document / Code Cleanup?
+* **V15** (Q6) Tools > Options > Text Editor > C/C++ > IntelliSense: is there an Inlay Hints option, what is its default, does Alt+F1 show hints when the option is off, and is the hold a toggle?
 * **V11** Uncheck Build for a project in Configuration Manager; open one of its files; confirm IntelliSense still shows.
 
 ## S. Sources
@@ -489,6 +503,8 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 * [S54] same as S53
 * [S55] https://mattferderer.com/show-current-active-file-in-vs-studio-explorer (2018)
 * [S56] https://devblogs.microsoft.com/cppblog/configuring-c-intellisense-and-browsing/
+* [S58] https://learn.microsoft.com/en-us/visualstudio/ide/quick-actions?view=vs-2022 (Quick Actions, light bulbs, and screwdrivers; fetched with curl, read 2026-11-07)
+* [S59] https://learn.microsoft.com/en-us/visualstudio/ide/call-hierarchy?view=vs-2022 (View call hierarchy; fetched with curl, read 2026-11-07)
 * [S57] https://forum.juce.com/t/intellisense-broken-for-juce-cpp-files-in-solutions/53002 and the Unreal answers thread (search summary)
 
 **Environment note.** `learn.microsoft.com` is blocked for the WebFetch tool in this session ("has to be allowed in the

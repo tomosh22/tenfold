@@ -742,9 +742,10 @@ void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, floa
 
 // ---- Quick Actions light bulb and inlay hints (W11-GUI-LSP) ----
 
-void TextView::setLightBulb(int line) {
-  if (line == bulbLine_) return;
+void TextView::setLightBulb(int line, bool error) {
+  if (line == bulbLine_ && error == bulbError_) return;
   bulbLine_ = line;
+  bulbError_ = error;
   markDirty();
 }
 
@@ -762,7 +763,8 @@ RectF TextView::lightBulbRect() const {
 
 void TextView::paintLightBulb(PaintContext& ctx, const Layout& L, float y) {
   const float cw = L.cellWidth(), lh = L.lineHeight();
-  const Color c = Theme::orElse(ctx.theme.lightBulb, Color{1.0f, 0.8f, 0.0f, 1});
+  const Color c = bulbError_ ? Theme::orElse(ctx.theme.lightBulbError, ctx.theme.diagnosticError)
+                             : Theme::orElse(ctx.theme.lightBulb, Color{1.0f, 0.8f, 0.0f, 1});
   const int d = std::max(6, static_cast<int>(std::floor(std::min(cw * 0.9f, lh * 0.55f))));
   const float x = bounds().x + L.glyphLane() + 1 + std::floor((std::max(6.0f, std::floor(cw * 0.95f)) - static_cast<float>(d)) / 2);
   const float top = y + std::floor((lh - static_cast<float>(d) - 3) / 2);
