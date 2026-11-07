@@ -74,9 +74,6 @@ class Workspace {
 
   // Enumerate files. Blocking; cheap enough for ~100k files.
   void scan(std::function<void(size_t)> progress = {});
-  // Lists the tree below `dir` on disk and adds every file not yet known (a directory that appeared or was renamed:
-  // the files inside it get no events of their own on every platform). Returns the files that were new.
-  std::vector<std::filesystem::path> noteTreeAdded(const std::filesystem::path& dir);
   const std::vector<std::filesystem::path>& sourceFiles() const { return sources_; }
   const std::vector<std::filesystem::path>& headerFiles() const { return headers_; }
   const std::vector<std::filesystem::path>& otherFiles() const { return others_; }

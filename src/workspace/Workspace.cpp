@@ -231,14 +231,6 @@ void Workspace::walkTree(const fs::path& start, const std::function<void(const f
   }
 }
 
-std::vector<fs::path> Workspace::noteTreeAdded(const fs::path& dir) {
-  std::vector<fs::path> added;
-  walkTree(dir, [&](const fs::path& p) {
-    if (noteFileAdded(p)) added.push_back(p);
-  });
-  return added;
-}
-
 void Workspace::scan(std::function<void(size_t)> progress) {
   sources_.clear();
   headers_.clear();
