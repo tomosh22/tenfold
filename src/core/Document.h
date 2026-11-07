@@ -19,6 +19,9 @@ class Document {
     Range removed;        // range in the *old* text
     std::string newText;  // what replaced it
     int lineDelta;
+    // The edit (or, in a batch, one of its edits) removed or inserted a NEL / LS / PS line break: the language
+    // server's lines are not the editor's there (LspLineMap), so the change is not sent incrementally.
+    bool separators = false;
   };
   using Listener = std::function<void(Document&, const Change&)>;
 

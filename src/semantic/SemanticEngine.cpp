@@ -64,19 +64,28 @@ const char* lspSymbolKindName(int k) {
   }
 }
 
-// The raw bytes of line `line` of a file; lines end at "\r\n", "\n" or a lone '\r' (like clang's).
-std::string readLineOfFile(const fs::path& p, int line) {
+// Length of the line break at all[k] that clang knows ("\r\n", "\n", lone '\r'), else 0.
+size_t plainBreakLen(const std::string& all, size_t k) {
+  if (all[k] == '\n') return 1;
+  if (all[k] == '\r') return (k + 1 < all.size() && all[k + 1] == '\n') ? 2 : 1;
+  return 0;
+}
+
+// The raw bytes of line `line` of a file; lines end at "\r\n", "\n" or a lone '\r' (like clang's), and with
+// `separators` (a UTF-8 file) at NEL, LS and PS too, like the editor's (core/LineBreaks.h).
+std::string readLineOfFile(const fs::path& p, int line, bool separators = false) {
   std::ifstream in(p, std::ios::binary);
   std::stringstream ss;
   ss << in.rdbuf();
   const std::string all = ss.str();
   size_t i = 0;
+  auto breakLen = [&](size_t k) { return separators ? linebreak::breakLenAt(all, k) : plainBreakLen(all, k); };
   for (int l = 0; l < line && i < all.size(); ++l) {
-    while (i < all.size() && all[i] != '\n' && all[i] != '\r') ++i;
-    if (i < all.size()) i += (all[i] == '\r' && i + 1 < all.size() && all[i + 1] == '\n') ? 2 : 1;
+    while (i < all.size() && !breakLen(i)) ++i;
+    if (i < all.size()) i += breakLen(i);
   }
   size_t e = i;
-  while (e < all.size() && all[e] != '\n' && all[e] != '\r') ++e;
+  while (e < all.size() && !breakLen(e)) ++e;
   return all.substr(i, e - i);
 }
 
@@ -480,6 +489,7 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   // without this the shared -I flags in our private config.yaml would never be applied.
   lo.env.emplace_back("LOCALAPPDATA", pathUtf8(ws_.cacheDir() / "clangd-config"));
 #endif
+  if (opt_.utf16Positions) lo.positionEncodings = {"utf-16"};
   if (opt_.traceLsp) {
     lo.trace = [this](const std::string& dir, const Json& j) { log(dir + " " + dumpSafe(j).substr(0, 400)); };
   }
@@ -521,9 +531,7 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
     for (auto& d : ds) {
       Diagnostic x;
       x.file = file;
-      x.range = fromServer(LspLocation{uri, d.range}).pos == d.range.start
-                    ? d.range
-                    : Range{fromServer({uri, d.range}).pos, fromServer({uri, {d.range.end, d.range.end}}).pos};
+      x.range = rangeFromServer(uri, d.range);
       x.severity = d.severity;
       x.message = d.message;
       x.code = d.code;
@@ -1144,9 +1152,61 @@ void SemanticEngine::adoptPending(uint64_t id) {
 // Encoding conversion
 // ---------------------------------------------------------------------------
 
+// NEL / LS / PS: clangd's lines are the editor's glued together at them (TextBuffer::textForLsp). Every position that
+// goes to or comes from clangd goes through toServer / posFromServer (and serverPosition for a file by path), which
+// consult the document's LspLineMap; a document without separators (nearly all) has none and costs one atomic load.
+std::shared_ptr<const LspLineMap> SemanticEngine::lspMapFor(const std::string& uri) const {
+  if (lspMapCount_.load(std::memory_order_relaxed) == 0) return nullptr;
+  std::lock_guard<std::mutex> lk(mu_);
+  auto it = lspMaps_.find(uri);
+  return it == lspMaps_.end() ? nullptr : it->second;
+}
+
+void SemanticEngine::noteLspText(const Document& doc) {
+  auto map = LspLineMap::build(doc.buffer());
+  if (!map && lspMapCount_.load(std::memory_order_relaxed) == 0) return;
+  const std::string uri = doc.uri();
+  std::lock_guard<std::mutex> lk(mu_);
+  if (map) lspMaps_[uri] = std::move(map);
+  else lspMaps_.erase(uri);
+  lspMapCount_.store(static_cast<int>(lspMaps_.size()), std::memory_order_relaxed);
+}
+
+std::shared_ptr<const SemanticEngine::DiskSeparators> SemanticEngine::diskSeparators(const fs::path& file) const {
+  std::error_code ec;
+  const auto size = fs::file_size(file, ec);
+  if (ec || size > (64u << 20)) return nullptr;
+  const int64_t mtime = fs::last_write_time(file, ec).time_since_epoch().count();
+  const std::string key = pathKeyUtf8(file);
+  {
+    std::lock_guard<std::mutex> lk(encMu_);
+    auto it = diskSep_.find(key);
+    if (it != diskSep_.end() && it->second.mtime == mtime && it->second.size == size) return it->second.sep;
+  }
+  std::shared_ptr<const DiskSeparators> sep;
+  std::string bytes;
+  if (readRegularFile(file, bytes) && linebreak::hasSeparator(bytes)) {
+    const DecodedText d = decodeFileBytes(bytes);
+    if (d.encoding == Encoding::Utf8) {  // a Windows-1252 file has no NEL / LS / PS; UTF-16 is not what clangd reads
+      auto ds = std::make_shared<DiskSeparators>();
+      ds->text.setText(d.text);
+      ds->map = LspLineMap::build(ds->text);
+      if (ds->map) sep = std::move(ds);
+    }
+  }
+  std::lock_guard<std::mutex> lk(encMu_);
+  if (diskSep_.size() > 64) diskSep_.clear();
+  diskSep_[key] = {mtime, size, sep};
+  return sep;
+}
+
 Position SemanticEngine::toServer(const Document& doc, Position p) const {
   auto c = client();
-  if (!c || c->offsetEncoding() == "utf-8") return p;
+  if (!c) return p;
+  const bool utf16 = c->offsetEncoding() != "utf-8";
+  if (lspMapCount_.load(std::memory_order_relaxed) > 0)  // (doc.uri() is not free: ask only when a map exists)
+    if (auto m = lspMapFor(doc.uri())) return m->toServer(p, doc.buffer().lines(), utf16);
+  if (!utf16) return p;
   p = doc.buffer().clamp(p);
   return {p.line, TextBuffer::utf8ToUtf16Column(doc.buffer().line(p.line), p.column)};
 }
@@ -1177,7 +1237,7 @@ Encoding SemanticEngine::diskEncoding(const fs::path& file) const {
 Position SemanticEngine::posFromServer(const std::string& serverUri, Position p) const {
   const std::string uri = remapUri(serverUri);
   auto c = client();
-  if (!c || p.column <= 0) return p;
+  if (!c) return p;
   const bool utf8 = c->offsetEncoding() == "utf-8";
   const Document* doc = nullptr;
   {
@@ -1186,11 +1246,14 @@ Position SemanticEngine::posFromServer(const std::string& serverUri, Position p)
     if (it != openDocs_.end()) doc = it->second;
   }
   if (doc) {
-    if (!utf8 && p.line < doc->buffer().lineCount())
+    if (auto m = lspMapFor(uri)) return m->fromServer(p, doc->buffer().lines(), !utf8);
+    if (!utf8 && p.column > 0 && p.line < doc->buffer().lineCount())
       p.column = TextBuffer::utf16ToUtf8Column(doc->buffer().line(p.line), p.column);
     return p;
   }
   const fs::path file = uriToPath(uri);
+  if (auto ds = diskSeparators(file)) return ds->map->fromServer(p, ds->text.lines(), !utf8);
+  if (p.column <= 0) return p;
   if (diskEncoding(file) == Encoding::Windows1252) {
     const std::string raw = readLineOfFile(file, p.line);
     const size_t n = std::min(raw.size(), static_cast<size_t>(p.column));
@@ -1246,7 +1309,8 @@ void SemanticEngine::didOpen(Document& doc) {
     openDocs_[doc.uri()] = &doc;
   }
   if (!isCodeDocument(ws_, doc)) return;
-  fast_.updateFile(doc.path(), doc.buffer().text());
+  noteLspText(doc);
+  fast_.updateFile(doc.path(), doc.buffer().textForIndex());
   // clangd gets the document as UTF-8 with the file's real line endings (a continued #define in a CRLF header
   // is not the same input to clang with LF; W9e finding 4). Line/column positions are the same either way.
   if (auto c = clangd()) {
@@ -1258,6 +1322,7 @@ void SemanticEngine::didOpen(Document& doc) {
 
 void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
   if (!isCodeDocument(ws_, doc)) return;
+  noteLspText(doc);
   // Keep the fast index fresh: a single-file re-lex, immediately for ordinary files, once typing pauses for big ones.
   std::function<void(std::function<void()>)> poster;
   if (doc.buffer().byteSize() >= kLazyReindexBytes) {
@@ -1281,16 +1346,18 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
           auto it = openDocs_.find(uri);
           if (it != openDocs_.end()) d = it->second;
         }
-        if (d) fast_.updateFile(d->path(), d->buffer().text());
+        if (d) fast_.updateFile(d->path(), d->buffer().textForIndex());
       });
     });
   } else {
-    fast_.updateFile(doc.path(), doc.buffer().text());
+    fast_.updateFile(doc.path(), doc.buffer().textForIndex());
   }
   if (unsent(doc.uri())) return;
   if (unparkIfParked(doc)) return;  // sent whole, with this change in it
   if (auto c = clangd()) {
-    if (c->offsetEncoding() == "utf-8") {
+    // A change that touches NEL / LS / PS, or a document that has them, is sent whole: the range would need the
+    // server's lines of the text before the edit (LspLineMap describes the text after it).
+    if (c->offsetEncoding() == "utf-8" && !change.separators && !doc.buffer().hasSeparators()) {
       c->didChangeIncremental(doc.uri(), doc.version(), {{change.removed, TextBuffer::lspText(change.newText)}});
     } else {
       c->didChangeFull(doc.uri(), doc.version(), doc.buffer().textForLsp());
@@ -1315,6 +1382,7 @@ void SemanticEngine::didClose(Document& doc) {
     std::lock_guard<std::mutex> lk(mu_);
     openDocs_.erase(uri);
     reindexGen_.erase(uri);
+    if (lspMaps_.erase(uri)) lspMapCount_.store(static_cast<int>(lspMaps_.size()), std::memory_order_relaxed);
     const bool wasUnsent = unsent_.erase(uri) > 0;
     const bool wasParked = parkedDocs_.erase(uri) > 0;
     if (wasUnsent || wasParked) {  // never sent (TU fragment) or parked (configuration switch)
@@ -1577,14 +1645,15 @@ void forEachIdentifier(const Lines& lines, const std::string& name, Fn&& fn) {
 }
 
 std::vector<std::string> splitTextLines(const std::string& text) {
+  // The editor's lines: "\r\n", '\n', a lone '\r', NEL, LS and PS end one (core/LineBreaks.h).
   std::vector<std::string> out;
-  size_t b = 0;
-  for (size_t i = 0; i <= text.size(); ++i) {
-    if (i == text.size() || text[i] == '\n' || (text[i] == '\r' && !(i + 1 < text.size() && text[i + 1] == '\n'))) {
-      out.push_back(text.substr(b, i - b));
-      b = i + 1;
-    }
+  size_t b = 0, len = 0;
+  linebreak::BreakFinder bf(text);
+  for (size_t at = bf.next(0, len); at != std::string::npos; at = bf.next(b, len)) {
+    out.push_back(text.substr(b, at - b));
+    b = at + len;
   }
+  out.push_back(text.substr(b));
   return out;
 }
 
@@ -2110,7 +2179,7 @@ std::string SemanticEngine::lineText(const fs::path& file, int line) const {
       return line >= 0 && line < b.lineCount() ? defchoice::blankComments(b.line(line)) : std::string();
     }
   }
-  return defchoice::blankComments(readLineOfFile(file, line));
+  return defchoice::blankComments(readLineOfFile(file, line, diskEncoding(file) == Encoding::Utf8));
 }
 
 std::optional<Symbol> SemanticEngine::fastSymbolAt(const Location& loc) const {
@@ -2134,7 +2203,17 @@ bool SemanticEngine::openInClangd(const fs::path& file) const {
 
 Position SemanticEngine::serverPosition(const fs::path& file, Position p) const {
   auto c = client();
-  if (!c || c->offsetEncoding() == "utf-8") return p;
+  if (!c) return p;
+  const bool utf16 = c->offsetEncoding() != "utf-8";
+  const Document* doc = nullptr;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(pathToUri(file));
+    if (it != openDocs_.end()) doc = it->second;
+  }
+  if (doc) return toServer(*doc, p);
+  if (auto ds = diskSeparators(file)) return ds->map->toServer(p, ds->text.lines(), utf16);
+  if (!utf16) return p;
   return {p.line, TextBuffer::utf8ToUtf16Column(lineText(file, p.line), p.column)};
 }
 
@@ -2662,13 +2741,17 @@ void SemanticEngine::classifyReferences(std::vector<SymbolLocation>& locs) const
     std::error_code ec;
     std::string bytes;
     if (fs::file_size(file, ec) > (8u << 20) || !readRegularFile(file, bytes)) return it->second;
-    size_t i = 0;
-    while (i <= bytes.size()) {
-      size_t e = i;
-      while (e < bytes.size() && bytes[e] != '\n' && bytes[e] != '\r') ++e;
-      it->second.push_back(bytes.substr(i, e - i));
-      if (e >= bytes.size()) break;
-      i = e + ((bytes[e] == '\r' && e + 1 < bytes.size() && bytes[e + 1] == '\n') ? 2 : 1);
+    if (diskEncoding(file) == Encoding::Utf8) {  // the editor's lines (NEL / LS / PS end one too)
+      it->second = splitTextLines(bytes);
+    } else {  // a single-byte file: lines end at "\r\n", "\n", '\r' only
+      size_t i = 0;
+      while (i <= bytes.size()) {
+        size_t e = i;
+        while (e < bytes.size() && bytes[e] != '\n' && bytes[e] != '\r') ++e;
+        it->second.push_back(bytes.substr(i, e - i));
+        if (e >= bytes.size()) break;
+        i = e + ((bytes[e] == '\r' && e + 1 < bytes.size() && bytes[e + 1] == '\n') ? 2 : 1);
+      }
     }
     return it->second;
   };
@@ -3026,7 +3109,8 @@ std::vector<TokenSpan> SemanticEngine::decodeTokens(const std::string& uri, cons
   auto c = client();
   const bool utf16 = c && c->offsetEncoding() != "utf-8";
   const Document* doc = nullptr;
-  if (utf16) {
+  const auto map = lspMapFor(uri);  // NEL / LS / PS: server lines are editor lines glued together
+  if (utf16 || map) {
     std::lock_guard<std::mutex> lk(mu_);
     auto it = openDocs_.find(uri);
     if (it != openDocs_.end()) doc = it->second;
@@ -3047,6 +3131,19 @@ std::vector<TokenSpan> SemanticEngine::decodeTokens(const std::string& uri, cons
     t.len = static_cast<int>(d[i + 2]);
     t.type = static_cast<uint16_t>(d[i + 3]);
     t.modifiers = d[i + 4];
+    if (map && doc) {  // a token may span a separator: one span per editor line it covers
+      const std::vector<std::string>& lines = doc->buffer().lines();
+      const Position a = map->fromServer({line, col}, lines, utf16);
+      const Position e = map->fromServer({line, col + t.len}, lines, utf16);
+      for (int l = a.line; l <= e.line && l < static_cast<int>(lines.size()); ++l) {
+        TokenSpan part = t;
+        part.line = l;
+        part.col = l == a.line ? a.column : 0;
+        part.len = (l == e.line ? e.column : static_cast<int>(lines[static_cast<size_t>(l)].size())) - part.col;
+        if (part.len > 0) out.push_back(part);
+      }
+      continue;
+    }
     if (utf16 && doc && line < doc->buffer().lineCount()) {
       const std::string& text = doc->buffer().line(line);
       t.col = TextBuffer::utf16ToUtf8Column(text, col);
@@ -3166,9 +3263,19 @@ void SemanticEngine::foldingRanges(const Document& doc, Callback<std::vector<Lsp
   if (!c) return;
   std::string uri = doc.uri();
   c->foldingRanges(uri, [this, uri, cb](std::vector<LspFoldingRange> rs, const std::string& err) {
+    const bool lines = lspMapFor(uri) != nullptr;  // in a document with NEL / LS / PS the line changes too
     for (auto& r : rs) {
-      if (r.startColumn >= 0) r.startColumn = posFromServer(uri, {r.startLine, r.startColumn}).column;
-      if (r.endColumn >= 0) r.endColumn = posFromServer(uri, {r.endLine, r.endColumn}).column;
+      if (!lines) {
+        if (r.startColumn >= 0) r.startColumn = posFromServer(uri, {r.startLine, r.startColumn}).column;
+        if (r.endColumn >= 0) r.endColumn = posFromServer(uri, {r.endLine, r.endColumn}).column;
+        continue;
+      }
+      const Position s = posFromServer(uri, {r.startLine, std::max(r.startColumn, 0)});
+      const Position e = posFromServer(uri, {r.endLine, std::max(r.endColumn, 0)});
+      r.startLine = s.line;
+      r.endLine = e.line;
+      if (r.startColumn >= 0) r.startColumn = s.column;
+      if (r.endColumn >= 0) r.endColumn = e.column;
     }
     cb(std::move(rs), err);
   });

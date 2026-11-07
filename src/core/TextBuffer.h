@@ -4,20 +4,26 @@
 #include <string_view>
 #include <vector>
 
+#include "core/LineBreaks.h"
 #include "core/Position.h"
 
 namespace tf {
 
-enum class LineEnding : uint8_t { LF, CRLF, CR };
+// The first three are what clang knows; NEL (U+0085), LS (U+2028) and PS (U+2029) are line breaks in Visual Studio's
+// editor and here, but ordinary characters to clang / clangd (see "Text for clangd" in docs/ARCHITECTURE.md).
+enum class LineEnding : uint8_t { LF, CRLF, CR, NEL, LS, PS };
+constexpr bool isUnicodeSeparator(LineEnding e) { return e >= LineEnding::NEL; }
 
 // Line-oriented UTF-8 text storage. Lines are stored without terminators.
 // "a\nb\n" is stored as {"a","b",""}, so lineCount() is always >= 1.
-// A line ends at "\r\n", "\n" or a lone '\r' (as in clang and clangd), so a stored line never contains '\r' that
-// came from a line break.
+// A line ends at "\r\n", "\n", a lone '\r', NEL (C2 85), LS (E2 80 A8) or PS (E2 80 A9) like in Visual Studio's editor
+// (core/LineBreaks.h), so a stored line never contains a line break. clang and clangd only know the first three:
+// textForLsp() and LspLineMap bridge the difference.
 //
 // Every line keeps its OWN terminator (Visual Studio does the same: docs/VS_BEHAVIOUR.md section 1): setText() records
 // what each break was, replace() records the breaks of the text it inserts (text handed to replace() is interpreted
-// literally: "\r\n" is a CRLF break, "\n" an LF break, a lone '\r' a CR break), and textForDisk() writes every line
+// literally: "\r\n" is a CRLF break, "\n" an LF break, a lone '\r' a CR break, U+0085 / U+2028 / U+2029 a NEL / LS / PS
+// break), and textForDisk() writes every line
 // with the terminator it has, so a mixed file stays byte for byte what it was. Joining two lines keeps the terminator
 // of the later one. The last line has no terminator. Representation (compact): `base_` is the ending of every line
 // while the document is uniform (the usual case: no per-line storage at all); the first break of a different kind
@@ -35,16 +41,28 @@ class TextBuffer {
   // What a language server is sent for this document: the text with its real line endings (a CRLF file stays CRLF, so
   // the buffer clangd parses is what is on disk and what its index holds: W9e finding 4), except that a lone CR is sent
   // as LF: clangd's LSP layer finds lines at '\n' only while clang's SourceManager also ends them at a lone '\r', so
-  // CR text makes the two disagree. Line numbers and columns are identical for every ending.
+  // CR text makes the two disagree. NEL / LS / PS are sent as the characters they are (clangd does not see them as line
+  // breaks), so with them the language server's lines are not the editor's: positions go through LspLineMap. Without
+  // them line numbers and columns are identical for every ending.
   std::string textForLsp() const;
+  // The text for the fast index (the lexer): '\n' for the breaks clang knows, the separators as characters, so a `//`
+  // comment continues past an LS like it does in clang. Equal to text() when the document has no NEL / LS / PS.
+  std::string textForIndex() const;
   // `text` as a language server must see it (see textForLsp): lone '\r' breaks become '\n', "\r\n" stays.
   static std::string lspText(std::string_view text);
-  // `text` with every line break ('\r\n', '\n', lone '\r') replaced by `e`.
+  // `text` with every line break ('\r\n', '\n', lone '\r', NEL, LS, PS) replaced by `e`.
   static std::string withLineEnding(std::string_view text, LineEnding e);
   // Number of line breaks in `text` ("\r\n" counts once).
   static int countBreaks(std::string_view text);
   static std::string_view terminatorText(LineEnding e) {
-    return e == LineEnding::CRLF ? std::string_view("\r\n") : e == LineEnding::CR ? "\r" : "\n";
+    switch (e) {
+      case LineEnding::CRLF: return "\r\n";
+      case LineEnding::CR: return "\r";
+      case LineEnding::NEL: return "\xC2\x85";
+      case LineEnding::LS: return "\xE2\x80\xA8";
+      case LineEnding::PS: return "\xE2\x80\xA9";
+      default: return "\n";
+    }
   }
 
   int lineCount() const { return static_cast<int>(lines_.size()); }
@@ -58,8 +76,9 @@ class TextBuffer {
   void setLineEnding(LineEnding e);
   bool mixedLineEndings() const;  // the terminators are not all the same
   struct EndingCounts {
-    int crlf = 0, lf = 0, cr = 0;
-    int total() const { return crlf + lf + cr; }
+    int crlf = 0, lf = 0, cr = 0, nel = 0, ls = 0, ps = 0;
+    int total() const { return crlf + lf + cr + nel + ls + ps; }
+    int separators() const { return nel + ls + ps; }
   };
   EndingCounts endingCounts() const;
   // Terminator that follows line `i` (the last line has none: then the ending a break after it would get, which is
@@ -73,6 +92,14 @@ class TextBuffer {
   void compact();
   // The raw terminators of the lines (empty = every line uses lineEnding(); see the class comment).
   bool hasPerLineEndings() const { return !ends_.empty(); }
+
+  // Does a NEL / LS / PS end any line? Then the language server's lines differ from the editor's (see textForLsp).
+  bool hasSeparators() const;
+  // Editor line numbers j (ascending) whose line starts right after a NEL / LS / PS: line j is a continuation of the
+  // language server's line of line j-1 (see LspLineMap). Built on demand and cached until an edit changes the line
+  // structure (keystrokes do not); like every lazily cached value here it must be called on the thread that owns the
+  // buffer.
+  const std::vector<int>& separatorLines() const;
 
   size_t byteSize() const;
 
@@ -127,6 +154,8 @@ class TextBuffer {
   std::vector<LineEnding> ends_;      // empty, or one entry per line (the last one is unused)
   mutable bool statsValid_ = false;
   mutable EndingCounts stats_;
+  mutable bool sepValid_ = false;
+  mutable std::vector<int> sepLines_;
   const EndingCounts& stats() const;
 };
 

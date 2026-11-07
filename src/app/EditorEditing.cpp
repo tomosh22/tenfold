@@ -601,6 +601,16 @@ bool Editor::saveWithLineEnding(Document& doc, LineEnding e, std::string* error)
 bool Editor::saveWithEncoding(Document& doc, EncodingChoice c, std::optional<LineEnding> ending, std::string* error,
                               UnencodableReport* refused) {
   UnencodableReport rep = doc.findUnencodable(c);
+  if (ending && isUnicodeSeparator(*ending) && rep.encoding == Encoding::Windows1252 && doc.buffer().lineCount() > 1) {
+    // The requested line ends (NEL / LS / PS) are characters Windows-1252 does not have; report the first one.
+    const std::string_view t = TextBuffer::terminatorText(*ending);
+    UnencodableChar ch;
+    ch.codePoint = t.size() == 2 ? 0x85u : t[2] == '\xA8' ? 0x2028u : 0x2029u;
+    ch.column = static_cast<int>(doc.buffer().line(0).size());
+    ch.text = std::string(t);
+    rep.chars.insert(rep.chars.begin(), std::move(ch));
+    rep.total += static_cast<size_t>(doc.buffer().lineCount() - 1);
+  }
   if (!rep.empty()) {  // refuse before touching anything: encoding, text and line endings stay as they are
     if (error) *error = doc.path().filename().string() + " was not saved: " + describeUnencodable(rep);
     noteSaveRefused(doc, rep);

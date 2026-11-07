@@ -118,11 +118,12 @@ bool isPair(char open, char close) {
 // `p` moved forward over the first `bytes` bytes of `text`.
 Position advanceBy(Position p, const std::string& text, size_t bytes) {
   for (size_t i = 0; i < bytes && i < text.size(); ++i) {
-    if (text[i] == '\r' && i + 1 < text.size() && text[i + 1] == '\n' && i + 1 < bytes) {  // CRLF is one break
+    size_t n = linebreak::breakLenAt(text, i);  // CRLF, NEL, LS and PS are one break each
+    if (n > 1 && i + n > bytes) n = 1;          // cut inside a break by `bytes`: only its first byte counts
+    if (n == 1 && text[i] != '\n' && text[i] != '\r') n = 0;
+    if (n) {
       p = {p.line + 1, 0};
-      ++i;
-    } else if (text[i] == '\n' || text[i] == '\r') {
-      p = {p.line + 1, 0};
+      i += n - 1;
     } else {
       ++p.column;
     }
@@ -264,7 +265,7 @@ void Editor::watchDocument(Document& doc) {
     // it was (a line-ending rewrite, a whole-line insert or delete), so positions there shift instead of being clamped.
     int lastLine = ch.removed.end.line;
     if (lastLine > ch.removed.start.line && ch.removed.end.column == 0 && !ch.newText.empty() &&
-        (ch.newText.back() == '\n' || ch.newText.back() == '\r')) {
+        linebreak::endsWithBreak(ch.newText)) {
       --lastLine;
       --newLines;
     }

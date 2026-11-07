@@ -251,6 +251,13 @@ TEST(app_copy_cut_paste_multi_caret) {
   CHECK(env.key(Key('V'), ModCtrl));
   CHECK_EQ(doc.buffer().line(4), std::string("Pint a4;"));
   CHECK_EQ(doc.buffer().line(5), std::string("Qint a5;"));
+  // NEL, LS and PS are line breaks too: two lines for two carets, whichever breaks they are separated by.
+  cb.value = "L1\xE2\x80\xA8L2";
+  ed.setSelections({Selection{{1, 0}, {1, 0}}, Selection{{2, 0}, {2, 0}}});
+  CHECK(env.key(Key('V'), ModCtrl));
+  CHECK_EQ(doc.buffer().line(1), std::string("L1int a1;"));
+  CHECK_EQ(doc.buffer().line(2), std::string("L2int a2;"));
+  CHECK(env.key(Key('Z'), ModCtrl));
   // Different line count: the whole text at every caret.
   cb.value = "A\nB\nC";
   ed.setSelections({Selection{{7, 0}, {7, 0}}, Selection{{8, 0}, {8, 0}}});

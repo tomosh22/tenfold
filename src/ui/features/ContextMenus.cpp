@@ -79,6 +79,9 @@ std::vector<MenuEntry> statusMenuEntries(const std::string& segment) {
     return {{"Editor.LineEndingCRLF", "Windows (CR LF)"},
             {"Editor.LineEndingLF", "Unix (LF)"},
             {"Editor.LineEndingCR", "Macintosh (CR)"},
+            {"Editor.LineEndingLS", "Unicode Line Separator (LS)"},
+            {"Editor.LineEndingPS", "Unicode Paragraph Separator (PS)"},
+            {"Editor.LineEndingNEL", "Next Line (NEL)"},
             {},
             {"File.SaveWithLineEndings", "Save with Line Endings..."}};
   if (segment == "encoding")

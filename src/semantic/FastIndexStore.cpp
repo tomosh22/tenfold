@@ -24,8 +24,10 @@ constexpr char kMagic[8] = {'T', 'F', 'F', 'I', 'D', 'X', 0, 1};
 constexpr size_t kHeaderSize = 48;
 constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1;
 constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4;
-constexpr uint32_t kExtractorSalt = 3;  // 3: arity in the flags byte, operator names, macros behind comments, friends,
-                                        // typedef bodies. 2: BOM skipped, lone CR ends lines, C keywords for .c
+constexpr uint32_t kExtractorSalt = 4;  // 4: NEL / LS / PS count as line breaks in token positions (stored lines of
+                                        // files that have them were off). 3: arity in the flags byte, operator names,
+                                        // macros behind comments, friends, typedef bodies. 2: BOM skipped, lone CR
+                                        // ends lines, C keywords for .c
                                         // bump by hand for changes the probe below cannot observe
 
 uint64_t hashBytes(const char* p, size_t n) {

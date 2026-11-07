@@ -1,5 +1,6 @@
 #include "semantic/CppLexer.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <string>
@@ -259,7 +260,26 @@ void CppLexer::skipSpaceAndComments() {
   }
 }
 
+// (Line, column) of offset `off` in the editor's lines: clang's line `clangLine` (starting at `clangLineStart`) plus
+// the NEL / LS / PS before `off`.
+std::pair<int, int> CppLexer::place(size_t off, int clangLine, size_t clangLineStart) {
+  while (sepIdx_ < seps_.size() && seps_[sepIdx_].first < off) ++sepIdx_;
+  size_t from = clangLineStart;
+  if (sepIdx_ > 0) from = std::max(from, seps_[sepIdx_ - 1].first + seps_[sepIdx_ - 1].second);
+  return {clangLine + static_cast<int>(sepIdx_), static_cast<int>(off - from)};
+}
+
 Token CppLexer::next() {
+  Token t = nextRaw();
+  if (seps_.empty()) return t;  // no NEL / LS / PS in the text (nearly always): clang's lines are the editor's
+  const size_t off = t.kind == Tok::End ? i_ : static_cast<size_t>(t.text.data() - s_.data());
+  const auto [line, col] = place(off, t.line, off - static_cast<size_t>(t.col));
+  t.line = line;
+  t.col = col;
+  return t;
+}
+
+Token CppLexer::nextRaw() {
   skipSpaceAndComments();
   if (i_ >= s_.size()) return Token{Tok::End, {}, line_, static_cast<int>(i_ - lineStart_)};
   const size_t start = i_;

@@ -17,6 +17,8 @@
 #include "app/Bookmarks.h"
 #include "build/AnsiStrip.h"
 #include "build/ErrorParser.h"
+#include "core/LspLineMap.h"
+#include "core/TextBuffer.h"
 #include "debug/Breakpoints.h"
 #include "glob_reference.h"
 #include "search/ReplaceInFiles.h"
@@ -177,6 +179,61 @@ const std::vector<std::string> kCppDict = {"namespace",
                                            "@",
                                            "$",
                                            "`"};
+
+// ---------------------------------------------------------------------------------------------------------------------
+// text buffer: NEL / LS / PS line breaks and the clangd position map
+// ---------------------------------------------------------------------------------------------------------------------
+
+void runLineMap(const uint8_t* d, size_t n) {
+  const std::string src = str(d, n);
+  TextBuffer b(src);
+  FUZZ_REQUIRE(b.textForDisk() == src);  // every terminator kept: byte-exact round trip
+  FUZZ_REQUIRE(b.lineCount() == TextBuffer::countBreaks(src) + 1);
+  FUZZ_REQUIRE(b.endingCounts().total() == b.lineCount() - 1);
+  // The lines are the pieces between the breaks of the shared finder.
+  {
+    linebreak::BreakFinder bf(src);
+    size_t from = 0, len = 0;
+    int line = 0;
+    for (size_t at = bf.next(0, len); at != std::string::npos; at = bf.next(from, len)) {
+      FUZZ_REQUIRE(line < b.lineCount() && b.line(line) == src.substr(from, at - from));
+      from = at + len;
+      ++line;
+    }
+    FUZZ_REQUIRE(line == b.lineCount() - 1 && b.line(line) == src.substr(from));
+  }
+  // Converting every break to one kind keeps the lines.
+  for (LineEnding e :
+       {LineEnding::LF, LineEnding::CRLF, LineEnding::CR, LineEnding::NEL, LineEnding::LS, LineEnding::PS}) {
+    TextBuffer c(TextBuffer::withLineEnding(src, e));
+    FUZZ_REQUIRE(c.lineCount() == b.lineCount());
+    for (int i = 0; i < c.lineCount(); ++i) FUZZ_REQUIRE(c.line(i) == b.line(i));
+    FUZZ_REQUIRE(!c.mixedLineEndings());
+  }
+  // The map: absent exactly when there is no separator; positions on line starts and ends round-trip, and the server
+  // line count is what a server counting only '\n' finds in the text it was sent.
+  const std::string lsp = b.textForLsp();
+  const auto m = LspLineMap::build(b);
+  FUZZ_REQUIRE((m != nullptr) == b.hasSeparators());
+  if (!m) return;
+  const int serverLines = 1 + static_cast<int>(std::count(lsp.begin(), lsp.end(), '\n'));
+  FUZZ_REQUIRE(m->serverLineCount(b.lineCount()) == serverLines);
+  int prevLine = -1, prevCol = -1;
+  for (bool utf16 : {true, false})
+    for (int l = 0; l < b.lineCount(); ++l)
+      for (int ci = 0; ci < 2; ++ci) {
+        const int col = ci == 0 ? 0 : static_cast<int>(b.line(l).size());
+        const Position e{l, col};
+        const Position s = m->toServer(e, b.lines(), utf16);
+        FUZZ_REQUIRE(s.line >= 0 && s.line < serverLines && s.column >= 0);
+        FUZZ_REQUIRE(m->fromServer(s, b.lines(), utf16) == e);
+        if (utf16 && ci == 0) {  // monotonic: later editor lines never map before earlier ones
+          FUZZ_REQUIRE(s.line > prevLine || (s.line == prevLine && s.column > prevCol));
+          prevLine = s.line;
+          prevCol = s.column;
+        }
+      }
+}
 
 // ---------------------------------------------------------------------------------------------------------------------
 // lexer
@@ -1053,6 +1110,18 @@ Registrar r12({"linediff",
                 "a\r\nb\r\n\n#--#\na\nb\n\n#--#\n"},
                {"\n", "\r\n", "\r", "\n\n\n", "a\n", "b\n", "a\nb\nc\nd\ne\n", "\n#--#\n"},
                2048});
+Registrar r12b({"linemap",
+                runLineMap,
+                {"src/core:.cpp"},
+                {"a\xE2\x80\xA8"
+                 "b\xE2\x80\xA9"
+                 "c\xC2\x85"
+                 "d\ne\r\nf\rg",
+                 "// c\xE2\x80\xA8int x;\xC2\x85\n/* \xF0\x9F\x98\x80\xE2\x80\xA9 */\n", "\xE2\x80\xA8\xE2\x80\xA8",
+                 "\xC2", "\xE2\x80", "x\xC2\x85", "\r\n\xE2\x80\xA9\r"},
+                {"\n", "\r\n", "\r", "\xC2\x85", "\xE2\x80\xA8", "\xE2\x80\xA9", "\xE2\x80", "\xC2", "\xC3\xA9",
+                 "\xF0\x9F\x98\x80"},
+                1024});
 Registrar r13({"vtscreen",
                runVt,
                {},

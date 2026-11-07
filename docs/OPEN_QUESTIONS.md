@@ -507,7 +507,7 @@ Decided without a user decision because the alternative was the editor terminati
 
 **User decision of 2026-11-07:** "Keep CRLF everywhere, line ending behaviour must be exactly the same as Visual Studio
 and 10x." New files and break-less buffers use CRLF on every platform. Every row below that is marked low / unknown or
-that deviates (Unicode separators, the dialog's list instead of a drop-down and its missing "do not show again" box) is
+that deviates (the dialog's list instead of a drop-down and its missing "do not show again" box) is
 therefore a defect to remove, not an accepted choice: the unknown rows are on the verification checklist
 (docs/VS_BEHAVIOUR.md, section V) and change as soon as Visual Studio's behaviour is confirmed.
 
@@ -535,8 +535,17 @@ constant, branch or setting, easy to change.
   Buttons: VS has a drop-down plus Yes / No; tenfold's modal list has one "Yes: normalize line endings to <ending>" row
   per ending plus "No" (a list popup has no drop-down). Escape and a click outside are No. The "do not show again"
   check box is not drawn: switch `editor.checkLineEndings` off in the settings file.
-* **Unicode separators (L1, L4):** NEL, LS and PS are not line breaks and are not offered by the dialog (VS_BEHAVIOUR 1.3
-  item 8: clang / clangd would disagree on columns). A file using them keeps them as ordinary characters.
+* **Unicode separators (L1, L4): implemented, like VS (2026-11-07).** NEL, LS and PS are line breaks in the buffer
+  (`LineEnding::NEL / LS / PS`), in the status bar, find and replace in files, the fast index, the corpus anchors and the
+  diff, and the dialog, status menu and Save with Encoding list offer them. clang and clangd do not know them, so
+  clangd gets them as characters and every position is converted (ARCHITECTURE, "Text for clangd"). Remaining choices:
+  Enter on a line that ends in LS / PS / NEL replicates that ending (VS's rule for the standard endings, assumed for
+  these); regular expressions see only CR and LF as line ends for `^ $ .` (PCRE2 `ANYCRLF`; `NEWLINE_ANY` would also
+  make form feed and vertical tab line ends); a `//` comment goes on past an LS for the fast tier and clangd (and the
+  editor's highlighter, which colours per editor line, shows the continuation line as code); a document with separators
+  is sent to clangd as full text after each edit; find in files reads files as bytes, so a Windows-1252 file that holds
+  the byte pair `C2 85` (the characters "Â…") would be split there. **Verify in VS (V1):** how VS's colouriser and its
+  `^`/`$` treat LS.
 * **Paste (L8, medium-low):** the Learn text says VS keeps the pasted breaks and one report says it does not; the Learn text
   is followed (`editor.pasteKeepsLineBreaks`, default true; false converts to the Enter ending). Multi-caret paste of N
   lines splits at any break. **To verify (V3).**
@@ -558,8 +567,8 @@ constant, branch or setting, easy to change.
 * **Version control:** the gutter compares lines without terminators (as before), so a line whose only difference is its
   ending is never a changed line; the base text now splits at a lone CR too. The external diff tool gets a mixed buffer
   with its dominant ending only.
-* **clangd:** gets CRLF and LF lines as they are and lone CR as LF (see ARCHITECTURE, "Text for clangd"), so lines and
-  columns always agree.
+* **clangd:** gets CRLF and LF lines as they are, lone CR as LF and NEL / LS / PS as characters (see ARCHITECTURE,
+  "Text for clangd"); lines and columns are converted where they differ.
 
 
 ## VS-ENC detail: encodings like Visual Studio (implemented; VS_BEHAVIOUR section 2, rows E1-E6)

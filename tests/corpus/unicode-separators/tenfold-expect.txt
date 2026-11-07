@@ -1,0 +1,48 @@
+# unicode-separators: NEL (U+0085), LS (U+2028) and PS (U+2029) are line breaks in the editor (Visual Studio does the same)
+# but clang and clangd do not know them. Every anchor below sits on an editor line that starts after a separator, often on
+# a line that shares its clangd line with an earlier editor line, after non-ASCII text (UTF-8 bytes != UTF-16 units).
+# Anchor line / column are the editor's. include/seps.h: a line comment that continues past an LS (hidden_ls is
+# commented out for the compiler, so no tier may answer it), declarations after LS, PS and NEL, a struct whose members
+# are on lines after a PS. src/main.cpp: definitions after LS / PS / NEL, uses after LS / PS.
+
+# ---- fast tier ----
+fast def use_ls_fn -> ls_fn_def | ls_decl
+fast def use_nel_fn -> nel_fn_def | nel_decl
+fast def use_ps_fn -> ps_fn_def | ps_decl
+fast def use_ps_var -> ps_var_def | ps_var_decl
+fast def use_Box_w -> Box_w
+fast def use_Box_h -> Box_h
+fast sym "ls_fn" -> ls_fn_def | ls_decl
+fast sym "nel_fn" -> nel_fn_def | nel_decl
+fast sym "hidden_ls" -> none
+fast sym "hidden_ps" -> none
+
+# ---- final answers ----
+def use_ls_fn -> ls_fn_def
+decl use_ls_fn -> ls_decl
+def use_nel_fn -> nel_fn_def
+decl use_nel_fn -> nel_decl
+def use_ps_fn -> ps_fn_def
+decl use_ps_fn -> ps_decl
+def use_ps_var -> ps_var_def
+decl use_ps_var -> ps_var_decl
+def use_Box_w -> Box_w
+def use_Box_h -> Box_h
+refs ls_decl = ls_decl ls_fn_def use_ls_fn
+refs nel_decl = nel_decl nel_fn_def use_nel_fn
+refs ps_decl = ps_decl ps_fn_def use_ps_fn
+refs ps_var_decl = ps_var_decl ps_var_def use_ps_var
+refs Box_h = Box_h use_Box_h use_Box_h2
+hover use_ls_fn ~ "ls_fn" "int"
+hover use_nel_fn ~ "nel_fn" "int"
+hover use_Box_h ~ "int" "h"
+sym "ls_fn" -> ls_fn_def | ls_decl
+sym "nel_fn" -> nel_fn_def | nel_decl
+sym "Box" ∋ Box
+sym "hidden_ls" -> none
+rename ls_decl renamed_ls
+  ls_decl ls_fn_def use_ls_fn
+rename Box_h height
+  Box_h use_Box_h use_Box_h2
+rename ps_var_decl renamed_ps_var
+  ps_var_decl ps_var_def use_ps_var

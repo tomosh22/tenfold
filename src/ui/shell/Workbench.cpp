@@ -985,13 +985,20 @@ void Workbench::sync() {
   refreshStatus();
 }
 
-// The line-ending segment: one item for the document, like Visual Studio's editor margin (CRLF / LF / CR). VS's label
-// for a document whose lines end differently is not established (docs/VS_BEHAVIOUR.md L14, check V1): until it is,
-// the dominant ending is shown; flip kShowMixedLabel to show "Mixed" instead.
+// The line-ending segment: one item for the document, like Visual Studio's editor margin (CRLF / LF / CR / NEL / LS /
+// PS). VS's label for a document whose lines end differently is not established (docs/VS_BEHAVIOUR.md L14, check V1):
+// until it is, the dominant ending is shown; flip kShowMixedLabel to show "Mixed" instead.
 static std::string lineEndingLabel(const TextBuffer& b) {
   constexpr bool kShowMixedLabel = false;
   if (kShowMixedLabel && b.mixedLineEndings()) return "Mixed";
-  return b.lineEnding() == LineEnding::CRLF ? "CRLF" : b.lineEnding() == LineEnding::CR ? "CR" : "LF";
+  switch (b.lineEnding()) {
+    case LineEnding::CRLF: return "CRLF";
+    case LineEnding::CR: return "CR";
+    case LineEnding::NEL: return "NEL";
+    case LineEnding::LS: return "LS";
+    case LineEnding::PS: return "PS";
+    default: return "LF";
+  }
 }
 
 void Workbench::refreshStatus() {

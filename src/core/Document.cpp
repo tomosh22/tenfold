@@ -82,6 +82,17 @@ UnencodableReport Document::findUnencodable(EncodingChoice c) const {
   for (int l = 0; l < buf_.lineCount(); ++l) {
     if (l == 0 && bom) collectUnencodable(std::string_view(buf_.line(0)).substr(3), 0, rep, 3);
     else collectUnencodable(buf_.line(l), l, rep);
+    // NEL / LS / PS line ends are characters in the file; Windows-1252 has none of them (its 0x85 is U+2026).
+    if (e == Encoding::Windows1252 && buf_.hasTerminator(l) && isUnicodeSeparator(buf_.endingAfter(l))) {
+      const std::string_view t = TextBuffer::terminatorText(buf_.endingAfter(l));
+      UnencodableChar c;
+      c.codePoint = t.size() == 2 ? 0x85u : t[2] == '\xA8' ? 0x2028u : 0x2029u;
+      c.line = l;
+      c.column = static_cast<int>(buf_.line(l).size());
+      c.text = std::string(t);
+      ++rep.total;
+      if (rep.chars.size() < kMaxUnencodableListed) rep.chars.push_back(std::move(c));
+    }
   }
   return rep;
 }
@@ -173,6 +184,9 @@ Document::BatchResult Document::applyBatch(const std::vector<BatchEdit>& edits, 
     olds[k] = buf_.textInRangeRaw(rs[k]);  // with the real line breaks, so undo restores them byte for byte
     be[k] = {rs[k], edits[k].text};
   }
+  bool separators = false;
+  for (size_t k = 0; k < n && !separators; ++k)
+    separators = linebreak::hasSeparator(olds[k]) || linebreak::hasSeparator(edits[k].text);
   BatchResult out;
   out.edits = buf_.replaceMany(be);
 
@@ -205,7 +219,7 @@ Document::BatchResult Document::applyBatch(const std::vector<BatchEdit>& edits, 
   for (size_t k = n; k-- > 0;) {  // one event per edit, last to first, so each range is valid when it is handled
     if (skipped(k)) continue;
     version_ = ++v;
-    Change ch{rs[k], edits[k].text, out.edits[k].lineDelta};
+    Change ch{rs[k], edits[k].text, out.edits[k].lineDelta, separators};
     for (auto& [id, l] : copy) l(*this, ch);
   }
   version_ = v;

@@ -7,10 +7,22 @@ namespace tf::ui {
 namespace fs = std::filesystem;
 
 namespace {
-constexpr LineEnding kEndings[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF};  // VS's order
+// VS's order: Windows, Macintosh, Unix, then the Unicode separators.
+constexpr LineEnding kEndings[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF,
+                                   LineEnding::LS,   LineEnding::PS, LineEnding::NEL};
+constexpr int kEndingCount = static_cast<int>(std::size(kEndings));
+
+std::string endingLabel(LineEnding e) {
+  switch (e) {
+    case LineEnding::LS: return "Unicode Line Separator (LS)";
+    case LineEnding::PS: return "Unicode Paragraph Separator (PS)";
+    case LineEnding::NEL: return "Next Line (NEL)";
+    default: return LineEndingPrompt::endingName(e);
+  }
+}
 
 std::string currentEndingText(const Document& d) {
-  return d.buffer().mixedLineEndings() ? "mixed" : LineEndingPrompt::endingName(d.buffer().lineEnding());
+  return d.buffer().mixedLineEndings() ? "mixed" : endingLabel(d.buffer().lineEnding());
 }
 
 // The encodings Reopen offers: the signature is a property of the bytes, so UTF-8 stands for both UTF-8 forms.
@@ -106,8 +118,8 @@ void EncodingPrompt::openSave(int selected) {
   ListRow save;
   save.key = "save";
   save.primary = d->isUntitled() ? "Use this encoding" : "Save";
-  save.secondary = std::string(encodingLabel(enc_)) + ", " +
-                   (ending_ == 0 ? "Current Setting" : LineEndingPrompt::endingName(kEndings[ending_ - 1]));
+  save.secondary =
+      std::string(encodingLabel(enc_)) + ", " + (ending_ == 0 ? "Current Setting" : endingLabel(kEndings[ending_ - 1]));
   rows.push_back(std::move(save));
   info("head:enc", "Encoding:");
   for (size_t i = 0; i < std::size(kEncodingChoices); ++i) {
@@ -119,11 +131,11 @@ void EncodingPrompt::openSave(int selected) {
     rows.push_back(std::move(r));
   }
   info("head:le", "Line endings:");
-  for (int i = 0; i < 4; ++i) {
+  for (int i = 0; i <= kEndingCount; ++i) {
     ListRow r;
     r.key = "le:" + std::to_string(i);
-    r.primary = std::string(i == ending_ ? "  (*) " : "  ( ) ") +
-                (i == 0 ? "Current Setting" : LineEndingPrompt::endingName(kEndings[i - 1]));
+    r.primary =
+        std::string(i == ending_ ? "  (*) " : "  ( ) ") + (i == 0 ? "Current Setting" : endingLabel(kEndings[i - 1]));
     if (i == 0) r.secondary = currentEndingText(*d);
     rows.push_back(std::move(r));
   }
@@ -138,7 +150,7 @@ void EncodingPrompt::openSave(int selected) {
     } else if (row >= encFirst && row < encFirst + static_cast<int>(std::size(kEncodingChoices))) {
       enc_ = kEncodingChoices[row - encFirst];
       openSave(row);
-    } else if (row >= leFirst && row < leFirst + 4) {
+    } else if (row >= leFirst && row <= leFirst + kEndingCount) {
       ending_ = row - leFirst;
       openSave(row);
     } else {

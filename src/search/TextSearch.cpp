@@ -6,6 +6,7 @@
 #include <cstring>
 #include <thread>
 
+#include "core/LineBreaks.h"
 #include "core/PathUtil.h"
 
 #ifdef TENFOLD_HAVE_PCRE2
@@ -256,24 +257,36 @@ struct Run {
 
 // Per-line bookkeeping while walking a buffer's matches in increasing order.
 struct LineTracker {
+  const char* base;
   const char* end;
-  const char* ls;
-  const char* le;
+  const char* ls;    // start of the current line
+  const char* le;    // its line break (or `end`)
+  size_t leLen = 0;  // length of that break
   int line = 0;
-  LineTracker(const char* d, const char* e) : end(e), ls(d) { le = findNl(d); }
-  // End of the content of the line that starts at `from`: its '\n' (a '\r' before it is stripped by report()), a lone
-  // '\r' (classic Mac files; clang ends lines there too), or the end of the buffer.
-  const char* findNl(const char* from) const {
-    if (from >= end) return end;
-    const char* nl = static_cast<const char*>(memchr(from, '\n', static_cast<size_t>(end - from)));
-    const char* lim = nl ? nl : end;
-    const char* cr = static_cast<const char*>(memchr(from, '\r', static_cast<size_t>(lim - from)));
-    if (cr && !(cr + 1 < end && cr[1] == '\n')) return cr;
-    return lim;
+  linebreak::BreakFinder bf;
+  LineTracker(const char* d, const char* e)
+      : base(d), end(e), ls(d), le(d), bf(std::string_view(d, static_cast<size_t>(e - d))) {
+    le = findNl(d);
+  }
+  // The break that ends the line that starts at `from`: "\r\n", '\n', a lone '\r' (classic Mac files), NEL, LS or PS
+  // (the editor's line breaks, core/LineBreaks.h); the end of the buffer when there is none. `from` only grows.
+  const char* findNl(const char* from) {
+    if (from >= end) {
+      leLen = 0;
+      return end;
+    }
+    size_t len = 0;
+    const size_t at = bf.next(static_cast<size_t>(from - base), len);
+    if (at == std::string_view::npos) {
+      leLen = 0;
+      return end;
+    }
+    leLen = len;
+    return base + at;
   }
   void seek(const char* p) {
-    while (le < end && p > le) {
-      ls = le + 1;
+    while (le < end && p >= le + leLen) {
+      ls = le + leLen;
       ++line;
       le = findNl(ls);
     }
@@ -337,7 +350,6 @@ struct Worker {
     const char* p = d + off;
     lt.seek(p);
     const char* e = lt.le;
-    if (e > lt.ls && e[-1] == '\r') --e;
     SearchMatch m;
     m.file = *file;
     m.line = lt.line;

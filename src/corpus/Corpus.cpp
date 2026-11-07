@@ -8,6 +8,7 @@
 #include <set>
 #include <sstream>
 
+#include "core/LineBreaks.h"
 #include "core/TextEncoding.h"
 
 namespace tf::corpus {
@@ -115,10 +116,11 @@ void scanAnchorsInText(const std::string& relFile, std::string_view text, Anchor
                        std::vector<std::string>& errors) {
   int lineNo = 0;
   size_t pos = 0;
+  linebreak::BreakFinder bf(text);
   while (pos <= text.size()) {
-    // A line ends at "\r\n", "\n" or a lone '\r' (clang's and TextBuffer's rule).
-    size_t nl = text.find_first_of("\r\n", pos), brk = 1;
-    if (nl != std::string_view::npos && text[nl] == '\r' && nl + 1 < text.size() && text[nl + 1] == '\n') brk = 2;
+    // A line ends at "\r\n", "\n", a lone '\r', NEL, LS or PS (TextBuffer's rule, the editor's lines).
+    size_t brk = 1;
+    const size_t nl = bf.next(pos, brk);
     std::string_view line = text.substr(pos, nl == std::string_view::npos ? std::string_view::npos : nl - pos);
     size_t p = 0;
     while ((p = line.find("/*@", p)) != std::string_view::npos) {
