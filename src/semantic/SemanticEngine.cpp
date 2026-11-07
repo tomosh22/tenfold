@@ -489,6 +489,7 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
   // without this the shared -I flags in our private config.yaml would never be applied.
   lo.env.emplace_back("LOCALAPPDATA", pathUtf8(ws_.cacheDir() / "clangd-config"));
 #endif
+  if (opt_.utf16Positions) lo.positionEncodings = {"utf-16"};
   if (opt_.traceLsp) {
     lo.trace = [this](const std::string& dir, const Json& j) { log(dir + " " + dumpSafe(j).substr(0, 400)); };
   }

@@ -155,6 +155,9 @@ class LspClient {
     std::vector<std::string> fallbackFlags;  // used by clangd when no compile command matches
     Process::Env env;                        // extra environment for the server process
     bool clangdFileStatus = true;
+    // Position encodings offered to the server, in order of preference. Tests offer only "utf-16" to exercise the
+    // path of a server that counts UTF-16 code units.
+    std::vector<std::string> positionEncodings = {"utf-8", "utf-16"};
     std::function<void(const std::string&, const Json&)> trace;
   };
 

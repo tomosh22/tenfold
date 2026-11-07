@@ -139,6 +139,7 @@ class SemanticEngine {
     std::filesystem::path logDir;   // empty -> <root>/.tenfold
     std::function<void(const std::string&)> log;
     bool traceLsp = false;
+    bool utf16Positions = false;  // offer clangd only UTF-16 columns (it prefers UTF-8): exercises that path in tests
     int semanticTokensDebounceMs = 150;  // after didOpen / didChange (only while onSemanticTokens has a handler)
     // Crash recovery (D2): after an unexpected clangd exit the engine restarts it after restartBackoffInitialMs,
     // doubling per consecutive crash up to restartBackoffMaxMs. A crash after restartHealthyMs of healthy running

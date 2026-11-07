@@ -96,8 +96,8 @@ bool LspClient::start(const Options& opt, std::string* error, int initTimeoutMs)
         {"executeCommand", Json::object()},
         {"didChangeWatchedFiles", {{"dynamicRegistration", true}}}}},
       {"window", {{"workDoneProgress", true}}},
-      {"general", {{"positionEncodings", Json::array({"utf-8", "utf-16"})}}},
-      {"offsetEncoding", Json::array({"utf-8", "utf-16"})},  // clangd extension
+      {"general", {{"positionEncodings", opt.positionEncodings}}},
+      {"offsetEncoding", opt.positionEncodings},  // clangd extension
   };
   Json initOpts = {{"clangdFileStatus", opt.clangdFileStatus}};
   if (!opt.fallbackFlags.empty()) initOpts["fallbackFlags"] = opt.fallbackFlags;
