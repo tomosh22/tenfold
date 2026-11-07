@@ -30,6 +30,17 @@ inline bool enforcePerf() {
   }();
   return on;
 }
+// A budget in ms, multiplied by TENFOLD_PERF_SCALE (a number >= 1, default 1) for runners that are known to be slower
+// than the machines the budgets were set on (CI sets it where it enforces; see docs/BENCHMARKS.md). Only the tests that
+// call it are scaled.
+inline double perfBudget(double ms) {
+  static const double scale = [] {
+    const char* e = std::getenv("TENFOLD_PERF_SCALE");
+    const double v = e ? std::atof(e) : 1.0;
+    return v >= 1.0 ? v : 1.0;
+  }();
+  return ms * scale;
+}
 }  // namespace tftest
 
 #define TEST(name)                                         \

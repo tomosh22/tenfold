@@ -387,21 +387,34 @@ pathological_ui`, 5 tests, about 20 s) pass in Release and under ASan + UBSan. S
 
 ### UI frame budget (Release, mock font, 1280x720, `tests/ui/test_pathological_ui.cpp`)
 
-Keystroke-to-paint (budget 8 ms), caret at the end of the document, average of 60 keystrokes:
+Keystroke-to-paint (budget 8 ms), caret at the end of the document, 60 keystrokes after 5 warm-up keys. Each cell is
+average / p99 in ms, the median of 5 runs. Before = `bf14c58`, after = W11-PERF-LINES, runs interleaved on the same machine
+(4 cores, llvmpipe, shared with other builds: load average 5 to 6, so the spikes of 4 ms and 8 ms that a loaded scheduler
+adds to single keys show in the p99 of some runs; the best of the 5 runs is within 0.1 ms of the median for all
+"after" cells):
 
-| File | wrap off | wrap on |
-|---|---|---|
-| 300k-line C++ file | 0.59 ms | 0.56 ms |
-| 100k-line text file | 0.34 ms | 0.41 ms |
-| 2 MB single-line comment | 0.33 ms (was 80 ms) | 0.63 ms |
-| 1 MB single-line string | 1.1 ms (was 57 ms) | 0.9 ms |
-| 1 MB single-line C++ expression | 20 ms (was 64 ms) | 15 ms |
-| 550 kB minified C++ line | 9.3 ms (was 31 ms) | 7.1 ms |
-| 2 MB line of wide characters | 35 ms (was 78 ms) | 0.5 ms |
+| File | wrap off, before | wrap off, after | wrap on, before | wrap on, after |
+|---|---|---|---|---|
+| 300k-line C++ file | 0.62 / 1.08 | 0.76 / 1.07 | 0.66 / 3.03 | 0.65 / 0.91 |
+| 100k-line text file | 0.17 / 0.30 | 0.17 / 0.27 | 0.20 / 0.47 | 0.21 / 0.37 |
+| 1 MB single-line C++ expression | **16.9 / 19.3** | 0.04 / 0.08 | **16.3 / 20.8** | 0.51 / 1.19 |
+| 2 MB single-line comment | 0.32 / 0.38 | 0.03 / 0.06 | 0.20 / 0.30 | 0.20 / 0.33 |
+| 1 MB single-line string | 0.82 / 0.99 | 0.03 / 0.06 | 0.86 / 0.98 | 0.25 / 0.43 |
+| 550 kB minified C++ line | **9.6 / 14.7** | 0.06 / 0.09 | **9.3 / 13.0** | 0.36 / 0.43 |
+| 2 MB line of wide characters | **34.4 / 42.9** | 0.04 / 0.06 | 0.28 / 0.49 | 0.33 / 0.38 |
 
-Open to first frame: under 55 ms for the 300k-line file, 15 to 45 ms for the one-line files. PageDown x 20 and Ctrl+End are
-below 1 ms each. The over-budget cells are the "Not fixed" items 1 and 2 below; those combinations are printed but excluded
-from the `PERF_CHECK` (so `TENFOLD_ENFORCE_PERF=1` passes).
+Every cell is now a `PERF_CHECK` on both numbers (8 ms times `TENFOLD_PERF_SCALE`), and CI runs them enforced with a scale
+of 2 (`docs/BENCHMARKS.md`). Open to first frame: under 55 ms for the 300k-line file, 1 to 20 ms for the one-line files (the
+1 MB expression was 63 ms: its line is now lexed once, with resume points, instead of its spans being built too). PageDown
+x 20 and Ctrl+End are below 1 ms each. The 1000-caret line of `textview_perf_keystroke_to_paint_100k_lines` (engine multi-caret
+edit, not a long line) has an average of 2 to 4 ms but a p99 of 4 to 18 ms that follows the machine load; it is outside
+this work (its `PERF_CHECK` is on the average).
+
+Where the time went (callgrind of the 1 MB expression, wrap off): 70% `Highlighter::advance` / `lexLine` (the whole line re-lexed
+for each key), 19% `Highlighter::colorSpans` (1M colour spans copied), the rest in `TextRenderer`; for the wide-character line
+63% `TextLayout::columnForByte` from `WrapLayout::xOf` (caret x and scroll-to-caret, a decode and range lookup of every
+character before the caret) and 36% `layoutLine` walking from byte 0 to the first visible cell; for minified C++ with wrap on
+the same lexing plus the bracket match walking every token of the line to find the partner of the `}` before the caret.
 
 ### Bugs found and fixed (each has a regression test)
 
@@ -433,22 +446,33 @@ from the `PERF_CHECK` (so `TENFOLD_ENFORCE_PERF=1` passes).
    them (60 to 80 ms per keystroke); `TextLayout::columnForByte` and `layoutLine` also walked every cell of the prefix. Fix:
    lay out only the clip, and skip a printable-ASCII prefix with a vectorisable scan (`TextRenderer.cpp`, `TextLayout.cpp`).
    Tests: the `pathological_ui_one_line_files` numbers above (80 ms to 0.3 ms for a 2 MB comment line).
+   (The remaining per-line costs are items 8 and 9.)
 
 7. **A 200 MB source file took 3.4 GB and 20 s to index.** The symbol extractor keeps every token of the file in memory
    (about 16 bytes of RSS per source byte, times the indexing threads). Fix: a source above 64 MiB is not indexed
    (`extractSymbols` returns nothing; the file still opens and edits). Test: `pathological_huge_source_files_are_not_indexed`.
    Not a substitute for a streaming lexer, see "Not fixed" 9.
 
+8. **(W11-PERF-LINES) The highlighter re-lexed the whole line, and built its colour spans, on every keystroke.** A C++ line of
+   500 kB or more cost 10 to 20 ms per key (and 1M `ColorSpan`s were copied); the bracket match walked all its tokens.
+   Fix: a line of 2 KB or more is lexed by windows from resume points (`LexResume`, every 2 KB, also inside string literals), an edit
+   re-lexes from the last point before it and stops where the scanner re-joins the old points (`Highlighter`,
+   `docs/ARCHITECTURE.md` "Very long lines"); the bracket search takes 8 KB windows and stops after 64 KB of long lines (the one
+   place where a long line answers differently from a full scan: a partner farther than 64 KB away is not highlighted).
+   Tests: `long_lines_highlighter_*` (windows equal a full `lexLine` through edits that open and close strings, comments, raw
+   strings and continuations; only a few KB are re-lexed after typing), `long_lines_view_bracket_match_on_a_long_line`.
+9. **(W11-PERF-LINES) Column mapping was O(line) for lines with non-ASCII text.** The caret x, scroll-to-caret, hit testing and
+   the first visible cell of a 1M-character line of CJK / accented text with wrap off took 35 ms per key. Fix: `LineAnchors`
+   keeps a cell boundary and its column every 1 KB of a line of 2 KB or more, built lazily and kept through edits after
+   them; every `TextLayout` mapping and `layoutLine` / `drawSpans` take an optional start `Anchor` (`WrapLayout` owns the
+   cache, so caret, selection, squiggle, find-highlight and mouse geometry all use it). Tests: `long_lines_text_layout_*`,
+   `long_lines_anchors_*` (150 KB of wide characters, combining marks, tabs, control characters and invalid UTF-8, edited at the start,
+   middle and end), `long_lines_view_geometry_*` (caret rect, hit test, scroll, clicks against a plain scan, wrap on and off).
+
 ### Not fixed (need a design change), with reproducers
 
-1. **The highlighter re-lexes the whole line on every keystroke.** A C++ line of 500 kB or more costs 10 to 20 ms per
-   keystroke (`Highlighter::advance` / `lexLine`); minified bundles and generated one-line tables hit it. Needs a maximum
-   tokenisation length (VS Code stops at 20000 characters) with a defined lexer state after the cut, or incremental lexing.
-   Reproduce: `TENFOLD_ENFORCE_PERF=1 xvfb-run -a build-ui/tenfold-ui-tests pathological_ui_one_line` and look at the
-   `expr.cpp` / `minified.cpp` PERF lines.
-2. **Column mapping is O(line) for lines with non-ASCII text.** The fast path in `columnForByte` / `layoutLine` is for
-   printable ASCII; a 1M-character line of CJK / accented text with wrap off takes 35 ms per keystroke (the `cjk.txt` case).
-   A per-line column index (or caching the last mapping) is needed.
+1. and 2. **(both fixed by W11-PERF-LINES, see bugs 8 and 9)** The highlighter re-lexed the whole line on every keystroke (1) and the column mapping was O(line) (2).
+   `FoldModel::detect` still lexes whole lines, but off the main thread on a copy.
 3. **Typing into a 50 MB single line costs about 8 ms in the buffer itself** (already noted in `BENCHMARKS.md`; unchanged).
 4. **Per-keystroke clangd full sync.** With a server that does not speak utf-8 offsets `SemanticEngine::didChange` copies
    the whole document (`didChangeFull`) on every key; not measured (found by reading the code; clangd negotiates utf-8 offsets, where the sync is incremental).

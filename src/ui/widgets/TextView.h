@@ -278,8 +278,13 @@ class TextView : public Widget {
   void forSegments(int line, int b0, int b1, bool withBreak, Fn fn) const;
   void setMarkLines(Scrollbar::Lane lane, std::vector<int> lines);
   void pushMarkers();
+  struct RowWindow {
+    int begin, end;      // bytes of the row that can be seen
+    gfx::Anchor anchor;  // a cell boundary at or left of the first visible one ({} = scan from the start)
+  };
+  RowWindow rowWindow(const RowRef& r, float textX, const RectF& clip) const;
   void drawRowText(PaintContext& ctx, const RowRef& r, float textX, float y, const RectF& clip,
-                   const std::vector<gfx::ColorSpan>* spans);
+                   const std::vector<gfx::ColorSpan>* spans, const gfx::Anchor& from);
   float scrollbarWidth() const;
   void bindListener(Document* d);
   // ---- version control internals ----

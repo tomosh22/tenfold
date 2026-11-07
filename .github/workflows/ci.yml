@@ -288,6 +288,17 @@ jobs:
       - name: UI tests (Xvfb + Mesa llvmpipe)
         run: xvfb-run -a ./build-ui/tenfold-ui-tests
 
+      # The keystroke-to-paint budgets of the pathological files (1 MB lines, wide characters, minified code, 300k lines;
+      # wrap on and off) are CPU-only, so llvmpipe does not matter for them: average and p99 must stay under 8 ms. The
+      # budget is scaled by 2 (16 ms) for the shared runners: the measurements are 0.03 to 1.5 ms on a 4-core
+      # development machine, so there is a factor of 10 of slack, while the regressions this guards against (a line
+      # re-lexed or re-measured per key) cost 17 to 80 ms and still fail. See docs/BENCHMARKS.md.
+      - name: UI pathological keystroke-to-paint budgets (enforced)
+        env:
+          TENFOLD_ENFORCE_PERF: "1"
+          TENFOLD_PERF_SCALE: "2"
+        run: xvfb-run -a ./build-ui/tenfold-ui-tests pathological_ui
+
       - name: Headless screenshot
         run: |
           xvfb-run -a ./build-ui/tenfold-ui --screenshot b1.png

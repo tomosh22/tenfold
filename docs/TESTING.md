@@ -21,8 +21,8 @@ for end-to-end answers on awkward code.
 |---|---|---:|---|
 | `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 676 | clangd for the integration tests (they skip with a message without it) |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 631 | a display (`xvfb-run -a`); golden-image tests skip without one |
+| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 614 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout | 30 | nothing |
-| `tenfold-corpus-tests` | the corpus projects of this file (over about 35 under `tests/corpus`) | 3 | clangd; not part of `ctest` |
 | `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | targets, not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
 
 `ctest --preset release` runs `unit` (`tenfold-tests`), and with the UI also `text` and `ui-unit` (`CMakeLists.txt`,
@@ -380,8 +380,15 @@ Disk: about 350 MB for `--scale full` if every scenario is kept; the driver dele
 * `tests/ui/test_pathological_ui.cpp` (`xvfb-run -a tenfold-ui-tests pathological_ui`): the TextView on a 300k-line C++ file,
   a 100k-line text file, one-line files of 1 to 2 MB (expression, comment, string, minified C++, wide characters), binary /
   NUL / invalid UTF-8 / CR-only files and 5000-deep nesting; wrap on and off. It opens, pages down, goes to the end,
-  types 60 characters, undoes, goes home. The keystroke-to-paint budget (8 ms) is a `PERF_CHECK`: printed always,
-  enforced only with `TENFOLD_ENFORCE_PERF=1` (and only in an optimised, unsanitised build), as in `BENCHMARKS.md`.
+  types 60 characters, undoes, goes home. The keystroke-to-paint budget (8 ms, for the average and for the p99 of the typed
+  keys, every file and both wrap modes) is a `PERF_CHECK`: printed always, enforced only with `TENFOLD_ENFORCE_PERF=1` (and
+  only in an optimised, unsanitised build), multiplied by `TENFOLD_PERF_SCALE` (default 1; CI uses 2), as in `BENCHMARKS.md`.
+* `tests/ui/test_long_lines.cpp` (`tenfold-ui-tests long_lines`): the correctness of the long-line machinery against a plain
+  scan: `TextLayout` with anchors, `LineAnchors` after edits at the start / middle / end of a line of 150 KB with wide
+  characters, combining marks, tabs, control characters and invalid UTF-8, windowed lexing against a full `lexLine` through
+  edits that open and close strings, comments, raw strings and line continuations (and that only a few KB are re-lexed),
+  resuming inside a 100 KB string literal, caret / hit-test / horizontal scroll / mouse geometry of the view with wrap off and on,
+  and the capped bracket search.
 
 On Windows these tests are written to hold there too: names that Windows refuses (`nul.cpp` is a device name; control
 characters, `"` and `|`) are not counted as made, non-ASCII names go through `pathFromUtf8`, and paths past MAX_PATH are

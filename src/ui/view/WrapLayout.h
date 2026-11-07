@@ -7,6 +7,7 @@
 
 #include "core/Document.h"
 #include "ui/gfx/TextLayout.h"
+#include "ui/view/LineAnchors.h"
 
 namespace tf::ui {
 
@@ -32,6 +33,9 @@ namespace tf::ui {
 // visible lines only, with or without wrapping; a hidden line maps to the first row of the next visible line.
 // Per-line functions (rowsOf, rowStart, xOf ...) still answer for a hidden line, they are just never asked for one by
 // the view. Costs: a binary search over the ranges per query, and rebuild() visits the wrapped lines once per change.
+// Very long lines (W11 perf): the cell metrics of a line of 2 KB or more (x <-> byte, columns) come from LineAnchors,
+// column checkpoints every 1 KB that survive edits after them, so the caret, hit testing and selections on a 1 MB line
+// cost a few hundred cells whatever the line length, with wrap on or off.
 // Not thread-safe; mutating state is hidden behind const-less methods only.
 class WrapLayout {
  public:
@@ -79,6 +83,13 @@ class WrapLayout {
   int rowLastCaret(int line, int row);
   // x in pixels from the text origin of the caret position `column`, which must lie on `row` (indent included).
   float xOf(int line, int row, int column);
+  // Cell metrics of a whole line (no wrapping): the column of byte `column`, the line's width in columns, and the last
+  // cached cell boundary at or before a byte / column (to start scanning or drawing there).
+  int columnOfByte(int line, int column);
+  int columnCount(int line);
+  gfx::Anchor anchorAtByte(int line, int column);
+  gfx::Anchor anchorAtColumn(int line, int col);
+  LineAnchors& anchors() { return anchors_; }
 
   // ---- whole document ----
   int firstRowOf(int line);  // visual row index of a line's first row
@@ -127,6 +138,7 @@ class WrapLayout {
   int cols_ = 0, tabWidth_ = 0;
   uint32_t gen_ = 1;
   std::vector<Entry> entries_;  // wrapped lines only, sorted by line
+  LineAnchors anchors_;
   // pre_[i] = rows beyond the first of the visible entries_[0, i); valid when !dirty_.
   std::vector<int> pre_;
   std::vector<int> base_;  // base_[i]: first row of entries_[i] (meaningless for hidden entries)

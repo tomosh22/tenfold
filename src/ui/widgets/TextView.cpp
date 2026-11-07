@@ -15,8 +15,9 @@ namespace {
 Color mix(Color a, Color b, float t) {
   return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1};
 }
-constexpr int kBracketLines = 1000;   // how far a bracket search looks
-constexpr int kFoldDebounceMs = 150;  // typing pause before the regions are recomputed
+constexpr int kBracketLines = 1000;      // how far a bracket search looks
+constexpr size_t kBracketBytes = 65536;  // ... and how many bytes of very long lines it lexes
+constexpr int kFoldDebounceMs = 150;     // typing pause before the regions are recomputed
 }  // namespace
 
 // A region computation off the main thread: owns a copy of the lines, so nothing it reads can change.
@@ -508,7 +509,7 @@ std::string TextView::positionText() const {
   if (!d || !isCurrent() || !root()) return {};
   const Position p = editor_.selections()[0].head;
   return "Ln " + std::to_string(p.line + 1) + ", Col " +
-         std::to_string(geometry().columnForByte(d->buffer().line(p.line), static_cast<size_t>(p.column)) + 1);
+         std::to_string(wrapLayout().columnOfByte(p.line, p.column) + 1);
 }
 
 float TextView::maxScrollY() const {
@@ -565,7 +566,7 @@ void TextView::ensureCaretVisible(bool animate) {
   float tx = 0;
   if (!W.enabled()) {
     const float visW = bounds().w - scrollbarWidth() - L.textOffset(b.lineCount()),
-                cx = L.xForByte(b.line(p.line), p.column);
+                cx = W.xOf(p.line, 0, p.column);  // wrap is off: one row, the whole line
     const float mx = std::min(3 * cw, visW / 4);
     tx = vp_.targetX();
     if (cx - mx < tx) tx = cx - mx;
@@ -596,7 +597,8 @@ void TextView::scrollBy(float dx, float dy) {
     last = std::clamp(wrapLayout().lineOfRow(M.wrapRow(d1)) + 1, first, b.lineCount());
   }
   float widest = 0;
-  for (int i = first; i < last; i = wrap_.nextVisible(i + 1)) widest = std::max(widest, L.lineWidth(b.line(i)));
+  for (int i = first; i < last; i = wrap_.nextVisible(i + 1))
+    widest = std::max(widest, static_cast<float>(wrap_.columnCount(i)) * L.cellWidth());
   const float maxX =
       std::max(0.0f, widest + 2 * L.cellWidth() - (bounds().w - scrollbarWidth() - L.textOffset(b.lineCount())));
   vp_.scrollTo(std::clamp(vp_.targetX() + dx, 0.0f, std::max(maxX, vp_.targetX())),
@@ -687,27 +689,61 @@ int TextView::onTick(int64_t nowMs) {
   return wait;
 }
 
+// The part of a row that can be seen: for a row of a very long line (wrap off, or a wide window) the bytes from the
+// anchor at the clip's left edge to the cell past its right edge; the colouring only lexes these. Short rows: all.
+TextView::RowWindow TextView::rowWindow(const RowRef& r, float textX, const RectF& clip) const {
+  RowWindow w{r.start, r.end, {}};
+  if (r.end - r.start < static_cast<int>(LineAnchors::kMinLine)) return w;
+  const gfx::TextLayout& tl = root()->editorText().textLayout();
+  const float cw = tl.cellWidth(), x = textX + static_cast<float>(r.indent) * cw;
+  const int c0 = std::max(0, static_cast<int>(std::floor((clip.x - x) / cw)));
+  const int c1 = std::max(c0, static_cast<int>(std::ceil((clip.x + clip.w - x) / cw)) + 2);
+  const std::string& line = document()->buffer().line(r.line);
+  if (r.start == 0 && r.end == static_cast<int>(line.size())) {  // the whole line: its anchors apply
+    w.anchor = wrap_.anchorAtColumn(r.line, c0);
+    w.begin = static_cast<int>(w.anchor.byte);
+    w.end = static_cast<int>(tl.byteForColumn(line, c1, w.anchor));
+    w.end = std::min(r.end, w.end + 1);
+  }
+  return w;
+}
+
 void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, float y, const RectF& clip,
-                           const std::vector<gfx::ColorSpan>* spans) {
+                           const std::vector<gfx::ColorSpan>* spans, const gfx::Anchor& from) {
   const std::string& line = document()->buffer().line(r.line);
   const float cw = root()->editorText().cellWidth();
   const float x = textX + static_cast<float>(r.indent) * cw;
-  // Draws bytes [a, b) of the line with its x at `sx`.
+  if (!rowHasHints(r.line, r.row)) {
+    // No inlay hints on this row: one draw from the row's (or, on a very long line, the visible window's) anchor.
+    const bool whole = r.start == 0 && r.end >= static_cast<int>(line.size());
+    const std::string_view v =
+        whole ? std::string_view(line)
+              : std::string_view(line).substr(static_cast<size_t>(r.start), static_cast<size_t>(r.end - r.start));
+    if (!spans) {
+      if (from.byte > 0) ctx.textRenderer.drawSpans(x, y, v, {}, {ctx.theme.text}, 0, clip, from);
+      else ctx.text(x, y, v, ctx.theme.text, clip);
+      return;
+    }
+    if (whole) {
+      ctx.textRenderer.drawSpans(x, y, v, *spans, hl_.palette(), hl_.defaultColor(), clip, from);
+      return;
+    }
+    rowSpans_.clear();
+    const uint32_t a = static_cast<uint32_t>(r.start), e = static_cast<uint32_t>(r.end);
+    auto it = std::partition_point(spans->begin(), spans->end(), [a](const gfx::ColorSpan& s) { return s.end <= a; });
+    for (; it != spans->end() && it->begin < e; ++it)
+      rowSpans_.push_back({std::max(it->begin, a) - a, std::min(it->end, e) - a, it->color});
+    ctx.textRenderer.drawSpans(x, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
+    return;
+  }
+  // A row with inlay hints: the pieces between the hints, each with the spans that touch it, and the hints.
   auto slice = [&](int a, int b, float sx) {
     if (b <= a) return;
-    const bool whole = a == 0 && b >= static_cast<int>(line.size());
-    const std::string_view v = whole
-                                   ? std::string_view(line)
-                                   : std::string_view(line).substr(static_cast<size_t>(a), static_cast<size_t>(b - a));
+    const std::string_view v = std::string_view(line).substr(static_cast<size_t>(a), static_cast<size_t>(b - a));
     if (!spans) {
       ctx.text(sx, y, v, ctx.theme.text, clip);
       return;
     }
-    if (whole) {
-      ctx.textRenderer.drawSpans(sx, y, v, *spans, hl_.palette(), hl_.defaultColor(), clip);
-      return;
-    }
-    // A row of a wrapped line, or a piece between inlay hints: the spans that touch it, relative to its start.
     rowSpans_.clear();
     const uint32_t ua = static_cast<uint32_t>(a), ue = static_cast<uint32_t>(b);
     auto it =
@@ -716,29 +752,25 @@ void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, floa
       rowSpans_.push_back({std::max(it->begin, ua) - ua, std::min(it->end, ue) - ua, it->color});
     ctx.textRenderer.drawSpans(sx, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
   };
-  if (!hintsShown_ || hints_.empty()) {
-    slice(r.start, r.end, x);
-    return;
-  }
   const auto [h0, h1] = hints_.ofLine(r.line);
   const int len = static_cast<int>(line.size());
   const Theme& th = ctx.theme;
   const float lh = root()->editorText().lineHeight();
-  int from = r.start;
-  float cx = x;  // x of byte `from`
+  int at = r.start;
+  float cx = x;  // x of byte `at`
   for (size_t i = h0; i < h1; ++i) {
     const InlayMap::Item& h = hints_.items()[i];
     if (!InlayMap::onRow(h, r.start, r.end, len)) continue;
-    slice(from, h.col, cx);
-    cx += wrap_.xOf(r.line, r.row, h.col) - wrap_.xOf(r.line, r.row, from);
-    from = h.col;
+    slice(at, h.col, cx);
+    cx += wrap_.xOf(r.line, r.row, h.col) - wrap_.xOf(r.line, r.row, at);
+    at = h.col;
     const float w = static_cast<float>(h.width()) * cw;
     const Color bg = Theme::orElse(th.inlayHintBackground, mix(th.panelBackground, th.text, 0.12f));
     ctx.fill(intersect({cx, y, w - 1, lh}, clip), bg);
     ctx.text(cx + cw / 2, y, h.text, Theme::orElse(th.inlayHint, th.textDim), intersect({cx, y, w, lh}, clip));
     cx += w;
   }
-  slice(from, r.end, cx);
+  slice(at, r.end, cx);
 }
 
 // ---- Quick Actions light bulb and inlay hints (W11-GUI-LSP) ----
@@ -978,11 +1010,27 @@ void TextView::paint(PaintContext& rootCtx) {
       ctx.text(b.x + L.numbersRight(n) - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText,
                gutterClip);
     }
+    const bool longRow = r.end - r.start >= static_cast<int>(LineAnchors::kMinLine);
+    RowWindow win{r.start, r.end, {}};
+    if (longRow) win = rowWindow(r, textX, clip);
     if (colour && r.line != spanLine) {
       spanLine = r.line;
-      spans = &hl_.colorSpans(r.line);
+      if (hl_.isLong(r.line)) {  // lexed by windows: one for all the rows of this line on screen
+        const auto [lo, hi] = visibleRange(r.line);
+        size_t b = ~size_t{0}, e = 0;
+        for (size_t i = lo; i < hi; ++i) {
+          const RowWindow w = vis_[i].end - vis_[i].start >= static_cast<int>(LineAnchors::kMinLine)
+                                  ? rowWindow(vis_[i], textX, clip)
+                                  : RowWindow{vis_[i].start, vis_[i].end, {}};
+          b = std::min(b, static_cast<size_t>(w.begin));
+          e = std::max(e, static_cast<size_t>(w.end));
+        }
+        spans = &hl_.colorSpans(r.line, b, e);
+      } else {
+        spans = &hl_.colorSpans(r.line);
+      }
     }
-    drawRowText(ctx, r, textX, y, clip, colour ? spans : nullptr);
+    drawRowText(ctx, r, textX, y, clip, colour ? spans : nullptr, win.anchor);
     if (fold_.hasCollapsed() && r.end >= static_cast<int>(buf.line(r.line).size()))
       if (const FoldModel::Region* cr = fold_.collapsedAt(r.line)) {
         float gap = 0;
@@ -1037,33 +1085,49 @@ std::optional<std::pair<Position, Position>> TextView::bracketMatch() {
   const Position p = b.clamp(editor_.selections()[0].head);
   const std::string& text = b.line(p.line);
   static const char kBr[] = "()[]{}";
+  std::vector<LexSpan> puncts;
   for (int back = 0; back < 2; ++back) {  // the character after the caret first, then the one before it
     const int col = p.column - back;
     if (col < 0 || col >= static_cast<int>(text.size()) || !text[static_cast<size_t>(col)]) continue;
     const char* at = std::strchr(kBr, text[static_cast<size_t>(col)]);
-    const std::vector<LexSpan>* here = hl_.lineSpans(p.line);
-    if (!at || !here) continue;
-    bool punct = false;  // brackets inside comments / strings are not brackets
-    for (const LexSpan& s : *here) punct |= s.kind == Lex::Punct && s.begin == static_cast<uint32_t>(col);
-    if (!punct) continue;
+    if (!at) continue;
+    puncts.clear();  // brackets inside comments / strings are not brackets
+    if (!hl_.punctuation(p.line, static_cast<size_t>(col), static_cast<size_t>(col) + 1, puncts, false) ||
+        puncts.empty() || puncts[0].begin != static_cast<uint32_t>(col))
+      continue;
     // Search only where the exact lexical pass is (or can cheaply be) ahead of us; a cold far-away caret waits for it.
     if (p.line + kBracketLines > hl_.exactLines() + Highlighter::kSyncBudget) return std::nullopt;
     hl_.ensureExact(std::min(b.lineCount() - 1, p.line + kBracketLines));
     const bool open = (at - kBr) % 2 == 0;
     const char self = *at, other = open ? at[1] : at[-1];
     int depth = 1;
-    for (int l = p.line; l >= 0 && l < b.lineCount() && std::abs(l - p.line) <= kBracketLines; l += open ? 1 : -1) {
-      const std::vector<LexSpan>* spans = hl_.exactSpans(l);
-      if (!spans) break;
+    size_t budget = kBracketBytes;  // bytes of long lines still to search (a short line is always searched whole)
+    bool unprepared = false;
+    for (int l = p.line; !unprepared && l >= 0 && l < b.lineCount() && std::abs(l - p.line) <= kBracketLines;
+         l += open ? 1 : -1) {
       const std::string& ln = b.line(l);
-      for (size_t k = 0; k < spans->size(); ++k) {
-        const LexSpan& s = (*spans)[open ? k : spans->size() - 1 - k];
-        if (s.kind != Lex::Punct ||
-            (l == p.line && (open ? static_cast<int>(s.begin) <= col : static_cast<int>(s.begin) >= col)))
-          continue;
-        if (ln[s.begin] == self) ++depth;
-        else if (ln[s.begin] == other && --depth == 0)
-          return std::make_pair(Position{p.line, col}, Position{l, static_cast<int>(s.begin)});
+      const size_t lo = l == p.line && open ? static_cast<size_t>(col) + 1 : 0,
+                   hi = l == p.line && !open ? static_cast<size_t>(col) : ln.size();
+      const bool longLine = hl_.isLong(l);
+      // A long line is searched in windows from the caret outwards, so each lexes a few KB.
+      const size_t chunk = longLine ? 8192 : std::max<size_t>(1, ln.size());
+      for (size_t done = 0; lo + done < hi;) {
+        if (longLine && budget == 0) break;
+        const size_t n = std::min(chunk, hi - lo - done);
+        const size_t a = open ? lo + done : hi - done - n, z = a + n;
+        puncts.clear();
+        if (!hl_.punctuation(l, a, z, puncts, true)) {
+          unprepared = true;
+          break;
+        }
+        for (size_t k = 0; k < puncts.size(); ++k) {
+          const LexSpan& s = puncts[open ? k : puncts.size() - 1 - k];
+          if (ln[s.begin] == self) ++depth;
+          else if (ln[s.begin] == other && --depth == 0)
+            return std::make_pair(Position{p.line, col}, Position{l, static_cast<int>(s.begin)});
+        }
+        done += n;
+        if (longLine) budget -= std::min(budget, n);
       }
     }
   }

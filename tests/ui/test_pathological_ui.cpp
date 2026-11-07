@@ -1,9 +1,9 @@
 // W9f: the TextView on pathological files: a giant C++ file, a text file with 100k lines, one-line files of 1-3 MB
 // (a plain expression, a comment, a minified program), a file full of NULs / invalid UTF-8, and a very deep nesting.
 // For each: open, first frame, scroll to the end and back, type, undo, soft wrap on and off, with the
-// keystroke-to-paint budget (8 ms; PERF_CHECK, enforced only with TENFOLD_ENFORCE_PERF=1, and only in optimised
-// unsanitised builds). The functional parts (no crash, no hang, the caret ends up where it should, the view still
-// paints) always run.
+// keystroke-to-paint budget (8 ms, average and p99 over the typed keys; PERF_CHECK, enforced only with
+// TENFOLD_ENFORCE_PERF=1, scaled by TENFOLD_PERF_SCALE, and only in optimised unsanitised builds). The functional parts
+// (no crash, no hang, the caret ends up where it should, the view still paints) always run.
 //
 // tools/stress/run_pathological.py runs the same bodies on the full-size files when TENFOLD_PATHOLOGICAL_DIR is set.
 #include <algorithm>
@@ -156,8 +156,12 @@ struct PFx {
   Position head() const { return ed->selections()[0].head; }
 };
 
-// Types `n` characters, one frame each; returns the average keystroke-to-paint in ms and prints it.
-double typing(PFx& f, int n, const std::string& what) {
+struct Typing {
+  double avg = 0, p99 = 0, max = 0;
+};
+
+// Types `n` characters, one frame each; prints the keystroke-to-paint times in ms.
+Typing typing(PFx& f, int n, const std::string& what) {
   for (int i = 0; i < 5; ++i) f.typeChar();
   std::vector<double> t;
   for (int i = 0; i < n; ++i) {
@@ -168,13 +172,25 @@ double typing(PFx& f, int n, const std::string& what) {
   std::sort(t.begin(), t.end());
   double sum = 0;
   for (double x : t) sum += x;
+  Typing r{sum / static_cast<double>(t.size()), t[static_cast<size_t>(static_cast<double>(t.size()) * 0.99)], t.back()};
   std::printf("PERF: pathological %s: keystroke-to-paint avg %.3f ms / p99 %.3f ms / max %.3f ms (budget 8 ms)\n",
-              what.c_str(), sum / t.size(), t[static_cast<size_t>(static_cast<double>(t.size()) * 0.99)], t.back());
-  return sum / static_cast<double>(t.size());
+              what.c_str(), r.avg, r.p99, r.max);
+  return r;
 }
 
+// The budget of every pathological case: 8 ms, for the average and for the p99 (the slowest keys), scaled for CI.
+#if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
+#define PATHO_BUDGET(t, what)                                                                    \
+  do {                                                                                           \
+    PERF_CHECK((t).avg < tftest::perfBudget(8.0), "pathological " + (what) + " average (8 ms)"); \
+    PERF_CHECK((t).p99 < tftest::perfBudget(8.0), "pathological " + (what) + " p99 (8 ms)");     \
+  } while (0)
+#else
+#define PATHO_BUDGET(t, what) ((void)(t))
+#endif
+
 // open -> first frame -> End/Home -> PageDown x N -> Ctrl+End -> type -> undo; checks positions and that frames paint.
-void session(PFx& f, const std::string& what, int expectLastLine, bool keystrokeBudget = true) {
+void session(PFx& f, const std::string& what, int expectLastLine) {
   std::printf("PERF: pathological %s: open %.1f ms, first frame %.1f ms\n", what.c_str(), f.openMs, f.firstFrameMs);
   CHECK(f.rec.quads > 0);  // the first screenful was drawn
   CHECK(f.firstFrameMs < 30000);
@@ -193,13 +209,8 @@ void session(PFx& f, const std::string& what, int expectLastLine, bool keystroke
 
   const size_t before = f.doc->buffer().byteSize();
   const int nKeys = kSan > 1 ? 15 : 60;  // + 5 warm-up keys
-  const double avg = typing(f, nKeys, what + ", caret at the end");
-#if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-  if (keystrokeBudget) PERF_CHECK(avg < 8.0, "pathological " + what + " keystroke-to-paint (8 ms)");
-#else
-  (void)avg;
-  (void)keystrokeBudget;
-#endif
+  const Typing typed = typing(f, nKeys, what + ", caret at the end");
+  PATHO_BUDGET(typed, what);
   CHECK_EQ(f.doc->buffer().byteSize(), before + static_cast<size_t>(nKeys) + 5);
   t = clk::now();
   f.key(Key('Z'), ModCtrl);  // the typing was one undo group or a few: undo until the text is the original
@@ -239,25 +250,19 @@ TEST(pathological_ui_one_line_files) {
     const char* name;
     std::string content;
     const char* what;
-    // Known over-budget combinations (printed, never enforced), see docs/STRESS_RESULTS.md: a C++ line of 500 kB or
-    // more is re-lexed by the highlighter on every keystroke (10-20 ms), and a line of 1M+ wide characters takes the
-    // slow column mapping (35 ms with wrap off).
-    bool budgetOff = false, budgetOn = true;
   };
   std::vector<Case> cases;
+  cases.push_back({"expr.cpp", "int long_expr = " + rep("1+", scaled(500000)) + "1;", "1 MB single-line expression"});
+  cases.push_back({"comment.cpp", "// " + rep("word ", scaled(400000)), "2 MB single-line comment"});
   cases.push_back(
-      {"expr.cpp", "int long_expr = " + rep("1+", scaled(500000)) + "1;", "1 MB single-line expression", false, false});
-  cases.push_back({"comment.cpp", "// " + rep("word ", scaled(400000)), "2 MB single-line comment", true, true});
-  cases.push_back({"string.cpp", "const char* s = \"" + rep("ab\\n", scaled(300000)) + "\";", "1 MB single-line string",
-                   true, true});
+      {"string.cpp", "const char* s = \"" + rep("ab\\n", scaled(300000)) + "\";", "1 MB single-line string"});
   std::string mini;
   for (int i = 0; i < 6000; ++i)
     mini += "namespace n" + std::to_string(i % 9) + "{class W" + std::to_string(i) +
             "{public:int u(int x)const;};int W" + std::to_string(i) + "::u(int x)const{return x*" + std::to_string(i) +
             ";}}";
-  cases.push_back({"minified.cpp", mini, "minified C++ on one line", false, false});
-  cases.push_back(
-      {"cjk.txt", rep("\xe4\xb8\xad\xe6\x96\x87 ", scaled(300000)), "single line of wide characters", false, true});
+  cases.push_back({"minified.cpp", mini, "minified C++ on one line"});
+  cases.push_back({"cjk.txt", rep("\xe4\xb8\xad\xe6\x96\x87 ", scaled(300000)), "single line of wide characters"});
   for (auto& c : cases) {
     for (bool wrap : {false, true}) {
       PFx f(c.content, c.name, wrap);
@@ -272,12 +277,8 @@ TEST(pathological_ui_one_line_files) {
       CHECK(f.rec.quads > 0);
       const size_t before = f.doc->buffer().byteSize();
       const int nKeys = kSan > 1 ? 10 : 40;
-      const double avg = typing(f, nKeys, what + ", caret at the end");
-#if defined(NDEBUG) && !defined(__SANITIZE_ADDRESS__)
-      if (wrap ? c.budgetOn : c.budgetOff) PERF_CHECK(avg < 8.0, "pathological " + what + " keystroke-to-paint (8 ms)");
-#else
-      (void)avg;
-#endif
+      const Typing typed = typing(f, nKeys, what + ", caret at the end");
+      PATHO_BUDGET(typed, what);
       CHECK_EQ(f.doc->buffer().byteSize(), before + static_cast<size_t>(nKeys) + 5);
       for (int i = 0; i < 100 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
       CHECK_EQ(f.doc->buffer().byteSize(), before);

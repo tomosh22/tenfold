@@ -2056,7 +2056,44 @@ elsewhere (another view, LSP edits, Back/Forward) are noticed by comparing docum
 event and tick, and the caret is scrolled into view. Settings: `smoothScroll` (default off) and `wordWrap` (default
 on) per OPEN_QUESTIONS #4 (answered), `caretBlink`, `caretBlinkMs`, `highlightCurrentLine`, `wheelLines`.
 Measured keystroke-to-paint (key event, edit, sync, layout, paint recording; 100k lines, 1920x1080) is ~0.1 ms with one
-caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpipe submit is not representative.
+caret and ~0.35 ms with 1000 carets against the 8 ms budget (§1.7); the llvmpipe submit is not representative. Lines of
+megabytes are handled by column anchors and windowed lexing (next section); the pathological files of W9f are within the
+budget, average and p99, with wrap on and off.
+
+#### Very long lines (W11 perf, `src/ui/view/{LineAnchors,Highlighter}.*`, `gfx::TextLayout`, `TextView`)
+
+A line of a megabyte (a minified bundle, a generated table, a log without line breaks) used to cost a pass over the whole
+line per keystroke in three places: the highlighter re-lexed it and rebuilt its colour spans, the caret / hit-test /
+scroll code measured it with `TextLayout` from byte 0 (35 ms for 1M wide characters), and the bracket match walked its
+tokens. Everything on screen is now proportional to what is visible, plus a bounded re-scan around the edit:
+
+* **Column anchors** (`LineAnchors`, owned by `WrapLayout`, which already listens to every `Document::Change`). For a line of
+  at least `kMinLine` (2048) bytes the cache holds a `gfx::Anchor` (a cell boundary and its column) every 1 KB, built front
+  to back only as far as a query asks. `WrapLayout::xOf`, `positionIn`, `columnOfByte`, `columnCount` and the draw path
+  start `TextLayout::{columnForByte, byteForColumn, byteForX, layoutLine}` at the nearest anchor (every one of those takes
+  an optional `Anchor`; none given = the old scan from byte 0, so short lines and all other callers are untouched).
+  An edit keeps the anchors that end at least one UTF-8 sequence before it and drops the rest, and shifts the entries of
+  the lines below; typing at the end of a line keeps them all, typing at the start throws them away and the next query
+  rebuilds only what the screen needs. Tab stops depend on the column, which is why anchors carry it and why nothing
+  after an edit is shifted instead of rebuilt. `TextView::rowWindow` turns the clip rect into the visible byte window
+  (anchor at the left edge to the cell past the right edge) and `drawRowText` passes the anchor to `TextRenderer::drawSpans`.
+* **Windowed lexing** (`Highlighter`). A line of `kLongLine` (2048) bytes or more keeps no span list. Its entry holds
+  *resume points* every 2 KB (`LexResume`: byte, whether only whitespace / comments came before so far, and, inside a string
+  or char literal, its quote character, so a 1 MB literal is resumable too) and the end state the next line needs.
+  `colorSpans(line, from, to)` lexes only that window from the resume point before `from` and caches it; `TextView` asks
+  once per line for the union of its visible rows. `lexLine` is the same scanner (`lexCore`) with a stop that never fires,
+  so short lines lex exactly as before. After an edit the entry keeps its resume points before the edit and the old ones
+  behind it, shifted ("tail"); re-lexing resumes at the last kept point and ends at the first position where the scanner
+  is in the same state as a tail point (the text after it is unchanged, so are the colours and the end state), which for
+  ordinary typing is the next resume point: a few KB, not the line. An edit that changes what follows (an opened string
+  or comment) scans on to the end of the line once. The semantic-token overlay is unchanged.
+* **Bracket matching** on a long line asks `Highlighter::punctuation(line, from, to)` for the punctuation tokens of 8 KB
+  windows from the caret outwards and gives up after 64 KB of long lines (`kBracketBytes`); shorter lines are searched whole as
+  before. The one behaviour that is not "the same answer as a full scan".
+* Costs: typing at the end of a 1 MB line is 0.03 to 0.1 ms of CPU in the view with wrap off and 0.2 to 1.3 ms with wrap
+  on (a screenful of rows of one line, each measured from its row start); see `docs/STRESS_RESULTS.md` for the table.
+  `FoldModel::detect` (off the main thread, on a copy of the lines) still lexes whole lines. Correctness of anchors,
+  windows and the view geometry after edits at the start / middle / end of long lines: `tests/ui/test_long_lines.cpp`.
 
 #### Soft word wrap (B2c, `src/ui/view/WrapLayout.*`)
 
