@@ -9,11 +9,12 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace tf {
 
-enum class SymbolKind {
+enum class SymbolKind : uint8_t {
   Namespace,
   Class,
   Struct,
@@ -35,15 +36,22 @@ const char* symbolKindName(SymbolKind k);
 struct Symbol {
   std::string name;   // unqualified, e.g. "length_sq"
   std::string scope;  // qualified enclosing scope, e.g. "geo::Vec2" ("" at global scope)
+  int line = 0;       // 0-based
+  int col = 0;        // 0-based byte column of the name token
   SymbolKind kind = SymbolKind::Unknown;
-  int line = 0;  // 0-based
-  int col = 0;   // 0-based byte column of the name token
   bool definition = true;
   bool isTemplate = false;
   // Number of declared parameters of a function / method / constructor (default arguments count, `(void)` is 0),
   // -1 when not a function or unknown. Used to pair a prototype with its definition; capped at kMaxArity. For a macro:
   // -1 object-like, the parameter count for a function-like macro.
   int8_t arity = -1;
+  // Function / method / constructor: the number of parameters without a default argument (-1 unknown); a call with
+  // n arguments can reach it when minArity <= n <= arity, or n >= minArity when `variadic` (a trailing `...`).
+  int8_t minArity = -1;
+  bool variadic = false;
+  // Internal linkage that is visible in the symbol's own file only: `static` at namespace scope (functions and
+  // variables). Entities in an anonymous namespace carry "(anonymous)" in their scope instead.
+  bool fileLocal = false;
   std::string qualified() const { return scope.empty() ? name : scope + "::" + name; }
 };
 
@@ -153,6 +161,21 @@ class FastIndex {
   static std::vector<Match> shapeAnswer(std::vector<Match> matches, const Shape& shape);
   std::shared_ptr<const FileSymbols> fileSymbols(const std::filesystem::path& file) const;
 
+  // The files whose declarations `file` can see through #include, transitively, `file` itself first-class: their
+  // path keys (FastIndex::pathKey). An include is resolved the way the compiler's quoted lookup would: next to the
+  // includer, else by path suffix against the indexed files (no include directories are known to the lexer index).
+  // Null when the walk reaches more than `maxFiles` files (the answer is then "no restriction"). Cached per file
+  // until a file is added, removed or changes its #include list.
+  // `quoteDirs` / `angleDirs` (optional) are the include directories of the file's compile command, in the order the
+  // compiler searches them: a spelling is looked up next to the includer (quoted only), in `quoteDirs` (quoted only),
+  // then in `angleDirs`; a spelling none of them resolves falls back to the path-suffix rule.
+  using Reach = std::unordered_set<std::string>;
+  std::shared_ptr<const Reach> reachableFrom(const std::filesystem::path& file,
+                                             const std::vector<std::filesystem::path>& quoteDirs = {},
+                                             const std::vector<std::filesystem::path>& angleDirs = {},
+                                             size_t maxFiles = 6000) const;
+  static std::string pathKey(const std::filesystem::path& p);
+
   size_t fileCount() const;
   size_t symbolCount() const;
   // Distinct #include paths seen anywhere in the index (for include-dir inference).
@@ -179,6 +202,14 @@ class FastIndex {
   std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> files_;  // key: generic path string
   NameMap byName_;                                                             // key: exact name
   size_t symbolCount_ = 0;
+  std::unordered_map<std::string, std::vector<const FileSymbols*>> byBase_;  // lower-cased file name -> files
+  std::atomic<uint64_t> reachGen_{1};  // bumped when the #include graph may have changed
+  struct ReachEntry {
+    uint64_t gen = 0;
+    std::shared_ptr<const Reach> set;
+  };
+  mutable std::mutex reachMu_;
+  mutable std::unordered_map<std::string, ReachEntry> reach_;
   std::atomic<uint64_t> generation_{0};
   std::atomic<int> searchThreads_{0};
   // Per indexed file: its add order (search tie-break for qualified queries: refs of one name are in add order)

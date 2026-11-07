@@ -1,0 +1,1 @@
+template <class T> struct S : A<B<T>>, C<(1>2)> { S() : a{1}, b(2) {} }; operator

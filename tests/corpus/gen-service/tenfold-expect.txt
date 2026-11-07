@@ -11,25 +11,25 @@ impl visit_order_466_decl0 = visit_order_484_def0 visit_order_713_def0
 # ---- fast tier ----
 fast def StaticCatalog_0_use19 -> StaticCatalog_0_def0
 fast hover StaticCatalog_0_use19 ~ "StaticCatalog"
-xfail fast def find_9_use16 -> find_9_def0  # fast tier is name-only: the word 'find' has 6 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def combineCustomer_27_use0 -> combineCustomer_27_def0  # fast tier is name-only: the word 'combineCustomer' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def value_28_use0 -> value_28_def0  # fast tier is name-only: the word 'value' has 8 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def find_9_use16 -> find_9_def0
+fast def combineCustomer_27_use0 -> combineCustomer_27_def0
+fast def value_28_use0 -> value_28_def0
 fast sym "shared_ratio" -> shared_ratio_33_decl0 | shared_ratio_33_def0
 fast def shared_ratio_33_use12 -> shared_ratio_33_decl0 | shared_ratio_33_def0
 fast sym "PackedProfile" -> PackedProfile_34_def0
 fast def PackedProfile_34_use0 -> PackedProfile_34_def0
 fast def kStep6_40_use2 -> kStep6_40_def0
 fast hover kStep6_40_use2 ~ "kStep6"
-xfail fast def selectMailbox_62_use2 -> selectMailbox_62_def0  # fast tier is name-only: the word 'selectMailbox' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def selectMailbox_62_use2 -> selectMailbox_62_def0
 fast def Provider_67_use2 -> Provider_67_def0
 fast sym "kCap15" -> kCap15_101_def0
 fast def kCap15_101_use0 -> kCap15_101_def0
 fast sym "visitTenant" -> visitTenant_104_decl0 | visitTenant_104_def0
 fast def visitTenant_104_use0 -> visitTenant_104_decl0 | visitTenant_104_def0
 fast hover visitTenant_104_use0 ~ "visitTenant"
-xfail fast def id_121_use1 -> id_121_def0  # fast tier is name-only: the word 'id' has 10 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def score_124_use1 -> score_124_def0  # fast tier is name-only: the word 'score' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def norm_136_use0 -> norm_136_def0  # fast tier is name-only: the word 'norm' has 5 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def id_121_use1 -> id_121_def0
+fast def score_124_use1 -> score_124_def0
+fast def norm_136_use0 -> norm_136_def0
 fast sym "LazyEvent" -> LazyEvent_148_def0
 fast def LazyEvent_148_use2 -> LazyEvent_148_def0
 fast hover LazyEvent_148_use2 ~ "LazyEvent"
@@ -45,7 +45,7 @@ xfail fast def RadialPolicy_179_use5 -> RadialPolicy_179_def0  # fast tier is na
 fast sym "findHandler" -> findHandler_183_def0
 fast def findHandler_183_use21 -> findHandler_183_def0
 fast hover findHandler_183_use21 ~ "findHandler"
-xfail fast def Context_184_use4 -> Context_184_def0  # fast tier is name-only: the word 'Context' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Context_184_use4 -> Context_184_def0
 fast def Config_Green_190_use0 -> Config_Green_190_def0
 fast hover Config_Green_190_use0 ~ "Config_Green"
 fast sym "kMargin27" -> kMargin27_194_def0
@@ -71,7 +71,7 @@ fast sym "kTable62" -> kTable62_299_decl0 | kTable62_299_def0
 fast def kTable62_299_use4 -> kTable62_299_decl0 | kTable62_299_def0
 fast hover kTable62_299_use4 ~ "kTable62"
 fast def table62_fn_0_300_use0 -> table62_fn_0_300_decl0 | table62_fn_0_300_def0
-xfail fast def rank_323_use0 -> rank_323_def0  # fast tier is name-only: the word 'rank' has 6 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def rank_323_use0 -> rank_323_def0
 fast sym "shared_delta" -> shared_delta_325_decl0 | shared_delta_325_def0
 fast def shared_delta_325_use10 -> shared_delta_325_decl0 | shared_delta_325_def0
 fast hover shared_delta_325_use10 ~ "shared_delta"
@@ -79,14 +79,14 @@ fast sym "SampledEndpointGateway" -> SampledEndpointGateway_333_def0
 fast def SampledEndpointGateway_333_use5 -> SampledEndpointGateway_333_def0
 fast def chain66_l2_369_use0 -> chain66_l2_369_def0
 fast hover chain66_l2_369_use0 ~ "chain66_l2"
-xfail fast def Handle_374_use10 -> Handle_374_def0  # fast tier is name-only: the word 'Handle' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def Last_377_use1 -> Last_377_def0  # fast tier is name-only: the word 'Last' has 13 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Handle_374_use10 -> Handle_374_def0
+fast def Last_377_use1 -> Last_377_def0
 fast sym "Real72" -> Real72_411_def0
 fast def Real72_411_use0 -> Real72_411_def0
-xfail fast def Registry_413_use28 -> Registry_413_def0  # fast tier is name-only: the word 'Registry' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def score_446_use0 -> score_446_def0  # fast tier is name-only: the word 'score' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def visit_order_466_use3 -> visit_order_466_decl0  # fast tier is name-only: the word 'visit_order' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def shared_total_477_use0 -> shared_total_477_def0  # fast tier is name-only: the word 'shared_total' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Registry_413_use28 -> Registry_413_def0
+fast def score_446_use0 -> score_446_def0
+fast def visit_order_466_use3 -> visit_order_466_decl0
+fast def shared_total_477_use0 -> shared_total_477_def0
 fast def LOGGING_NOTICE_88_493_use0 -> LOGGING_NOTICE_88_493_def0 
 xfail fast def visitCustomer93_498_use0 -> visitCustomer93_498_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast def chain95_l4_504_use0 -> chain95_l4_504_def0
@@ -94,18 +94,18 @@ fast hover chain95_l4_504_use0 ~ "chain95_l4"
 fast sym "StableToken" -> StableToken_535_def0
 fast def StableToken_535_use5 -> StableToken_535_def0
 fast hover StableToken_535_use5 ~ "StableToken"
-xfail fast def Config_543_use9 -> Config_543_def0  # fast tier is name-only: the word 'Config' has 5 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Config_543_use9 -> Config_543_def0
 fast def sweep_queue_547_use0 -> sweep_queue_547_def0
 fast hover sweep_queue_547_use0 ~ "sweep_queue"
-xfail fast def get_551_use0 -> get_551_def0  # fast tier is name-only: the word 'get' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def get_551_use0 -> get_551_def0
 fast sym "kBase100" -> kBase100_557_def0
 fast def kBase100_557_use0 -> kBase100_557_def0
 fast hover kBase100_557_use0 ~ "kBase100"
 fast sym "kLimit107" -> kLimit107_586_def0
 fast def kLimit107_586_use0 -> kLimit107_586_def0
 fast def Count114_610_use0 -> Count114_610_def0
-xfail fast def scan_token_624_use7 -> scan_token_624_def0  # fast tier is name-only: the word 'scan_token' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def mass_628_use0 -> mass_628_def0  # fast tier is name-only: the word 'mass' has 5 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def scan_token_624_use7 -> scan_token_624_def0
+fast def mass_628_use0 -> mass_628_def0
 fast sym "kTable146" -> kTable146_749_decl0 | kTable146_749_def0
 fast def kTable146_749_use10 -> kTable146_749_decl0 | kTable146_749_def0
 fast sym "table146_fn_6" -> table146_fn_6_756_decl0 | table146_fn_6_756_def0
@@ -114,29 +114,29 @@ fast hover table146_fn_6_756_use0 ~ "table146_fn_6"
 fast def MODEL_SCHEDULE_147_762_use0 -> MODEL_SCHEDULE_147_762_def0 
 fast sym "Address" -> Address_771_def0
 fast def Address_771_use0 -> Address_771_def0
-xfail fast def Node_785_use1 -> Node_785_def0  # fast tier is name-only: the word 'Node' has 8 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Node_785_use1 -> Node_785_def0
 fast def helper_805_use0 -> helper_805_def0
-xfail fast def Entry_825_use1 -> Entry_825_def0  # fast tier is name-only: the word 'Entry' has 10 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Entry_825_use1 -> Entry_825_def0
 fast sym "SharedRoute" -> SharedRoute_887_def0
 fast def SharedRoute_887_use9 -> SharedRoute_887_def0
-xfail fast def Max_891_use0 -> Max_891_def0  # fast tier is name-only: the word 'Max' has 10 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def add_897_use0 -> add_897_def0  # fast tier is name-only: the word 'add' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Max_891_use0 -> Max_891_def0
+fast def add_897_use0 -> add_897_def0
 fast def chain191_l4_931_use0 -> chain191_l4_931_def0
 fast hover chain191_l4_931_use0 ~ "chain191_l4"
-xfail fast def push_950_use0 -> push_950_def0  # fast tier is name-only: the word 'push' has 13 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def Node_952_use0 -> Node_952_def0  # fast tier is name-only: the word 'Node' has 8 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def Base_1000_use1 -> Base_1000_def0  # fast tier is name-only: the word 'Base' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def name_1002_use2 -> name_1002_def0  # fast tier is name-only: the word 'name' has 15 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def weight_1013_use1 -> weight_1013_def0  # fast tier is name-only: the word 'weight' has 3 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def push_950_use0 -> push_950_def0
+fast def Node_952_use0 -> Node_952_def0
+fast def Base_1000_use1 -> Base_1000_def0
+fast def name_1002_use2 -> name_1002_def0
+fast def weight_1013_use1 -> weight_1013_def0
 xfail fast def Address2_1023_use0 -> Address2_1023_def0  # fast tier is name-only: the word 'Address2' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 fast sym "decodeSession" -> decodeSession_1027_def0
 fast def decodeSession_1027_use1 -> decodeSession_1027_def0
-xfail fast def Policy_1045_use0 -> Policy_1045_def0  # fast tier is name-only: the word 'Policy' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Policy_1045_use0 -> Policy_1045_def0
 fast sym "Contract" -> Contract_1055_def0
 fast def Contract_1055_use3 -> Contract_1055_def0
 fast def Context_Blue_1065_use0 -> Context_Blue_1065_def0
 fast def STORAGE_DECLARE_FN_225_1114_use1 -> STORAGE_DECLARE_FN_225_1114_def0 
-xfail fast def level_1123_use0 -> level_1123_def0  # fast tier is name-only: the word 'level' has 7 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def level_1123_use0 -> level_1123_def0
 fast def Real230_1130_use0 -> Real230_1130_def0
 fast hover Real230_1130_use0 ~ "Real230"
 xfail fast def markCatalog235_1148_use0 -> markCatalog235_1148_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
@@ -146,9 +146,9 @@ xfail fast def storeBalance253_1204_use1 -> storeBalance253_1204_def0  # fast ti
 fast sym "probeAudit" -> probeAudit_1214_decl0
 xfail fast def deriveToken_1218_use0 -> deriveToken_1218_def0  # fast tier is name-only: the word 'deriveToken' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 xfail fast def apply_1229_use0 -> apply_1229_def0  # fast tier is name-only: the word 'apply' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def pick_1235_use0 -> pick_1235_def0  # fast tier is name-only: the word 'pick' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def Auto_1254_use0 -> Auto_1254_def0  # fast tier is name-only: the word 'Auto' has 12 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def sortAccount_1327_use0 -> sortAccount_1327_def0  # fast tier is name-only: the word 'sortAccount' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def pick_1235_use0 -> pick_1235_def0
+fast def Auto_1254_use0 -> Auto_1254_def0
+fast def sortAccount_1327_use0 -> sortAccount_1327_def0
 fast def appRun283_1360_use0 -> appRun283_1360_decl0 | appRun283_1360_def0
 fast sym "appRun286" -> appRun286_1363_decl0 | appRun286_1363_def0
 fast def appRun286_1363_use0 -> appRun286_1363_decl0 | appRun286_1363_def0

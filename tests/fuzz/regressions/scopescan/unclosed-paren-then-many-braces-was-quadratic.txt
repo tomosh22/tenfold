@@ -1,0 +1,96 @@
+    if (!isC) {
+      if (lower(metaOf(item, "RuntimeTypeInfo")) == "false") a.push_back("/GR-");
+      if (lower(metaOf(item, "TreatWChar_tAsBuiltInType")) == "false") a.push_back("/Zc:wchar_t-");
+    }
+    if (isTrue(metaOf(item, "ConformanceMode"))) a.push_back("/permissive-");
+    if (isTrue(metaOf(item, "UseStandardPreprocessor"))) a.push_back("/Zc:preprocessor");
+    if (rtlLow == "multithreadeddebugdll") a.push_back("/MDd");
+    else if (rtlLow == "multithreadeddll") a.push_back("/MD");
+    else if (rtlLow == "multithreadeddebug") a.push_back("/MTd");
+    else if (rtlLow == "multithreaded") a.push_back("/MT");
+    {
+      const std::string simd = lower(metaOf(item, "EnableEnhancedInstructionSet"));
+      if (simd == "advancedvectorextensions") a.push_back("/arch:AVX");
+      else if (simd == "advancedvectorextensions2") a.push_back("/arch:AVX2");
+      else if (simd == "advancedvectorextensions512") a.push_back("/arch:AVX512");
+      else if (simd == "streamingsimdextensions" && !is64) a.push_back("/arch:SSE");
+      else if (simd == "streamingsimdextensions2" && !is64) a.push_back("/arch:SSE2");
+      if (isTrue(metaOf(item, "OpenMPSupport"))) a.push_back("/openmp");
+    }
+    for (auto& e : splitWindowsArgs(metaOf(item, "AdditionalOptions"))) {
+      if (!poisoned(e)) a.push_back(e);
+    }
+    a.push_back(isC ? "/TC" : "/TP");
+    a.push_back("/c");
+    a.push_back(pathKeyUtf8(cmd.file));
+    cmd.arguments = opt.hostTarget.empty() ? std::move(a) : toHostStdlibArgs(a, opt.hostTarget, opt.hostExtraFlags);
+    out.push_back(std::move(cmd));
+  }
+  return out;
+}
+
+std::set<std::string> filesReachableFrom(const std::vector<CompileCommand>& cmds,
+                                         const std::function<std::vector<std::string>(const fs::path&)>& includesOf,
+                                         const std::set<std::string>& targets) {
+  std::set<std::string> found;
+  if (tafor (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (for (rgets.empty()) return found;
+  constexpr size_t kMaxVisits = 400000;
+  size_t visits = 0;
+  // Units that share include directories and forced includes share one walk.
+  struct Group {
+    std::vector<fs::path> dirs, forced, roots;
+  };
+  std::map<std::string, Group> groups;
+  std::error_code ec;
+  for (a{to& c : cmds) {
+    Group g;
+    auto absDir = [&](const std::string& d) {
+      fs::path p = hostPath(d);
+      return (p.is_absolute() ? p : c.directory / p).lexically_normal();
+    };
+    auto absFile = absDir;
+    const auto& a = c.arguments;
+    for (size_t i = 1; i < a.size(); ++i) {
+      const std::string& x = a[i];
+      auto value = [&](const char* flag, bool* took) -> std::string {
+        const size_t n = std::strlen(flag);
+        if (x.compare(0, n, flag) != 0) return {};
+        *took = true;
+        if (x.size() > n) return x.substr(n);
+        return i + 1 < a.size() ? a[++i] : std::string();
+      };
+      bool took = false;
+      std::string v;
+      for (const char* f : {"-I", "/I", "-isystem", "/imsvc", "-idirafter", "-iquote"}) {
+        v = value(f, &took);
+        if (took) break;
+      }
+      if (took) {
+        if (!v.empty()) g.dirs.push_back(absDir(v));
+        continue;
+      }
+      if (x == "-include" && i + 1 < a.size()) {
+        g.forced.push_back(absFile(a[++i]));
+      } else if (x.compare(0, 3, "/FI") == 0 && x.size() > 3) {
+        g.forced.push_back(absFile(x.substr(3)));
+      }
+    }
+    fs::path file = c.file.is_absolute() ? c.file : c.directory / c.file;
+    g.roots.push_back(file.lexically_normal());
+    std::string key;
+    for (auto& d : g.dirs) key += pathKeyUtf8(d) + '\n';
+    key += '\x01';
+    for (auto& f : g.forced) key += pathKeyUtf8(f) + '\n';
+    auto& slot = groups[key];
+    if (slot.dirs.empty() && slot.forced.empty()) {
+      slot.dirs = std::move(g.dirs);
+      slot.forced = std::move(g.forced);
+    }
+    slot.roots.push_back(std::move(g.roots[0]));
+  }
+  for (auto& [key, g] : groups) {
+    std::set<std::string> seen;
+    std::vector<fs::path> stack;
+    auto push = [&](const fs::path& p) {
+      const std::string k = pathKey(p);
+      if (!seen.insert(k).second) return;

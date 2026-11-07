@@ -14,7 +14,7 @@ yet · ⬜ not started · — excluded by the user
 | Feature | Status | Notes |
 |---|---|---|
 | Navigate Backward / Forward | ✅ | `NavigationHistory`; VS-style semantics; edit tracking. Keys: 10x's `Control -` / `Control Shift -` (`PrevLocation` / `NextLocation`) and the thumb buttons `MouseBackButton` / `MouseForwardButton`. UI (B6): toolbar Back/Forward buttons with key-aware tooltips, history dropdown (long-press / right-click), optional "← 3 \| 1 →" status counts (`nav.statusCounts`), Go to Last Edit Location (Control Shift Backspace, 10x's `PrevEditLocation`). |
-| Navigation that cannot miss | ✅ | clangd authoritative, fast index approximate, budgeted delivery, cold-start augmentation. |
+| Navigation that cannot miss | ✅ | clangd authoritative, fast index approximate, budgeted delivery, cold-start augmentation. The fast index answers scope-aware (W11-FAST-SCOPE: the caret's namespace / class chain, `static` and anonymous-namespace entities, the declared type of a receiver, argument count, include graph, locals), so its first jump equals clangd's in about three of four `def` / `decl` lines of the corpora (`docs/STRESS_RESULTS.md`). |
 | Still instant | ✅ | fast index at startup, persisted to `.tenfold/fastindex.bin` so warm starts only re-lex changed files (A4); clangd background index persisted; approximate results within the budget. |
 
 ## Workspace and files

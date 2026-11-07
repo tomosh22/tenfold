@@ -44,7 +44,7 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # engine tests, including clangd integration (676 on Linux)
+./build/tenfold-tests            # engine tests, including clangd integration (683 on Linux)
 ```
 
 CI / presets: `CMakePresets.json` mirrors the CI matrix, so
@@ -152,7 +152,8 @@ src/core        TextBuffer (UTF-8 lines; CRLF, LF, CR, NEL, LS, PS like Visual S
                 encodings, .editorconfig, logging, crash handler, Selection, Trash
 src/nav         NavigationHistory: back/forward with coalescing and edit tracking
 src/lsp         Process (POSIX and Windows), JSON-RPC framing, typed LspClient for clangd
-src/semantic    CppLexer, FastIndex (heuristic symbols + fuzzy search) and its on-disk store,
+src/semantic    CppLexer, FastIndex (heuristic symbols + fuzzy search) and its on-disk store, ScopeScan + FastScope
+                (the scope-aware narrowing of the fast tier's answer),
                 CompileCommands (compile_commands.json discovery; CMake, .sln/.vcxproj,
                 heuristic generators; MSBuild property/condition evaluation),
                 SemanticEngine (two-tier query policy), TuContext, IncludeNav, DefChoice
@@ -192,7 +193,7 @@ panels, 10x key bindings and command palette, pickers, find and replace, setting
 (process spawning, Direct3D 11, ConPTY terminal), build integration, the Visual Studio debugger, Git and Perforce
 integration, and packages with a bundled clangd.
 
-Dropped by decision: scripting (the Python API is not used). Not done yet: Unreal Engine awareness, some 10x commands and settings, a scope-aware fast tier. See
+Dropped by decision: scripting (the Python API is not used). Not done yet: Unreal Engine awareness, some 10x commands and settings. See
 [`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) for the full list and
 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) section 9 for what is next.
 

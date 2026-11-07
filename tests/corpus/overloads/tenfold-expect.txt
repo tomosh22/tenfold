@@ -3,12 +3,12 @@
 # Cross-TU answers (definitions in src/*.cpp, uses in src/main.cpp) need clangd's background index; the runner waits.
 
 # ---- fast tier: unique names are exact, overloaded names return the whole set ----
-xfail fast def use_b_f_dbl -> b_f_dbl | b_f_dbl_def  # fast tier ignores the b:: qualifier and returns every function named f (9 results)
-xfail fast def use_c_f -> c_f_str | c_f_str_def  # same: unqualified word lookup of f
+fast def use_b_f_dbl -> b_f_dbl | b_f_dbl_def
+fast def use_c_f -> c_f_str | c_f_str_def
 xfail fast def use_draw_sprite -> draw_sprite_friend  # fast index has no entry for the inline hidden friend draw(Sprite): it answers with the other draw()
 fast sym "draw" ∋ draw_sprite_friend
 fast sym "draw" ∋ draw_point draw_point_def
-xfail fast def use_ar1 -> ar1_decl | ar1_def  # fast tier cannot resolve overloads: returns all area() overloads
+fast def use_ar1 -> ar1_decl | ar1_def
 xfail fast def use_who_r -> who_r  # fast tier returns every who() overload
 xfail fast def use_conv_char -> conv_int_def | conv_int  # fast tier returns all conv() overloads
 xfail fast def use_pick_p -> pick_p  # fast tier returns all pick() overloads

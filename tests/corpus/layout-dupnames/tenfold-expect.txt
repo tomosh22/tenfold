@@ -4,12 +4,12 @@
 
 # ---- fast tier ----
 fast sym "Engine" ∋ Engine1 Engine2
-xfail fast def use_Engine1 -> Engine1  # fast tier is name-only: the Engine of the other, unrelated sub-project is answered too
-xfail fast def use_Engine2 -> Engine2  # same
-xfail fast def use_a_helper -> a_helper_def | a_helper_decl  # fast tier ignores the namespace qualifier a_ns:: and answers b_ns::helper too
-xfail fast def use_b_helper -> b_helper_def | b_helper_decl  # same
-xfail fast def use_a_Settings -> a_Settings  # same: b_ns::Settings is answered too
-xfail fast def use_shallow_leaf -> shallow_leaf  # fast tier ignores ::-qualification and file identity: the deep leaf_value is answered too
+fast def use_Engine1 -> Engine1
+fast def use_Engine2 -> Engine2
+fast def use_a_helper -> a_helper_def | a_helper_decl
+fast def use_b_helper -> b_helper_def | b_helper_decl
+fast def use_a_Settings -> a_Settings
+fast def use_shallow_leaf -> shallow_leaf
 fast def use_DeepNode -> DeepNode
 fast def use_render2 -> Engine2_render_def | Engine2_render_decl
 

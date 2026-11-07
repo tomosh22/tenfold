@@ -27,6 +27,7 @@
 #include "semantic/CppLexer.h"
 #include "semantic/FastIndex.h"
 #include "semantic/FastIndexStore.h"
+#include "semantic/ScopeScan.h"
 #include "semantic/XmlLite.h"
 #include "term/VtScreen.h"
 #include "vcs/GitProvider.h"
@@ -276,6 +277,29 @@ void runExtract(const uint8_t* d, size_t n) {
   std::vector<std::string> inc2;
   const std::vector<Symbol> again = extractSymbols(src, &inc2);
   FUZZ_REQUIRE(again.size() == syms.size() && inc2 == inc);
+}
+
+// lexical scope maps of the scope-aware fast tier (ScopeScan): any text maps to regions that nest and lie in the text
+void runScopeScan(const uint8_t* d, size_t n) {
+  const std::string_view src = view(d, n);
+  const size_t lines = 1 + static_cast<size_t>(TextBuffer::countBreaks(src));
+  const ScopeMap m = scanScopes(src);
+  FUZZ_REQUIRE(!m.regions.empty());
+  for (size_t i = 0; i < m.regions.size(); ++i) {
+    const ScanRegion& r = m.regions[i];
+    FUZZ_REQUIRE(i == 0 ? r.parent == -1 : (r.parent >= 0 && static_cast<size_t>(r.parent) < i));
+    FUZZ_REQUIRE(r.begin.line >= 0 && static_cast<size_t>(r.begin.line) < lines);
+    FUZZ_REQUIRE(!r.closed || r.begin <= r.end);
+    for (const ScanVar& v : r.vars)
+      FUZZ_REQUIRE(!v.name.empty() && v.at.line >= 0 && static_cast<size_t>(v.at.line) < lines);
+  }
+  // every position maps to a region that contains it (or the global scope)
+  for (int line = 0; line < static_cast<int>(std::min<size_t>(lines, 64)); ++line) {
+    const int r = m.regionAt({line, 0});
+    FUZZ_REQUIRE(r >= 0 && static_cast<size_t>(r) < m.regions.size());
+  }
+  // deterministic
+  FUZZ_REQUIRE(scanScopes(src).regions.size() == m.regions.size());
 }
 
 // The store checks a size and a hash of the payload before it looks at anything else, so a mutated file would be
@@ -750,6 +774,17 @@ Registrar r2(
       "struct S { operator bool() const; S& operator=(const S&) = default; };\n"},
      kCppDict,
      4096});
+Registrar r2b({"scopescan",
+               runScopeScan,
+               {"src/semantic:.cpp,.h", "src/app:.cpp,.h", "examples:.cpp,.h,.c,.hpp,.inl",
+                "tests/corpus:.cpp,.h,.c,.hpp,.inl"},
+               {"namespace n::m { class C : public B<int>, private ns::D { int x{1}; C() : x{2} {} int f(int a) const "
+                "{ int l = a; for (auto i : v) { T t; } return l; } }; }\n"
+                "void n::m::C::g(Foo* p, std::unique_ptr<Bar> q = {}) { auto s = new C(); s->f(1); }\n"
+                "extern \"C\" { typedef struct { int x; } P; static int fn(void) { return 0; } }\n"
+                "using namespace std; namespace fs = std::filesystem; auto lam = [&](int z) { return z; };\n"},
+               kCppDict,
+               4096});
 Registrar r3({"indexstore",
               runIndexStore,
               {},

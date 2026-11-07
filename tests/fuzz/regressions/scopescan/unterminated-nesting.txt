@@ -1,0 +1,1 @@
+namespace a { class B { void f() { if (x) { for (;;) { auto l = [&]{ return T{1, 2}; }; } } }

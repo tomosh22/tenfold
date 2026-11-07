@@ -5,23 +5,23 @@
 # Range-for's implicit begin()/end() calls are not asserted anywhere except the one marked xfail in oop-ctors (open question).
 
 # ---- fast tier: locals, parameters, captures and bindings are not in a name index ----
-xfail fast def use_cap_base -> cap_base  # fast tier has no local scope: variables, parameters, captures are not indexed
-xfail fast def use_param_n -> param_n  # fast tier has no local scope: parameter vs outer variable of the same name
-xfail fast def use_outer_n -> outer_n  # fast tier has no local scope
-xfail fast def use_sb_x -> sb_x  # fast tier does not index structured bindings
+fast def use_cap_base -> cap_base
+fast def use_param_n -> param_n
+fast def use_outer_n -> outer_n
+fast def use_sb_x -> sb_x
 xfail fast def use_sb_inner_y -> sb_inner_y  # fast tier does not index structured bindings (shadowing)
-xfail fast def use_lam_x -> lam_x  # fast tier has no local scope: lambda parameter
+fast def use_lam_x -> lam_x
 xfail fast def use_init_y -> init_y  # fast tier does not index init-captures
-xfail fast def use_e_loop -> e_loop  # fast tier has no local scope: range-for variable
+fast def use_e_loop -> e_loop
 fast def use_find_event -> find_event | find_event_def
 fast def use_on_click_set -> Button_on_click
 fast def use_Bus_on -> Bus_on | Bus_on_def
 fast def use_Bus_emit -> Bus_emit | Bus_emit_def
 fast def use_overloaded -> overloaded
-xfail fast def use_legacy_begin -> legacy_begin  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
+fast def use_legacy_begin -> legacy_begin
 fast def use_Point_x -> Point_x
 fast def use_Counter_total -> Counter_total
-xfail fast def use_Button_size -> Button_size  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
+fast def use_Button_size -> Button_size
 fast def use_opt_name -> Event_name
 xfail fast def use_Ring_cbegin -> Ring_cbegin  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
 fast sym "Button" ∋ Button

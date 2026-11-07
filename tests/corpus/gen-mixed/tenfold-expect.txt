@@ -16,7 +16,7 @@ fast def bas_base_27_56_use0 -> bas_base_27_56_def0
 fast sym "bas_size_28_t" -> bas_size_28_t_57_def0
 fast def bas_size_28_t_57_use0 -> bas_size_28_t_57_def0
 fast hover bas_size_28_t_57_use0 ~ "bas_size_28_t"
-xfail fast def speed_77_use2 -> speed_77_def0  # fast tier is name-only: the word 'speed' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def speed_77_use2 -> speed_77_def0
 fast sym "bas_event_state" -> bas_event_state_86_def0
 fast def bas_event_state_86_use0 -> bas_event_state_86_def0
 fast def Catalog_First_126_use2 -> Catalog_First_126_def0
@@ -34,7 +34,7 @@ fast def rotateAudit_171_use2 -> rotateAudit_171_decl0 | rotateAudit_171_def0
 fast hover rotateAudit_171_use2 ~ "rotateAudit"
 fast sym "State" -> State_177_def0
 fast def State_177_use1 -> State_177_def0
-xfail fast def flush_186_use0 -> flush_186_def0  # fast tier is name-only: the word 'flush' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def flush_186_use0 -> flush_186_def0
 fast def scaleToken_199_use0 -> scaleToken_199_def0
 fast def RadialEndpoint_220_use1 -> RadialEndpoint_220_def0
 fast sym "kScale56" -> kScale56_255_def0
@@ -46,8 +46,8 @@ fast hover Real57_256_use0 ~ "Real57"
 fast sym "reset_contract" -> reset_contract_261_decl0 | reset_contract_261_def0
 fast def reset_contract_261_use0 -> reset_contract_261_decl0 | reset_contract_261_def0
 fast hover reset_contract_261_use0 ~ "reset_contract"
-xfail fast def speed_265_use0 -> speed_265_def0  # fast tier is name-only: the word 'speed' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def scale_270_use1 -> scale_270_def0  # fast tier is name-only: the word 'scale' has 7 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def speed_265_use0 -> speed_265_def0
+fast def scale_270_use1 -> scale_270_def0
 fast sym "MaskedShipment" -> MaskedShipment_277_def0
 fast def MaskedShipment_277_use9 -> MaskedShipment_277_def0
 fast hover MaskedShipment_277_use9 ~ "MaskedShipment"
@@ -55,12 +55,12 @@ fast sym "shared_speed" -> shared_speed_286_decl0 | shared_speed_286_def0
 fast def shared_speed_286_use0 -> shared_speed_286_decl0 | shared_speed_286_def0
 fast sym "compute_customer" -> compute_customer_290_decl0
 xfail fast def reset_318_use2 -> reset_318_def0  # fast tier is name-only: the word 'reset' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def mark_mailbox_334_use1 -> mark_mailbox_334_def0  # fast tier is name-only: the word 'mark_mailbox' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def mark_mailbox_334_use1 -> mark_mailbox_334_def0
 fast sym "SortedPayment" -> SortedPayment_342_def0
 fast def SortedPayment_342_use11 -> SortedPayment_342_def0
 fast sym "mem_scale_71" -> mem_scale_71_379_def0
 fast def mem_scale_71_379_use0 -> mem_scale_71_379_def0
-xfail fast def speed_396_use1 -> speed_396_def0  # fast tier is name-only: the word 'speed' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def speed_396_use1 -> speed_396_def0
 fast def mem_chain74_l5_414_use0 -> mem_chain74_l5_414_def0
 fast hover mem_chain74_l5_414_use0 ~ "mem_chain74_l5"
 fast sym "mem_buffer" -> mem_buffer_416_def0
@@ -71,11 +71,11 @@ fast def mem_fetch_entry_453_use0 -> mem_fetch_entry_453_decl0 | mem_fetch_entry
 fast def mem_chain113_l5_484_use0 -> mem_chain113_l5_484_def0
 fast hover mem_chain113_l5_484_use0 ~ "mem_chain113_l5"
 fast def LOGGING_ENDPOINT_117_497_use1 -> LOGGING_ENDPOINT_117_497_def0 
-xfail fast def norm_514_use0 -> norm_514_def0  # fast tier is name-only: the word 'norm' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def norm_514_use0 -> norm_514_def0
 fast sym "mark_ledger" -> mark_ledger_546_decl0
-xfail fast def value_574_use2 -> value_574_def0  # fast tier is name-only: the word 'value' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def save_582_use0 -> save_582_def0  # fast tier is name-only: the word 'save' has 8 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def Last_612_use0 -> Last_612_def0  # fast tier is name-only: the word 'Last' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def value_574_use2 -> value_574_def0
+fast def save_582_use0 -> save_582_def0
+fast def Last_612_use0 -> Last_612_def0
 fast sym "Handle133" -> Handle133_615_def0
 fast def Handle133_615_use0 -> Handle133_615_def0
 fast hover Handle133_615_use0 ~ "Handle133"
@@ -85,7 +85,7 @@ fast sym "table135_fn_0" -> table135_fn_0_618_decl0 | table135_fn_0_618_def0
 fast def table135_fn_0_618_use0 -> table135_fn_0_618_decl0 | table135_fn_0_618_def0
 fast hover table135_fn_0_618_use0 ~ "table135_fn_0"
 fast def QueuedQueue_Unknown_656_use0 -> QueuedQueue_Unknown_656_def0
-xfail fast def shared_weight_684_use0 -> shared_weight_684_def0  # fast tier is name-only: the word 'shared_weight' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def shared_weight_684_use0 -> shared_weight_684_def0
 fast def flushPolicy_687_use0 -> flushPolicy_687_def0
 fast def RemoteAddress_688_use3 -> RemoteAddress_688_def0
 fast sym "combineTask" -> combineTask_689_decl0 | combineTask_689_def0
@@ -121,20 +121,20 @@ fast def LIS_DECLARE_FN_204_904_use2 -> LIS_DECLARE_FN_204_904_def0
 fast def LIS_SCALE_211_914_use0 -> LIS_SCALE_211_914_def0 
 xfail fast def lis_apply_215_918_use0 -> lis_apply_215_918_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
 fast def TiledInvoice_Max_977_use0 -> TiledInvoice_Max_977_def0
-xfail fast def scale_983_use0 -> scale_983_def0  # fast tier is name-only: the word 'scale' has 7 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def scale_983_use0 -> scale_983_def0
 fast sym "mergeProfile" -> mergeProfile_991_decl0 | mergeProfile_991_def0
 fast def mergeProfile_991_use0 -> mergeProfile_991_decl0 | mergeProfile_991_def0
 fast hover mergeProfile_991_use0 ~ "mergeProfile"
-xfail fast def height_998_use1 -> height_998_def0  # fast tier is name-only: the word 'height' has 7 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def height_998_use1 -> height_998_def0
 fast sym "shared_scale" -> shared_scale_1001_decl0 | shared_scale_1001_def0
 fast def shared_scale_1001_use2 -> shared_scale_1001_decl0 | shared_scale_1001_def0
 fast hover shared_scale_1001_use2 ~ "shared_scale"
 fast sym "verifyCustomer" -> verifyCustomer_1006_decl0 | verifyCustomer_1006_def0
 fast def verifyCustomer_1006_use0 -> verifyCustomer_1006_decl0 | verifyCustomer_1006_def0
-xfail fast def shiftRule_1012_use2 -> shiftRule_1012_def0  # fast tier is name-only: the word 'shiftRule' has 5 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def shiftRule_1012_use2 -> shiftRule_1012_def0
 fast def SmoothMapper_1020_use4 -> SmoothMapper_1020_def0
-xfail fast def Item_1036_use1 -> Item_1036_def0  # fast tier is name-only: the word 'Item' has 2 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
-xfail fast def First_1038_use0 -> First_1038_def0  # fast tier is name-only: the word 'First' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def Item_1036_use1 -> Item_1036_def0
+fast def First_1038_use0 -> First_1038_def0
 fast def PackedMailboxPolicy_1050_use6 -> PackedMailboxPolicy_1050_def0
 fast sym "markPayment" -> markPayment_1054_def0
 fast def markPayment_1054_use7 -> markPayment_1054_def0
@@ -145,7 +145,7 @@ fast def MODEL_CUSTOMER_244_1074_use0 -> MODEL_CUSTOMER_244_1074_def0
 fast def Job_1081_use1 -> Job_1081_def0
 fast sym "BasicTenant" -> BasicTenant_1104_def0
 fast def BasicTenant_1104_use1 -> BasicTenant_1104_def0
-xfail fast def speed_1109_use0 -> speed_1109_def0  # fast tier is name-only: the word 'speed' has 11 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def speed_1109_use0 -> speed_1109_def0
 fast sym "kTable257" -> kTable257_1125_decl0 | kTable257_1125_def0
 fast def kTable257_1125_use2 -> kTable257_1125_decl0 | kTable257_1125_def0
 fast hover kTable257_1125_use2 ~ "kTable257"

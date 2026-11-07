@@ -26,15 +26,15 @@ namespace tf {
 //     u32 lengths[stringCount]    then the concatenated string bytes (one interned blob; every path, name,
 //                                 scope and include string is stored once and referenced by index)
 //     per file: u32 path, i64 mtime, u64 size, u32 nSymbols, u32 nIncludes,
-//               nSymbols * { u32 name, u32 scope, i32 line, i32 col, u8 kind, u8 flags(bit0 definition, bit1 template)
-//               }, nIncludes * u32
+//               nSymbols * { u32 name, u32 scope, i32 line, i32 col, u8 kind, u8 flags(bit0 definition, bit1 template,
+//               bits2..7 arity+1), u8 extra(bits0..5 minArity+1, bit6 fileLocal, bit7 variadic) }, nIncludes * u32
 //
 // Every read is bounds-checked; any inconsistency (bad magic/version, size or hash mismatch, index out of range,
 // trailing bytes) makes load() fail so the caller falls back to a full re-index. Paths are stored as given
 // (absolute generic paths), so moving a workspace simply invalidates the entries.
 class FastIndexStore {
  public:
-  static constexpr uint32_t kFormatVersion = 1;
+  static constexpr uint32_t kFormatVersion = 2;
   using Entries = std::vector<std::shared_ptr<const FileSymbols>>;
 
   // Hash of a built-in probe run through extractSymbols() combined with a manual salt, so any change to the

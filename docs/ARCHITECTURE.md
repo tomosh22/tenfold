@@ -304,7 +304,7 @@ answers by *word*: `approximateDefinitions` takes the identifier under the caret
 | `#define NAME` / `#define NAME(a, b)` | `Macro` at the name (also behind `# define`, a `/* comment */` or a backslash-newline after `define`); `arity` is -1 for an object-like macro, the parameter count for a function-like one (which counts as a use only when a `(` follows). No `#if` evaluation: every branch is indexed. A macro defined further down the *same* file is not offered for an earlier line. |
 | `friend T f(...) { ... }` in a class (hidden friend) | `Function` in the enclosing *namespace* scope (not the class). A plain `friend` declaration or `friend class X;` adds nothing. |
 | `operator T()`, `operator+`, `operator()`, `operator new[]`, `operator""_km` | named canonically (`operator Meters`, `operator+`, `operator()`, `operator new[]`, `operator""_km`; a space only between two word-like tokens; `operatorFunctionName()` builds the same name from text), positioned on the `operator` keyword. A caret on a written `operator` word is looked up under that name. **Operator tokens themselves (`a + b`, `x[i]`, `os << v`) and literal suffixes (`2.5_km`) have no fast answer** (a punctuator is not a word; resolving it needs the operand types); clangd answers. |
-| `typedef enum { A, B } T;` | the enumerators (scope = enclosing scope), `typedef enum Tag {` also the `Enum`; `typedef struct Tag {` the `Struct`; one `Typedef` per declarator (`} S, *SP;`). Members of a typedef'd struct body are still not indexed. |
+| `typedef enum { A, B } T;` | the enumerators (scope = enclosing scope), `typedef enum Tag {` also the `Enum`; `typedef struct Tag {` the `Struct`; one `Typedef` per declarator (`} S, *SP;`). The members of a `typedef struct [Tag] { ... } Name;` body are indexed too (scope = the tag, else the first declarator name). |
 | `~Name` in a class | named `~Name` (as `Name::~Name` out of line already was), kind `Constructor` (special member). |
 | `int (name)(int)` | a function (parenthesised declarator). |
 
@@ -323,9 +323,10 @@ remaining matches is kept):
   that has a prototype of the same *scope + name + arity* and drops that prototype; `gotoDeclaration` does the
   opposite (prototypes win over the definitions they pair with). With no partner (only a definition, or only a
   prototype, or a different arity) whatever exists is answered. `arity` is the parameter count (default arguments
-  count, `(void)` is 0; stored in 6 bits of the persisted flags byte, so `Symbol` did not grow). Overloads of the same
-  arity are not told apart; two `static` functions of the same name in different files are both answered (that is
-  scope-aware resolution, the next fast-tier task).
+  count, `(void)` is 0). Overloads of the same arity are not told apart by this step (the scope-aware narrowing below
+  separates them by argument count, not by argument type). `static int x;` inside a class is a *declaration* (its
+  definition is `int C::x = 0;` elsewhere) and pairs like a prototype; `static const int x = 1;`, `constexpr` and
+  `inline` members stay definitions.
 * **Class name.** A name that is a class / struct / union / enum / typedef is answered without its constructors. With
   the caret *on the name of a constructor* (declaration or definition) the constructors with that arity in that class
   are answered instead.
@@ -335,8 +336,81 @@ remaining matches is kept):
   answers the tag. Only a typedef and a tag of the *same scope* compete.
 * Hover, type definition and implementation keep the unshaped (`Want::Any`) list apart from the three rules above.
 
-The persisted store (`FastIndexStore`) keeps the arity in bits 2-7 of the flags byte; `kExtractorSalt` is 3 (the
-fingerprint also covers a probe of the extractor output, so any change of what it emits invalidates old stores).
+The persisted store (`FastIndexStore`, format version 2) keeps the arity in bits 2-7 of the flags byte and, in a second
+byte, `minArity + 1` (bits 0-5), `fileLocal` (bit 6) and `variadic` (bit 7); `kExtractorSalt` is 5 (the fingerprint also
+covers a probe of the extractor output, so any change of what it emits invalidates old stores). `Symbol` is still 80
+bytes (`SymbolKind` is a `uint8_t` enum, the new fields fill the padding).
+
+### Scope-aware lookup in the fast tier (W11-FAST-SCOPE)
+
+The by-name answer above is narrowed with what can be read off the caret's own file and the include graph, so that the
+first jump is the entity C++ name lookup picks and not every function with that word. Everything is lexical: a rule
+applies only when its evidence is clear, and **a rule that would leave no candidate is not applied** (the narrowed answer
+is never emptier than the by-name one; clangd stays the authority and replaces it).
+
+*Pieces* (`src/semantic/`):
+
+* `ScopeScan.{h,cpp}`: `scanScopes(text)` lexes a file once into a `ScopeMap`: a tree of regions (global scope,
+  `namespace` incl. `a::b`, anonymous and `extern "C"`; classes with their bases as written; function bodies with the
+  declarator name as written, `Vec2::length_sq`; lambdas and blocks) with, per region, the parameters, locals and
+  fields (`ScanVar`: name, declared type without cv / `*` / `&` / template arguments, first template argument, pointer,
+  position), `using namespace` / `using ns::name` and `namespace x = y`. `auto x = new Foo(...)`, `= Foo(...)`,
+  `= std::make_unique<Foo>(...)` give the variable a type; structured bindings, `for` / `if` / `catch` declarations and
+  lambda parameters are locals. Brace initializers (`int x{1}`, `S() : a{1} {}`) are not function bodies. Bounded: texts over 512 KiB are not scanned, no
+  recursion (10k nested braces are fine), fuzz target `scopescan`.
+* `FastScope.{h,cpp}`: `narrowByScope(env, CaretInfo, matches)`, `findLocal`, `accessKindOf`, `callArgCount`,
+  `constructionArgCount`, and `ScopeCache`. `SemanticEngine::scopeMapOf` builds a map from the open document's buffer
+  (cache key: the document's version) or from disk (key: mtime and size of the index entry); at most 48 maps / 400k
+  regions are kept, least recently used out.
+* `FastIndex::reachableFrom(file, quoteDirs, angleDirs)`: the files the caret's file can see through `#include`,
+  transitively. A spelling is resolved next to the includer, then in the compile command's include directories (`-iquote`,
+  `-I`, `-isystem`, ...; `SemanticEngine::includeDirsOf`, through `incnav::searchPathOf`), then by path suffix against the
+  indexed files (a basename table, `byBase_`, kept by `addLocked`). Cached per file until a file is added, removed or
+  changes its `#include` list; a walk over more than 6000 files gives up (no restriction).
+
+*Rules*, in the order `narrowByScope` applies them to the by-name candidates (after the `A::B::` qualifier filter, before
+`shapeAnswer`):
+
+1. **A local wins.** An unqualified word that names a parameter or local of the enclosing function (declared before the
+   caret in an enclosing block, not after `.` / `->` / `::`) is answered with that declaration alone (`variable`,
+   Approximate), whatever globals share the name.
+2. **File-local entities.** `static` functions / variables at namespace scope (`Symbol::fileLocal`) and entities in an
+   anonymous namespace are offered only in their own file, or from a header (which the caret's file may include); a
+   file-local entity of the caret's file hides same-named entities of other files.
+3. **Member access** `x.f` / `p->f` / `this->f`: only members (`Method`, `Field`) are candidates. When the receiver's
+   declared type is known lexically (local, parameter, field of an enclosing or base class, global of this file;
+   `a.b.c` chains through the fields' declared types; `unique_ptr<T>` / `shared_ptr<T>` with `->`; `vector<T>` with
+   `[i]`; `auto x = Foo(...)`) the candidates are narrowed to that class, **the most derived class that has the member
+   hides the same name in its bases** (`Derived d; d.own()`; `Base* b; b->own()` stays `Base::own`). Members of anonymous
+   unions / structs count as members of the enclosing class.
+4. **`::f`** means the global scope; **`Derived::f`** falls back to the bases of `Derived`, and a namespace alias
+   (`namespace fs = std::filesystem; fs::path`) is expanded.
+5. **Unqualified lookup** follows C++: the caret's chain of scopes, innermost first: the enclosing class (for an
+   out-of-line `void A::B::f() {}` the class `A::B`, resolved against the namespaces around it), its bases generation by
+   generation, the enclosing namespaces (each with the `using namespace` / `using ns::name` seen so far), the global scope.
+   A candidate found in an inner scope hides outer ones; macros are exempt. When no candidate is in any scope of the chain
+   (ADL, names from a header that is `using`-ed elsewhere) the candidates are left alone.
+6. **Kinds.** After `struct` / `class` / `union` / `enum` only tags; `Name(` with a *function* of that name in the same
+   scope as the class drops the class (C `stat`); explicit template arguments (`get<int>(x)`) keep the templates.
+7. **Overloads by argument count.** The call's `(...)` is counted (`f(a, g(b, c))` = 2; angle brackets that may be
+   template arguments make the count unknown): candidates need `minArity <= n <= arity` (variadic: `n >= minArity`).
+   Overloads of equal arity stay (no argument types).
+8. **Include graph.** Candidates in files the caret's file cannot see through `#include` are dropped when some candidate
+   is visible; a definition in an invisible file stays when its prototype (same scope, name, arity) is visible, so the
+   `.cpp` of a visible header is still offered.
+9. **A written construction** (`Widget(2)`, `Widget w{1}`) still answers the class alone: the constructor is the
+   authoritative tier's refinement (W10-CHOOSE, `refinable`), the fast tier does not add it.
+
+Not done (stays a superset of clangd's answer, the chooser shows the candidates): overloads of the same arity (types,
+cv / ref qualifiers), explicit and partial specialisations of a class template, alias chains (`using B3 = B2` answers
+`B3`, clangd also the targets), `#if` branches (every branch is indexed; the compile command's defines are not
+evaluated), names declared through macros, operator tokens, forward declarations of classes for `decl`.
+
+Cost (`docs/STRESS_RESULTS.md`, "W11-FAST-SCOPE"): the scope map of a file is built on the first query in it (about
+45 microseconds for a few kB, 20 to 60 ms near the 512 KiB limit) and reused until the document changes; a warm query adds
+about 2 microseconds to the 2 microsecond by-name lookup, and the tail gets shorter because thousands of candidates are
+dropped before the answer is built. Index build time is unchanged; memory grows by 1.2 % (the file-name table of the
+include resolver, one pointer per file; `Symbol` is still 80 bytes) and the persisted store by one byte per symbol.
 
 ## clangd-only features (A9)
 
