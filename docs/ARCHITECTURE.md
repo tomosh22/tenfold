@@ -407,9 +407,10 @@ cv / ref qualifiers), explicit and partial specialisations of a class template, 
 evaluated), names declared through macros, operator tokens, forward declarations of classes for `decl`.
 
 Cost (`docs/STRESS_RESULTS.md`, "W11-FAST-SCOPE"): the scope map of a file is built on the first query in it (about
-50 microseconds for a typical file) and reused until the document changes; a warm query adds about 2 microseconds to
-the 2 microsecond by-name lookup. Index build time and memory are unchanged (`Symbol` is still 80 bytes; the persisted
-store grows by one byte per symbol; the basename table is one pointer per file).
+45 microseconds for a few kB, 20 to 60 ms near the 512 KiB limit) and reused until the document changes; a warm query adds
+about 2 microseconds to the 2 microsecond by-name lookup, and the tail gets shorter because thousands of candidates are
+dropped before the answer is built. Index build time is unchanged; memory grows by 1.2 % (the file-name table of the
+include resolver, one pointer per file; `Symbol` is still 80 bytes) and the persisted store by one byte per symbol.
 
 ## clangd-only features (A9)
 

@@ -2,6 +2,127 @@
 
 Each W9 corpus agent adds its own self-contained section below. Format and rules of the corpora: `docs/TESTING.md`.
 
+## W11-FAST-SCOPE: scope-aware fast tier (branch `task/W11-FAST-SCOPE`)
+
+Design and rules: `docs/ARCHITECTURE.md`, "Scope-aware lookup in the fast tier". The fast tier used to answer by word;
+it now narrows the by-name candidates with the caret's lexical scope (`ScopeScan`), the declared type of a receiver, the
+caret's namespace / class chain with using-directives and base classes, `static` / anonymous-namespace entities, the
+call's argument count, the include graph (with the compile command's include directories) and locals. Only the fast
+tier changed; clangd's answers and every `final` expectation are untouched (all of them still pass).
+
+**Method.** `tenfold-cli corpus tests/corpus/<name> --json` for every corpus, Release, `-j3` box, clangd 22.1.1; the
+JSON's `fastAgreement` (`def` and `decl` lines, `file:line` sets equal, `xfail`, `-> none` and failing lines included;
+a property of the engine, not of the expectations). *Before* = the binary built from `main` at `bf14c58`, *after* = this
+branch. `vs-configs` needs `--timeout 900` (its `config` switches reparse the project; at the default 180 s the runner
+stops asking at line 168 in both builds). The corpus set is the 36 projects in `tests/corpus` today (the W9-FIX-C1 figure
+809/1853 = 43.7 % was over 29).
+
+| corpus | before | after |
+|---|---|---|
+| `c-basic` | 64/109 (59 %) | 93/109 (85 %) |
+| `c-heuristic` | 10/18 (56 %) | 11/18 (61 %) |
+| `c-mixed-cpp` | 30/39 (77 %) | 36/39 (92 %) |
+| `c-vcxproj` | 11/18 (61 %) | 11/18 (61 %) |
+| `encodings` | 113/123 (92 %) | 123/123 (100 %) |
+| `gen-game` | 154/255 (60 %) | 236/255 (93 %) |
+| `gen-mixed` | 173/243 (71 %) | 228/243 (94 %) |
+| `gen-service` | 135/258 (52 %) | 234/258 (91 %) |
+| `harness` | 7/8 (88 %) | 7/8 (88 %) |
+| `lambdas-bindings` | 32/98 (33 %) | 87/98 (89 %) |
+| `layout-dupnames` | 12/38 (32 %) | 36/38 (95 %) |
+| `layout-exts` | 46/50 (92 %) | 46/50 (92 %) |
+| `layout-unity` | 26/26 (100 %) | 26/26 (100 %) |
+| `lookup-adl` | 19/59 (32 %) | 35/59 (59 %) |
+| `lookup-namespaces` | 14/66 (21 %) | 48/66 (73 %) |
+| `name-collisions` | 7/114 (6 %) | 106/114 (93 %) |
+| `oop-ctors` | 58/136 (43 %) | 108/136 (79 %) |
+| `oop-virtual` | 18/82 (22 %) | 76/82 (93 %) |
+| `operators` | 9/58 (16 %) | 9/58 (16 %) |
+| `overloads` | 4/76 (5 %) | 26/76 (34 %) |
+| `paths-unicode` | 50/70 (71 %) | 70/70 (100 %) |
+| `pp-includes` | 49/74 (66 %) | 54/74 (73 %) |
+| `pp-macros-std` | 6/21 (29 %) | 6/21 (29 %) |
+| `pp-macros` | 49/104 (47 %) | 53/104 (51 %) |
+| `pp-xmacros` | 14/38 (37 %) | 15/38 (39 %) |
+| `seed` | 11/24 (46 %) | 13/24 (54 %) |
+| `symlinks` | 4/6 (67 %) | 4/6 (67 %) |
+| `templates-basic` | 57/96 (59 %) | 67/96 (70 %) |
+| `templates-config` | 1/21 (5 %) | 1/21 (5 %) |
+| `templates-cxx20` | 41/58 (71 %) | 41/58 (71 %) |
+| `templates-specialisation` | 30/70 (43 %) | 39/70 (56 %) |
+| `unicode-separators` | 16/16 (100 %) | 16/16 (100 %) |
+| `vs-configs` | 21/91 (23 %) | 21/91 (23 %) |
+| `vs-nav` | 14/15 (93 %) | 15/15 (100 %) |
+| `vs-props` | 4/95 (4 %) | 4/95 (4 %) |
+| `vs-std` | 13/16 (81 %) | 13/16 (81 %) |
+| **all 36** | **1322/2689 (49.2 %)** | **2014/2689 (74.9 %)** |
+
+Where the rest is (409 of the 675 remaining disagreements are "fast is a superset of clangd's answer", 167 "fast has no
+answer", 53 disjoint, 39 subset, 7 other; before: 986 / 228 / 95 / 43 / 15):
+
+| cause | lines (about) | why it stays |
+|---|---|---|
+| `#if` / configuration branches (`vs-props` 91, `vs-configs` 70, `pp-includes`, `templates-config` 20) | 190 | every branch is indexed; evaluating the compile command's defines per symbol would need a conditional tag in the persisted index |
+| operator tokens, macros, names declared through macro arguments (`operators` 49, `pp-macros` 51, `pp-xmacros` 23, generated `macros_*.h`) | 170 | by design: a punctuator is not a word, a macro-declared name needs the macro body |
+| overloads of equal arity (parameter types, cv / ref qualifiers, `push(const T&)` / `push(T&&)`) | about 100 | the index keeps counts, not types |
+| explicit and partial specialisations, alias chains (`using B3 = B2`: clangd also answers the targets), using-declarations (not indexed), forward declarations for `decl` | about 80 | no data in the index |
+| a class used as a construction (`Widget w{1}`): clangd answers class and constructor | about 30 | kept class-only on purpose: the W10 `refinable` design waits for clangd, and expectations such as `fast def use_Pair -> Pair` encode it |
+
+**Expectations.** 161 `xfail` lines (fast `def` / `decl`) that now pass became normal expectations (the runner reported
+them as `XPASS`); no expectation was weakened. One previously passing `fast` line regressed during the work
+(`templates-basic` `fast def use_Pair -> Pair`, after the fast tier had started to add the constructor of a written
+construction); the code, not the line, was changed back. The generator (`tools/stress/gen_codebase.py`) now writes a plain
+`fast def` for a name with several definitions instead of an `xfail`; `regen_committed.sh` keeps what is still wrong as
+`xfail` with a fast-tier reason (`xfail_from_report.py`).
+
+**Latency** (`approximateDefinitions` with `Want::Definition`, 25 sampled identifier uses in each of 150 to 300 random
+files, a small driver around the engine, generated `game` and `mixed` profiles at `--size medium` (3,068 files, 26,043 /
+23,213 symbols) and `service` at `--size large`; the ranges are 3 runs each; the before column is `bf14c58`):
+
+| | p50 | p90 | p99 | max | first query in a file (p50) |
+|---|---|---|---|---|---|
+| `game` medium, before | 2.2 - 2.5 us | 0.41 - 0.56 ms | 3.9 - 4.9 ms | 7.9 - 16.4 ms | 3.0 - 3.6 us |
+| `game` medium, after | 3.9 - 4.6 us | 0.21 - 0.34 ms | 1.2 - 1.5 ms | 5.2 - 10.4 ms | 47 - 50 us |
+| `mixed` medium, before | 1.4 us | 0.09 ms | 2.8 - 3.5 ms | 6.0 - 10.0 ms | 2.1 us |
+| `mixed` medium, after | 2.2 - 2.5 us | 0.04 - 0.06 ms | 0.8 ms | 2.1 - 8.4 ms | 40 - 44 us |
+| `service` large (20,423 files), before | 4.1 - 4.5 us | 36 ms | 40 - 42 ms | 56 - 61 ms | 4.2 us |
+| `service` large, after | 6.0 - 6.3 us | 8.8 - 8.9 ms | 11.9 - 12.6 ms | 19 - 21 ms | 65 us |
+
+The median grows by about 2 us (a warm query reads the scope map and filters a handful of candidates); the first query
+in a file pays the one-off scan of that file (about 45 us for a few kB; 20 to 60 ms only for files near the 512 KiB scan
+limit, bigger files skip the scan). The tail is better because the narrowing removes thousands of candidates before the
+answer is built (the `gx` namespace of the generated code has 2,940 declarations; the include graph keeps the visible
+ones). The corpus runner's own `latencyMs` (small projects, every first query included): `def.fast` mean of medians
+0.020 ms -> 0.052 ms, mean p95 0.18 ms -> 0.40 ms, max 12 ms -> 18 ms; `decl.fast` 0.021 -> 0.034 ms. clangd's `final`
+latencies are unchanged within noise.
+
+**Index build time and memory** (same workspaces, `.tenfold` removed, Editor start including the fast index, 3 runs; the
+scope maps are built on demand, not at index time):
+
+| workspace | build before | build after | RSS before | RSS after |
+|---|---|---|---|---|
+| `game` medium (3,068 files, 26,043 symbols) | 53 - 73 ms | 56 - 62 ms | 23.7 MiB | 24.1 - 24.3 MiB |
+| `service` large (20,423 files, 186,225 symbols, 98 MB) | 394 - 463 ms | 391 - 402 ms | 139.4 - 139.6 MiB | 141.0 - 141.3 MiB |
+| `fastindex.bin`, large workspace | 7.24 MB | 7.43 MB | | |
+
+(+1.2 % RSS: the file-name table of the include resolver; `sizeof(Symbol)` is still 80 bytes; +1 byte per symbol in the
+store.)
+
+**Pathological workspaces** (`tools/stress/gen_pathological.py --scale asan`; `tree` 4,881 files, `bigfiles`, `nesting`,
+`truncated`): index build and RSS unchanged (`nesting`, 72,050 symbols: 37.2 -> 37.4 MiB; `bigfiles` 17.4 MiB both). The
+first query in a file costs the scan: `nesting` (scopes 3,000 deep, files up to 640 kB) up to 46 ms once per file; the
+largest scanned `bigfiles` file (a 1 MB line of 1M tokens) took 105 ms before the limit was lowered to 512 KiB. Files over
+the limit and code nested more than 48 scopes deep fall back to the by-name answer. The new `scopescan` fuzz target found a
+quadratic case (a truncated source with an unclosed `(` followed by many `{` took 0.93 s for 12 kB because every brace was
+matched to the end of the file); brackets are now matched once per file (0.06 s), and the input is kept in
+`tests/fuzz/regressions/scopescan/`.
+
+**Tests.** `tests/test_fastscope.cpp` (scope scan; extractor `static` / default arguments; store round trip of the new
+fields; include reachability with include directories; an engine test: `static` functions of two files, namespace
+overloads by argument count, members through declared types, base-class hiding, qualifiers, a local hiding a function),
+the 161 promoted corpus lines, fuzz target `scopescan`; 60 s runs of `scopescan`, `lexer`, `extract` and `indexstore`
+under ASan + UBSan found nothing else.
+
 ## Translation-unit context, rename safety, index readiness (W9-FIX-B, branch `task/W9-FIX-tu-context`)
 
 Design and limits: `docs/ARCHITECTURE.md`, "Translation-unit context for included files, rename safety, index readiness".
