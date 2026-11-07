@@ -264,10 +264,9 @@ void runExtract(const uint8_t* d, size_t n) {
   const std::string_view src = view(d, n);
   std::vector<std::string> inc;
   const std::vector<Symbol> syms = extractSymbols(src, &inc);
-  // Lines as the document and the lexer count them: "\n", "\r\n" and a lone '\r' (classic Mac) each end one.
-  size_t lines = 1;
-  for (size_t i = 0; i < src.size(); ++i)
-    if (src[i] == '\n' || (src[i] == '\r' && (i + 1 >= src.size() || src[i + 1] != '\n'))) ++lines;
+  // Lines as the document and the extractor count them: CRLF, LF, a lone CR and the Unicode separators NEL / LS / PS
+  // (Visual Studio's line breaks, LE-UNICODE) each end one.
+  const size_t lines = 1 + static_cast<size_t>(TextBuffer::countBreaks(src));
   for (const Symbol& s : syms) {
     FUZZ_REQUIRE(s.line >= 0 && static_cast<size_t>(s.line) < lines);
     FUZZ_REQUIRE(s.col >= 0);
