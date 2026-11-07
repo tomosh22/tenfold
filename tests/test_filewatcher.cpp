@@ -614,3 +614,44 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
   f.ed->waitFor([] { return false; }, 600);
   CHECK_EQ(startCount(), 2);
 }
+
+#if defined(__linux__)
+// A directory is created inside a watched directory that is renamed right away. The watcher reads the creation only
+// after the rename happened on disk, so the new directory cannot be watched under the name it was created with
+// (inotify_add_watch fails): its files must still be reported, under the directory's new name.
+TEST(fw_directory_created_then_parent_renamed_is_still_followed) {
+  TempDir d;
+  constexpr int kRounds = 60;
+  for (int i = 0; i < kRounds; ++i) fs::create_directories(d.path / ("p" + std::to_string(i)));
+  Collector c;
+  FileWatcher w(watcherOptions(false));
+  REQUIRE(w.start(d.path, nullptr, c.callback()));
+  for (int i = 0; i < kRounds; ++i) {
+    const fs::path p = d.path / ("p" + std::to_string(i));
+    fs::create_directory(p / "sub");
+    writeFile(p / "sub/inner.cpp", "int a;");
+    fs::rename(p, d.path / ("q" + std::to_string(i)));
+    // and the nested case: a directory with a subdirectory, created and moved in one go
+    fs::create_directories(d.path / ("q" + std::to_string(i)) / "x/y");
+    writeFile(d.path / ("q" + std::to_string(i)) / "x/y/deep.cpp", "int b;");
+    fs::rename(d.path / ("q" + std::to_string(i)), d.path / ("r" + std::to_string(i)));
+  }
+  // Every file ends up announced (or a later write to it is seen) under its final name.
+  for (int i = 0; i < kRounds; ++i) {
+    const fs::path r = d.path / ("r" + std::to_string(i));
+    CHECK(waitUntil(
+        [&] {
+          return c.has(r / "sub/inner.cpp", FileWatcher::Event::Created) ||
+                 c.has(r / "sub/inner.cpp", FileWatcher::Event::Modified);
+        },
+        3000));
+    CHECK(waitUntil(
+        [&] {
+          return c.has(r / "x/y/deep.cpp", FileWatcher::Event::Created) ||
+                 c.has(r / "x/y/deep.cpp", FileWatcher::Event::Modified);
+        },
+        3000));
+  }
+  w.stop();
+}
+#endif

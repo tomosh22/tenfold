@@ -282,6 +282,44 @@ struct FileWatcher::Impl {
   static constexpr uint32_t kMask =
       IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ONLYDIR | IN_DONT_FOLLOW;
 
+  // Directories that appeared but could not be watched (and walked) under the name the event gave them: typically
+  // the parent was renamed on disk before this thread read the creation, so inotify_add_watch(parent/new) fails and
+  // nothing inside would ever be reported. The parent's rename event is still in the queue; when it arrives these are
+  // looked up under their new name. Bounded: entries that never see a rename (the directory was deleted) fall off.
+  std::vector<fs::path> unwatched;
+  static constexpr size_t kMaxUnwatched = 512;
+
+  void noteUnwatched(const fs::path& dir) {
+    if (limitHit) return;
+    if (unwatched.size() >= kMaxUnwatched) unwatched.erase(unwatched.begin(), unwatched.begin() + kMaxUnwatched / 2);
+    unwatched.push_back(dir);
+  }
+
+  // `from` was renamed to `to`: watch (and list) the directories below it that were missed before the rename.
+  void retryUnwatchedUnder(const fs::path& from, const fs::path& to) {
+    const std::string f = from.string();
+    const std::string prefix = f + "/";
+    std::vector<fs::path> retry;
+    for (auto it = unwatched.begin(); it != unwatched.end();) {
+      const std::string s = it->string();
+      if (s == f || s.compare(0, prefix.size(), prefix) == 0) {
+        retry.push_back(fs::path(to.string() + s.substr(f.size())));
+        it = unwatched.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    for (const fs::path& dir : retry) {
+      std::error_code ec;
+      if (ignore(dir)) continue;
+      if (!fs::is_directory(dir, ec)) {  // renamed again already (that rename is next in the queue), or deleted
+        noteUnwatched(dir);
+        continue;
+      }
+      walkWatch(dir, true);  // a directory that is already watched is only listed again: harmless duplicates
+    }
+  }
+
   bool addWatch(const fs::path& dir) {
     if (opt.maxWatches > 0 && watchesPlatform() >= opt.maxWatches) {
       limitHit = true;
@@ -304,7 +342,10 @@ struct FileWatcher::Impl {
   // emitFiles, regular files found are reported as Created (used for
   // directories that appeared after start, where files may predate the watch).
   void walkWatch(const fs::path& dir, bool emitFiles) {
-    if (!addWatch(dir) && limitHit) return;
+    if (!addWatch(dir)) {
+      if (limitHit) return;
+      noteUnwatched(dir);
+    }
     std::error_code ec;
     fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
     for (; !ec && it != end && !limitHit; it.increment(ec)) {
@@ -429,9 +470,11 @@ struct FileWatcher::Impl {
         if (m != moves.end() && !(isDir && ignore(path))) {
           e.kind = Event::Renamed;
           e.oldPath = m->second.path;
-          if (isDir) renameWatches(m->second.path, path);
+          const fs::path from = m->second.path;
+          if (isDir) renameWatches(from, path);
           moves.erase(m);
           note(std::move(e));
+          if (isDir) retryUnwatchedUnder(from, path);  // after the rename's entry: their events sort behind it
         } else {
           if (m != moves.end()) {  // renamed into an ignored directory: it left the watched set
             Event d;
