@@ -189,7 +189,8 @@ LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
 // ---- cache ----
 
 void Highlighter::reset() {
-  e_.assign(buf_ ? static_cast<size_t>(buf_->lineCount()) : 0, Entry{});
+  e_.clear();
+  e_.resize(buf_ ? static_cast<size_t>(buf_->lineCount()) : 0);
   consistent_ = 0;
   provValid_ = pending_ = false;
 }
@@ -203,9 +204,7 @@ void Highlighter::attach(const TextBuffer* b) {
 void Highlighter::relex(Entry& e, int line, const LexState& begin) {
   if (buf_->line(line).size() >= kLongLine) return relexLong(e, line, begin);
   e.longLine = false;
-  e.ck.clear();
-  e.hasTail = false;
-  e.winValid = false;
+  e.lg.reset();
   e.begin = begin;
   e.spans.clear();
   e.end = lexLine(buf_->line(line), begin, e.spans);
@@ -217,28 +216,30 @@ void Highlighter::relex(Entry& e, int line, const LexState& begin) {
 // matches one of the tail.
 void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
   const std::string_view s = buf_->line(line);
-  const bool partial = e.longLine && e.begin == begin && !e.ck.empty();
+  if (!e.lg) e.lg = std::make_unique<Entry::Long>();
+  Entry::Long& L = *e.lg;
+  const bool partial = e.longLine && e.begin == begin && !L.ck.empty();
   if (!partial) {
-    e.ck.clear();
-    e.hasTail = false;
+    L.ck.clear();
+    L.hasTail = false;
   }
   e.longLine = true;
   e.begin = begin;
   e.spans.clear();
-  e.winValid = false;
+  L.winValid = false;
   size_t from = 0;
   bool lineStart = true;
   char mid = 0;
   if (partial) {
-    from = e.ck.back().pos;
-    lineStart = e.ck.back().lineStart;
-    mid = e.ck.back().mid;
+    from = L.ck.back().pos;
+    lineStart = L.ck.back().lineStart;
+    mid = L.ck.back().mid;
   }
-  std::vector<LexResume> tail = e.hasTail ? std::move(e.tail) : std::vector<LexResume>{};
-  const LexState tailEnd = e.tailEnd;
-  const bool hadTail = e.hasTail;
-  e.tail.clear();
-  e.hasTail = false;
+  std::vector<LexResume> tail = L.hasTail ? std::move(L.tail) : std::vector<LexResume>{};
+  const LexState tailEnd = L.tailEnd;
+  const bool hadTail = L.hasTail;
+  L.tail.clear();
+  L.hasTail = false;
   size_t next = partial ? from + kResumeStride : 0, ti = 0;
   bool joined = false;
   bool stopped = false;
@@ -247,7 +248,7 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
       s, begin, from, lineStart, mid, nullptr,
       [&](size_t pos, bool ls, char m) {
         if (pos >= next) {
-          e.ck.push_back({static_cast<uint32_t>(pos), ls, m});
+          L.ck.push_back({static_cast<uint32_t>(pos), ls, m});
           next = pos + kResumeStride;
         }
         while (ti < tail.size() && tail[ti].pos < pos) ++ti;
@@ -261,8 +262,8 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
       &stopped);
   lexedBytes_ += (joined && stopped ? joinPos : s.size()) - std::min(from, s.size());
   if (stopped && joined) {  // from here on the line is what it was: keep the old points and the old end state
-    if (e.ck.back().pos == tail[ti].pos) ++ti;
-    e.ck.insert(e.ck.end(), tail.begin() + static_cast<long>(ti), tail.end());
+    if (L.ck.back().pos == tail[ti].pos) ++ti;
+    L.ck.insert(L.ck.end(), tail.begin() + static_cast<long>(ti), tail.end());
     e.end = tailEnd;
   } else {
     e.end = end;
@@ -274,15 +275,16 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
 // Lexes the window around [from, to) of a long line into e.spans (from the resume point before `from`).
 void Highlighter::windowLex(Entry& e, int line, size_t from, size_t to) {
   const std::string_view s = buf_->line(line);
+  Entry::Long& L = *e.lg;
   from = std::min(from, s.size());
   to = std::min(std::max(to, from), s.size());
-  if (e.winValid && e.winB <= from && to <= e.winE) return;
-  const auto it = std::upper_bound(e.ck.begin(), e.ck.end(), from, [](size_t b, const LexResume& r) { return b < r.pos; });
+  if (L.winValid && L.winB <= from && to <= L.winE) return;
+  const auto it = std::upper_bound(L.ck.begin(), L.ck.end(), from, [](size_t b, const LexResume& r) { return b < r.pos; });
   e.spans.clear();
   size_t start = 0;
   bool ls = true;
   char mid = 0;
-  if (it != e.ck.begin()) {
+  if (it != L.ck.begin()) {
     start = (it - 1)->pos;
     ls = (it - 1)->lineStart;
     mid = (it - 1)->mid;
@@ -298,9 +300,9 @@ void Highlighter::windowLex(Entry& e, int line, size_t from, size_t to) {
       },
       &stopped);
   lexedBytes_ += (stopped ? stopPos : s.size()) - start;
-  e.winB = static_cast<uint32_t>(start);
-  e.winE = static_cast<uint32_t>(stopped ? stopPos : s.size());
-  e.winValid = true;
+  L.winB = static_cast<uint32_t>(start);
+  L.winE = static_cast<uint32_t>(stopped ? stopPos : s.size());
+  L.winValid = true;
 }
 
 bool Highlighter::advance(int target, int& budget) {
@@ -337,10 +339,10 @@ size_t Highlighter::resumePoints(int line, size_t* inLiterals) const {
   const Entry* e = entryOf(line);
   if (inLiterals) {
     *inLiterals = 0;
-    if (e)
-      for (const LexResume& r : e->ck) *inLiterals += r.mid != 0;
+    if (e && e->lg)
+      for (const LexResume& r : e->lg->ck) *inLiterals += r.mid != 0;
   }
-  return e ? e->ck.size() : 0;
+  return e && e->lg ? e->lg->ck.size() : 0;
 }
 
 bool Highlighter::isLong(int line) const {
@@ -393,7 +395,7 @@ void Highlighter::prepareRuns(const std::vector<std::pair<int, int>>& runs) {
   for (const auto& sg : segs) {
     Seg g;
     g.base = sg.first;
-    g.e.assign(static_cast<size_t>(sg.second - sg.first), Entry{});
+    g.e.resize(static_cast<size_t>(sg.second - sg.first));
     LexState st = g.base == consistent_ && consistent_ ? e_[static_cast<size_t>(consistent_ - 1)].end : LexState{};
     for (int i = g.base; i < sg.second; ++i) {
       Entry& e = g.e[static_cast<size_t>(i - g.base)];
@@ -419,9 +421,13 @@ void Highlighter::onChange(const Document::Change& c) {
     if (eOld > s)
       e_.erase(e_.begin() + s + 1,
                e_.begin() + static_cast<long>(std::min<size_t>(e_.size(), static_cast<size_t>(eOld) + 1)));
-    if (k > 0) e_.insert(e_.begin() + s + 1, static_cast<size_t>(k), Entry{});
+    if (k > 0) {
+      std::vector<Entry> fresh(static_cast<size_t>(k));
+      e_.insert(e_.begin() + s + 1, std::make_move_iterator(fresh.begin()), std::make_move_iterator(fresh.end()));
+    }
     if (e_[static_cast<size_t>(s)].longLine) {  // keep what the edit cannot have changed (see the class comment)
       Entry& le = e_[static_cast<size_t>(s)];
+      Entry::Long& L = *le.lg;
       const size_t c0 = static_cast<size_t>(std::max(0, c.removed.start.column));
       const size_t c1 = static_cast<size_t>(std::max(0, c.removed.end.column));
       const long delta = static_cast<long>(c.newText.size()) - static_cast<long>(c1 - c0);
@@ -429,20 +435,20 @@ void Highlighter::onChange(const Document::Change& c) {
       const bool single = s == eOld && k == 0;
       std::vector<LexResume> oldTail;
       if (single && le.valid) {  // a fully lexed line: its points behind the edit may re-join
-        for (const LexResume& r : le.ck)
+        for (const LexResume& r : L.ck)
           if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
-        le.tailEnd = le.end;
-        le.hasTail = true;
-      } else if (single && le.hasTail) {  // a second edit before the first was lexed
-        for (const LexResume& r : le.tail)
+        L.tailEnd = le.end;
+        L.hasTail = true;
+      } else if (single && L.hasTail) {  // a second edit before the first was lexed
+        for (const LexResume& r : L.tail)
           if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
       } else {
-        le.hasTail = false;
+        L.hasTail = false;
       }
-      while (!le.ck.empty() && le.ck.back().pos + kLook > c0) le.ck.pop_back();
-      le.tail = std::move(oldTail);
-      le.hasTail = le.hasTail && !le.tail.empty();
-      le.winValid = false;
+      while (!L.ck.empty() && L.ck.back().pos + kLook > c0) L.ck.pop_back();
+      L.tail = std::move(oldTail);
+      L.hasTail = L.hasTail && !L.tail.empty();
+      L.winValid = false;
       le.spans.clear();
     }
     for (int i = s; i <= s + k && i < static_cast<int>(e_.size()); ++i) e_[static_cast<size_t>(i)].valid = false;

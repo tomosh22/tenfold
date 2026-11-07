@@ -1,5 +1,6 @@
 #pragma once
 #include <cstdint>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -122,14 +123,17 @@ class Highlighter {
     LexState begin, end;
     bool valid = false;
     std::vector<LexSpan> spans;  // a short line: all its spans; a long line: the cached window [winB, winE)
-    // ---- long lines only ----
+    // ---- long lines only (the 100k entries of a big file stay small) ----
     bool longLine = false;
-    std::vector<LexResume> ck;    // resume points, ascending; empty when the whole line is one leading construct
-    std::vector<LexResume> tail;  // after an edit: the old resume points behind it, shifted (candidates to re-join)
-    LexState tailEnd;             // the end state that goes with `tail`
-    bool hasTail = false;
-    uint32_t winB = 0, winE = 0;
-    bool winValid = false;
+    struct Long {
+      std::vector<LexResume> ck;    // resume points, ascending; empty when the whole line is one leading construct
+      std::vector<LexResume> tail;  // after an edit: the old resume points behind it, shifted (candidates to re-join)
+      LexState tailEnd;             // the end state that goes with `tail`
+      bool hasTail = false;
+      uint32_t winB = 0, winE = 0;
+      bool winValid = false;
+    };
+    std::unique_ptr<Long> lg;
   };
   bool advance(int target, int& budget);
   void relex(Entry& e, int line, const LexState& begin);
