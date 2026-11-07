@@ -34,7 +34,7 @@ void DropDown::setEnabled(int index, bool enabled) {
 
 std::string DropDown::selectedLabel() const {
   return selected_ >= 0 && selected_ < static_cast<int>(items_.size()) ? items_[static_cast<size_t>(selected_)].label
-                                                                        : std::string();
+                                                                       : std::string();
 }
 
 void DropDown::setSelected(int index) {
@@ -135,9 +135,15 @@ bool DropDown::onEvent(const InputEvent& e) {
             markDirty();
             return true;
           case Key::PageUp:
-          case Key::Home: highlight_ = firstEnabled(); markDirty(); return true;
+          case Key::Home:
+            highlight_ = firstEnabled();
+            markDirty();
+            return true;
           case Key::PageDown:
-          case Key::End: highlight_ = lastEnabled(); markDirty(); return true;
+          case Key::End:
+            highlight_ = lastEnabled();
+            markDirty();
+            return true;
           case Key::Enter:
           case Key::KpEnter:
           case Key::Space: choose(highlight_); return true;

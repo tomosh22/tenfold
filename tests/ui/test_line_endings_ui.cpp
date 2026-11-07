@@ -7,13 +7,13 @@
 #include <sstream>
 
 #include "../text/text_test_util.h"
+#include "ui/features/LineEndingDialog.h"
 #include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
 #include "ui/platform/Clipboard.h"
 #include "ui/settings/Settings.h"
 #include "ui/settings/Theme.h"
 #include "ui/shell/EditorApp.h"
-#include "ui/features/LineEndingDialog.h"
 #include "ui/widgets/ListPopup.h"
 #include "ui_test.h"
 
@@ -335,7 +335,8 @@ TEST(le_ui_do_not_show_again_writes_the_user_settings_file) {
   for (int how = 0; how < 3; ++how) {  // answered with Yes, No and Escape: the check box counts every time
     Env env(true);
     const fs::path settings = env.dir / "userconf" / "settings.txt";
-    writeFile(settings, "# my settings\r\nui.theme = vs-dark\r\neditor.checkLineEndings = true\r\neditor.tabWidth = 2\r\n");
+    writeFile(settings,
+              "# my settings\r\nui.theme = vs-dark\r\neditor.checkLineEndings = true\r\neditor.tabWidth = 2\r\n");
     Document* d = env.open("mixed.cpp");
     REQUIRE(dlg(env) != nullptr);
     CheckBox* cb = dlg(env)->checkBox();

@@ -45,7 +45,11 @@ struct Fixture {
     root = std::make_unique<RootWidget>(*text);
     auto d = std::make_unique<DropDown>();
     dd = static_cast<DropDown*>(root->addChild(std::move(d)));
-    dd->setItems({{"Windows (CR LF)", true}, {"Macintosh (CR)", true}, {"Unix (LF)", true}, {"Disabled one", false}, {"Last", true}},
+    dd->setItems({{"Windows (CR LF)", true},
+                  {"Macintosh (CR)", true},
+                  {"Unix (LF)", true},
+                  {"Disabled one", false},
+                  {"Last", true}},
                  2);
     dd->onChanged([this](int i) { changes.push_back(i); });
     auto c = std::make_unique<CheckBox>();

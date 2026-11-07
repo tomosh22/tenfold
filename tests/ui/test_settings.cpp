@@ -313,3 +313,34 @@ TEST(settings_hot_reload) {
   CHECK(near(svc.theme().background, {1 / 255.f, 2 / 255.f, 3 / 255.f, 1}));
   svc.stopWatching();
 }
+
+TEST(settings_write_user_setting_replaces_in_place_or_appends) {
+  const fs::path dir =
+      uitest::tempRoot() / ("tf_wus_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  std::string err;
+  CHECK(writeUserSetting(dir, "editor.checkLineEndings", "false", &err));  // creates directory and file
+  auto slurp = [&] {
+    std::ifstream in(dir / "settings.txt", std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(in), {});
+  };
+  CHECK_EQ(slurp(), std::string("editor.checkLineEndings = false\n"));
+  CHECK(writeUserSetting(dir, "editor.checkLineEndings", "true"));  // replaced in place
+  CHECK_EQ(slurp(), std::string("editor.checkLineEndings = true\n"));
+  std::ofstream(dir / "settings.txt", std::ios::binary | std::ios::trunc)
+      << "# editor.checkLineEndings = true\r\neditor.checkLineEndingsX = 1\r\n  editor.checkLineEndings=true\r\nlast = "
+         "1";
+  CHECK(writeUserSetting(dir, "editor.checkLineEndings", "false"));
+  CHECK_EQ(
+      slurp(),
+      std::string("# editor.checkLineEndings = true\r\neditor.checkLineEndingsX = 1\r\n  editor.checkLineEndings = "
+                  "false\r\nlast = 1"));
+  CHECK(writeUserSetting(dir, "ui.theme",
+                         "vs-dark"));  // appended (a CRLF file stays CRLF, a missing final newline is added)
+  CHECK_EQ(
+      slurp(),
+      std::string("# editor.checkLineEndings = true\r\neditor.checkLineEndingsX = 1\r\n  editor.checkLineEndings = "
+                  "false\r\nlast = 1\r\nui.theme = vs-dark\r\n"));
+  CHECK(!writeUserSetting({}, "a", "b", &err));
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}

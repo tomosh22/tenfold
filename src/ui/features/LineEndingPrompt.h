@@ -43,8 +43,8 @@ class LineEndingPrompt {
   void askSave(Document& doc);                           // the Advanced Save Options list for `doc`
   void close();                                          // closes an open prompt; a consistency question is asked again
   bool isOpen() const { return popup_ != nullptr || dialog_ != nullptr; }
-  ListPopup* popup() const { return popup_; }                // the Advanced Save Options list
-  LineEndingDialog* dialog() const { return dialog_; }       // the consistency dialog
+  ListPopup* popup() const { return popup_; }           // the Advanced Save Options list
+  LineEndingDialog* dialog() const { return dialog_; }  // the consistency dialog
   // Called when the user ticked "Do not show this message again": the app writes editor.checkLineEndings = false to
   // the user settings file (the in-memory switch is already off). May be empty (headless).
   std::function<void()> persistCheckOff;

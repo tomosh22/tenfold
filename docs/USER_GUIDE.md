@@ -383,11 +383,19 @@ Line endings are handled like Visual Studio does:
   (`editor.replicateNewLine`); a file without any line break uses `editor.defaultLineEnding`.
 * **Paste** keeps the line breaks of the pasted text (`editor.pasteKeepsLineBreaks`), so pasting CRLF text into an LF file
   makes the file mixed. **Copy** puts the stored breaks on the clipboard.
-* **Opening a file** whose lines end differently asks "The line endings in the following files are not consistent. Do you
-  want to normalize the line endings?" (`editor.checkLineEndings`). The choices are *Yes* with an ending (Windows (CR LF),
-  Unix (LF), Macintosh (CR); the file's most frequent ending is pre-selected) and *No*. Yes rewrites the line endings as
-  one edit: the file becomes modified and Undo brings the old endings back. No (or Escape) opens the file as it is. The
-  question is asked when the file is opened, never while typing or pasting.
+* **Opening a file** whose lines end differently shows Visual Studio's dialog (`editor.checkLineEndings`): "The line
+  endings in the following files are not consistent. Do you want to normalize the line endings?", the list of files,
+  the drop-down **Normalize line endings:** (Windows (CR LF), Macintosh (CR), Unix (LF), Unicode Line Separator (LS),
+  Unicode Paragraph Separator (PS); the file's most frequent ending is pre-selected, with several files the most
+  frequent over all of them), the check box **Do not show this message again** and the buttons **Yes** and **No**.
+  Yes rewrites the line endings as one edit per file: the files become modified and Undo brings the old endings back.
+  No (or Escape) opens the files as they are. Files opened together (restoring a session, opening several files at once)
+  share one dialog that lists them all; the choice applies to all of them. Ticking *Do not show this message again*
+  turns `editor.checkLineEndings` off, written to your user `settings.txt` (whichever button you press). The question
+  is asked when the file is opened, never while typing or pasting. Keyboard: Tab / Shift+Tab move between the
+  drop-down, the check box, Yes and No (Yes is focused first); Alt+Down, F4 or Space opens the drop-down, Up / Down
+  choose, Space ticks the check box, Enter is Yes, Escape is No. (The LS and PS rows are listed greyed out: Unicode line
+  and paragraph separators are not line breaks yet.)
 * The **status bar** shows the document's line ending (`CRLF`, `LF` or `CR`; a mixed file shows its most frequent
   one). Clicking it (or right-clicking) offers Windows (CR LF), Unix (LF) and Macintosh (CR): the whole document is
   converted as one undoable edit. **Save with Line Endings...** (`File.SaveWithLineEndings`, also in that menu) is Visual
@@ -898,7 +906,7 @@ tests.)
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. The encoding of new files is `editor.defaultEncoding`. |
 | `editor.replicateNewLine` | `true` | bool | Enter (and every command that adds a line) copies the line ending of the line the caret is on, so a CRLF file stays CRLF and an LF file stays LF; only a document without any line break uses `editor.defaultLineEnding`. `false` always uses `editor.defaultLineEnding`. Visual Studio: `ReplicateNewLineCharacter`. |
 | `editor.pasteKeepsLineBreaks` | `true` | bool | Pasted text keeps its own line breaks (pasting LF text into a CRLF file makes the file mixed, as in Visual Studio). `false` turns them into the line ending Enter would use. |
-| `editor.checkLineEndings` | `true` | bool | Opening a file whose lines end in different ways (CRLF and LF, ...) asks "The line endings in the following files are not consistent. Do you want to normalize the line endings?" with a choice of ending. Visual Studio: Tools > Options > Environment > Documents > Check for consistent line endings on load. |
+| `editor.checkLineEndings` | `true` | bool | Opening a file whose lines end in different ways (CRLF and LF, ...) asks "The line endings in the following files are not consistent. Do you want to normalize the line endings?" in a dialog with a drop-down for the ending. Its check box "Do not show this message again" sets this to `false` in your user settings file. Visual Studio: Tools > Options > Environment > Documents > Check for consistent line endings on load. |
 | `editor.autoDetectUtf8` | `true` | bool | Visual Studio's "Auto-detect UTF-8 encoding without signature": a file without a byte order mark that is valid UTF-8 opens as UTF-8. `false`: such a file with non-ASCII text opens as Windows-1252 (ASCII files, files with a UTF-8 signature and UTF-16 files with a BOM are not affected). |
 | `editor.defaultEncoding` | `utf-8` | string | Encoding of a new untitled file (`NewTextFile`): `utf-8`, `utf-8-bom`, `utf-16le`, `utf-16be` (both with BOM) or `windows-1252`; anything else means `utf-8`. 10x: DefaultEncoding. |
 | `editor.autoNameUntitledFiles` | `false` | bool | An untitled file is named after the first word typed in it; the name is what the Save As prompt offers. 10x: AutoNameUntitledFiles. |

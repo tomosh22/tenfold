@@ -507,7 +507,7 @@ Decided without a user decision because the alternative was the editor terminati
 
 **User decision of 2026-11-07:** "Keep CRLF everywhere, line ending behaviour must be exactly the same as Visual Studio
 and 10x." New files and break-less buffers use CRLF on every platform. Every row below that is marked low / unknown or
-that deviates (Unicode separators, the dialog's list instead of a drop-down and its missing "do not show again" box) is
+that deviates (Unicode separators) is
 therefore a defect to remove, not an accepted choice: the unknown rows are on the verification checklist
 (docs/VS_BEHAVIOUR.md, section V) and change as soon as Visual Studio's behaviour is confirmed.
 
@@ -531,12 +531,20 @@ constant, branch or setting, easy to change.
 * **`.editorconfig` `end_of_line` (L13):** tenfold reads no `.editorconfig`, so it is skipped. When `.editorconfig` support
   arrives it replaces `defaultLineEnding` for new lines of files under the config (not the replicated ending of a file that
   already has breaks, matching "VS does not convert existing styles").
-* **Pre-selected ending in the dialog (L4, unknown):** the document's most frequent ending (ties LF, then CRLF).
-  Buttons: VS has a drop-down plus Yes / No; tenfold's modal list has one "Yes: normalize line endings to <ending>" row
-  per ending plus "No" (a list popup has no drop-down). Escape and a click outside are No. The "do not show again"
-  check box is not drawn: switch `editor.checkLineEndings` off in the settings file.
-* **Unicode separators (L1, L4):** NEL, LS and PS are not line breaks and are not offered by the dialog (VS_BEHAVIOUR 1.3
-  item 8: clang / clangd would disagree on columns). A file using them keeps them as ordinary characters.
+* **The dialog (L4):** a real dialog laid out like VS's (`LineEndingDialog`, widgets `DropDown` and `CheckBox` in
+  `src/ui/widgets`): message, the files, the drop-down "Normalize line endings:" (Windows (CR LF), Macintosh (CR), Unix
+  (LF), Unicode Line Separator (LS), Unicode Paragraph Separator (PS)), the check box "Do not show this message again",
+  Yes / No. Several documents opened in one action share one dialog and one answer. Decisions where VS is not
+  documented: the **pre-selected ending** is the most frequent one (over all listed files when there are several; ties LF,
+  then CRLF; unknown in VS, V-list item 3); **Enter is Yes** also while the drop-down has the focus (it opens with
+  Alt+Down, F4 or Space; Windows dialogs treat combo boxes the same way); **Escape is No**; a **click outside** the dialog
+  does nothing (the old list popup closed on it); the caption "Line Endings" is ours (VS's caption is not known); the
+  check box is applied whichever button closes the dialog and writes `editor.checkLineEndings = false` into the user
+  `settings.txt` (VS turns its option off). The LS / PS rows are listed but **disabled** (`LineEndingPrompt::kEntries`:
+  `std::nullopt`) until `LineEnding::LS` / `PS` exist (branch task/LE-UNICODE); then replace the two `std::nullopt`s.
+* **Unicode separators (L1, L4):** NEL, LS and PS are not line breaks yet and the dialog lists LS and PS disabled
+  (VS_BEHAVIOUR 1.3 item 8: clang / clangd would disagree on columns). A file using them keeps them as ordinary
+  characters until task/LE-UNICODE makes them real line breaks.
 * **Paste (L8, medium-low):** the Learn text says VS keeps the pasted breaks and one report says it does not; the Learn text
   is followed (`editor.pasteKeepsLineBreaks`, default true; false converts to the Enter ending). Multi-caret paste of N
   lines splits at any break. **To verify (V3).**

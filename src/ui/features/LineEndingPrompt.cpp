@@ -70,9 +70,9 @@ void LineEndingPrompt::openNormalize(const std::vector<fs::path>& candidates) {
     sum.cr += c.cr;
     only = d;
     files.push_back(f);
-    shown.push_back({relativePath(env_.editor.workspace().root(), f),
-                     std::to_string(c.crlf) + " CR LF, " + std::to_string(c.lf) + " LF, " + std::to_string(c.cr) +
-                         " CR"});
+    shown.push_back(
+        {relativePath(env_.editor.workspace().root(), f),
+         std::to_string(c.crlf) + " CR LF, " + std::to_string(c.lf) + " LF, " + std::to_string(c.cr) + " CR"});
   }
   if (files.empty()) return;
   asking_ = files;
@@ -80,12 +80,16 @@ void LineEndingPrompt::openNormalize(const std::vector<fs::path>& candidates) {
   // Pre-selected: the most frequent ending (VS's own choice is unknown). One file: its dominant ending; several: the
   // dominant one over all of them (ties LF, then CRLF).
   LineEnding pre = only->buffer().lineEnding();
-  if (files.size() > 1) pre = sum.lf >= sum.crlf && sum.lf >= sum.cr ? LineEnding::LF : sum.crlf >= sum.cr ? LineEnding::CRLF : LineEnding::CR;
+  if (files.size() > 1)
+    pre = sum.lf >= sum.crlf && sum.lf >= sum.cr ? LineEnding::LF
+          : sum.crlf >= sum.cr                   ? LineEnding::CRLF
+                                                 : LineEnding::CR;
   int selected = 0;
   for (size_t i = 0; i < std::size(kEntries); ++i)
     if (kEntries[i].ending && *kEntries[i].ending == pre) selected = static_cast<int>(i);
   auto d = std::make_unique<LineEndingDialog>();
-  d->setMessage("The line endings in the following files are not consistent. Do you want to normalize the line endings?");
+  d->setMessage(
+      "The line endings in the following files are not consistent. Do you want to normalize the line endings?");
   d->setFiles(std::move(shown));
   d->dropDown()->setItems(dropDownItems(), selected);
   d->onAnswer([this, files, life = std::weak_ptr<int>(life_)](bool yes, int entry, bool never) {

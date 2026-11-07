@@ -34,7 +34,7 @@ LineEndingDialog::LineEndingDialog() {
   cb->setLabel("Do not show this message again");
   checkBox_ = static_cast<CheckBox*>(addChild(std::move(cb)));
   auto dd = std::make_unique<DropDown>();
-  dd->setEnterOpens(false);  // Enter is the default button
+  dd->setEnterOpens(false);                                     // Enter is the default button
   dropDown_ = static_cast<DropDown*>(addChild(std::move(dd)));  // last child: its open list is on top of the others
 }
 
@@ -261,8 +261,8 @@ bool LineEndingDialog::onEvent(const InputEvent& e) {
     }
     case InputType::Wheel:
       if (ui::contains(list_, e.x, e.y) && static_cast<int>(files_.size()) > kMaxFileRows) {
-        firstFile_ = std::clamp(firstFile_ - static_cast<int>(e.dy * 3), 0,
-                                static_cast<int>(files_.size()) - kMaxFileRows);
+        firstFile_ =
+            std::clamp(firstFile_ - static_cast<int>(e.dy * 3), 0, static_cast<int>(files_.size()) - kMaxFileRows);
         markDirty();
       }
       return true;
