@@ -21,11 +21,10 @@ struct Token {
 // directives are returned as a single token spanning the logical line
 // (continuations included). Raw strings, prefixes and digit separators are
 // handled. It never fails: unknown bytes become single-char Punct tokens. Comments, directives and strings end at
-// "\r\n",
-// "\n" or a lone '\r' (as in clang), but the line and column of a token count NEL, LS and PS as line breaks too, like
-// the editor does (core/LineBreaks.h): a symbol on the line after an LS has the position the editor shows. A leading
-// UTF-8 BOM is skipped (columns on line 1 still count its three bytes, like clangd's). With `isC` the C++-only keywords
-// (class, delete, new, template, this, namespace, ...) are identifiers.
+// "\r\n", "\n" or a lone '\r' (as in clang), but the line and column of a token count NEL, LS and PS as line breaks
+// too, like the editor does (core/LineBreaks.h): a symbol on the line after an LS has the position the editor shows. A
+// leading UTF-8 BOM is skipped (columns on line 1 still count its three bytes, like clangd's). With `isC` the C++-only
+// keywords (class, delete, new, template, this, namespace, ...) are identifiers.
 class CppLexer {
  public:
   explicit CppLexer(std::string_view src, bool isC = false) : s_(src), isC_(isC) {
