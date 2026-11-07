@@ -238,7 +238,6 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
   }
   std::vector<LexResume> tail = L.hasTail ? std::move(L.tail) : std::vector<LexResume>{};
   const LexState tailEnd = L.tailEnd;
-  const bool hadTail = L.hasTail;
   L.tail.clear();
   L.hasTail = false;
   size_t next = partial ? from + kResumeStride : 0, ti = 0;
@@ -269,7 +268,6 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
   } else {
     e.end = end;
   }
-  (void)hadTail;
   e.valid = true;
 }
 

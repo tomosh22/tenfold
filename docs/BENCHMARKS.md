@@ -62,6 +62,7 @@ Enforced budgets (Release):
 | colouring keystroke-to-paint; cold first paint (`ui/test_view_colouring.cpp`) | < 8 ms; top and scrolled < 50 ms |
 | wrap keystroke-to-paint, incl. the 50 MB single line (`ui/test_wrap.cpp`) | < 8 ms |
 | wrap of a 3 MB single line (`ui/test_wrap.cpp`) | first rows < 1 ms, re-scan after typing < 2 ms |
+| pathological files, keystroke-to-paint (`ui/test_pathological_ui.cpp`: 300k-line C++, 100k-line text, 1 MB expression, 2 MB comment, 1 MB string, minified C++ and wide characters on one line; wrap on and off) | average < 8 ms and p99 < 8 ms of 60 keys, times `TENFOLD_PERF_SCALE` |
 | completion with 5000 items (`ui/test_b5b.cpp`) | keystroke-to-paint worst < 8 ms |
 | B8 smart typing in a 100k-line file (`ui/test_b8.cpp`) | < 8 ms per keystroke |
 | log call cost (`test_log.cpp`) | filtered-out `Log::debug` < 1 us, buffered `Log::info` < 20 us |
@@ -70,13 +71,21 @@ Enforced budgets (Release):
 | solution evaluation benchmark (`test_vcxproj.cpp`) | median < 5 s |
 | text layout / cold atlas benchmarks (`text/test_bench.cpp`) | warm layout best < 20 ms; cold ASCII fill < 200 ms |
 
+`TENFOLD_PERF_SCALE` (a number >= 1, default 1, `tftest::perfBudget(ms)` in `tests/test_main.h`) multiplies the budgets of the
+tests that call `perfBudget`; today only the pathological files do. It exists for runners that are slower than the
+development machines the budgets were set on, and is documented here so that a scaled budget is a decision, not a surprise.
+
 The 50 MB single-line wrap test is memory-bandwidth bound (about 10 ms per edit on some machines even though the
 code has not regressed), so it can miss 8 ms on slower hardware.
 
-CI: only `linux-gcc-release` (engine suite, `TENFOLD_ENFORCE_PERF=1` on its Test step through the matrix field
-`enforce_perf`) enforces budgets. The UI budgets (keystroke-to-paint, frame times) are printed by `linux-ui-xvfb` but not
-enforced there: it renders with Mesa llvmpipe on shared runners, whose 2 ms frame budgets were never enforced in CI;
-run them locally on a real GPU with `TENFOLD_ENFORCE_PERF=1`. The clang, sanitizer, TSan, Windows and macOS jobs never
+CI: `linux-gcc-release` (engine suite, `TENFOLD_ENFORCE_PERF=1` on its Test step through the matrix field
+`enforce_perf`) enforces budgets, and `linux-ui-xvfb` has one enforcing step, `tenfold-ui-tests pathological_ui` with
+`TENFOLD_ENFORCE_PERF=1 TENFOLD_PERF_SCALE=2`: the keystroke-to-paint budget of the pathological files is CPU-only (a
+counting renderer, no GL submit), so llvmpipe does not matter. 2x is the margin for a shared runner: the files measure
+0.03 to 1.5 ms against the 8 ms budget (a factor of 10), while the regressions the gate is for (a long line re-lexed or
+re-measured per key) cost 17 to 80 ms and still fail 16 ms. The other UI budgets (frame times with a GL submit, the 2 ms
+record budgets) are printed by `linux-ui-xvfb` but not enforced there: run them locally on a real GPU with
+`TENFOLD_ENFORCE_PERF=1`. The clang, sanitizer, TSan, Windows and macOS jobs never
 set it.
 
 ### Phases
