@@ -238,7 +238,9 @@ TEST(le_ui_yes_with_each_ending) {
     const char* text;
   } cases[] = {{0, "int a;\r\nint b;\r\nint c;\r\nint d;\r\n"},
                {1, "int a;\rint b;\rint c;\rint d;\r"},
-               {2, "int a;\nint b;\nint c;\nint d;\n"}};
+               {2, "int a;\nint b;\nint c;\nint d;\n"},
+               {3, "int a;\xE2\x80\xA8int b;\xE2\x80\xA8int c;\xE2\x80\xA8int d;\xE2\x80\xA8"},
+               {4, "int a;\xE2\x80\xA9int b;\xE2\x80\xA9int c;\xE2\x80\xA9int d;\xE2\x80\xA9"}};
   for (const Case& c : cases) {
     Env env;
     Document* d = env.open("mixed.cpp");
@@ -260,26 +262,19 @@ TEST(le_ui_yes_with_each_ending) {
   }
 }
 
-TEST(le_ui_unicode_separator_entries_are_listed_but_disabled_until_the_buffer_has_them) {
+TEST(le_ui_unicode_separator_entries_are_listed_and_choosable_like_visual_studio) {
   Env env;
   env.open("mixed.cpp");
   DropDown* dd = dlg(env)->dropDown();
   REQUIRE(dd->items().size() == 5);
-  // task/LE-UNICODE: when LineEnding::LS / PS exist these two become enabled (LineEndingPrompt::kEntries)
-  CHECK(!dd->items()[3].enabled);
-  CHECK(!dd->items()[4].enabled);
+  CHECK_EQ(dd->items()[3].label, std::string("Unicode Line Separator (LS)"));
+  CHECK_EQ(dd->items()[4].label, std::string("Unicode Paragraph Separator (PS)"));
+  CHECK(dd->items()[3].enabled);
+  CHECK(dd->items()[4].enabled);
   env.key(Key::Tab);
   env.key(Key::Tab);  // drop-down
-  env.key(Key::Down);
-  env.key(Key::Down);
-  env.key(Key::Down);  // cannot go past Unix (LF)
-  CHECK_EQ(dd->selected(), 2);
-  env.click(dd->bounds());
-  env.click(dd->itemRect(4));  // a disabled row does nothing
-  CHECK(dd->isOpen());
-  CHECK_EQ(dd->selected(), 2);
-  env.key(Key::Escape);  // closes the list only
-  CHECK(!dd->isOpen());
+  for (int i = 0; i < 6; ++i) env.key(Key::Down);
+  CHECK_EQ(dd->selected(), 4);  // the keyboard reaches the last row (PS) and stops there
   CHECK(prompt(env).isOpen());
 }
 
