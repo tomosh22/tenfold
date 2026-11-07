@@ -155,6 +155,11 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     });
   });
   functions_ = std::make_unique<FunctionPicker>(pickerEnv_);
+  quick_ = std::make_unique<QuickActions>(pickerEnv_);
+  quick_->setAllowedFn([this] { return clangdResultsAllowed(); });
+  quick_->onBulbChanged = [this] { syncBulb(); };
+  inlay_ = std::make_unique<InlayHints>(pickerEnv_, [this](const std::function<void(TextView&)>& fn) { forEachView(fn); });
+  inlay_->setAllowedFn([this] { return clangdResultsAllowed(); });
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
   if (bench_) switch_ = std::make_unique<SwitchPanel>(pickerEnv_, *bench_);
@@ -272,6 +277,18 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
       bench_->setActivePanel(bench_->activePanel());
     };
     bench_->addBottomPanel("Build", std::move(bp));
+    auto hp = std::make_unique<HierarchyPanel>(editor_);
+    hierarchy_ = hp.get();
+    hierarchy_->onClose = [this] {
+      bench_->hideBottomPanel();
+      bench_->setActivePanel(bench_->activePanel());
+    };
+    hierarchy_->onMessage = [this](const std::string& m) { setMessage(m, kMessageMs); };
+    hierarchy_->onJumped = [this] {  // reveal the target's tab and give the editor the keys back
+      bench_->sync();
+      bench_->setActivePanel(bench_->activePanel());
+    };
+    bench_->addBottomPanel("Hierarchy", std::move(hp));
     bench_->status().setOnClick("build", [this](const std::string&) { bench_->toggleBottomPanel("Build"); });
     WorkspaceExplorer::Hooks eh;
     eh.message = [this](const std::string& m) { setMessage(m, kMessageMs); };
@@ -306,6 +323,14 @@ EditorApp::~EditorApp() {
   unsaved_.reset();
   saveAs_.reset();
   saveRefused_.reset();
+  if (hierarchy_) {
+    hierarchy_->onClose = nullptr;
+    hierarchy_->onMessage = nullptr;
+    hierarchy_->onJumped = nullptr;
+  }
+  inlay_.reset();
+  if (quick_) quick_->onBulbChanged = nullptr;
+  quick_.reset();
   if (build_) {
     build_->onClose = nullptr;
     build_->onMessage = nullptr;
@@ -490,6 +515,7 @@ void EditorApp::applySettings(const Settings& s) {
   }
   pasteHistory_->applySettings(s);
   perforceUi_->applySettings(s);
+  inlay_->setMode(InlayHints::parseMode(s.getString("editor.inlayHints")));
 }
 
 void EditorApp::closePickers() {
@@ -1588,6 +1614,11 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     return zoomBy(e.dy > 0 ? 1.0f : -1.0f);
   if (terminals_ && (e.type == InputType::FocusGained || e.type == InputType::FocusLost))
     terminals_->setWindowFocused(e.type == InputType::FocusGained);
+  // Alt+F1 shows the inlay hints while it is held (Editor.InlayHintsHold sets the flag on the key press).
+  if (inlayHeld_ && (e.type == InputType::FocusLost || (e.type == InputType::KeyUp && (e.key == Key::F1 || !(e.mods & ModAlt))))) {
+    inlayHeld_ = false;
+    inlay_->setHeld(false);
+  }
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
     if (cycling_ && !(e.mods & ModCtrl)) {  // Ctrl released: the switch panel commits
       cycling_ = false;
@@ -1765,6 +1796,11 @@ int EditorApp::tick(int64_t nowMs) {
   if (const int due = lineEndings_->tick(nowMs); due >= 0) soonest(due);
   if (const int due = hover_->tick(nowMs); due >= 0) soonest(due);
   diagPanel_->refresh();
+  {  // W11-GUI-LSP: the light bulb and the inlay hints follow the caret / scroll
+    if (const int due = quick_->tick(nowMs); due >= 0) soonest(due);
+    if (const int due = inlay_->tick(nowMs); due >= 0) soonest(due);
+    syncBulb();
+  }
   if (explorer_) {
     if (const int due = explorer_->tick(nowMs); due >= 0) soonest(due);
   }
@@ -1803,8 +1839,88 @@ std::pair<TextView*, Position> EditorApp::identifierUnderMouse(float x, float y)
   return {nullptr, {}};
 }
 
+void EditorApp::syncBulb() {
+  forEachView([&](TextView& v) {
+    v.setLightBulb(quick_->bulbDocument() && v.document() == quick_->bulbDocument() ? quick_->bulbLine() : -1);
+    if (!v.onLightBulb) v.onLightBulb = [this] { runCommandId("Editor.QuickActions", "", activeContext()); };
+  });
+}
+
+bool EditorApp::clangdResultsAllowed(std::string* why) {
+  auto no = [&](const char* m) {
+    if (why) *why = m;
+    return false;
+  };
+  Document* d = editor_.currentDocument();
+  if (!d || !editor_.started()) return no("There is no document");
+  if (!editor_.semantic().status().clangdInitialized) return no("clangd is not running");
+  // Visual Studio's Miscellaneous Files: IntelliSense answers, but no clangd feature for a file in no translation unit.
+  if (!editor_.miscFileDiagnostics() && editor_.semantic().isMiscFile(d->path()))
+    return no("this file belongs to no translation unit of the project");
+  return true;
+}
+
+void EditorApp::openHierarchy(HierarchyPanel::Mode mode) {
+  if (!hierarchy_ || !bench_) return;
+  closePickers();
+  completion_->close();
+  sigHelp_->close();
+  hover_->dismiss();
+  std::string why;
+  bench_->showBottomPanel("Hierarchy");
+  if (!clangdResultsAllowed(&why)) {
+    hierarchy_->showMessage(mode, "Needs clangd: " + why);
+    return;
+  }
+  hierarchy_->open(mode);
+  hierarchy_->focusTree();
+}
+
 void EditorApp::bindParserCommands() {
   const auto hasDoc = [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); };
+  // W11-GUI-LSP. View Call Hierarchy is Visual Studio's (Ctrl+K, Ctrl+T); the type hierarchy window has no Visual Studio
+  // C++ counterpart (tenfold addition, command palette and editor menu). Quick Actions is Ctrl+. as in Visual Studio.
+  registry_.bind(
+      "View.CallHierarchy",
+      [this](const CommandContext&, std::string_view) {
+        openHierarchy(HierarchyPanel::Mode::Call);
+        return true;
+      },
+      [this, hasDoc](const CommandContext& c) { return hierarchy_ && hasDoc(c); });
+  registry_.bind(
+      "View.TypeHierarchy",
+      [this](const CommandContext&, std::string_view) {
+        openHierarchy(HierarchyPanel::Mode::Type);
+        return true;
+      },
+      [this, hasDoc](const CommandContext& c) { return hierarchy_ && hasDoc(c); });
+  registry_.bind(
+      "Editor.QuickActions",
+      [this](const CommandContext&, std::string_view) {
+        closePickers();
+        completion_->close();
+        sigHelp_->close();
+        hover_->dismiss();
+        std::string why;
+        if (!clangdResultsAllowed(&why)) {
+          setMessage("No quick actions: " + why, kMessageMs);
+          return true;
+        }
+        forEachView([&](TextView& v) {
+          if (v.isCurrent() && v.visible() && v.hasFocus()) quick_->setAnchor(v.caretRect(editor_.selections()[0].head));
+        });
+        quick_->open();
+        return true;
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.InlayHintsHold",
+      [this](const CommandContext&, std::string_view) {
+        inlayHeld_ = true;
+        inlay_->setHeld(true);
+        return true;
+      },
+      hasDoc);
   // The features report their outcome in the status bar, so these handlers report success and keep that text.
   registry_.bind(
       "Editor.RenameSymbol",

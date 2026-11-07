@@ -73,6 +73,7 @@ void TextView::bindListener(Document* d) {
     wrap_.onChange(c);
     blocksOnChange(c);
     foldOnChange(c);
+    hints_.onChange(c);
   });
 }
 
@@ -403,8 +404,8 @@ void TextView::forSegments(int line, int b0, int b1, bool withBreak, Fn fn) cons
       if (b0 < b1 && !(last && withBreak && e == n)) continue;  // only touches the row's edge
       if (b0 == b1 && !last && a == r.end) continue;            // the caret position belongs to the next row
     }
-    const float x0 = wrap_.xOf(line, r.row, a);
-    float x1 = wrap_.xOf(line, r.row, e);
+    const float x0 = wrap_.xOf(line, r.row, a) + hintShift(line, r.row, a);
+    float x1 = wrap_.xOf(line, r.row, e) + hintShift(line, r.row, e, true);
     if (last && withBreak) x1 += cw;
     fn(r, x0, x1);
   }
@@ -461,6 +462,15 @@ Position TextView::positionAt(float x, float y) const {
   int inBlock = -1;
   int vrow = rowMap().wrapRow(drow, &inBlock);
   if (inBlock >= 0) vrow = std::max(0, vrow - 1);  // a row of an inline block: the text row above it
+  if (hintsShown_ && !hints_.empty()) {  // inlay hints moved the text: back to the unshifted x
+    int row = 0;
+    const int line = W.lineOfRow(vrow, &row);
+    const int rs = W.rowStart(line, row), re = W.rowEnd(line, row);
+    const int len = static_cast<int>(d->buffer().line(line).size());
+    const float cw = root()->editorText().cellWidth();
+    const float ux = hints_.unshift(line, rs, re, len, lx, cw, [&](int col) { return W.xOf(line, row, col); });
+    return W.positionAt(vrow, ux);
+  }
   return W.positionAt(vrow, lx);
 }
 
@@ -473,7 +483,8 @@ RectF TextView::caretRect(Position p) const {
   WrapLayout& W = wrapLayout();
   const float w = std::max(1.0f, std::floor(L.cellWidth() / 6));
   const int row = W.rowOfByte(p.line, p.column);
-  return {bounds().x + L.textOffset(b.lineCount()) - scrollX() + W.xOf(p.line, row, p.column),
+  return {bounds().x + L.textOffset(b.lineCount()) - scrollX() + W.xOf(p.line, row, p.column) +
+              hintShift(p.line, row, p.column),
           bounds().y + L.lineTop(rowMap().display(W.firstRowOf(p.line) + row), std::floor(vp_.y())), w, L.lineHeight()};
 }
 
@@ -679,26 +690,127 @@ int TextView::onTick(int64_t nowMs) {
 void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, float y, const RectF& clip,
                            const std::vector<gfx::ColorSpan>* spans) {
   const std::string& line = document()->buffer().line(r.line);
-  const float x = textX + static_cast<float>(r.indent) * root()->editorText().cellWidth();
-  const bool whole = r.start == 0 && r.end >= static_cast<int>(line.size());
-  const std::string_view v =
-      whole ? std::string_view(line)
-            : std::string_view(line).substr(static_cast<size_t>(r.start), static_cast<size_t>(r.end - r.start));
-  if (!spans) {
-    ctx.text(x, y, v, ctx.theme.text, clip);
+  const float cw = root()->editorText().cellWidth();
+  const float x = textX + static_cast<float>(r.indent) * cw;
+  // Draws bytes [a, b) of the line with its x at `sx`.
+  auto slice = [&](int a, int b, float sx) {
+    if (b <= a) return;
+    const bool whole = a == 0 && b >= static_cast<int>(line.size());
+    const std::string_view v =
+        whole ? std::string_view(line)
+              : std::string_view(line).substr(static_cast<size_t>(a), static_cast<size_t>(b - a));
+    if (!spans) {
+      ctx.text(sx, y, v, ctx.theme.text, clip);
+      return;
+    }
+    if (whole) {
+      ctx.textRenderer.drawSpans(sx, y, v, *spans, hl_.palette(), hl_.defaultColor(), clip);
+      return;
+    }
+    // A row of a wrapped line, or a piece between inlay hints: the spans that touch it, relative to its start.
+    rowSpans_.clear();
+    const uint32_t ua = static_cast<uint32_t>(a), ue = static_cast<uint32_t>(b);
+    auto it = std::partition_point(spans->begin(), spans->end(), [ua](const gfx::ColorSpan& sp) { return sp.end <= ua; });
+    for (; it != spans->end() && it->begin < ue; ++it)
+      rowSpans_.push_back({std::max(it->begin, ua) - ua, std::min(it->end, ue) - ua, it->color});
+    ctx.textRenderer.drawSpans(sx, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
+  };
+  if (!hintsShown_ || hints_.empty()) {
+    slice(r.start, r.end, x);
     return;
   }
-  if (whole) {
-    ctx.textRenderer.drawSpans(x, y, v, *spans, hl_.palette(), hl_.defaultColor(), clip);
-    return;
+  const auto [h0, h1] = hints_.ofLine(r.line);
+  const int len = static_cast<int>(line.size());
+  const Theme& th = ctx.theme;
+  const float lh = root()->editorText().lineHeight();
+  int from = r.start;
+  float cx = x;  // x of byte `from`
+  for (size_t i = h0; i < h1; ++i) {
+    const InlayMap::Item& h = hints_.items()[i];
+    if (!InlayMap::onRow(h, r.start, r.end, len)) continue;
+    slice(from, h.col, cx);
+    cx += wrap_.xOf(r.line, r.row, h.col) - wrap_.xOf(r.line, r.row, from);
+    from = h.col;
+    const float w = static_cast<float>(h.width()) * cw;
+    const Color bg = Theme::orElse(th.inlayHintBackground, mix(th.panelBackground, th.text, 0.12f));
+    ctx.fill(intersect({cx, y, w - 1, lh}, clip), bg);
+    ctx.text(cx + cw / 2, y, h.text, Theme::orElse(th.inlayHint, th.textDim), intersect({cx, y, w, lh}, clip));
+    cx += w;
   }
-  // A row of a wrapped line: the spans that touch it, relative to the row start.
-  rowSpans_.clear();
-  const uint32_t a = static_cast<uint32_t>(r.start), e = static_cast<uint32_t>(r.end);
-  auto it = std::partition_point(spans->begin(), spans->end(), [a](const gfx::ColorSpan& s) { return s.end <= a; });
-  for (; it != spans->end() && it->begin < e; ++it)
-    rowSpans_.push_back({std::max(it->begin, a) - a, std::min(it->end, e) - a, it->color});
-  ctx.textRenderer.drawSpans(x, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
+  slice(from, r.end, cx);
+}
+
+// ---- Quick Actions light bulb and inlay hints (W11-GUI-LSP) ----
+
+void TextView::setLightBulb(int line) {
+  if (line == bulbLine_) return;
+  bulbLine_ = line;
+  markDirty();
+}
+
+RectF TextView::lightBulbRect() const {
+  if (bulbLine_ < 0 || !root() || !document() || bulbLine_ >= document()->buffer().lineCount() ||
+      wrap_.isHidden(bulbLine_))
+    return {0, 0, 0, 0};
+  const Layout L = geometry();
+  const float cw = L.cellWidth(), lh = L.lineHeight();
+  const int vrow = rowMap().display(wrap_.firstRowOf(bulbLine_));
+  const float y = bounds().y + L.lineTop(vrow, std::floor(vp_.y()));
+  if (y + lh <= bounds().y || y >= bounds().y + bounds().h) return {0, 0, 0, 0};
+  return {bounds().x + L.glyphLane() + 1, y, std::max(6.0f, std::floor(cw * 0.95f)), lh};
+}
+
+void TextView::paintLightBulb(PaintContext& ctx, const Layout& L, float y) {
+  const float cw = L.cellWidth(), lh = L.lineHeight();
+  const Color c = Theme::orElse(ctx.theme.lightBulb, Color{1.0f, 0.8f, 0.0f, 1});
+  const int d = std::max(6, static_cast<int>(std::floor(std::min(cw * 0.9f, lh * 0.55f))));
+  const float x = bounds().x + L.glyphLane() + 1 + std::floor((std::max(6.0f, std::floor(cw * 0.95f)) - static_cast<float>(d)) / 2);
+  const float top = y + std::floor((lh - static_cast<float>(d) - 3) / 2);
+  discRows(ctx, x, top, d, 0, c);
+  const float bw = std::max(2.0f, std::floor(static_cast<float>(d) * 0.5f));  // the screw base
+  ctx.fill({x + std::floor((static_cast<float>(d) - bw) / 2), top + static_cast<float>(d), bw, 2}, c);
+  ctx.fill({x + std::floor((static_cast<float>(d) - bw) / 2), top + static_cast<float>(d) + 2, bw, 1},
+           mix(c, ctx.theme.panelBackground, 0.4f));
+}
+
+void TextView::setInlayHints(const std::vector<LspInlayHint>& hints) {
+  if (!root()) return;
+  hints_.set(hints, root()->editorText().textLayout());
+  markDirty();
+}
+
+void TextView::setInlayHintsShown(bool on) {
+  if (on == hintsShown_) return;
+  hintsShown_ = on;
+  if (!on) hints_.clear();
+  markDirty();
+}
+
+std::pair<int, int> TextView::visibleLines() const {
+  const Document* d = document();
+  if (!d) return {0, 0};
+  if (vis_.empty()) return {0, std::max(0, d->buffer().lineCount() - 1)};
+  return {vis_.front().line, vis_.back().line};
+}
+
+float TextView::hintShift(int line, int row, int col, bool end) const {
+  if (!hintsShown_ || hints_.empty() || !root()) return 0;
+  const auto [a, b] = hints_.ofLine(line);
+  if (a == b) return 0;
+  const int rs = wrap_.rowStart(line, row), re = wrap_.rowEnd(line, row);
+  const int len = static_cast<int>(document()->buffer().line(line).size());
+  return static_cast<float>(hints_.shiftCells(line, rs, re, len, col, end)) * root()->editorText().cellWidth();
+}
+
+bool TextView::rowHasHints(int line, int row) const {
+  if (!hintsShown_ || hints_.empty()) return false;
+  const auto [a, b] = hints_.ofLine(line);
+  if (a == b) return false;
+  const int rs = wrap_.rowStart(line, row), re = wrap_.rowEnd(line, row);
+  const int len = static_cast<int>(document()->buffer().line(line).size());
+  for (size_t i = a; i < b; ++i)
+    if (InlayMap::onRow(hints_.items()[i], rs, re, len)) return true;
+  return false;
 }
 
 void TextView::paint(PaintContext& rootCtx) {
@@ -831,7 +943,8 @@ void TextView::paint(PaintContext& rootCtx) {
           for (size_t i = lo; i < hi; ++i) {
             const RowRef& r = vis_[i];
             if (p.column < r.start || (p.column >= r.end && r.end < len)) continue;
-            ctx.fill(intersect({textX + W.xOf(p.line, r.row, p.column), rowY(r), cw, lh}, clip), th.bracketMatch);
+            ctx.fill(intersect({textX + W.xOf(p.line, r.row, p.column) + hintShift(p.line, r.row, p.column), rowY(r), cw, lh}, clip),
+                     th.bracketMatch);
           }
         }
   paintBlocks(ctx, L, sx);
@@ -854,6 +967,7 @@ void TextView::paint(PaintContext& rootCtx) {
         const float m = std::max(4.0f, std::floor(cw * 0.7f));
         ctx.fill({b.x + L.glyphLane() + 2, y + std::floor((lh - m) / 2), m, m}, th.tabAccent);
       }
+      if (r.line == bulbLine_) paintLightBulb(ctx, L, y);
       number_ = std::to_string(r.line + 1);
       ctx.text(b.x + L.numbersRight(n) - static_cast<float>(number_.size()) * cw, y, number_, th.gutterText,
                gutterClip);
@@ -867,12 +981,12 @@ void TextView::paint(PaintContext& rootCtx) {
       if (const FoldModel::Region* cr = fold_.collapsedAt(r.line)) {
         float gap = 0;
         const std::string txt = foldMarkerText(*cr, r.line, &gap);
-        const float mx = textX + W.xOf(r.line, r.row, r.end) + gap * cw, mw = static_cast<float>(txt.size()) * cw;
+        const float mx = textX + W.xOf(r.line, r.row, r.end) + hintShift(r.line, r.row, r.end + 1) + gap * cw, mw = static_cast<float>(txt.size()) * cw;
         ctx.fill(intersect({mx, y, mw, lh}, clip),
                  Theme::orElse(th.foldMarkerBackground, mix(th.panelBackground, th.text, 0.12f)));
         ctx.text(mx, y, txt, Theme::orElse(th.foldMarkerText, th.textDim), clip);
       }
-    if (settings_.showWhitespace) {
+    if (settings_.showWhitespace && !rowHasHints(r.line, r.row)) {
       const std::string& text = buf.line(r.line);
       paintWhitespace(ctx, L,
                       std::string_view(text).substr(static_cast<size_t>(r.start), static_cast<size_t>(r.end - r.start)),
@@ -1007,7 +1121,9 @@ void TextView::paintOverlay(PaintContext& ctx) {
       const RowRef& r = vis_[i];
       if (p.column < r.start || (p.column >= r.end && r.end < len)) continue;
       const RectF rc = intersect(
-          {x0 + wrap_.xOf(p.line, r.row, p.column), bounds().y + L.lineTop(r.vrow, sy), w, L.lineHeight()}, clip);
+          {x0 + wrap_.xOf(p.line, r.row, p.column) + hintShift(p.line, r.row, p.column),
+           bounds().y + L.lineTop(r.vrow, sy), w, L.lineHeight()},
+          clip);
       if (rc.w > 0) ctx.fill(rc, c);
       break;
     }
@@ -1238,7 +1354,8 @@ RectF TextView::foldMarkerRect(int line) const {
   float gap = 0;
   const std::string txt = foldMarkerText(*fold_.collapsedAt(line), line, &gap);
   const float cw = L.cellWidth();
-  const float x = bounds().x + L.textOffset(n) - scrollX() + wrap_.xOf(line, r.row, r.end) + gap * cw;
+  const float x = bounds().x + L.textOffset(n) - scrollX() + wrap_.xOf(line, r.row, r.end) +
+                  hintShift(line, r.row, r.end + 1) + gap * cw;
   return {x, bounds().y + L.lineTop(r.vrow, std::floor(vp_.y())), static_cast<float>(txt.size()) * cw, L.lineHeight()};
 }
 
@@ -1685,6 +1802,10 @@ void TextView::addCaretAtPoint(float x, float y) {
 }
 
 void TextView::mouseDown(const InputEvent& e) {
+  if (bulbLine_ >= 0 && onLightBulb && ui::contains(lightBulbRect(), e.x, e.y)) {
+    onLightBulb();
+    return;
+  }
   if (const float lane = glyphLaneWidth(); lane > 0 && e.x >= bounds().x && e.x < bounds().x + lane) {
     const float lh = root()->editorText().lineHeight();
     const int vrow = static_cast<int>(std::floor((e.y - bounds().y + std::floor(vp_.y())) / lh));

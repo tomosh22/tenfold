@@ -29,6 +29,10 @@ editor.showFoldGlyphs = true
 outline.enabled = true
 outline.pragmaRegions = true
 outline.statementBlocks = true
+# Inlay hints (clangd's parameter names and deduced types, drawn as dim virtual text between the characters). Visual
+# Studio: Tools > Options > Text Editor > C/C++ > IntelliSense > Inlay Hints; hints appear while Alt+F1 is held.
+# "off": never, "on": always, "while-pressed": only while Alt+F1 is held (nothing shows until then, like Visual Studio).
+editor.inlayHints = while-pressed
 
 # Editing conveniences (B8b: the defaults are 10x's documented defaults; the 10x setting each key mirrors is named).
 # indentUnit (10x IndentMode = Tabs): "tab" or the number of spaces of one indent level; used when detectIndent is off

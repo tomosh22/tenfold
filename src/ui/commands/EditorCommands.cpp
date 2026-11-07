@@ -439,6 +439,11 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.FindFunction", "Find Function in File...");
   addUi(r, "Editor.GotoDefinitionUnderMouse", "Go to Definition Under Mouse");
   addUi(r, "Editor.FormatSelection", "Format Selection or Scope");
+  // W11-GUI-LSP
+  addUi(r, "View.CallHierarchy", "View Call Hierarchy");
+  addUi(r, "View.TypeHierarchy", "View Type Hierarchy");
+  addUi(r, "Editor.QuickActions", "Quick Actions and Refactorings...");
+  addUi(r, "Editor.InlayHintsHold", "Show Inlay Hints While Held");
 }
 
 }  // namespace tf::ui

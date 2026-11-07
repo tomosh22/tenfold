@@ -889,6 +889,7 @@ tests.)
 | `outline.enabled` | `true` | bool | Visual Studio's Enable Outlining (C/C++). Off: no regions, no margin, the folding commands do nothing. |
 | `outline.pragmaRegions` | `true` | bool | Visual Studio's Outline Pragma Regions: `#pragma region` / `#pragma endregion` pairs are regions. |
 | `outline.statementBlocks` | `true` | bool | Visual Studio's Outline Statement Blocks: brace blocks inside a function body (if, for, while, try, plain blocks) are regions. Off: only function, class and namespace bodies and comments. |
+| `editor.inlayHints` | `while-pressed` | string | Inlay hints from clangd (parameter names, deduced types) as dim text between the characters. `off`: never; `on`: always; `while-pressed`: only while Alt+F1 is held, which is what Visual Studio does by default (Tools > Options > Text Editor > C/C++ > IntelliSense > Inlay Hints). Needs clangd and a file that belongs to a translation unit. |
 | `editor.indentUnit` | `tab` | string | One indent level: `tab`, or a number of spaces from 1 to 16 (anything else means 4). Used when `editor.detectIndent` finds nothing in the file, or is off. 10x: IndentMode (Tabs). |
 | `editor.detectIndent` | `false` | bool | Take the indent unit from the file itself (its first 400 lines: tabs, or the most common step) instead of `editor.indentUnit`. 10x: AutoDetectIndentMode (false). |
 | `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator). 10x: AutoIndent. |

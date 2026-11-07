@@ -266,6 +266,14 @@ Control F12: Editor.GotoDeclaration
 Shift F12: FindSymbolReferences
 Control Comma: FindSymbol
 
+# --- Quick actions, hierarchies, inlay hints (Visual Studio's keys; none of them is bound in 10x's map) ---
+# Ctrl+. Quick Actions and Refactorings, Ctrl+K Ctrl+T View Call Hierarchy, Alt+F1 shows inlay hints while it is held.
+# View.TypeHierarchy is a tenfold addition (Visual Studio has no C++ type hierarchy window): command palette and editor
+# menu, no default key.
+Control .: Editor.QuickActions
+Control K, Control T: View.CallHierarchy
+Alt F1: Editor.InlayHintsHold
+
 # --- Application, build, debugging, panels ---
 Control Q: Exit
 Control Shift B: BuildActiveWorkspace

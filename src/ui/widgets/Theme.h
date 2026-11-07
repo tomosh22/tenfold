@@ -112,6 +112,9 @@ struct Theme {
                              0};     // the {...} marker of a collapsed region; unset = panelBackground 12% towards text
   Color foldMarkerText{0, 0, 0, 0};  // its text; unset = textDim
   Color foldGlyph{0, 0, 0, 0};       // the outlining margin glyphs (editor.showFoldGlyphs); unset = gutterText
+  Color inlayHint{0, 0, 0, 0};            // inlay hint text (parameter names, deduced types); unset = textDim
+  Color inlayHintBackground{0, 0, 0, 0};  // the box behind it; unset = panelBackground 12% towards text
+  Color lightBulb{0, 0, 0, 0};            // the Quick Actions light bulb in the margin; unset = #ffcc00
   Color tabVcsModified{0, 0, 0, 0};  // tab marker, file modified (Git / Perforce); unset = dirtyMarker
   Color tabVcsAdded{0, 0, 0, 0};     // new / untracked / opened for add; unset = the added colour
   Color tabVcsCheckedOut{0, 0, 0, 0};  // Perforce checked out; unset = the deleted colour (red)

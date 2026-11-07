@@ -135,6 +135,10 @@ color.diffBlockHeader = #2D2D30
 color.foldMarkerBackground = #3A3D41
 color.foldMarkerText = #A0A0A0
 color.foldGlyph = #A0A0A0
+# Inlay hints: VS 2022 dark, VS_BEHAVIOUR 5.1 [S35]; the light bulb is VS's Quick Actions yellow ([?] hex not sourced).
+color.inlayHint = #A9A8A7
+color.inlayHintBackground = #3E3E3E
+color.lightBulb = #FFCC00
 # Tab markers: modified, added / untracked, Perforce checked out, Perforce read-only (outlined).
 color.tabVcsModified = #E2C08D
 color.tabVcsAdded = #73C991
