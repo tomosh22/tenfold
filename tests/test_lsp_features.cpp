@@ -376,6 +376,7 @@ static void quickFixCase(const std::string& src, int diagLine, const std::string
   spit(file, src);
   Fx f(dir.path);
   REQUIRE(f.ok);
+  f.ed.setMiscFileDiagnostics(true);  // the new file is in no translation unit: no squiggles unless asked (VS-NAV)
   Document* d = f.openReady(file);
   REQUIRE(d != nullptr);
   REQUIRE(f.ed.waitFor([&] { return !f.ed.diagnostics(file).empty(); }, 60000));

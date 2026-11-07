@@ -184,7 +184,7 @@ int ListPopup::skipHeaders(int i, int dir) const {
 
 float ListPopup::previewToggleWidth() const {
   if (!previewToggled_ || !root()) return 0;
-  return root()->text().measure(preview_ ? "Preview: on" : "Preview: off") + 2 * theme().padding;
+  return root()->text().measure(preview_ ? "Preview: on" : "Preview: off") + 4 * theme().padding;
 }
 
 RectF ListPopup::previewToggleRect() const {

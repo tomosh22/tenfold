@@ -1071,7 +1071,7 @@ TEST(vsnav_find_all_references_list_is_grouped_definition_first_then_by_file) {
   REQUIRE(p != nullptr);
   CHECK_EQ(p->title(), std::string("Find All References (4 in 2 files)"));
   // Definition heading + its row, src/alpha.cpp heading + 1, src/beta.cpp heading + 2.
-  REQUIRE_EQ(p->rows().size(), size_t(7));
+  REQUIRE(p->rows().size() == 7);
   CHECK(p->rows()[0].header);
   CHECK_EQ(p->rows()[0].primary, std::string("Definition"));
   CHECK_EQ(p->rows()[0].detail, std::string("1"));
