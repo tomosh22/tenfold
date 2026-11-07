@@ -1671,7 +1671,7 @@ document (a message says how many were kept) instead of opening one prompt per t
 All pickers are owned by `EditorApp` and share a `PickerEnv` (root, editor, `LineSource` for previews, the app clock).
 While one is open the key context is `picker`, so the `editor` bindings (arrows, Enter, Escape) do not fire and the
 keys reach the popup. *Symbol search* (`Search.SymbolSearch`, Ctrl+,): typing calls `Editor::findSymbols` on the main
-thread (the fast tier is synchronous until A10: 35-270 ms on Godot); the first
+thread (it returns at once: the fast tier runs on the engine's symbol thread since A10); the first
 keystroke after a pause goes out at once, later ones at most every 25 ms (`tick` returns the wait); every request has a
 sequence number and answers for an older one are dropped. An Approximate answer is shown greyed with "verifying..."
 (or "approximate (reason)" when no authoritative answer will follow, as without clangd); the Authoritative one replaces
