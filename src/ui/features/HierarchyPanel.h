@@ -48,6 +48,8 @@ class HierarchyPanel : public Widget {
   ~HierarchyPanel() override;
 
   void setBackend(Backend b) { backend_ = std::move(b); }
+  // Returns why no hierarchy can be asked for now (empty: it can); open() then shows that text instead of asking.
+  void setUnavailableFn(std::function<std::string()> fn) { unavailable_ = std::move(fn); }
   // Starts a new hierarchy at the caret (replacing the shown one). The panel does not show itself.
   void open(Mode mode);
   // Why nothing can be shown (clangd absent, a file outside every translation unit): the panel shows `text` as its
@@ -105,6 +107,7 @@ class HierarchyPanel : public Widget {
 
   Editor& editor_;
   Backend backend_;
+  std::function<std::string()> unavailable_;
   TreeView* tree_ = nullptr;
   Mode mode_ = Mode::Call;
   std::unique_ptr<Entry> root_;

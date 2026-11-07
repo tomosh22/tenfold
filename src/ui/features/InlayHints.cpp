@@ -59,13 +59,16 @@ int InlayHints::tick(int64_t nowMs) {
         last = b;
       }
     });
-  const bool covered = d == doc_ && first >= firstAsked_ && last <= lastAsked_;
-  if (d == doc_ && d->version() == version_ && covered && !dirty_) return -1;
-  if (d != doc_ || d->version() != version_ || !covered || first != seenFirst_ || last != seenLast_) {
-    if (first != seenFirst_ || last != seenLast_ || d != doc_ || d->version() != version_) changedAt_ = nowMs;
+  const int version = d->version();
+  if (d != seenDoc_ || version != seenVersion_ || first != seenFirst_ || last != seenLast_) {
+    seenDoc_ = d;
+    seenVersion_ = version;
     seenFirst_ = first;
     seenLast_ = last;
+    changedAt_ = nowMs;  // something moved: wait for it to settle
   }
+  const bool covered = d == doc_ && version == version_ && first >= firstAsked_ && last <= lastAsked_;
+  if (covered && !dirty_) return -1;
   if (nowMs - changedAt_ < kDebounceMs) return static_cast<int>(kDebounceMs - (nowMs - changedAt_));
   if (allowed_ && !allowed_()) {
     doc_ = d;  // do not ask again until something changes
@@ -83,7 +86,6 @@ int InlayHints::tick(int64_t nowMs) {
   lastAsked_ = z;
   dirty_ = false;
   const uint64_t seq = ++seq_;
-  const int version = version_;
   Range r{{a, 0}, {z, static_cast<int>(d->buffer().line(z).size())}};
   backend_.fetch(r, [this, seq, d, version, life = std::weak_ptr<int>(alive_)](const std::vector<LspInlayHint>& hs,
                                                                                const std::string&) {

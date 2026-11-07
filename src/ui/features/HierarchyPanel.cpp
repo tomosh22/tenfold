@@ -129,6 +129,13 @@ void HierarchyPanel::showMessage(Mode mode, const std::string& text) {
 }
 
 void HierarchyPanel::open(Mode mode) {
+  if (unavailable_) {
+    const std::string why = unavailable_();
+    if (!why.empty()) {
+      showMessage(mode, "Needs clangd: " + why);
+      return;
+    }
+  }
   ++gen_;
   mode_ = mode;
   rootName_.clear();

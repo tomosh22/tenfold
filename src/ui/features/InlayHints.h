@@ -66,7 +66,8 @@ class InlayHints {
   int version_ = -1, firstAsked_ = 0, lastAsked_ = -1;
   int64_t changedAt_ = 0;
   bool dirty_ = false;
-  int seenFirst_ = -1, seenLast_ = -1;
+  const Document* seenDoc_ = nullptr;
+  int seenVersion_ = -1, seenFirst_ = -1, seenLast_ = -1;
   uint64_t seq_ = 0;
   std::shared_ptr<int> alive_ = std::make_shared<int>(0);
 };

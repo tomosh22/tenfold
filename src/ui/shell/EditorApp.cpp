@@ -288,6 +288,10 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
       bench_->sync();
       bench_->setActivePanel(bench_->activePanel());
     };
+    hierarchy_->setUnavailableFn([this] {
+      std::string why;
+      return clangdResultsAllowed(&why) ? std::string() : why;
+    });
     bench_->addBottomPanel("Hierarchy", std::move(hp));
     bench_->status().setOnClick("build", [this](const std::string&) { bench_->toggleBottomPanel("Build"); });
     WorkspaceExplorer::Hooks eh;
@@ -1866,12 +1870,7 @@ void EditorApp::openHierarchy(HierarchyPanel::Mode mode) {
   completion_->close();
   sigHelp_->close();
   hover_->dismiss();
-  std::string why;
   bench_->showBottomPanel("Hierarchy");
-  if (!clangdResultsAllowed(&why)) {
-    hierarchy_->showMessage(mode, "Needs clangd: " + why);
-    return;
-  }
   hierarchy_->open(mode);
   hierarchy_->focusTree();
 }
@@ -1901,11 +1900,6 @@ void EditorApp::bindParserCommands() {
         completion_->close();
         sigHelp_->close();
         hover_->dismiss();
-        std::string why;
-        if (!clangdResultsAllowed(&why)) {
-          setMessage("No quick actions: " + why, kMessageMs);
-          return true;
-        }
         forEachView([&](TextView& v) {
           if (v.isCurrent() && v.visible() && v.hasFocus()) quick_->setAnchor(v.caretRect(editor_.selections()[0].head));
         });
