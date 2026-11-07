@@ -212,7 +212,7 @@ TEST(crash_midrequest_errors_then_restarts_and_reopens_documents) {
   f.ed->insertText("AGAIN ");
   auto r5 = f.hover(1);
   CHECK(contains(r5.text, "UNSAVED AGAIN int b;"));
-  f.ed->pump();
+  f.ed->waitFor([&] { return f.ed->clangdStatusText().empty(); }, 5000);  // the status is posted after the phase
   CHECK(f.ed->clangdStatusText().empty());
 }
 
@@ -355,7 +355,8 @@ TEST(crash_gives_up_after_repeated_fast_crashes_and_manual_restart_recovers) {
   auto h = f.ed->semantic().clangdHealth();
   CHECK_EQ(h.crashes, 3);
   CHECK_EQ(h.text(), std::string("clangd stopped: crashed 3 times"));
-  f.ed->pump();
+  // The engine records the phase before it posts the status text to the editor: wait for the text, do not pump once.
+  f.ed->waitFor([&] { return f.ed->clangdStatusText() == "clangd stopped: crashed 3 times"; }, 5000);
   CHECK_EQ(f.ed->clangdStatusText(), std::string("clangd stopped: crashed 3 times"));
   CHECK(f.ed->semantic().clangd() == nullptr);
   std::this_thread::sleep_for(std::chrono::milliseconds(150));
@@ -366,7 +367,7 @@ TEST(crash_gives_up_after_repeated_fast_crashes_and_manual_restart_recovers) {
   CHECK(f.ed->semantic().clangd() != nullptr);
   CHECK(f.ed->semantic().clangdHealth().phase == SemanticEngine::ClangdHealth::Phase::Running);
   CHECK_EQ(f.ed->semantic().clangdHealth().crashes, 0);
-  f.ed->pump();
+  f.ed->waitFor([&] { return f.ed->clangdStatusText().empty(); }, 5000);  // the status is posted after the phase
   CHECK(f.ed->clangdStatusText().empty());
   REQUIRE(f.openAndEdit());
   auto r = f.hover(1);
