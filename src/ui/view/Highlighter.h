@@ -39,10 +39,13 @@ struct LexState {
   bool operator==(const LexState& o) const;
 };
 // A resumable point of the scanner inside a line: a token boundary where the state is "no open construct"
-// (mode None); lineStart says whether only whitespace / comments came before (a '#' there starts a directive).
+// (mode None), or (mid != 0) a position inside a string / char literal with that quote character, so a literal of
+// megabytes can be resumed too. lineStart says whether only whitespace / comments came before (a '#' there starts a
+// directive).
 struct LexResume {
   uint32_t pos;
   bool lineStart;
+  char mid = 0;
 };
 // Scans one line (exposed for tests); returns the state at its end.
 LexState lexLine(std::string_view line, LexState in, std::vector<LexSpan>& out);

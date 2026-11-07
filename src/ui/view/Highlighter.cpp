@@ -33,11 +33,14 @@ namespace {
 // The scanner behind lexLine and the long-line paths. Scans s from byte `i` (0 = the start of the line, where the
 // incoming state `st` applies; any other value is a token boundary of a line in the None state with `lineStart` as
 // reported by an earlier stop). `out` may be null (only the state / stops are wanted). At the top of every token
-// iteration stop(i, lineStart) is asked; true ends the scan there (*stopped = true, the returned state is then
-// meaningless). lexLine passes a stop that never fires.
+// iteration stop(i, lineStart, 0) is asked; true ends the scan there (*stopped = true, the returned state is then
+// meaningless). Inside a string / char literal it is asked every kMidStride bytes, with the quote character as the
+// third argument: such a stop can be resumed with `mid` = that character and i = its position. lexLine passes a stop
+// that never fires.
+constexpr size_t kMidStride = 1024;
 template <class Stop>
-LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, std::vector<LexSpan>* out, Stop&& stop,
-                 bool* stopped) {
+LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, char mid, std::vector<LexSpan>* out,
+                 Stop&& stop, bool* stopped) {
   const size_t n = s.size();
   *stopped = false;
   auto add = [&](size_t b, size_t e, Lex k) {
@@ -70,15 +73,34 @@ LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, std:
     }
     lineStart = st.mode == LexState::None;
   }
-  auto quoted = [&](size_t from, size_t q) {  // string / char literal whose opening quote is at q
-    size_t j = q + 1;
-    while (j < n && s[j] != s[q]) j += s[j] == '\\' ? 2 : 1;
-    j = std::min(n, j + 1);
-    add(from, j, s[q] == '"' ? Lex::String : Lex::Char);
-    return j;
+  bool halted = false;
+  // The body of a string / char literal that started at `from`, scanned from j (after the opening quote, or a stop
+  // inside it) to the closing quote or the end of the line. Returns where it ended; `halted` when stop() ended the scan.
+  auto body = [&](size_t from, size_t j, char qc) {
+    const Lex kind = qc == '"' ? Lex::String : Lex::Char;
+    for (;;) {
+      const size_t lim = std::min(n, j + kMidStride);
+      while (j < lim && s[j] != qc) j += s[j] == '\\' ? 2 : 1;
+      if (j >= n || s[j] == qc) {
+        j = std::min(n, j + 1);
+        add(from, j, kind);
+        return j;
+      }
+      if (stop(j, false, qc)) {
+        add(from, j, kind);
+        halted = true;
+        return j;
+      }
+    }
   };
+  auto quoted = [&](size_t from, size_t q) { return body(from, q + 1, s[q]); };
+  if (mid && i > 0) {  // resume inside a literal
+    i = body(i, i, mid);
+    if (halted) return *stopped = true, LexState{};
+    lineStart = false;
+  }
   while (i < n) {
-    if (stop(i, lineStart)) {
+    if (stop(i, lineStart, 0)) {
       *stopped = true;
       return {};
     }
@@ -111,6 +133,7 @@ LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, std:
       if (j >= n) return backslash ? LexState{LexState::Directive, 0, {}} : LexState{};
     } else if (c == '"' || c == '\'') {
       i = quoted(i, i);
+      if (halted) return *stopped = true, LexState{};
     } else if (std::isdigit(c) || (c == '.' && i + 1 < n && std::isdigit(static_cast<unsigned char>(s[i + 1])))) {
       const bool hex = c == '0' && i + 1 < n && (s[i + 1] == 'x' || s[i + 1] == 'X');
       size_t j = i;
@@ -144,6 +167,7 @@ LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, std:
       }
       if (j < n && (s[j] == '"' || s[j] == '\'') && oneOf(w, {"L", "u", "U", "u8"})) {  // encoding prefix
         i = quoted(i, j);
+        if (halted) return *stopped = true, LexState{};
         continue;
       }
       add(i, j, !CppLexer::isKeyword(w) ? Lex::Identifier : isControlFlow(w) ? Lex::ControlKeyword : Lex::Keyword);
@@ -159,7 +183,7 @@ LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, std:
 
 LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
   bool stopped;
-  return lexCore(s, st, 0, true, &out, [](size_t, bool) { return false; }, &stopped);
+  return lexCore(s, st, 0, true, 0, &out, [](size_t, bool, char) { return false; }, &stopped);
 }
 
 // ---- cache ----
@@ -204,9 +228,11 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
   e.winValid = false;
   size_t from = 0;
   bool lineStart = true;
+  char mid = 0;
   if (partial) {
     from = e.ck.back().pos;
     lineStart = e.ck.back().lineStart;
+    mid = e.ck.back().mid;
   }
   std::vector<LexResume> tail = e.hasTail ? std::move(e.tail) : std::vector<LexResume>{};
   const LexState tailEnd = e.tailEnd;
@@ -217,14 +243,14 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
   bool joined = false;
   bool stopped = false;
   const LexState end = lexCore(
-      s, begin, from, lineStart, nullptr,
-      [&](size_t pos, bool ls) {
+      s, begin, from, lineStart, mid, nullptr,
+      [&](size_t pos, bool ls, char m) {
         if (pos >= next) {
-          e.ck.push_back({static_cast<uint32_t>(pos), ls});
+          e.ck.push_back({static_cast<uint32_t>(pos), ls, m});
           next = pos + kResumeStride;
         }
         while (ti < tail.size() && tail[ti].pos < pos) ++ti;
-        if (ti < tail.size() && tail[ti].pos == pos && tail[ti].lineStart == ls) {
+        if (ti < tail.size() && tail[ti].pos == pos && tail[ti].lineStart == ls && tail[ti].mid == m) {
           joined = true;
           return true;
         }
@@ -252,15 +278,17 @@ void Highlighter::windowLex(Entry& e, int line, size_t from, size_t to) {
   e.spans.clear();
   size_t start = 0;
   bool ls = true;
+  char mid = 0;
   if (it != e.ck.begin()) {
     start = (it - 1)->pos;
     ls = (it - 1)->lineStart;
+    mid = (it - 1)->mid;
   }
   size_t stopPos = s.size();
   bool stopped = false;
   lexCore(
-      s, e.begin, start, ls, &e.spans,
-      [&](size_t pos, bool) {
+      s, e.begin, start, ls, mid, &e.spans,
+      [&](size_t pos, bool, char) {
         if (pos < to || pos == start) return false;
         stopPos = pos;
         return true;
@@ -388,12 +416,12 @@ void Highlighter::onChange(const Document::Change& c) {
       std::vector<LexResume> oldTail;
       if (single && le.valid) {  // a fully lexed line: its points behind the edit may re-join
         for (const LexResume& r : le.ck)
-          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart});
+          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
         le.tailEnd = le.end;
         le.hasTail = true;
       } else if (single && le.hasTail) {  // a second edit before the first was lexed
         for (const LexResume& r : le.tail)
-          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart});
+          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
       } else {
         le.hasTail = false;
       }

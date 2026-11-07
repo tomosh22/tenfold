@@ -883,12 +883,22 @@ void TextView::paint(PaintContext& rootCtx) {
     const bool longRow = r.end - r.start >= static_cast<int>(LineAnchors::kMinLine);
     RowWindow win{r.start, r.end, {}};
     if (longRow) win = rowWindow(r, textX, clip);
-    if (colour && (longRow || hl_.isLong(r.line))) {  // a long line is lexed by windows: only what this row shows
-      spanLine = -1;
-      spans = &hl_.colorSpans(r.line, static_cast<size_t>(win.begin), static_cast<size_t>(win.end));
-    } else if (colour && r.line != spanLine) {
+    if (colour && r.line != spanLine) {
       spanLine = r.line;
-      spans = &hl_.colorSpans(r.line);
+      if (hl_.isLong(r.line)) {  // lexed by windows: one for all the rows of this line on screen
+        const auto [lo, hi] = visibleRange(r.line);
+        size_t b = ~size_t{0}, e = 0;
+        for (size_t i = lo; i < hi; ++i) {
+          const RowWindow w = vis_[i].end - vis_[i].start >= static_cast<int>(LineAnchors::kMinLine)
+                                  ? rowWindow(vis_[i], textX, clip)
+                                  : RowWindow{vis_[i].start, vis_[i].end, {}};
+          b = std::min(b, static_cast<size_t>(w.begin));
+          e = std::max(e, static_cast<size_t>(w.end));
+        }
+        spans = &hl_.colorSpans(r.line, b, e);
+      } else {
+        spans = &hl_.colorSpans(r.line);
+      }
     }
     drawRowText(ctx, r, textX, y, clip, colour ? spans : nullptr, win.anchor);
     if (fold_.hasCollapsed() && r.end >= static_cast<int>(buf.line(r.line).size()))
