@@ -23,15 +23,6 @@ namespace tf::ui {
 namespace fs = std::filesystem;
 
 namespace {
-// Workspace::noteTreeAdded was dropped from main (4ab1365) while VS-TREE still called it; list the files by hand.
-void noteTreeFiles(Workspace& ws, const fs::path& dir) {
-  std::error_code ec;
-  for (fs::recursive_directory_iterator it(dir, ec), end; !ec && it != end; it.increment(ec))
-    if (it->is_regular_file(ec)) ws.noteFileAdded(it->path());
-}
-}  // namespace
-
-namespace {
 
 constexpr const char* kSolutionFolderType = "{2150E333-8FDC-42A3-9474-1A3956D46DE8}";
 constexpr size_t kMaxGlobResults = 200000;
@@ -1128,7 +1119,7 @@ bool WorkspaceExplorer::relocate(const fs::path& from, const fs::path& to, bool 
   Workspace& ws = editor_.workspace();
   if (isDir) {
     for (const fs::path& f : ws.filesUnder(from)) ws.noteFileRemoved(f);
-    noteTreeFiles(ws, to);
+    ws.noteTreeAdded(to);
   } else {
     ws.noteFileRenamed(from, to);
   }
@@ -1285,7 +1276,7 @@ bool WorkspaceExplorer::move(int src, int dst, bool copy) {
       return false;
     }
     Workspace& ws = editor_.workspace();
-    if (isDir) noteTreeFiles(ws, to);
+    if (isDir) ws.noteTreeAdded(to);
     else ws.noteFileAdded(to);
     if (isDir) extraDirs_.push_back(to);
     afterChange(to);
