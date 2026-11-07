@@ -259,13 +259,21 @@ std::vector<Document*> Editor::documents() {
 void Editor::watchDocument(Document& doc) {
   doc.addListener([this](Document& d, const Document::Change& ch) {
     int newLines = 1 + TextBuffer::countBreaks(ch.newText);
-    nav_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
-    bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
-    breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, ch.removed.end.line, newLines);
+    // The touched lines: a change that ends at column 0 and whose text ends with a line break leaves its last line as
+    // it was (a line-ending rewrite, a whole-line insert or delete), so positions there shift instead of being clamped.
+    int lastLine = ch.removed.end.line;
+    if (lastLine > ch.removed.start.line && ch.removed.end.column == 0 && !ch.newText.empty() &&
+        (ch.newText.back() == '\n' || ch.newText.back() == '\r')) {
+      --lastLine;
+      --newLines;
+    }
+    nav_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
+    bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
+    breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
     if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
       int& ln = lastEdit_.pos.line;
-      if (ln > ch.removed.end.line) {
-        ln += newLines - (ch.removed.end.line - ch.removed.start.line + 1);
+      if (ln > lastLine) {
+        ln += newLines - (lastLine - ch.removed.start.line + 1);
       } else if (ln > ch.removed.start.line) {
         ln = ch.removed.start.line;
         lastEdit_.pos.column = 0;
@@ -502,11 +510,12 @@ bool Editor::reloadWith(Document& doc, std::optional<Encoding> forced, std::stri
   TextBuffer fresh(decoded);  // the same UTF-8 view of the file that loadFromDisk builds
   const TextBuffer& old = doc.buffer();
   const int oldN = old.lineCount(), newN = fresh.lineCount();
-  // Replace only the lines that differ (text or terminator) so history entries and clangd keep their place.
+  // Replace only the lines whose text differs, so history entries, bookmarks and clangd keep their place; the
+  // terminators are compared separately below. A file that only changed its line endings (an external tool, a git
+  // checkout with autocrlf) must not count as one big replacement of every line.
   auto same = [&](int o, int n) {
     if (old.line(o) != fresh.line(n)) return false;
-    const bool oLast = o + 1 == oldN, nLast = n + 1 == newN;
-    return oLast == nLast && (oLast || old.endingAfter(o) == fresh.endingAfter(n));
+    return (o + 1 == oldN) == (n + 1 == newN);
   };
   int i = 0;
   while (i < oldN && i < newN && same(i, i)) ++i;
@@ -519,6 +528,21 @@ bool Editor::reloadWith(Document& doc, std::optional<Encoding> forced, std::stri
       int from = (i == oldN || i == newN) && i > 0 ? i - 1 : i;
       doc.replace({{from, 0}, {oldN - 1, static_cast<int>(old.line(oldN - 1).size())}},
                   fresh.textInRangeRaw({{from, 0}, {newN - 1, static_cast<int>(fresh.line(newN - 1).size())}}));
+    }
+  }
+  // Now the lines match the file; make the terminators match too. Rewriting a terminator keeps the line structure, so
+  // nothing moves.
+  if (doc.buffer().lineCount() == newN) {
+    if (!fresh.mixedLineEndings()) {
+      if (newN > 1 && (doc.buffer().mixedLineEndings() || doc.buffer().lineEnding() != fresh.lineEnding()))
+        doc.convertLineEndings(fresh.lineEnding());
+    } else {
+      for (int k = 0; k + 1 < newN; ++k) {
+        const LineEnding want = fresh.endingAfter(k);
+        if (doc.buffer().endingAfter(k) == want) continue;
+        doc.replace({{k, static_cast<int>(doc.buffer().line(k).size())}, {k + 1, 0}},
+                    std::string(TextBuffer::terminatorText(want)));
+      }
     }
   }
   if (!doc.loadFromDisk(error, lo)) return false;  // clean state, CRLF flag, empty undo stack
