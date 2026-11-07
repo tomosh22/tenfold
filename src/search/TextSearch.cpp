@@ -259,8 +259,8 @@ struct Run {
 struct LineTracker {
   const char* base;
   const char* end;
-  const char* ls;  // start of the current line
-  const char* le;  // its line break (or `end`)
+  const char* ls;    // start of the current line
+  const char* le;    // its line break (or `end`)
   size_t leLen = 0;  // length of that break
   int line = 0;
   linebreak::BreakFinder bf;

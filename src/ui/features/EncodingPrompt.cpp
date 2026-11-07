@@ -8,7 +8,7 @@ namespace fs = std::filesystem;
 
 namespace {
 // VS's order: Windows, Macintosh, Unix, then the Unicode separators.
-constexpr LineEnding kEndings[] = {LineEnding::CRLF, LineEnding::CR,  LineEnding::LF,
+constexpr LineEnding kEndings[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF,
                                    LineEnding::LS,   LineEnding::PS, LineEnding::NEL};
 constexpr int kEndingCount = static_cast<int>(std::size(kEndings));
 
@@ -118,8 +118,8 @@ void EncodingPrompt::openSave(int selected) {
   ListRow save;
   save.key = "save";
   save.primary = d->isUntitled() ? "Use this encoding" : "Save";
-  save.secondary = std::string(encodingLabel(enc_)) + ", " +
-                   (ending_ == 0 ? "Current Setting" : endingLabel(kEndings[ending_ - 1]));
+  save.secondary =
+      std::string(encodingLabel(enc_)) + ", " + (ending_ == 0 ? "Current Setting" : endingLabel(kEndings[ending_ - 1]));
   rows.push_back(std::move(save));
   info("head:enc", "Encoding:");
   for (size_t i = 0; i < std::size(kEncodingChoices); ++i) {
@@ -134,8 +134,8 @@ void EncodingPrompt::openSave(int selected) {
   for (int i = 0; i <= kEndingCount; ++i) {
     ListRow r;
     r.key = "le:" + std::to_string(i);
-    r.primary = std::string(i == ending_ ? "  (*) " : "  ( ) ") +
-                (i == 0 ? "Current Setting" : endingLabel(kEndings[i - 1]));
+    r.primary =
+        std::string(i == ending_ ? "  (*) " : "  ( ) ") + (i == 0 ? "Current Setting" : endingLabel(kEndings[i - 1]));
     if (i == 0) r.secondary = currentEndingText(*d);
     rows.push_back(std::move(r));
   }

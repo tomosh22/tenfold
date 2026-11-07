@@ -651,8 +651,8 @@ void Runner::runRename(const Item& it, ItemResult& r) {
     if (wasOpen.count(f)) {
       Document* d = ed_->document(p);
       if (d && d->buffer().textForDisk() != txt) {  // (text() would turn CRLF / LS / NEL into LF)
-        // A literal replacement of the whole text (applyEdits would give every break the Enter ending of its line, which
-        // turns a file with mixed CRLF / LF / LS / NEL line ends into a uniform one).
+        // A literal replacement of the whole text (applyEdits would give every break the Enter ending of its line,
+        // which turns a file with mixed CRLF / LF / LS / NEL line ends into a uniform one).
         d->beginGroup();
         d->replace(Range{{0, 0}, d->buffer().endPosition()}, txt);
         d->endGroup();

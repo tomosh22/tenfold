@@ -203,7 +203,8 @@ void runLineMap(const uint8_t* d, size_t n) {
     FUZZ_REQUIRE(line == b.lineCount() - 1 && b.line(line) == src.substr(from));
   }
   // Converting every break to one kind keeps the lines.
-  for (LineEnding e : {LineEnding::LF, LineEnding::CRLF, LineEnding::CR, LineEnding::NEL, LineEnding::LS, LineEnding::PS}) {
+  for (LineEnding e :
+       {LineEnding::LF, LineEnding::CRLF, LineEnding::CR, LineEnding::NEL, LineEnding::LS, LineEnding::PS}) {
     TextBuffer c(TextBuffer::withLineEnding(src, e));
     FUZZ_REQUIRE(c.lineCount() == b.lineCount());
     for (int i = 0; i < c.lineCount(); ++i) FUZZ_REQUIRE(c.line(i) == b.line(i));
@@ -1111,8 +1112,12 @@ Registrar r12({"linediff",
 Registrar r12b({"linemap",
                 runLineMap,
                 {"src/core:.cpp"},
-                {"a\xE2\x80\xA8" "b\xE2\x80\xA9" "c\xC2\x85" "d\ne\r\nf\rg", "// c\xE2\x80\xA8int x;\xC2\x85\n/* \xF0\x9F\x98\x80\xE2\x80\xA9 */\n",
-                 "\xE2\x80\xA8\xE2\x80\xA8", "\xC2", "\xE2\x80", "x\xC2\x85", "\r\n\xE2\x80\xA9\r"},
+                {"a\xE2\x80\xA8"
+                 "b\xE2\x80\xA9"
+                 "c\xC2\x85"
+                 "d\ne\r\nf\rg",
+                 "// c\xE2\x80\xA8int x;\xC2\x85\n/* \xF0\x9F\x98\x80\xE2\x80\xA9 */\n", "\xE2\x80\xA8\xE2\x80\xA8",
+                 "\xC2", "\xE2\x80", "x\xC2\x85", "\r\n\xE2\x80\xA9\r"},
                 {"\n", "\r\n", "\r", "\xC2\x85", "\xE2\x80\xA8", "\xE2\x80\xA9", "\xE2\x80", "\xC2", "\xC3\xA9",
                  "\xF0\x9F\x98\x80"},
                 1024});

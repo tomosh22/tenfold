@@ -44,8 +44,8 @@ Position LspLineMap::toServer(Position p, const std::vector<std::string>& lines,
   const std::string& text = lines[static_cast<size_t>(p.line)];
   p.column = std::clamp(p.column, 0, static_cast<int>(text.size()));
   const int col = utf16 ? TextBuffer::utf8ToUtf16Column(text, p.column) : p.column;
-  auto it = std::upper_bound(runs_.begin(), runs_.end(), p.line,
-                             [](int line, const Run& r) { return line < r.editorStart; });
+  auto it =
+      std::upper_bound(runs_.begin(), runs_.end(), p.line, [](int line, const Run& r) { return line < r.editorStart; });
   if (it == runs_.begin()) return {p.line, col};
   const Run& r = *(it - 1);
   if (p.line >= r.editorStart + r.count) return {p.line - (r.sepBefore + r.count - 1), col};
@@ -56,8 +56,8 @@ Position LspLineMap::toServer(Position p, const std::vector<std::string>& lines,
 Position LspLineMap::fromServer(Position q, const std::vector<std::string>& lines, bool utf16) const {
   if (q.line < 0) return {0, 0};
   q.column = std::max(q.column, 0);
-  auto it = std::upper_bound(runs_.begin(), runs_.end(), q.line,
-                             [](int line, const Run& r) { return line < r.serverLine; });
+  auto it =
+      std::upper_bound(runs_.begin(), runs_.end(), q.line, [](int line, const Run& r) { return line < r.serverLine; });
   int line = q.line, col = q.column;
   if (it != runs_.begin()) {
     const Run& r = *(it - 1);
@@ -65,8 +65,8 @@ Position LspLineMap::fromServer(Position q, const std::vector<std::string>& line
       const auto first = segs_.begin() + r.firstSeg;
       const auto last = first + r.count;
       // The last segment that starts at or before the column.
-      auto sit = std::upper_bound(first, last, q.column,
-                                  [&](int c, const Seg& s) { return c < (utf16 ? s.u16 : s.u8); });
+      auto sit =
+          std::upper_bound(first, last, q.column, [&](int c, const Seg& s) { return c < (utf16 ? s.u16 : s.u8); });
       const Seg& s = *(sit - 1);
       line = r.editorStart + static_cast<int>(sit - 1 - first);
       col = q.column - (utf16 ? s.u16 : s.u8);

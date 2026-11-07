@@ -46,8 +46,9 @@ inline bool hasSeparator(std::string_view t) {
     const void* p = std::memchr(t.data() + from, 0xC2, t.size() - from);
     const void* q = std::memchr(t.data() + from, 0xE2, t.size() - from);
     if (!p && !q) return false;
-    size_t k = p && q ? static_cast<size_t>(std::min(static_cast<const char*>(p), static_cast<const char*>(q)) - t.data())
-                      : static_cast<size_t>((p ? static_cast<const char*>(p) : static_cast<const char*>(q)) - t.data());
+    size_t k = p && q
+                   ? static_cast<size_t>(std::min(static_cast<const char*>(p), static_cast<const char*>(q)) - t.data())
+                   : static_cast<size_t>((p ? static_cast<const char*>(p) : static_cast<const char*>(q)) - t.data());
     if (separatorLen(t, k)) return true;
     from = k + 1;
   }

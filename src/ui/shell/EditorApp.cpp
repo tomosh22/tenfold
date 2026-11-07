@@ -88,9 +88,9 @@ bool doCut(Editor& ed, const SetClipboard& set, const EditorApp::LineCopyOptions
   return true;
 }
 
-// N carets and exactly N lines on the clipboard (a final line break does not count; NEL / LS / PS are line breaks too): one line per caret, in document
-// order. Anything else pastes the whole text at every caret. The text keeps its own line breaks (CRLF, LF, CR) unless
-// editor.pasteKeepsLineBreaks is off.
+// N carets and exactly N lines on the clipboard (a final line break does not count; NEL / LS / PS are line breaks too):
+// one line per caret, in document order. Anything else pastes the whole text at every caret. The text keeps its own
+// line breaks (CRLF, LF, CR) unless editor.pasteKeepsLineBreaks is off.
 bool pasteText(Editor& ed, const std::string& t) {
   if (t.empty()) return false;
   const size_t carets = ed.selections().size();

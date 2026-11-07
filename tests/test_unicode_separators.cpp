@@ -1,7 +1,7 @@
 // NEL (U+0085), LS (U+2028) and PS (U+2029) are line breaks in the editor, like in Visual Studio (user decision
-// 2026-11-07, docs/VS_BEHAVIOUR.md 1.3 item 8) while clang and clangd do not know them: the buffer, its consumers (find,
-// replace, the fast lexer, the corpus anchors, the diff) and the clangd position mapping (LspLineMap). The clangd tests
-// need a clangd and are skipped without one.
+// 2026-11-07, docs/VS_BEHAVIOUR.md 1.3 item 8) while clang and clangd do not know them: the buffer, its consumers
+// (find, replace, the fast lexer, the corpus anchors, the diff) and the clangd position mapping (LspLineMap). The
+// clangd tests need a clangd and are skipped without one.
 #include <algorithm>
 #include <atomic>
 #include <chrono>
@@ -37,9 +37,9 @@ struct TempDir {
   fs::path path;
   TempDir() {
     static std::atomic<int> n{0};
-    path = fs::temp_directory_path() /
-           ("tenfold_sep_" + std::to_string(currentProcessId()) + "_" + std::to_string(n++) + "_" +
-            std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    path =
+        fs::temp_directory_path() / ("tenfold_sep_" + std::to_string(currentProcessId()) + "_" + std::to_string(n++) +
+                                     "_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     fs::remove_all(path);
     fs::create_directories(path);
     std::error_code ec;
@@ -149,7 +149,8 @@ TEST(sep_replace_inserts_literal_breaks_and_joining_keeps_the_later_terminator) 
 
 TEST(sep_with_line_ending_and_convert_line_endings_cover_ls_ps_nel) {
   const std::string src = "a\r\nb\nc" + LS + "d\re" + NEL + "f" + PS + "g";
-  CHECK_EQ(TextBuffer::withLineEnding(src, LineEnding::LS), "a" + LS + "b" + LS + "c" + LS + "d" + LS + "e" + LS + "f" + LS + "g");
+  CHECK_EQ(TextBuffer::withLineEnding(src, LineEnding::LS),
+           "a" + LS + "b" + LS + "c" + LS + "d" + LS + "e" + LS + "f" + LS + "g");
   CHECK_EQ(TextBuffer::withLineEnding(src, LineEnding::CRLF), "a\r\nb\r\nc\r\nd\r\ne\r\nf\r\ng");
   Document d = Document::fromText("/tmp/x.txt", src);
   d.convertLineEndings(LineEnding::PS);
@@ -180,14 +181,19 @@ TEST(sep_text_for_lsp_sends_the_separators_as_characters) {
 }
 
 TEST(sep_windows_1252_zero_x85_is_an_ellipsis_not_a_line_break) {
-  const std::string bytes = "a\x85" "b\nc";  // 0x85 is U+2026 in Windows-1252
+  const std::string bytes =
+      "a\x85"
+      "b\nc";  // 0x85 is U+2026 in Windows-1252
   const DecodedText d = decodeFileBytes(bytes);
   CHECK(d.encoding == Encoding::Windows1252);
-  CHECK_EQ(d.text, "a\xE2\x80\xA6" "b\nc");
+  CHECK_EQ(d.text,
+           "a\xE2\x80\xA6"
+           "b\nc");
   TextBuffer b(d.text);
   CHECK_EQ(b.lineCount(), 2);
   CHECK(!b.hasSeparators());
-  // A document holding LS terminators cannot be saved as Windows-1252 (neither can NEL: U+0085 is not in the code page).
+  // A document holding LS terminators cannot be saved as Windows-1252 (neither can NEL: U+0085 is not in the code
+  // page).
   Document doc = Document::fromText("/tmp/z.txt", "a" + LS + "b" + NEL + "c");
   const UnencodableReport rep = doc.findUnencodable(EncodingChoice::Windows1252);
   REQUIRE(rep.total == 2);
@@ -201,7 +207,12 @@ TEST(sep_windows_1252_zero_x85_is_an_ellipsis_not_a_line_break) {
 TEST(sep_utf16_file_with_u2028_loads_as_a_break_and_saves_byte_exact) {
   TempDir dir;
   // UTF-16 LE with BOM: "a", U+2028, "b", U+0085, "c", LF, "d".
-  const std::string bytes = std::string("\xFF\xFE", 2) + std::string("a\0\x28\x20" "b\0\x85\0" "c\0\n\0" "d\0", 14);
+  const std::string bytes = std::string("\xFF\xFE", 2) + std::string(
+                                                             "a\0\x28\x20"
+                                                             "b\0\x85\0"
+                                                             "c\0\n\0"
+                                                             "d\0",
+                                                             14);
   const fs::path f = dir.write("u16.txt", bytes);
   Document d(f);
   REQUIRE(d.loadFromDisk());
@@ -337,7 +348,8 @@ TEST(sep_vcs_split_lines_and_corpus_anchors_use_the_editor_lines) {
   CHECK_EQ(l[3], std::string("d"));
   corpus::AnchorMap m;
   std::vector<std::string> errs;
-  corpus::scanAnchorsInText("x.cpp", "// c" + LS + "int /*@a*/alpha;" + PS + "  int /*@b*/beta;\nint /*@c*/gamma;", m, errs);
+  corpus::scanAnchorsInText("x.cpp", "// c" + LS + "int /*@a*/alpha;" + PS + "  int /*@b*/beta;\nint /*@c*/gamma;", m,
+                            errs);
   REQUIRE(m.size() == 3u);
   CHECK(errs.empty());
   CHECK_EQ(m["a"].line, 1);
@@ -350,7 +362,8 @@ TEST(sep_vcs_split_lines_and_corpus_anchors_use_the_editor_lines) {
 TEST(sep_lexer_and_fast_index_place_symbols_on_the_editor_lines) {
   // The comment continues past the LS (clang), so `hidden` is not declared; the symbols after it are on the lines the
   // editor shows.
-  const std::string src = "// note" + LS + "int hidden;\nint alpha;" + LS + "  int beta;\n/* c" + PS + " d */ int gamma;\n";
+  const std::string src =
+      "// note" + LS + "int hidden;\nint alpha;" + LS + "  int beta;\n/* c" + PS + " d */ int gamma;\n";
   CppLexer lx(src);
   std::vector<Token> toks = lx.all();
   auto at = [&](const char* name, int line, int col) {
@@ -499,11 +512,13 @@ namespace {
 
 // A project whose a.cpp has separators: an LS inside a block comment puts `beta` on an editor line that shares its
 // clangd line with the comment's first line; an LS before the closing of a line comment shows that clang keeps going.
-const std::string kSource =
-    "/* caf\xC3\xA9" + LS + " more */ int beta = 2;\n"  // editor lines 0, 1; clangd line 0
-    "// a note" + PS + "int hidden = 3;\n"               // editor lines 2, 3; clangd line 1 (all one comment)
-    "int alpha = beta;\n"                                // editor line 4; clangd line 2
-    "int use() { return alpha + beta; }\n";              // editor line 5; clangd line 3
+const std::string kSource = "/* caf\xC3\xA9" + LS +
+                            " more */ int beta = 2;\n"  // editor lines 0, 1; clangd line 0
+                            "// a note" +
+                            PS +
+                            "int hidden = 3;\n"    // editor lines 2, 3; clangd line 1 (all one comment)
+                            "int alpha = beta;\n"  // editor line 4; clangd line 2
+                            "int use() { return alpha + beta; }\n";  // editor line 5; clangd line 3
 
 struct Project {
   TempDir dir;

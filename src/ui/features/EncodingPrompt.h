@@ -18,9 +18,10 @@ namespace tf::ui {
 //    reopen does not happen. Undo history is reset like a reload.
 // 2. Advanced Save Options (Save with Encoding): ONE list with the Save row on top, the Encoding group (UTF-8, UTF-8
 //    with signature, UTF-16 LE, UTF-16 BE, Windows-1252; "(*)" marks the choice) and the Line endings group (Current
-//    Setting, Windows (CR LF), Macintosh (CR), Unix (LF), Unicode Line Separator (LS), Unicode Paragraph Separator (PS), Next Line (NEL)). Enter on a choice selects it and shows the list again; Enter
-//    on Save writes the file (Editor::saveWithEncoding). An encoding that cannot hold the text is refused with
-//    SaveRefusedDialog and nothing changes. An untitled document only takes the encoding (Save As writes it).
+//    Setting, Windows (CR LF), Macintosh (CR), Unix (LF), Unicode Line Separator (LS), Unicode Paragraph Separator
+//    (PS), Next Line (NEL)). Enter on a choice selects it and shows the list again; Enter on Save writes the file
+//    (Editor::saveWithEncoding). An encoding that cannot hold the text is refused with SaveRefusedDialog and nothing
+//    changes. An untitled document only takes the encoding (Save As writes it).
 class EncodingPrompt {
  public:
   EncodingPrompt(PickerEnv& env, UnsavedPrompt& unsaved);

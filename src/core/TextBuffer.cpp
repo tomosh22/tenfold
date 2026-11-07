@@ -123,8 +123,11 @@ LineEnding TextBuffer::lineEnding() const {
   // The most frequent; ties: LF, then CRLF, CR, NEL, LS, PS.
   LineEnding best = LineEnding::LF;
   int most = c.lf;
-  const std::pair<LineEnding, int> rest[] = {{LineEnding::CRLF, c.crlf}, {LineEnding::CR, c.cr}, {LineEnding::NEL, c.nel},
-                                             {LineEnding::LS, c.ls},     {LineEnding::PS, c.ps}};
+  const std::pair<LineEnding, int> rest[] = {{LineEnding::CRLF, c.crlf},
+                                             {LineEnding::CR, c.cr},
+                                             {LineEnding::NEL, c.nel},
+                                             {LineEnding::LS, c.ls},
+                                             {LineEnding::PS, c.ps}};
   for (const auto& [e, n] : rest)
     if (n > most) {
       best = e;
@@ -230,7 +233,6 @@ const std::vector<int>& TextBuffer::separatorLines() const {
   sepValid_ = true;
   return sepLines_;
 }
-
 
 std::string TextBuffer::lspText(std::string_view text) {
   std::string out(text);
