@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "ui/widgets/VcsBadge.h"
+
 namespace tf::ui {
 
 namespace {
@@ -357,11 +359,7 @@ void TabStrip::paint(PaintContext& ctx) {
     ctx.fill(intersect({full.x + full.w - 1, full.y, 1, full.h}, b), th.tabStripBackground);  // 1px separator
     if (t.vcs != VcsMark::None) {
       const RectF m = intersect(vcsMarkerRect(t.id), b);
-      const Color mc = t.vcs == VcsMark::Modified     ? Theme::orElse(th.tabVcsModified, th.dirtyMarker)
-                       : t.vcs == VcsMark::Added      ? Theme::orElse(th.tabVcsAdded, th.vcsAdded())
-                       : t.vcs == VcsMark::CheckedOut ? Theme::orElse(th.tabVcsCheckedOut, th.vcsDeleted())
-                       : t.vcs == VcsMark::ReadOnly   ? Theme::orElse(th.tabVcsReadOnly, th.textDim)
-                                                      : th.diagnosticError;
+      const Color mc = vcsMarkColor(th, t.vcs);
       if (t.vcs == VcsMark::ReadOnly && m.w >= 4 && m.h >= 4) {  // an outlined square
         ctx.fill({m.x, m.y, m.w, 1}, mc);
         ctx.fill({m.x, m.y + m.h - 1, m.w, 1}, mc);

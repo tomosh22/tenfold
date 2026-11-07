@@ -2,6 +2,7 @@
 #include <functional>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "ui/commands/CommandRegistry.h"
 #include "ui/features/DiffTool.h"
@@ -39,7 +40,7 @@ class VcsUi {
 
   // Gives the Vcs.* commands (registered without handlers by registerEditorCommands) their handlers.
   void bind(CommandRegistry& r);
-  void applySettings(const Settings& s);  // vcs.diffTool, vcs.diffToolArgs
+  void applySettings(const Settings& s);  // vcs.diffTool, vcs.diffToolArgs, perforce.promptOnEdit
   void tick();                            // collects finished diff tools
   void refreshOnFocus();                  // window regained focus: re-read the status
   void closeConfirm();
@@ -55,7 +56,22 @@ class VcsUi {
   void refreshStatus();
   void checkOut();
 
+  // VC5: the "Check out?" question of perforce.promptOnEdit (P4VS: "check out (and save)?"). A modal three-row
+  // ListPopup, "Check out" / "Check out, do not ask again" / "Do not check out"; Escape = do not check out. Questions
+  // for several files are asked one after the other.
+  ListPopup* editPrompt() const { return editPrompt_ && env_.root.modal() == editPrompt_ ? editPrompt_ : nullptr; }
+  size_t editPromptsPending() const { return editQueue_.size(); }
+  // Runs the diff tool on a request with the vcs.diffTool settings (used by the Perforce history actions); the status
+  // bar says what was started or why not.
+  bool launchDiff(const DiffTool::Request& r);
+
  private:
+  struct EditQuestion {
+    std::filesystem::path file;
+    std::function<void(VcsManager::EditAnswer)> reply;
+  };
+  void askNextEdit();
+
   void say(const std::string& text, int ttlMs = 6000) const;
   std::string relName(const std::filesystem::path& p) const;
 
@@ -64,6 +80,8 @@ class VcsUi {
   DiffTool tool_;
   DiffTool::Config cfg_;
   ListPopup* confirm_ = nullptr;
+  ListPopup* editPrompt_ = nullptr;
+  std::vector<EditQuestion> editQueue_;  // [0] is the one on screen
   std::shared_ptr<int> life_ = std::make_shared<int>(0);
 };
 

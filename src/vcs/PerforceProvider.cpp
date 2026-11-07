@@ -292,6 +292,13 @@ VcsFileInfo PerforceProvider::infoOf(const fs::path& file, const Record* rec, co
   const bool exists = fs::exists(file, ec);
   if (rec) {
     fi.status = classify(*rec, exists, exists && isWritable(file));
+    {
+      auto num = [&](const char* k) {
+        auto i = rec->find(k);
+        return i == rec->end() ? 0 : std::atoi(i->second.c_str());
+      };
+      fi.outOfDate = num("haveRev") > 0 && num("headRev") > num("haveRev");
+    }
     if (fi.status == VcsStatus::Renamed) {
       auto m = rec->find("movedFile");
       if (m != rec->end()) {
@@ -365,6 +372,21 @@ std::vector<VcsFileInfo> PerforceProvider::status(const std::vector<fs::path>& f
     res.push_back(infoOf(f, it == recs.end() ? nullptr : &it->second, err, moved));
   }
   return res;
+}
+
+int PerforceProvider::haveRevision(const fs::path& file, std::string* error) {
+  if (error) error->clear();
+  if (!underRoot(file)) return 0;
+  std::map<std::string, Record> recs;
+  std::string err;
+  if (!fstat({file}, recs, err)) {
+    if (error) *error = lastError_;
+    return 0;
+  }
+  auto it = recs.find(keyOf(file));
+  if (it == recs.end()) return 0;
+  auto h = it->second.find("haveRev");
+  return h == it->second.end() ? 0 : std::atoi(h->second.c_str());
 }
 
 std::optional<std::string> PerforceProvider::baseText(const fs::path& file, std::string* error) {

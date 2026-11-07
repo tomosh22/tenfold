@@ -597,3 +597,189 @@ TEST(p4_base_text_line_endings_do_not_matter) {
   CHECK(diffLines(splitLines(*lf), splitLines(std::string("a\r\nb\r\nc\r\n"))).empty());
   CHECK_EQ(diffLines(splitLines(*crlf), splitLines(std::string("a\nX\nc\n"))).size(), static_cast<size_t>(1));
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+#ifndef REQUIRE_EQ
+#define REQUIRE_EQ(a, b) REQUIRE((a) == (b))
+#endif
+// VS-VCS (VS_BEHAVIOUR 4 VC3, VC5): out-of-date flag, probing files that are only shown, the "check out?" question
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST(vsvcs_p4_out_of_date_flag_and_have_revision) {
+  P4Fx fx;
+  fx.depotFile("synced.txt");
+  fx.depotFile("old.txt")["headRev"] = 5;  // haveRev stays 3: a newer revision exists
+  fx.depotFile("edit.txt")["action"] = "edit";
+  fx.state["files"]["edit.txt"]["headRev"] = 4;
+  setReadOnly(fx.path("edit.txt"), false);
+  tfvcs::writeFile(fx.path("untracked.txt"), "x\n");
+  fx.save();
+  auto p = fx.detected();
+  auto v = p->status({fx.path("synced.txt"), fx.path("old.txt"), fx.path("edit.txt"), fx.path("untracked.txt")});
+  REQUIRE(v.size() == static_cast<size_t>(4));
+  CHECK(!v[0].outOfDate);
+  CHECK(v[1].outOfDate);
+  CHECK(v[1].status == VcsStatus::ReadOnlyNotCheckedOut);
+  CHECK(v[2].outOfDate);  // a checked-out file can be behind the head too
+  CHECK(v[2].status == VcsStatus::CheckedOut);
+  CHECK(!v[3].outOfDate);
+  std::string err;
+  CHECK_EQ(p->haveRevision(fx.path("old.txt"), &err), 3);
+  CHECK_EQ(p->haveRevision(fx.path("untracked.txt"), &err), 0);
+  CHECK(err.empty());
+}
+
+TEST(vsvcs_p4_manager_probe_asks_for_files_that_are_only_shown) {
+  EdFx e([](P4Fx& f) {
+    f.depotFile("old.txt")["headRev"] = 4;
+    f.depotFile("c.txt", "c\n");
+    tfvcs::writeFile(f.path("new.txt"), "n\n");
+  });
+  Document* d = e.open("a.txt");
+  REQUIRE(d != nullptr);
+  REQUIRE(e.waitBase("a.txt"));
+  VcsManager& v = e.ed->vcs();
+  CHECK(v.fileStatus(e.fx.path("b.txt")) == VcsStatus::Unmodified);  // nobody asked yet
+  const int before = e.fx.count("fstat");
+  for (const char* f : {"b.txt", "old.txt", "c.txt", "new.txt"}) v.probe(e.fx.path(f));
+  v.probe(e.fx.path("b.txt"));  // asked once only
+  REQUIRE(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("new.txt")) == VcsStatus::Untracked; }, kWaitMs));
+  CHECK(v.fileStatus(e.fx.path("b.txt")) == VcsStatus::ReadOnlyNotCheckedOut);
+  CHECK(v.fileInfo(e.fx.path("old.txt")).outOfDate);
+  CHECK(!v.fileInfo(e.fx.path("c.txt")).outOfDate);
+  CHECK_EQ(e.fx.count("fstat") - before, 1);  // one batch for all four files
+  v.probe(e.fx.path("b.txt"));
+  v.probe(e.fx.path("../outside.txt"));  // outside the client root: ignored
+  e.ed->waitFor([] { return false; }, 200);
+  CHECK_EQ(e.fx.count("fstat") - before, 1);
+
+  // a refresh keeps the probed files known and re-asks them: an external `p4 edit` shows up, a revert goes away
+  e.fx.load();
+  e.fx.state["files"]["b.txt"]["action"] = "edit";
+  setReadOnly(e.fx.path("b.txt"), false);
+  e.fx.save();
+  v.refreshStatus();
+  CHECK(v.fileStatus(e.fx.path("b.txt")) != VcsStatus::Unknown);  // still shown while the answer is on its way
+  CHECK(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("b.txt")) == VcsStatus::CheckedOut; }, kWaitMs));
+  e.fx.load();
+  e.fx.state["files"]["b.txt"].erase("action");
+  setReadOnly(e.fx.path("b.txt"), true);
+  e.fx.save();
+  v.refreshStatus();
+  CHECK(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("b.txt")) == VcsStatus::ReadOnlyNotCheckedOut; }, kWaitMs));
+  CHECK(v.fileStatus(e.fx.path("new.txt")) == VcsStatus::Untracked);
+}
+
+TEST(vsvcs_p4_probe_is_a_no_op_without_perforce) {
+  fs::path dir = tfvcs::tempDir("vsvcs_git");
+  tfvcs::writeFile(dir / "a.txt", "a\n");
+  Editor::Options o;
+  o.vcs.provider = "none";
+  Editor ed(dir, o);
+  ed.vcs().probe(dir / "a.txt");
+  CHECK(ed.vcs().fileStatus(dir / "a.txt") == VcsStatus::Unknown);
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+TEST(vsvcs_p4_prompt_on_edit_asks_instead_of_checking_out) {
+  EdFx e;
+  VcsManager& v = e.ed->vcs();
+  std::vector<fs::path> asked;
+  std::function<void(VcsManager::EditAnswer)> reply;
+  v.onEditPrompt([&](const fs::path& f, std::function<void(VcsManager::EditAnswer)> r) {
+    asked.push_back(f);
+    reply = std::move(r);
+  });
+  // setting off (the default): the first edit checks out silently, nobody is asked
+  CHECK(!v.promptOnEdit());
+  Document* b = e.open("b.txt");
+  REQUIRE(b != nullptr);
+  REQUIRE(e.waitBase("b.txt"));
+  b->insert({0, 0}, "x");
+  REQUIRE(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("b.txt")) == VcsStatus::CheckedOut; }, kWaitMs));
+  CHECK(asked.empty());
+
+  v.setPromptOnEdit(true);
+  Document* d = e.open("a.txt");
+  REQUIRE(d != nullptr);
+  REQUIRE(e.waitBase("a.txt"));
+  d->insert({0, 0}, "x");
+  REQUIRE_EQ(asked.size(), static_cast<size_t>(1));
+  CHECK(asked[0] == e.fx.path("a.txt"));
+  e.ed->waitFor([] { return false; }, 300);
+  CHECK_EQ(e.fx.count("edit a.txt"), 0);  // nothing ran: the question is open
+  CHECK(!isWritable(e.fx.path("a.txt")));
+  d->insert({0, 0}, "y");  // more edits do not ask again
+  CHECK_EQ(asked.size(), static_cast<size_t>(1));
+  reply(VcsManager::EditAnswer::Leave);
+  e.ed->waitFor([] { return false; }, 300);
+  CHECK(!isWritable(e.fx.path("a.txt")));
+  CHECK(v.fileStatus(e.fx.path("a.txt")) == VcsStatus::ReadOnlyNotCheckedOut);
+  CHECK(d->buffer().line(0) == "yxline 0");  // the edit is kept
+  d->insert({0, 0}, "z");
+  CHECK_EQ(asked.size(), static_cast<size_t>(1));  // declined: not asked again for this document
+  // the explicit command checks out later
+  bool ok = false;
+  v.checkOut(e.fx.path("a.txt"), [&](bool good, const std::string&) { ok = good; });
+  REQUIRE(e.ed->waitFor([&] { return ok; }, kWaitMs));
+  CHECK(v.fileStatus(e.fx.path("a.txt")) == VcsStatus::CheckedOut);
+  CHECK(e.errors.empty());
+}
+
+TEST(vsvcs_p4_prompt_on_edit_check_out_and_check_out_always) {
+  EdFx e([](P4Fx& f) { f.depotFile("c.txt", "c\n"); });
+  VcsManager& v = e.ed->vcs();
+  v.setPromptOnEdit(true);
+  int asked = 0;
+  std::function<void(VcsManager::EditAnswer)> reply;
+  v.onEditPrompt([&](const fs::path&, std::function<void(VcsManager::EditAnswer)> r) {
+    ++asked;
+    reply = std::move(r);
+  });
+  Document* a = e.open("a.txt");
+  Document* b = e.open("b.txt");
+  Document* c = e.open("c.txt");
+  REQUIRE(a && b && c);
+  REQUIRE(e.waitBase("a.txt"));
+  REQUIRE(e.waitBase("b.txt"));
+  REQUIRE(e.waitBase("c.txt"));
+  a->insert({0, 0}, "x");
+  REQUIRE_EQ(asked, 1);
+  reply(VcsManager::EditAnswer::CheckOut);
+  REQUIRE(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("a.txt")) == VcsStatus::CheckedOut; }, kWaitMs));
+  CHECK(isWritable(e.fx.path("a.txt")));
+  CHECK(v.promptOnEdit());  // plain "Check out" keeps asking
+  b->insert({0, 0}, "x");
+  REQUIRE_EQ(asked, 2);
+  reply(VcsManager::EditAnswer::CheckOutAlways);
+  REQUIRE(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("b.txt")) == VcsStatus::CheckedOut; }, kWaitMs));
+  CHECK(!v.promptOnEdit());
+  c->insert({0, 0}, "x");  // from now on silently
+  REQUIRE(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("c.txt")) == VcsStatus::CheckedOut; }, kWaitMs));
+  CHECK_EQ(asked, 2);
+  CHECK(e.errors.empty());
+}
+
+TEST(vsvcs_p4_prompt_only_for_read_only_depot_files) {
+  // A file that is already opened (writable), or not in the depot, never asks: only "read-only, not checked out" does.
+  EdFx e([](P4Fx& f) {
+    f.depotFile("open.txt", "o\n")["action"] = "edit";
+    setReadOnly(f.path("open.txt"), false);
+    tfvcs::writeFile(f.path("local.txt"), "l\n");
+  });
+  VcsManager& v = e.ed->vcs();
+  v.setPromptOnEdit(true);
+  int asked = 0;
+  v.onEditPrompt([&](const fs::path&, std::function<void(VcsManager::EditAnswer)>) { ++asked; });
+  Document* o = e.open("open.txt");
+  Document* l = e.open("local.txt");
+  REQUIRE(o && l);
+  REQUIRE(e.waitBase("open.txt"));
+  REQUIRE(e.ed->waitFor([&] { return v.fileStatus(e.fx.path("local.txt")) == VcsStatus::Untracked; }, kWaitMs));
+  o->insert({0, 0}, "x");
+  l->insert({0, 0}, "x");
+  e.ed->waitFor([&] { return v.stats().beforeFirstEditCalls == 2; }, kWaitMs);
+  CHECK_EQ(asked, 0);
+  CHECK_EQ(v.stats().beforeFirstEditCalls, 2);  // the silent path ran for both (it does nothing for them)
+}

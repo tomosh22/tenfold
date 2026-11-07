@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "ui/features/DiffTool.h"
 #include "ui/features/OsLauncher.h"
 #include "ui/features/PickerUtil.h"
 #include "vcs/PerforceProvider.h"
@@ -18,10 +19,16 @@ class Settings;
 //
 //  * PerforceHistory (Control P, Control H): `p4 filelog` of the current file in a modal ListPopup, newest first. A row
 //    shows "#rev  change N  date  user  action" and the first line of the description; the input filters by any of
-//    that text. Enter opens that revision (`p4 print`) in a new tab, read-only: the text is written to a temp file
-//    `<temp>/tenfold-p4/<id>/<name>#<rev><ext>` which is made read-only on disk (the editor refuses to save it). There
-//    is no "diff against the current file" action; the working copy's diff against #have is Vcs.DiffFileExternal. Dates
-//    are UTC (`p4 filelog` reports epoch seconds).
+//    that text. Enter on a revision opens its action menu (VC6, P4VS File History: Revisions > Show History):
+//      Open                          the revision (`p4 print`) in a new tab, read-only: the text is written to a temp
+//      file
+//                                    `<temp>/tenfold-p4/<id>/<name>#<rev><ext>` made read-only on disk (the editor
+//                                    refuses to save it)
+//      Diff against previous (#N-1)  external diff tool (vcs.diffTool, p4merge by default) on the two revisions; absent
+//                                    for the oldest revision in the list
+//      Diff against have (#H)        the revision against the one in the workspace; absent for the have revision itself
+//    Escape closes the menu (and with it the history; run PerforceHistory again). The working copy's diff against #have
+//    is Vcs.DiffFileExternal. Dates are UTC (`p4 filelog` reports epoch seconds).
 //  * PerforceShowInP4v (Control P, Control V): starts `p4v -p <port> -u <user> -c <client> -s <depot path>` through the
 //    OsLauncher (setting vcs.p4vPath names another program; empty = `p4v` from PATH). Port, user and client come from
 //    `p4 info`, so P4CONFIG / `p4 set` are honoured; any that p4 does not report are left out and p4v uses its own.
@@ -30,6 +37,9 @@ class PerforceUi {
   struct Hooks {
     std::function<void(const std::string& text, int ttlMs)> message;
     std::function<const OsLauncher&()> launcher;
+    // Runs the external diff tool on a request (VcsUi::launchDiff; it reports in the status bar). Null: no diff
+    // actions.
+    std::function<bool(const DiffTool::Request&)> diff;
   };
   PerforceUi(PickerEnv& env, Hooks hooks);
   ~PerforceUi();
@@ -44,6 +54,7 @@ class PerforceUi {
   void close();
   bool isOpen() const { return popup_ != nullptr; }
   ListPopup* popup() const { return popup_; }
+  ListPopup* actionMenu() const { return menu_; }  // the open action menu of a revision
 
   // "2023-11-14 22:13" (UTC).
   static std::string formatTime(long long epochSeconds);
@@ -55,6 +66,8 @@ class PerforceUi {
   void showRevisions(const std::filesystem::path& file, std::vector<PerforceProvider::Revision> revs);
   void rebuild();
   void openRevision(const std::filesystem::path& file, const PerforceProvider::Revision& rev);
+  void showActions(const PerforceProvider::Revision& rev);
+  void diffRevisions(const PerforceProvider::Revision& left, const PerforceProvider::Revision& right);
   std::string relName(const std::filesystem::path& p) const;
 
   PickerEnv& env_;
@@ -62,6 +75,8 @@ class PerforceUi {
   std::string p4vPath_;
   std::filesystem::path tempRoot_;
   ListPopup* popup_ = nullptr;
+  ListPopup* menu_ = nullptr;
+  int haveRev_ = 0;  // the workspace revision of file_ (0: unknown)
   std::filesystem::path file_;
   std::vector<PerforceProvider::Revision> revs_, shown_;
   std::shared_ptr<int> life_ = std::make_shared<int>(0);

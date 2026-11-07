@@ -12,10 +12,17 @@ namespace fs = std::filesystem;
 VcsUi::VcsUi(PickerEnv& env, Hooks hooks) : env_(env), hooks_(std::move(hooks)) {
   env_.editor.vcs().onError([this](const fs::path&, const std::string& msg) { say("Version control: " + msg, 12000); });
   tool_.onError = [this](const std::string& m) { say(m, 12000); };
+  env_.editor.vcs().onEditPrompt([this](const fs::path& file, std::function<void(VcsManager::EditAnswer)> reply) {
+    editQueue_.push_back({file, std::move(reply)});
+    askNextEdit();
+  });
 }
 
 VcsUi::~VcsUi() {
   closeConfirm();
+  env_.editor.vcs().onEditPrompt(nullptr);
+  editQueue_.clear();  // the replies must not run any more
+  if (editPrompt_ && env_.root.modal() == editPrompt_) editPrompt_->close();
   env_.editor.vcs().onError(nullptr);
   tool_.onError = nullptr;
 }
@@ -32,6 +39,70 @@ std::string VcsUi::relName(const fs::path& p) const {
 void VcsUi::applySettings(const Settings& s) {
   cfg_.tool = s.getString("vcs.diffTool");
   cfg_.args = s.getString("vcs.diffToolArgs");
+  env_.editor.vcs().setPromptOnEdit(s.getBool("perforce.promptOnEdit"));
+}
+
+void VcsUi::askNextEdit() {
+  if (editPrompt_ && env_.root.modal() != editPrompt_) editPrompt_ = nullptr;  // another modal replaced it silently
+  if (editPrompt_ || editQueue_.empty()) return;
+  const std::string name = relName(editQueue_.front().file);
+  auto p = std::make_unique<ListPopup>(false);
+  p->setTitle("Check out " + name + "?");
+  p->setMaxVisibleRows(3);
+  ListRow yes, always, no;
+  yes.key = "checkout";
+  yes.primary = "Check out";
+  yes.secondary = "p4 edit, then keep editing";
+  always.key = "always";
+  always.primary = "Check out, do not ask again";
+  always.secondary = "until perforce.promptOnEdit is turned on again";
+  no.key = "leave";
+  no.primary = "Do not check out";
+  no.secondary = "the file stays read-only on disk; Vcs.CheckOut does it later";
+  p->setRows({yes, always, no}, 0);
+  auto answered = std::make_shared<bool>(false);
+  auto finish = [this, answered, life = std::weak_ptr<int>(life_)](VcsManager::EditAnswer a) {
+    if (life.expired() || *answered) return;
+    *answered = true;
+    if (editQueue_.empty()) return;
+    EditQuestion q = std::move(editQueue_.front());
+    editQueue_.erase(editQueue_.begin());
+    if (a == VcsManager::EditAnswer::CheckOutAlways) {  // the rest of the queue is answered the same way
+      std::vector<EditQuestion> rest = std::move(editQueue_);
+      editQueue_.clear();
+      q.reply(a);
+      for (EditQuestion& r : rest) r.reply(VcsManager::EditAnswer::CheckOut);
+      return;
+    }
+    q.reply(a);
+  };
+  p->onAccept([finish](int row) {
+    finish(row == 0   ? VcsManager::EditAnswer::CheckOut
+           : row == 1 ? VcsManager::EditAnswer::CheckOutAlways
+                      : VcsManager::EditAnswer::Leave);
+  });
+  p->onClosed([this, finish, life = std::weak_ptr<int>(life_)] {
+    if (life.expired()) return;
+    editPrompt_ = nullptr;
+    // ListPopup closes before it calls onAccept, so an Escape is told apart one pump later: by then the accept (if
+    // there was one) has answered, and `finish` is a no-op.
+    env_.editor.post([this, finish, life] {
+      if (life.expired()) return;
+      finish(VcsManager::EditAnswer::Leave);
+      askNextEdit();
+    });
+  });
+  editPrompt_ = ListPopup::open(env_.root, std::move(p));
+}
+
+bool VcsUi::launchDiff(const DiffTool::Request& r) {
+  const DiffTool::Launched l = tool_.launch(r, cfg_);
+  if (!l.ok) {
+    say(l.error, 12000);
+    return false;
+  }
+  say("Opened " + fs::path(l.exe).filename().string() + " for " + r.title, 4000);
+  return true;
 }
 
 void VcsUi::tick() { tool_.tick(); }

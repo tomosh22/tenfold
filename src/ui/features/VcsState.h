@@ -52,4 +52,19 @@ inline TabStrip::VcsMark vcsTabMark(VcsStatus s) {
   }
 }
 
+// The mark of a file as the tabs and the explorer show it. Git: vcsTabMark(status) (VC2: no change). Perforce (VC3,
+// P4VS badges): opened for add = red plus, not in the depot = blue ?, needs resolve = red ?, checked out = red check,
+// and a synced file with a newer revision in the depot = yellow triangle (a checked-out one keeps its check).
+inline TabStrip::VcsMark vcsMark(const VcsManager& vcs, const std::filesystem::path& file) {
+  const VcsFileInfo fi = vcs.fileInfo(file);
+  TabStrip::VcsMark m = vcsTabMark(fi.status);
+  if (!vcs.active() || vcs.providerName() != "perforce") return m;
+  if (m == TabStrip::VcsMark::Added) {
+    m = fi.status == VcsStatus::Untracked ? TabStrip::VcsMark::NotInDepot : TabStrip::VcsMark::OpenedForAdd;
+  } else if (fi.outOfDate && (m == TabStrip::VcsMark::None || m == TabStrip::VcsMark::ReadOnly)) {
+    m = TabStrip::VcsMark::OutOfDate;
+  }
+  return m;
+}
+
 }  // namespace tf::ui

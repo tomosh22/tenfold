@@ -28,7 +28,9 @@ class TabStrip : public Widget {
  public:
   // Version-control state of a tab (C3c): a small marker left of the title. Modified / Added / CheckedOut are filled
   // squares in the theme's tabVcs* colours, ReadOnly (Perforce, not checked out) an outlined one.
-  enum class VcsMark { None, Modified, Added, CheckedOut, ReadOnly, Conflict };
+  // VS-VCS (VC3, P4VS): OpenedForAdd (red plus), NotInDepot (blue ?, a local file Perforce does not know), OutOfDate
+  // (yellow triangle, a newer revision in the depot). Conflict (needs resolve) is the red ?.
+  enum class VcsMark { None, Modified, Added, CheckedOut, ReadOnly, Conflict, OpenedForAdd, NotInDepot, OutOfDate };
   struct Tab {
     int id;
     std::string title;

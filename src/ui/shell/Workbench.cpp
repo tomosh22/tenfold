@@ -980,7 +980,7 @@ void Workbench::sync() {
     for (const auto& t : p->tabs().tabs())
       if (Document* d = docOf(t.id)) {
         p->tabs().setDirty(t.id, d->dirty());
-        p->tabs().setVcsMark(t.id, vcsTabMark(editor_.vcs().fileStatus(d->path())));
+        p->tabs().setVcsMark(t.id, vcsMark(editor_.vcs(), d->path()));
       }
   refreshStatus();
 }

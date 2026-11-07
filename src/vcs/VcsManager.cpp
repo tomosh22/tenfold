@@ -172,12 +172,59 @@ void VcsManager::reportError(const fs::path& file, const std::string& msg) {
 }
 
 void VcsManager::applyStatuses(std::vector<VcsFileInfo> infos, bool replaceAll) {
-  if (replaceAll) statuses_.clear();
+  if (replaceAll) {
+    // Files the explorer asked for individually (probe) keep their last answer until the re-ask below replaces it,
+    // so the badges do not blink on every refresh.
+    std::map<std::string, VcsFileInfo> keep;
+    for (const auto& [k, p] : probed_) {
+      (void)p;
+      auto it = statuses_.find(k);
+      if (it != statuses_.end()) keep.insert(*it);
+    }
+    statuses_ = std::move(keep);
+    for (const auto& [k, p] : probed_) probePending_.push_back(p);
+    if (!probePending_.empty()) scheduleProbeFlush();
+  }
   for (auto& fi : infos) {
     const std::string key = keyOf(fi.path);
     if (fi.status == VcsStatus::Unmodified) statuses_.erase(key);
     else statuses_[key] = std::move(fi);
   }
+}
+
+void VcsManager::scheduleProbeFlush() {
+  schedule("probe", 60, [this] { post([this] { flushProbes(); }); });
+}
+
+void VcsManager::probe(const fs::path& file) {
+  if (stopped_ || !opt_.enabled || !active_ || providerName_ != "perforce" || file.empty()) return;
+  const std::string key = keyOf(file);
+  if (key.size() <= rootKey_.size() || key.compare(0, rootKey_.size(), rootKey_) != 0) return;
+  if (probed_.count(key) || statuses_.count(key)) return;  // already asked, or the workspace status knows it
+  if (probed_.size() > 20000) probed_.clear();
+  probed_.emplace(key, file);
+  probePending_.push_back(file);
+  scheduleProbeFlush();
+}
+
+void VcsManager::flushProbes() {
+  if (probePending_.empty() || stopped_) return;
+  std::vector<fs::path> files = std::move(probePending_);
+  probePending_.clear();
+  push([this, files = std::move(files)] {
+    if (!provider_) return;
+    auto infos = std::make_shared<std::vector<VcsFileInfo>>();
+    constexpr size_t kBatch = 100;
+    for (size_t i = 0; i < files.size(); i += kBatch) {
+      std::vector<fs::path> part(files.begin() + static_cast<std::ptrdiff_t>(i),
+                                 files.begin() + static_cast<std::ptrdiff_t>(std::min(files.size(), i + kBatch)));
+      for (VcsFileInfo& fi : provider_->status(part)) infos->push_back(std::move(fi));
+    }
+    post([this, infos] {
+      applyStatuses(*infos, false);
+      changed({});
+    });
+  });
 }
 
 const std::vector<DiffHunk>& VcsManager::hunks(const fs::path& file) const {
@@ -439,6 +486,16 @@ void VcsManager::perforceRevisionText(const fs::path& file, int rev,
       [done](const std::string& why) { done(false, {}, why); });
 }
 
+void VcsManager::perforceHaveRevision(const fs::path& file, std::function<void(bool, int, const std::string&)> done) {
+  withPerforce(
+      [file, done](PerforceProvider& p4) {
+        std::string err;
+        const int rev = p4.haveRevision(file, &err);
+        return std::function<void()>([done, rev, err] { done(err.empty(), rev, err); });
+      },
+      [done](const std::string& why) { done(false, 0, why); });
+}
+
 void VcsManager::perforceP4vTarget(const fs::path& file,
                                    std::function<void(bool, PerforceProvider::P4vTarget, const std::string&)> done) {
   withPerforce(
@@ -501,19 +558,29 @@ void VcsManager::documentChanged(Document& doc) {
   if (!st->firstEditDone && doc.dirty()) {
     st->firstEditDone = true;
     const fs::path path = st->path;
-    ensureStarted();
-    push([this, path] {
-      if (!provider_) return;
-      std::string err;
-      const bool ok = provider_->beforeFirstEdit(path, &err);
-      ++beforeCalls_;
-      auto infos = std::make_shared<std::vector<VcsFileInfo>>(provider_->status({path}));
-      post([this, path, ok, err, infos] {
-        if (!ok) reportError(path, err);
-        applyStatuses(*infos, false);
-        changed(path);
+    if (opt_.promptOnEdit && editPrompt_ && providerName_ == "perforce" &&
+        fileStatus(path) == VcsStatus::ReadOnlyNotCheckedOut) {
+      // VC5: P4VS asks before it checks a file out. The edit is already in the buffer; "Leave" keeps it there.
+      editPrompt_(path, [this, path](EditAnswer a) {
+        if (stopped_ || a == EditAnswer::Leave || !find(path)) return;
+        if (a == EditAnswer::CheckOutAlways) opt_.promptOnEdit = false;
+        checkOut(path);
       });
-    });
+    } else {
+      ensureStarted();
+      push([this, path] {
+        if (!provider_) return;
+        std::string err;
+        const bool ok = provider_->beforeFirstEdit(path, &err);
+        ++beforeCalls_;
+        auto infos = std::make_shared<std::vector<VcsFileInfo>>(provider_->status({path}));
+        post([this, path, ok, err, infos] {
+          if (!ok) reportError(path, err);
+          applyStatuses(*infos, false);
+          changed(path);
+        });
+      });
+    }
   }
   schedule("d:" + key, opt_.debounceMs, [this, key] { post([this, key] { startDiff(key); }); });
 }

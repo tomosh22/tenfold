@@ -95,6 +95,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"vcs.diffTool", SettingType::String},
                                              {"vcs.diffToolArgs", SettingType::String},
                                              {"vcs.p4vPath", SettingType::String},
+                                             {"perforce.promptOnEdit", SettingType::Bool},
                                              {"terminal.command", SettingType::String},
                                              {"terminal.claudeCommand", SettingType::String},
                                              {"terminal.cursorCommand", SettingType::String},

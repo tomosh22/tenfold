@@ -30,6 +30,7 @@ struct VcsFileInfo {
   std::filesystem::path path;  // absolute
   VcsStatus status = VcsStatus::Unknown;
   std::filesystem::path renamedFrom;  // Renamed: the old path (absolute); empty otherwise
+  bool outOfDate = false;             // Perforce: a newer revision exists in the depot (P4VS yellow triangle)
 };
 
 // A version-control back end (Git, Perforce, ...). EVERY method blocks (it runs a child process) and is called

@@ -338,6 +338,10 @@ Disk: about 350 MB for `--scale full` if every scenario is kept; the driver dele
 
 ### Regression tests (seconds)
 
+* VS-VCS (`tenfold-tests vsvcs_`, `xvfb-run -a tenfold-ui-tests vsvcs_`): the Perforce out-of-date flag, `VcsManager::probe` and
+  `perforce.promptOnEdit` against the fake `p4` (tests/test_vcs_p4.cpp); explorer and tab badges, the "Check out?" list and the
+  PerforceHistory action menu with a recording diff tool (tests/ui/test_vs_vcs.cpp). No real Perforce server is involved
+  (OPEN_QUESTIONS #17).
 * `tests/test_pathological.cpp` (`tenfold-tests pathological_`): small versions of every scenario, generated into a temp
   dir at test time, plus the regressions the stress runs found (`pathological_nested_scopes_cost_linear_memory`,
   `pathological_non_regular_files_are_refused`, `pathological_large_non_code_documents_skip_the_fast_index`,

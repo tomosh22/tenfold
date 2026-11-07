@@ -6,6 +6,7 @@
 
 #include "core/PathUtil.h"
 #include "semantic/FastIndex.h"
+#include "ui/widgets/VcsBadge.h"
 
 namespace tf::ui {
 
@@ -763,12 +764,9 @@ void TreeView::paint(PaintContext& ctx) {
     Color nameColor = nd.dim ? th.textDim : th.text;
     Color mc = th.dirtyMarker;
     if (mark != Mark::None) {
-      mc = mark == Mark::Modified     ? Theme::orElse(th.tabVcsModified, th.dirtyMarker)
-           : mark == Mark::Added      ? Theme::orElse(th.tabVcsAdded, th.vcsAdded())
-           : mark == Mark::CheckedOut ? Theme::orElse(th.tabVcsCheckedOut, th.vcsDeleted())
-           : mark == Mark::ReadOnly   ? Theme::orElse(th.tabVcsReadOnly, th.textDim)
-                                      : th.diagnosticError;
-      if (mark != Mark::ReadOnly) nameColor = mc;
+      mc = vcsMarkColor(th, mark);
+      if (mark != Mark::ReadOnly && mark != Mark::OpenedForAdd && mark != Mark::NotInDepot && mark != Mark::OutOfDate)
+        nameColor = mc;
     }
     const float tx = ix + is * 1.2f + cell;
     const float markW = mark != Mark::None ? 2 * cell : 0;
@@ -776,7 +774,12 @@ void TreeView::paint(PaintContext& ctx) {
     ctx.text(tx, full.y + (full.h - ctx.lineHeight()) / 2, nd.name, nameColor, clip);
     if (mark != Mark::None) {
       const float ms = std::max(5.0f, rh * 0.3f), mx = rr.x + rr.w - 10 - ms, my = cy - ms / 2;
-      if (mark == Mark::ReadOnly) {
+      if (vcsMarkHasGlyph(mark)) {
+        // P4VS badge at the corner of the file icon (VC3): check = checked out, plus = open for add, ? = not in the
+        // depot (blue) / needs resolve (red), triangle = newer revision in the depot.
+        const float bs = std::max(8.0f, std::round(is * 0.75f));
+        drawVcsGlyph(ctx, mark, intersect({ix + is * 0.55f, cy + is * 0.55f - bs * 0.75f, bs, bs}, rr), mc);
+      } else if (mark == Mark::ReadOnly) {
         ctx.fill(intersect({mx, my, ms, 1}, rr), mc);
         ctx.fill(intersect({mx, my + ms - 1, ms, 1}, rr), mc);
         ctx.fill(intersect({mx, my, 1, ms}, rr), mc);

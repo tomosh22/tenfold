@@ -514,7 +514,12 @@ WorkspaceExplorer::WorkspaceExplorer(Editor& editor, Workbench& bench, Hooks hoo
   auto tv = std::make_unique<TreeView>();
   view_ = tv.get();
   view_->markOf = [this](const TreeNode& n) {
-    return n.path.empty() ? TreeView::Mark::None : vcsTabMark(editor_.vcs().fileStatus(pathFromUtf8(n.path)));
+    if (n.path.empty()) return TreeView::Mark::None;
+    const fs::path p = pathFromUtf8(n.path);
+    editor_.vcs().probe(p);  // Perforce: ask for the state of a file that is shown but not open (VC3)
+    const TreeView::Mark m = vcsMark(editor_.vcs(), p);
+    // Every synced depot file is read-only on disk; P4VS gives it no badge, so the explorer does not either.
+    return m == TreeView::Mark::ReadOnly ? TreeView::Mark::None : m;
   };
   view_->onActivate = [this](int node) { opened(node); };
   view_->onClicked = [this](int node) { previewed(node); };
