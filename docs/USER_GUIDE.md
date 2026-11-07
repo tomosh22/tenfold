@@ -495,9 +495,9 @@ to variable". Up / Down choose, Enter or a click applies, Escape closes. Applyin
 does not take it. Without clangd, or when it has nothing for the line, the status bar says so.
 
 The **light bulb**: when the caret has rested on a line (a third of a second after the last move or edit) and clangd has a
-quick fix for it, a light bulb appears in the margin left of the line number; a click on it opens the same list. It
+quick fix for it, a light bulb appears in the margin left of the line number (red, Visual Studio's "error light bulb", when the line has an error; yellow otherwise); a click on it opens the same list. It
 goes away when the caret leaves the line and comes back when clangd's answer changes (a fix applied, the error corrected).
-Refactorings alone do not light it, unlike Visual Studio's screwdriver (see VS_BEHAVIOUR). Theme key `lightBulb`.
+Refactorings alone do not light it, unlike Visual Studio's screwdriver (see VS_BEHAVIOUR). Theme keys `lightBulb`, `lightBulbError`.
 
 ### Call hierarchy (Control K, Control T) and type hierarchy
 

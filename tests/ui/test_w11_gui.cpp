@@ -446,6 +446,40 @@ TEST(w11_hierarchy_enter_and_double_click_jump_and_arrows_only_expand) {
   CHECK(!env.bench->bottomVisible());
 }
 
+TEST(w11_hierarchy_double_click_jumps_and_a_single_click_only_selects) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "void foo();\nvoid bar() { foo(); }\n"); });
+  env.open("a.cpp");
+  FakeCalls fake;
+  fake.file = env.dir / "a.cpp";
+  env.hp().setBackend(fake.backend());
+  env.hp().setUnavailableFn(nullptr);
+  env.bench->showBottomPanel("Hierarchy");
+  env.hp().open(HierarchyPanel::Mode::Call);
+  fake.prepareDone[0]({item(fake.file, "foo", 0, 5)}, "");
+  env.frame();
+  fake.incomingDone[0]({edge(item(fake.file, "bar", 1))}, "");
+  env.frame();
+  const int bar = nodeByLabel(env.hp(), "bar");
+  int row = -1;
+  for (size_t i = 0; i < env.hp().tree().rows().size(); ++i)
+    if (env.hp().tree().rows()[i].node == bar) row = static_cast<int>(i);
+  REQUIRE(row >= 0);
+  const RectF r = env.hp().tree().rowRect(row);
+  InputEvent e;
+  e.type = InputType::MouseDown;
+  e.button = MouseButton::Left;
+  e.x = r.x + r.w / 2;
+  e.y = r.y + r.h / 2;
+  e.clicks = 1;
+  env.send(e);
+  CHECK(fake.jumped.empty());
+  CHECK_EQ(env.hp().tree().selectedNode(), bar);
+  e.clicks = 2;
+  env.send(e);
+  REQUIRE_EQ(fake.jumped.size(), 1u);
+  CHECK_EQ(fake.jumped[0], std::string("bar"));
+}
+
 TEST(w11_hierarchy_jump_uses_navigation_history_so_back_returns) {
   Env env([](const fs::path& d) {
     writeFile(d / "a.cpp", "void foo();\nvoid bar() { foo(); }\n");
@@ -967,6 +1001,42 @@ TEST(w11_clangd_quick_fix_applies_with_ctrl_dot_and_is_one_undo_step) {
   env.caret(0, 0);
   env.caret(1, 1);
   REQUIRE(env.until([&] { return v->lightBulbLine() == -1; }, 10000));
+}
+
+TEST(w11_clangd_features_answer_nothing_in_a_file_outside_every_translation_unit) {
+  SKIP_WITHOUT_CLANGD();
+  Env env(
+      [](const fs::path& d) {
+        writeFile(d / "a.cpp", "int a() { return 1; }\n");
+        writeFile(d / "orphan.cpp", "int orphan(int x) { return x; }\nint g() { return orphan(1) +\n}\n");
+        const std::string dir = d.generic_string();
+        writeFile(d / "compile_commands.json", "[{\"directory\": \"" + dir + "\", \"file\": \"" + dir +
+                                                   "/a.cpp\", \"command\": \"clang++ -c " + dir + "/a.cpp\"}]\n");
+      },
+      /*clangd=*/true);
+  REQUIRE(env.clangdReady());
+  REQUIRE(env.until([&] { return env.ed->semantic().status().fastIndexDone; }, 30000));
+  env.open("orphan.cpp");
+  REQUIRE(env.until([&] { return env.ed->semantic().isMiscFile(env.dir / "orphan.cpp"); }, 30000));
+  env.caret(0, 5);
+  env.key(Key::F1, ModAlt);
+  env.wait(500);
+  CHECK(env.view()->inlayMap().empty());  // inlay hints: nothing asked
+  env.keyUp(Key::F1, ModAlt);
+  env.key(Key('.'), ModCtrl);
+  CHECK(env.popup() == nullptr);
+  CHECK(env.msg().find("translation unit") != std::string::npos);
+  env.app->runCommand("View.CallHierarchy");
+  CHECK(env.hp().rowLabels()[0].find("translation unit") != std::string::npos);
+  env.wait(800);
+  CHECK_EQ(env.view()->lightBulbLine(), -1);
+  // diagnostics.miscFiles lifts the rule for the features too.
+  env.ed->setMiscFileDiagnostics(true);
+  std::string why;
+  env.app->runCommand("View.CallHierarchy");
+  REQUIRE(env.until(
+      [&] { return env.hp().title() == "Call Hierarchy: orphan" || env.hp().title() == "Call Hierarchy"; }, 5000));
+  CHECK(env.hp().rowLabels()[0].find("translation unit") == std::string::npos);
 }
 
 TEST(w11_clangd_inlay_hints_name_the_parameters_while_alt_f1_is_held) {
