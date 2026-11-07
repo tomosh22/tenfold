@@ -2002,7 +2002,33 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
       if (scopes.count(m.sym().scope) && passes(m)) kept.push_back(m);
   }
   if (scoped) kept = narrowByScope(env, ci, std::move(kept));
-  for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
+  std::vector<FastIndex::Match> shaped = FastIndex::shapeAnswer(kept, shape);
+  // A class written where it is constructed (`Widget w{1}`, `Widget(2)`, `new Widget`) names the class and the
+  // constructor the argument count selects, like clangd's answer.
+  if (scoped && want != FastIndex::Want::Declaration && !shape.constructorOnly) {
+    const int n = constructionArgCount(ci);
+    if (n >= 0) {
+      std::set<std::string> classes;
+      for (const FastIndex::Match& m : shaped) {
+        const SymbolKind k = m.sym().kind;
+        if (k == SymbolKind::Class || k == SymbolKind::Struct) classes.insert(m.sym().qualified());
+      }
+      if (!classes.empty()) {
+        std::vector<FastIndex::Match> ctors;
+        for (const FastIndex::Match& m : matches) {
+          const Symbol& s = m.sym();
+          if (s.kind != SymbolKind::Constructor || !classes.count(s.scope) || s.name != word.text) continue;
+          const int lo = s.minArity >= 0 ? s.minArity : s.arity;
+          if (s.arity >= 0 && !(n >= lo && (s.variadic || n <= s.arity))) continue;
+          ctors.push_back(m);
+        }
+        FastIndex::Shape cs;
+        cs.want = want;
+        for (auto& m : FastIndex::shapeAnswer(std::move(ctors), cs)) shaped.push_back(std::move(m));
+      }
+    }
+  }
+  for (auto& m : shaped) out.push_back(fromFast(m));
   // Same-file first, definitions first.
   std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {
     bool af = a.loc.file == doc.path(), bf = b.loc.file == doc.path();

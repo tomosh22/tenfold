@@ -441,21 +441,11 @@ std::optional<ScanVar> findLocal(const CaretInfo& ci) {
   return *h.v;
 }
 
-int callArgCount(const CaretInfo& ci) {
+namespace {
+// The number of comma-separated arguments of the list opened at column `p` of the caret's line (`(` or `{`).
+int countArgsFrom(const CaretInfo& ci, size_t p) {
   std::string_view t = ci.text;
-  size_t p = skipSpacesFwd(t, ci.wordEnd);
-  if (p < t.size() && t[p] == '<') {
-    int d = 0;
-    size_t k = p;
-    for (; k < t.size(); ++k) {
-      if (t[k] == '<') ++d;
-      else if (t[k] == '>' && --d == 0) break;
-      else if (t[k] == ';' || t[k] == '(' || t[k] == '{') return -1;
-    }
-    if (k >= t.size()) return -1;
-    p = skipSpacesFwd(t, k + 1);
-  }
-  if (p >= t.size() || t[p] != '(') return -1;
+  const char closeCh = t[p] == '(' ? ')' : '}';
   int depth = 0, commas = 0;
   bool token = false;
   bool onlyVoid = true;
@@ -507,7 +497,7 @@ int callArgCount(const CaretInfo& ci) {
       onlyVoid = false;
     } else if (c == ')' || c == ']' || c == '}') {
       if (depth == 0) {
-        if (c != ')') return -1;
+        if (c != closeCh) return -1;
         break;
       }
       --depth;
@@ -535,6 +525,54 @@ int callArgCount(const CaretInfo& ci) {
   if (!token) return 0;
   if (onlyVoid && firstWord == "void" && commas == 0) return 0;
   return commas + 1;
+}
+}  // namespace
+
+int callArgCount(const CaretInfo& ci) {
+  std::string_view t = ci.text;
+  size_t p = skipSpacesFwd(t, ci.wordEnd);
+  if (p < t.size() && t[p] == '<') {
+    int d = 0;
+    size_t k = p;
+    for (; k < t.size(); ++k) {
+      if (t[k] == '<') ++d;
+      else if (t[k] == '>' && --d == 0) break;
+      else if (t[k] == ';' || t[k] == '(' || t[k] == '{') return -1;
+    }
+    if (k >= t.size()) return -1;
+    p = skipSpacesFwd(t, k + 1);
+  }
+  if (p >= t.size() || t[p] != '(') return -1;
+  return countArgsFrom(ci, p);
+}
+
+int constructionArgCount(const CaretInfo& ci) {
+  std::string_view t = ci.text;
+  if (ci.afterTagKeyword) return -2;
+  size_t p = skipSpacesFwd(t, ci.wordEnd);
+  if (p >= t.size()) return -2;
+  if (t[p] == '(' || t[p] == '{') {
+    // `Name(args)` / `Name{args}`: a temporary, `new Name(...)`, a delegating or base initializer
+    const int n = countArgsFrom(ci, p);
+    return n < 0 ? -1 : n;
+  }
+  // `Name var{args};` / `Name var;` inside a function body
+  if (!ci.map || !isIdentCh(t[p]) || std::isdigit(static_cast<unsigned char>(t[p]))) return -2;
+  const int region = ci.map->regionAt(ci.at);
+  if (region <= 0) return -2;
+  const ScanRegion::Kind k = ci.map->regions[static_cast<size_t>(region)].kind;
+  if (k != ScanRegion::Function && k != ScanRegion::Block) return -2;
+  size_t e = p;
+  while (e < t.size() && isIdentCh(t[e])) ++e;
+  const std::string_view var = t.substr(p, e - p);
+  if (var == "const" || var == "volatile" || var == "operator") return -2;
+  const size_t q = skipSpacesFwd(t, e);
+  if (q >= t.size()) return -2;
+  if (t[q] == '{') {
+    const int n = countArgsFrom(ci, q);
+    return n < 0 ? -1 : n;
+  }
+  return -2;
 }
 
 std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const CaretInfo& ci, const std::string& qualifier) {
