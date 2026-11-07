@@ -34,7 +34,7 @@ like today; for the current design read `docs/ARCHITECTURE.md`, for what matches
 | Headless front end | `src/cli` (`tenfold-cli`: REPL, `compdb`, `why`, `bench`, `corpus`, ...) | done |
 | Graphical editor | `src/ui`, `src/ui_app` (`tenfold-ui`; SDL3, OpenGL 3.3 or Direct3D 11, FreeType) | done; opt-in at configure time (`-DTENFOLD_BUILD_UI=ON`), always built for packages |
 | Packages | CI job `package-*`: Windows `.zip`, Linux `.tar.gz` / AppImage, macOS (best effort), pinned clangd bundled | done |
-| Tests | `tenfold-tests` 683, `tenfold-ui-tests` 640, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over about 35 corpora in `tests/corpus`) on Linux; fuzz targets in `tests/fuzz` | see `docs/TESTING.md` |
+| Tests | `tenfold-tests` 683, `tenfold-ui-tests` 644, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over about 35 corpora in `tests/corpus`) on Linux; fuzz targets in `tests/fuzz` | see `docs/TESTING.md` |
 | Scripting (C4) | not built | dropped by the user (OPEN_QUESTIONS #11) |
 
 Performance numbers: `docs/BENCHMARKS.md`; stress results: `docs/STRESS_RESULTS.md`. The table in the last section of
@@ -496,9 +496,8 @@ group as real commands, sets the alias targets in `src/ui/commands/CommandNames.
 * **W8f → W8b larger features (one task each):** code folding (CollapseRegions group), workspace explorer tree
   (ToggleWorkspaceExplorer, ShowInWorkspaceTree), paste history, key-sequence recording / playback, Perforce history and
   ShowInP4v, terminal panel (NewTerminal, ShowTerminal), context menus (ShowContextMenu).
-* **W8 status (all merged):** W8a-W8f are on main. Of the 183 default bindings 177 run a tenfold command; the six
-  left are the four autocomplete list keys (handled by the completion popup, not as bindable commands) and
-  InsertPrev/NextAutocomplete (10x's description is too thin to implement; FEATURE_PARITY). W8f was split into folding,
+* **W8 status (all merged):** W8a-W8f are on main. Of the 183 default bindings 181 run a tenfold command (W12-CMD made the four autocomplete list keys real
+  commands); the two left are InsertPrev/NextAutocomplete (10x's description is too thin to implement; FEATURE_PARITY). W8f was split into folding,
   explorer tree, misc (paste history, key sequences, Perforce history / p4v), context menus (+ explorer menu), terminal
   engine and terminal panel. Windows-only paths still unverified on real Windows: ConPTY (CI tests), the Visual Studio
   configuration lookup (CI-W1 added retries and diagnostics), p4v / filelog against a real server (OPEN_QUESTIONS #17).

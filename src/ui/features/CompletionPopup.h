@@ -11,8 +11,9 @@
 namespace tf::ui {
 
 // Autocomplete (B5b). A non-modal PopupBox under the start of the word being typed; the keyboard stays with the
-// TextView, EditorApp offers it the key first (handleKey: Up/Down/PageUp/PageDown select, Tab/Enter accept, Escape
-// closes) and tells it about typed text (onTyped) and every other event (update).
+// TextView, EditorApp offers it the key first (handleKey: Tab/Enter accept, Escape
+// closes; Up/Down/PageUp/PageDown are key-map commands, see moveSelection) and tells it about typed text (onTyped) and
+// every other event (update).
 //
 // Triggers: an identifier character that makes the word at least 2 characters long, and `.`, `->`, `::`. The request
 // goes to the completion backend (Editor::complete: clangd, the fast index when clangd is absent: those items are
@@ -45,6 +46,9 @@ class CompletionPopup {
   PopupBox* box() const { return box_; }
   int selected() const { return sel_; }
   std::vector<std::string> shownLabels() const;
+  // AutocompleteUp / Down / PageUp / PageDown: moves the selection by `delta` rows (pages when `page`), clamped.
+  // False when the list is closed (the key then does its normal job).
+  bool moveSelection(int delta, bool page = false);
   bool accept();  // the selected item; false when closed
 
  private:

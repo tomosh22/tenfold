@@ -333,7 +333,8 @@ message for that spot follows, marked `build`), then clangd's hover text. Comple
 | **Control K, Control F** (`FormatSelection`) | clangd formats the selection; with no selection, the innermost `{ }` block around the caret (the caret line when it is outside every block). One undo step. Uses your `.clang-format`. clangd only. |
 
 `InsertPrevAutocomplete` / `InsertNextAutocomplete` (`Shift F14` / `F14`) are not implemented: 10x's description is one line
-("insert prev / next autocomplete") and does not say what is inserted or from which list.
+("insert prev / next autocomplete") and does not say what is inserted or from which list. While the list is open, Up, Down,
+PageUp and PageDown move its selection (the commands `AutocompleteUp` ...); you can rebind them like any other command.
 
 ## Editing
 
@@ -1141,9 +1142,9 @@ Control -:
 groups, key strings and command names verbatim), followed by a short section of tenfold-only additions. Bindings whose
 command tenfold does not implement yet stay in the file, so it matches 10x; they answer `not implemented yet: <Command>`.
 10x binds some keys twice for different places: `Up`, `Down`, `PageUp` and `PageDown` move the cursor in the editor and
-the highlighted item in the autocomplete list, `Enter` submits a symbol rename. tenfold files each binding under a
-*context* chosen by its command: **editor** (a text view has focus), **popup** (the autocomplete list and the rename
-box, which handle those keys themselves) and **global**. A binding in the focused context beats a global one, and while a
+the highlighted item in the autocomplete list (only while it is open; closed, they move the cursor), `Enter` submits a symbol rename. tenfold files each binding under a
+*context* chosen by its command: **editor** (a text view has focus), **popup** (the autocomplete list keys, live only while the list is open, and the rename
+box) and **global**. A binding in the focused context beats a global one, and while a
 picker is open the editor bindings are out of the way, so the pickers keep their own arrow keys. Where a 10x binding for a
 command tenfold lacks would take a key from the focused input line or the open picker, the widget gets the key first
 (`Alt R` toggles regex in the find-only bar and in the pickers; with the replace row shown it is 10x's
@@ -1152,7 +1153,7 @@ command tenfold lacks would take a key from the focused input line or the open p
 `Control S` saves; pressed twice (`Control S, Control S`) 10x saves all files, and so does tenfold (`Control Shift S`
 saves all at once). The second press runs `File.SaveAll`; the first one has already saved the current file.
 
-The 177 default bindings that run a tenfold command today (all other defaults are in
+The 181 default bindings that run a tenfold command today (all other defaults are in
 [FEATURE_PARITY.md](FEATURE_PARITY.md#10x-commands-not-yet-implemented)). The last column says where the tenfold command
 differs from the 10x description:
 
@@ -1329,6 +1330,10 @@ differs from the 10x description:
 | `Enter` (rename box) | `SubmitRenameSymbol` | `Editor.SubmitRenameSymbol` |  |
 | `Alt M` | `FindFunction` | `Editor.FindFunction` | a picker over the document symbols (fast index first, clangd's list replaces it) |
 | `Control Space` | `Autocomplete` | `Editor.Autocomplete` |  |
+| `Up` | `AutocompleteUp` | `Editor.CompletionUp` | only while the completion list is open; otherwise `MoveCursorUp` |
+| `Down` | `AutocompleteDown` | `Editor.CompletionDown` | only while the list is open; otherwise `MoveCursorDown` |
+| `PageUp` | `AutocompletePageUp` | `Editor.CompletionPageUp` | moves the selection 10 rows; only while the list is open |
+| `PageDown` | `AutocompletePageDown` | `Editor.CompletionPageDown` | moves the selection 10 rows; only while the list is open |
 | `Control Shift Space` | `ShowFunctionArgsInfo` | `Editor.ShowFunctionArgs` | clangd only |
 | `Control K, Control I` | `ShowSymbolInfo` | `Editor.ShowSymbolInfo` |  |
 
@@ -1648,7 +1653,7 @@ unverified items in the next sections; the log and the output of those two comma
 * **Behaviours copied from memory of 10x** and waiting for your confirmation: undo grouping (#3), the tab / panel
   behaviours (#5), the symbol-search preview (#6), the `vs-dark` colours marked `[?]` (#19), every default of the
   editing conveniences (#8), the column guide, and whether trimming whitespace on save should be on.
-* **Key bindings:** 10x's own format and default key map; 6 of its 183 default bindings (6 commands) are not implemented yet (FEATURE_PARITY).
+* **Key bindings:** 10x's own format and default key map; 2 of its 183 default bindings (2 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
 * **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI jobs (`windows-vs-debugger`, the Windows build jobs); a long session

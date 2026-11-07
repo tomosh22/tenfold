@@ -265,16 +265,8 @@ void CompletionPopup::update() {
 
 bool CompletionPopup::handleKey(const InputEvent& e) {
   if (!open_ || e.type != InputType::KeyDown || (e.mods & (ModCtrl | ModAlt))) return false;
-  const int n = static_cast<int>(shown_.size());
-  auto move = [&](int to) {
-    sel_ = std::clamp(to, 0, n - 1);
-    render();
-  };
+  // Up / Down / PageUp / PageDown are the commands AutocompleteUp... (moveSelection), resolved through the key map.
   switch (e.key) {
-    case Key::Up: move(sel_ - 1); return true;
-    case Key::Down: move(sel_ + 1); return true;
-    case Key::PageUp: move(sel_ - kRows); return true;
-    case Key::PageDown: move(sel_ + kRows); return true;
     case Key::Tab:
     case Key::Enter:
     case Key::KpEnter: return accept();
@@ -284,6 +276,14 @@ bool CompletionPopup::handleKey(const InputEvent& e) {
       return true;
     default: return false;
   }
+}
+
+bool CompletionPopup::moveSelection(int delta, bool page) {
+  if (!open_) return false;
+  const int n = static_cast<int>(shown_.size());
+  sel_ = std::clamp(sel_ + (page ? delta * kRows : delta), 0, std::max(n - 1, 0));
+  render();
+  return true;
 }
 
 bool CompletionPopup::accept() {

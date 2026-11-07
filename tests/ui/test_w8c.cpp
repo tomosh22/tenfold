@@ -753,3 +753,114 @@ TEST(w8c_format_selection_changes_only_the_selected_lines_with_clangd) {
   CHECK_EQ(d->buffer().line(d->buffer().lineCount() - 2), std::string("int   two(int a,int b){return a+b;}"));
   CHECK(env.msg().find("Formatted the scope") != std::string::npos);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// W12-CMD: AutocompleteUp / Down / PageUp / PageDown are key-map commands that share their keys with the caret
+// ---------------------------------------------------------------------------------------------------------------
+
+namespace {
+void openList(Env& env, int items) {
+  env.key(Key::Space, ModCtrl);
+  std::vector<LspCompletionItem> v;
+  for (int i = 0; i < items; ++i) {
+    LspCompletionItem it;
+    it.label = it.insertText = "item" + std::to_string(100 + i);
+    v.push_back(it);
+  }
+  env.completions.back()(v, "");
+  env.frame();
+}
+}  // namespace
+
+TEST(w12_completion_keys_move_the_list_when_open_and_the_caret_when_closed) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "aaa\nbbb\nccc\nddd\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(1, 1);
+  // Closed: Up / Down / PageDown are the caret commands and say nothing.
+  env.key(Key::Down);
+  CHECK(env.ed->cursor().pos == (Position{2, 1}));
+  env.key(Key::Up);
+  CHECK(env.ed->cursor().pos == (Position{1, 1}));
+  env.key(Key::PageDown);
+  CHECK(env.ed->cursor().pos.line > 1);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+  env.caret(1, 0);
+  openList(env, 20);
+  REQUIRE(env.app->completion().isOpen());
+  const Position at = env.ed->cursor().pos;
+  env.key(Key::Down);
+  env.key(Key::Down);
+  CHECK_EQ(env.app->completion().selected(), 2);
+  env.key(Key::Up);
+  CHECK_EQ(env.app->completion().selected(), 1);
+  env.key(Key::PageDown);
+  const int paged = env.app->completion().selected();
+  CHECK(paged > 2);
+  env.key(Key::PageUp);
+  CHECK_EQ(env.app->completion().selected(), 1);
+  env.key(Key::PageUp);
+  CHECK_EQ(env.app->completion().selected(), 0);
+  for (int i = 0; i < 5; ++i) env.key(Key::PageDown);
+  CHECK_EQ(env.app->completion().selected(), 19);  // clamped
+  CHECK(env.ed->cursor().pos == at);               // the caret never moved
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+  // Shift+Down is its own chord (SelectDown): it extends the selection and the list keeps its row.
+  env.key(Key::Down, ModShift);
+  CHECK(env.app->completion().selected() == 19 || !env.app->completion().isOpen());
+  CHECK(env.ed->cursor().pos != at);
+}
+
+TEST(w12_remapping_autocomplete_down_moves_the_list_on_the_new_key_only) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "aaa\nbbb\nccc\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  std::vector<KeyBindingDiag> diags;
+  parseKeyBindings("Down: MoveCursorDown\nControl J: AutocompleteDown\n", "user", env.app->keys(), diags);
+  env.caret(1, 0);
+  openList(env, 5);
+  REQUIRE(env.app->completion().isOpen());
+  env.key(Key('J'), ModCtrl);
+  CHECK_EQ(env.app->completion().selected(), 1);
+  env.key(Key('J'), ModCtrl);
+  CHECK_EQ(env.app->completion().selected(), 2);
+  // Plain Down is no longer a list key: it moves the caret (and with it the list closes or stays; the row is
+  // unchanged).
+  env.key(Key::Down);
+  CHECK(env.ed->cursor().pos.line == 2);
+  CHECK(!env.app->completion().isOpen() || env.app->completion().selected() == 2);
+  // Closed list: Control J does not run the command and does not complain.
+  env.app->completion().close();
+  env.key(Key('J'), ModCtrl);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+}
+
+TEST(w12_completion_keys_in_the_rename_box_and_a_picker_stay_with_their_widgets) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "int alpha;\nint beta;\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(0, 5);
+  env.key(Key('R'), ModCtrl);
+  REQUIRE(env.app->renameInput().isOpen());
+  for (Key k : {Key::Up, Key::Down, Key::PageUp, Key::PageDown}) env.key(k);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+  CHECK(env.app->renameInput().isOpen());
+  CHECK(env.ed->cursor().pos == (Position{0, 5}));
+  env.key(Key::Escape);
+  CHECK(!env.app->renameInput().isOpen());
+  env.key(Key('P'), ModCtrl);  // Control P: the file picker (modal)
+  if (env.popup() || env.bench->modal()) {
+    env.key(Key::Down);
+    CHECK(env.msg().find("not implemented") == std::string::npos);
+    CHECK(!env.app->completion().isOpen());
+  }
+}
+
+TEST(w12_insert_next_prev_autocomplete_stay_unimplemented_without_a_source) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "abc\n"); });
+  env.open("a.cpp");
+  env.key(Key::F14);
+  CHECK_EQ(env.msg(), std::string("not implemented yet: InsertNextAutocomplete"));
+  env.key(Key::F14, ModShift);
+  CHECK_EQ(env.msg(), std::string("not implemented yet: InsertPrevAutocomplete"));
+}
