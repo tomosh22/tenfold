@@ -523,8 +523,8 @@ const std::string kSource = "/* caf\xC3\xA9" + LS +
 struct Project {
   TempDir dir;
   fs::path file;
-  Project() {
-    file = dir.write("a.cpp", kSource);
+  explicit Project(const std::string& text = kSource) {
+    file = dir.write("a.cpp", text);
     std::ostringstream cc;
     cc << "[{\"directory\": \"" << dir.path.generic_string() << "\", \"file\": \"" << file.generic_string()
        << "\", \"arguments\": [\"clang++\", \"-std=c++17\", \"-c\", \"" << file.generic_string() << "\"]}]";
@@ -718,5 +718,45 @@ TEST(sep_clangd_diagnostics_and_incremental_edits_around_separators) {
           return false;
         },
         60000));
+  }
+}
+
+TEST(sep_clangd_incremental_changes_resume_when_the_last_separator_is_gone_and_stop_when_one_returns) {
+  SKIP_WITHOUT_CLANGD();
+  for (bool utf16 : {false, true}) {
+    Project p("int a = 1;" + LS + "int b = 2;\nint c = d;\n");  // `d` is undeclared: an error on editor line 2
+    Session s(p, utf16);
+    REQUIRE(s.ok);
+    REQUIRE(s.doc != nullptr);
+    const TextBuffer& b = s.doc->buffer();
+    auto errorLine = [&](int line, int col) {
+      return s.ed.waitFor(
+          [&] {
+            for (auto& d : s.ed.diagnostics(p.file))
+              if (d.severity == 1 && d.range.start.line == line && d.range.start.column == col) return true;
+            return false;
+          },
+          60000);
+    };
+    CHECK(errorLine(2, 8));
+    // Join the lines (the change removes the LS: sent whole). The error moves to line 1; later edits are incremental.
+    s.ed.setSelections({Selection{{0, 10}, {1, 0}}});
+    s.ed.insertText(" ");
+    CHECK(!b.hasSeparators());
+    CHECK_EQ(b.line(0), std::string("int a = 1; int b = 2;"));
+    CHECK(errorLine(1, 8));
+    s.ed.setSelections({Selection{{0, 0}, {0, 0}}});
+    s.ed.insertText(
+        "// \xC3\xA9\n");  // a line above (UTF-8 offsets: an incremental change with a multi-byte character)
+    CHECK(errorLine(2, 8));
+    // A literal LS comes back: whole-text changes again, positions through the map again.
+    s.ed.setSelections({Selection{{1, 10}, {1, 10}}});
+    s.ed.insertText(LS, true);
+    CHECK(b.hasSeparators());
+    CHECK_EQ(b.line(2), std::string(" int b = 2;"));
+    CHECK(errorLine(3, 8));
+    s.ed.setSelections({Selection{{3, 0}, {3, 0}}});
+    s.ed.insertText("\n");
+    CHECK(errorLine(4, 8));
   }
 }
