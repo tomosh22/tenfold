@@ -94,6 +94,10 @@ class Highlighter {
   // `out`; false when the line is not prepared (or not in the exact prefix when `exact`). Works on long lines too.
   bool punctuation(int line, size_t from, size_t to, std::vector<LexSpan>& out, bool exact);
   bool isLong(int line) const;  // the line is lexed by windows
+  // Bytes of long lines scanned so far (relexing after edits and window lexing), and the resume points of a line: for
+  // tests of the incremental behaviour.
+  uint64_t longLineBytesLexed() const { return lexedBytes_; }
+  size_t resumePoints(int line, size_t* inLiterals = nullptr) const;
   const std::vector<gfx::Color>& palette() const { return pal_; }
   uint32_t defaultColor() const { return textIdx_; }
   // Lexical spans of a short line that is part of the exact prefix (null otherwise, and for long lines).
@@ -149,6 +153,7 @@ class Highlighter {
   int wantLast_ = 0;
   bool provValid_ = false, pending_ = false;
 
+  uint64_t lexedBytes_ = 0;
   std::vector<TokenSpan> sem_;  // len == 0: dropped by an edit
   std::vector<std::string> types_, modifiers_;
   std::unordered_map<uint64_t, uint32_t> semIdx_;  // (modifiers << 16 | type) -> palette index, kNone = no override

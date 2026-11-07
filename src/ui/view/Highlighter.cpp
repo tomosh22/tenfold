@@ -242,6 +242,7 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
   size_t next = partial ? from + kResumeStride : 0, ti = 0;
   bool joined = false;
   bool stopped = false;
+  size_t joinPos = 0;
   const LexState end = lexCore(
       s, begin, from, lineStart, mid, nullptr,
       [&](size_t pos, bool ls, char m) {
@@ -252,11 +253,13 @@ void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
         while (ti < tail.size() && tail[ti].pos < pos) ++ti;
         if (ti < tail.size() && tail[ti].pos == pos && tail[ti].lineStart == ls && tail[ti].mid == m) {
           joined = true;
+          joinPos = pos;
           return true;
         }
         return false;
       },
       &stopped);
+  lexedBytes_ += (joined && stopped ? joinPos : s.size()) - std::min(from, s.size());
   if (stopped && joined) {  // from here on the line is what it was: keep the old points and the old end state
     if (e.ck.back().pos == tail[ti].pos) ++ti;
     e.ck.insert(e.ck.end(), tail.begin() + static_cast<long>(ti), tail.end());
@@ -294,6 +297,7 @@ void Highlighter::windowLex(Entry& e, int line, size_t from, size_t to) {
         return true;
       },
       &stopped);
+  lexedBytes_ += (stopped ? stopPos : s.size()) - start;
   e.winB = static_cast<uint32_t>(start);
   e.winE = static_cast<uint32_t>(stopped ? stopPos : s.size());
   e.winValid = true;
@@ -327,6 +331,16 @@ const Highlighter::Entry* Highlighter::entryOf(int line) const {
       if (line >= g.base && line < g.base + static_cast<int>(g.e.size()))
         return &g.e[static_cast<size_t>(line - g.base)];
   return nullptr;
+}
+
+size_t Highlighter::resumePoints(int line, size_t* inLiterals) const {
+  const Entry* e = entryOf(line);
+  if (inLiterals) {
+    *inLiterals = 0;
+    if (e)
+      for (const LexResume& r : e->ck) *inLiterals += r.mid != 0;
+  }
+  return e ? e->ck.size() : 0;
 }
 
 bool Highlighter::isLong(int line) const {
