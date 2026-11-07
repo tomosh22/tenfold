@@ -80,9 +80,9 @@ struct Env {
 
   explicit Env(const std::function<void(const fs::path&)>& populate, bool clangd = false) {
     static int n = 0;
-    dir = uitest::tempRoot() /
-          ("tf_w11_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
-           std::to_string(n++));
+    dir =
+        uitest::tempRoot() / ("tf_w11_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
+                              "_" + std::to_string(n++));
     fs::create_directories(dir);
     populate(dir);
     Editor::Options o;
@@ -316,7 +316,7 @@ TEST(w11_inlay_map_shift_and_unshift) {
   CHECK_EQ(m.shiftCells(1, 0, len, len, 6), 6);
   // x back to the natural x: cw = 8, natural(col) = 8 * col.
   auto nat = [](int col) { return 8.0f * static_cast<float>(col); };
-  CHECK_EQ(m.unshift(0, 0, len, len, 8.0f * 3, 8.0f, nat), 24.0f);   // before the first hint
+  CHECK_EQ(m.unshift(0, 0, len, len, 8.0f * 3, 8.0f, nat), 24.0f);      // before the first hint
   CHECK_EQ(m.unshift(0, 0, len, len, 8.0f * 4 + 4, 8.0f, nat), 32.0f);  // inside the hint box: its column
   CHECK_EQ(m.unshift(0, 0, len, len, 8.0f * 7, 8.0f, nat), 8.0f * 4);   // after "a: " the text resumes at column 4
   CHECK_EQ(m.unshift(0, 0, len, len, 8.0f * 14, 8.0f, nat), 8.0f * 7);  // past both hints (3 + 4 cells)
@@ -418,7 +418,7 @@ TEST(w11_hierarchy_enter_and_double_click_jump_and_arrows_only_expand) {
   REQUIRE_EQ(fake.jumped.size(), 1u);
   CHECK_EQ(fake.jumped[0], std::string("bar"));
   CHECK(!env.hp().tree().isExpanded(bar));  // Enter on an entry jumps, it does not expand
-  env.hp().focusTree();  // a jump gives the editor the keys back
+  env.hp().focusTree();                     // a jump gives the editor the keys back
   CHECK(env.key(Key::Right));
   CHECK(env.hp().tree().isExpanded(bar));
   CHECK_EQ(fake.jumped.size(), 1u);
@@ -831,9 +831,9 @@ TEST(w11_inlay_hints_are_virtual_text_the_caret_skips) {
     env.send(e);
     return env.ed->selections()[0].head.column;
   };
-  CHECK_EQ(clickAt(x0 + cw * 3.5f), 2);   // inside "a:" (cells 2..5)
+  CHECK_EQ(clickAt(x0 + cw * 3.5f), 2);  // inside "a:" (cells 2..5)
   CHECK_EQ(clickAt(x0 + cw * 5.2f), 2);
-  CHECK_EQ(clickAt(x0 + cw * 6.3f), 3);   // the comma: column 3
+  CHECK_EQ(clickAt(x0 + cw * 6.3f), 3);  // the comma: column 3
   CHECK_EQ(clickAt(x0 + cw * 14.3f), 7);
   // Selection rectangles follow the shifted text; the document is untouched.
   CHECK_EQ(env.ed->currentDocument()->buffer().line(0), std::string("f(1, 2);"));
@@ -905,8 +905,7 @@ TEST(w11_clangd_type_hierarchy_from_the_command_palette_command) {
   SKIP_WITHOUT_CLANGD();
   Env env(
       [](const fs::path& d) {
-        writeFile(d / "t.cpp",
-                  "struct Base { virtual ~Base() {} };\nstruct Mid : Base {};\nstruct Leaf : Mid {};\n");
+        writeFile(d / "t.cpp", "struct Base { virtual ~Base() {} };\nstruct Mid : Base {};\nstruct Leaf : Mid {};\n");
       },
       true);
   REQUIRE(env.clangdReady());
@@ -925,7 +924,8 @@ TEST(w11_clangd_type_hierarchy_from_the_command_palette_command) {
 
 TEST(w11_clangd_quick_fix_applies_with_ctrl_dot_and_is_one_undo_step) {
   SKIP_WITHOUT_CLANGD();
-  // clangd reports the missing semicolon on the next token (line 1) and offers the fix-it "insert ';'" (edit on line 0).
+  // clangd reports the missing semicolon on the next token (line 1) and offers the fix-it "insert ';'" (edit on line
+  // 0).
   const std::string src = "int a = 1\nint b = 2;\n";
   Env env([&](const fs::path& d) { writeFile(d / "a.cpp", src); }, true);
   REQUIRE(env.clangdReady());
@@ -962,8 +962,11 @@ TEST(w11_clangd_quick_fix_applies_with_ctrl_dot_and_is_one_undo_step) {
 
 TEST(w11_clangd_inlay_hints_name_the_parameters_while_alt_f1_is_held) {
   SKIP_WITHOUT_CLANGD();
-  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "void area(int width, int height) {}\nvoid g() { area(3, 4); }\n"); },
-          true);
+  Env env(
+      [](const fs::path& d) {
+        writeFile(d / "a.cpp", "void area(int width, int height) {}\nvoid g() { area(3, 4); }\n");
+      },
+      true);
   REQUIRE(env.clangdReady());
   env.open("a.cpp");
   env.ed->semantic().waitForFile(env.dir / "a.cpp", 60000);
@@ -972,8 +975,10 @@ TEST(w11_clangd_inlay_hints_name_the_parameters_while_alt_f1_is_held) {
   REQUIRE(env.until([&] { return v->inlayMap().items().size() >= 2; }, 30000));
   std::vector<std::string> labels;
   for (const auto& it : v->inlayMap().items()) labels.push_back(it.text);
-  CHECK(std::any_of(labels.begin(), labels.end(), [](const std::string& s) { return s.find("width") != std::string::npos; }));
-  CHECK(std::any_of(labels.begin(), labels.end(), [](const std::string& s) { return s.find("height") != std::string::npos; }));
+  CHECK(std::any_of(labels.begin(), labels.end(),
+                    [](const std::string& s) { return s.find("width") != std::string::npos; }));
+  CHECK(std::any_of(labels.begin(), labels.end(),
+                    [](const std::string& s) { return s.find("height") != std::string::npos; }));
   env.keyUp(Key::F1, ModAlt);
   CHECK(v->inlayMap().empty());
 }
@@ -1100,8 +1105,8 @@ TEST(w11_golden_call_hierarchy_panel_vs_dark) {
   hp.open(HierarchyPanel::Mode::Call);
   fake.prepareDone[0]({item(f, "total", 4, 7)}, "");
   g.frame();
-  fake.incomingDone[0]({edge(item(g.dir / "main.cpp", "main", 11, 4), 2), edge(item(g.dir / "render.cpp", "Canvas::draw", 40, 6))},
-                       "");
+  fake.incomingDone[0](
+      {edge(item(g.dir / "main.cpp", "main", 11, 4), 2), edge(item(g.dir / "render.cpp", "Canvas::draw", 40, 6))}, "");
   g.frame();
   hp.tree().setExpanded(nodeByLabel(hp, "Calls From"), true);
   fake.outgoingDone[0]({edge(item(f, "Shape::area", 1, 17), 2)}, "");

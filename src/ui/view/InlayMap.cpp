@@ -17,9 +17,8 @@ void InlayMap::set(const std::vector<LspInlayHint>& hints, const gfx::TextLayout
     it.cells = tl.columnCount(it.text);
     items_.push_back(std::move(it));
   }
-  std::stable_sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) {
-    return a.line != b.line ? a.line < b.line : a.col < b.col;
-  });
+  std::stable_sort(items_.begin(), items_.end(),
+                   [](const Item& a, const Item& b) { return a.line != b.line ? a.line < b.line : a.col < b.col; });
 }
 
 void InlayMap::onChange(const Document::Change& c) {
@@ -46,7 +45,7 @@ std::pair<size_t, size_t> InlayMap::ofLine(int line) const {
 
 bool InlayMap::onRow(const Item& it, int rs, int re, int lineLen) {
   if (it.col < rs || it.col > re) return false;
-  if (rs > 0 && it.col == rs && !it.prefix) return false;  // belongs to the end of the row before
+  if (rs > 0 && it.col == rs && !it.prefix) return false;       // belongs to the end of the row before
   if (re < lineLen && it.col == re && it.prefix) return false;  // belongs to the start of the next row
   return true;
 }

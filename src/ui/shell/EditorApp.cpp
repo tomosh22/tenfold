@@ -158,7 +158,8 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   quick_ = std::make_unique<QuickActions>(pickerEnv_);
   quick_->setAllowedFn([this] { return clangdResultsAllowed(); });
   quick_->onBulbChanged = [this] { syncBulb(); };
-  inlay_ = std::make_unique<InlayHints>(pickerEnv_, [this](const std::function<void(TextView&)>& fn) { forEachView(fn); });
+  inlay_ =
+      std::make_unique<InlayHints>(pickerEnv_, [this](const std::function<void(TextView&)>& fn) { forEachView(fn); });
   inlay_->setAllowedFn([this] { return clangdResultsAllowed(); });
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
@@ -1619,7 +1620,8 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (terminals_ && (e.type == InputType::FocusGained || e.type == InputType::FocusLost))
     terminals_->setWindowFocused(e.type == InputType::FocusGained);
   // Alt+F1 shows the inlay hints while it is held (Editor.InlayHintsHold sets the flag on the key press).
-  if (inlayHeld_ && (e.type == InputType::FocusLost || (e.type == InputType::KeyUp && (e.key == Key::F1 || !(e.mods & ModAlt))))) {
+  if (inlayHeld_ &&
+      (e.type == InputType::FocusLost || (e.type == InputType::KeyUp && (e.key == Key::F1 || !(e.mods & ModAlt))))) {
     inlayHeld_ = false;
     inlay_->setHeld(false);
   }
@@ -1878,8 +1880,9 @@ void EditorApp::openHierarchy(HierarchyPanel::Mode mode) {
 
 void EditorApp::bindParserCommands() {
   const auto hasDoc = [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); };
-  // W11-GUI-LSP. View Call Hierarchy is Visual Studio's (Ctrl+K, Ctrl+T); the type hierarchy window has no Visual Studio
-  // C++ counterpart (tenfold addition, command palette and editor menu). Quick Actions is Ctrl+. as in Visual Studio.
+  // W11-GUI-LSP. View Call Hierarchy is Visual Studio's (Ctrl+K, Ctrl+T); the type hierarchy window has no Visual
+  // Studio C++ counterpart (tenfold addition, command palette and editor menu). Quick Actions is Ctrl+. as in Visual
+  // Studio.
   registry_.bind(
       "View.CallHierarchy",
       [this](const CommandContext&, std::string_view) {
@@ -1902,7 +1905,8 @@ void EditorApp::bindParserCommands() {
         sigHelp_->close();
         hover_->dismiss();
         forEachView([&](TextView& v) {
-          if (v.isCurrent() && v.visible() && v.hasFocus()) quick_->setAnchor(v.caretRect(editor_.selections()[0].head));
+          if (v.isCurrent() && v.visible() && v.hasFocus())
+            quick_->setAnchor(v.caretRect(editor_.selections()[0].head));
         });
         quick_->open();
         return true;

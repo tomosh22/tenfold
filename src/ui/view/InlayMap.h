@@ -44,8 +44,9 @@ class InlayMap {
   // Cells the hints on the row take up left of the caret position `col`.
   // `end`: the position closes a range, a prefix hint at `col` is not counted.
   int shiftCells(int line, int rs, int re, int lineLen, int col, bool end = false) const;
-  // Inverse of x = natural + shift: `x` is a pixel offset in the shifted row (cell width `cw`), `natural(col)` gives the
-  // unshifted pixel offset of a column. Returns the unshifted x; a point inside a hint maps to the hint's own column.
+  // Inverse of x = natural + shift: `x` is a pixel offset in the shifted row (cell width `cw`), `natural(col)` gives
+  // the unshifted pixel offset of a column. Returns the unshifted x; a point inside a hint maps to the hint's own
+  // column.
   template <class NaturalFn>
   float unshift(int line, int rs, int re, int lineLen, float x, float cw, NaturalFn natural) const {
     const auto [a, b] = ofLine(line);

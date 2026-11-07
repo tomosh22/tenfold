@@ -132,11 +132,12 @@ class EditorApp {
   FunctionPicker& functionPicker() { return *functions_; }
   WorkspaceExplorer* explorer() { return explorer_.get(); }  // the "Explorer" left-dock panel; null without a Workbench
   // W11-GUI-LSP: the "Hierarchy" bottom-dock panel (View.CallHierarchy, View.TypeHierarchy; null without a Workbench),
-  // the Quick Actions list and light bulb (Editor.QuickActions, Ctrl+.) and the inlay hints (editor.inlayHints, Alt+F1).
+  // the Quick Actions list and light bulb (Editor.QuickActions, Ctrl+.) and the inlay hints (editor.inlayHints,
+  // Alt+F1).
   HierarchyPanel* hierarchyPanel() { return hierarchy_; }
   QuickActions& quickActions() { return *quick_; }
   InlayHints& inlayHints() { return *inlay_; }
-  BuildPanel* buildPanel() { return build_; }                // the "Build" bottom-dock panel; null without a Workbench
+  BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
   TerminalPanel* terminalPanel() {
     return terminals_.get();
   }  // W8f: NewTerminal, ShowTerminal, ...; null without a Workbench
@@ -334,9 +335,9 @@ class EditorApp {
   std::unique_ptr<QuickActions> quick_;
   std::unique_ptr<InlayHints> inlay_;
   bool inlayHeld_ = false;
-  BuildPanel* build_ = nullptr;                        // owned by the Workbench's bottom dock
-  std::unique_ptr<TerminalPanel> terminals_;           // W8f: terminal tabs of the editor panels
-  std::unique_ptr<WorkspaceExplorer> explorer_;        // its TreeView is owned by the Workbench's left dock
+  BuildPanel* build_ = nullptr;                  // owned by the Workbench's bottom dock
+  std::unique_ptr<TerminalPanel> terminals_;     // W8f: terminal tabs of the editor panels
+  std::unique_ptr<WorkspaceExplorer> explorer_;  // its TreeView is owned by the Workbench's left dock
   // W8f
   ContextMenu* menu_ = nullptr;  // use contextMenu(): it is stale once another modal replaced the menu
   std::vector<ContextMenuProvider> menuProviders_;

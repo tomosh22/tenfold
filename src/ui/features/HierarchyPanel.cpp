@@ -148,7 +148,7 @@ void HierarchyPanel::open(Mode mode) {
     return;
   }
   prep([this, gen = gen_, life = std::weak_ptr<int>(life_)](const std::vector<HierarchyItem>& items,
-                                                           const std::string& err) {
+                                                            const std::string& err) {
     if (life.expired() || gen != gen_) return;  // a newer hierarchy was opened
     pending_ = 0;
     if (items.empty()) {

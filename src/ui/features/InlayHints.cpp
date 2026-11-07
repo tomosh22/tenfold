@@ -40,7 +40,7 @@ void InlayHints::applyShown() {
   const bool on = shown();
   if (on == appliedShown_) return;
   appliedShown_ = on;
-  ++seq_;  // answers still in flight belong to the old state
+  ++seq_;          // answers still in flight belong to the old state
   doc_ = nullptr;  // the next tick asks again
   if (views_) views_([on](TextView& v) { v.setInlayHintsShown(on); });
 }

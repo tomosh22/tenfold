@@ -462,7 +462,7 @@ Position TextView::positionAt(float x, float y) const {
   int inBlock = -1;
   int vrow = rowMap().wrapRow(drow, &inBlock);
   if (inBlock >= 0) vrow = std::max(0, vrow - 1);  // a row of an inline block: the text row above it
-  if (hintsShown_ && !hints_.empty()) {  // inlay hints moved the text: back to the unshifted x
+  if (hintsShown_ && !hints_.empty()) {            // inlay hints moved the text: back to the unshifted x
     int row = 0;
     const int line = W.lineOfRow(vrow, &row);
     const int rs = W.rowStart(line, row), re = W.rowEnd(line, row);
@@ -696,9 +696,9 @@ void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, floa
   auto slice = [&](int a, int b, float sx) {
     if (b <= a) return;
     const bool whole = a == 0 && b >= static_cast<int>(line.size());
-    const std::string_view v =
-        whole ? std::string_view(line)
-              : std::string_view(line).substr(static_cast<size_t>(a), static_cast<size_t>(b - a));
+    const std::string_view v = whole
+                                   ? std::string_view(line)
+                                   : std::string_view(line).substr(static_cast<size_t>(a), static_cast<size_t>(b - a));
     if (!spans) {
       ctx.text(sx, y, v, ctx.theme.text, clip);
       return;
@@ -710,7 +710,8 @@ void TextView::drawRowText(PaintContext& ctx, const RowRef& r, float textX, floa
     // A row of a wrapped line, or a piece between inlay hints: the spans that touch it, relative to its start.
     rowSpans_.clear();
     const uint32_t ua = static_cast<uint32_t>(a), ue = static_cast<uint32_t>(b);
-    auto it = std::partition_point(spans->begin(), spans->end(), [ua](const gfx::ColorSpan& sp) { return sp.end <= ua; });
+    auto it =
+        std::partition_point(spans->begin(), spans->end(), [ua](const gfx::ColorSpan& sp) { return sp.end <= ua; });
     for (; it != spans->end() && it->begin < ue; ++it)
       rowSpans_.push_back({std::max(it->begin, ua) - ua, std::min(it->end, ue) - ua, it->color});
     ctx.textRenderer.drawSpans(sx, y, v, rowSpans_, hl_.palette(), hl_.defaultColor(), clip);
@@ -766,7 +767,8 @@ void TextView::paintLightBulb(PaintContext& ctx, const Layout& L, float y) {
   const Color c = bulbError_ ? Theme::orElse(ctx.theme.lightBulbError, ctx.theme.diagnosticError)
                              : Theme::orElse(ctx.theme.lightBulb, Color{1.0f, 0.8f, 0.0f, 1});
   const int d = std::max(6, static_cast<int>(std::floor(std::min(cw * 0.9f, lh * 0.55f))));
-  const float x = bounds().x + L.glyphLane() + 1 + std::floor((std::max(6.0f, std::floor(cw * 0.95f)) - static_cast<float>(d)) / 2);
+  const float x =
+      bounds().x + L.glyphLane() + 1 + std::floor((std::max(6.0f, std::floor(cw * 0.95f)) - static_cast<float>(d)) / 2);
   const float top = y + std::floor((lh - static_cast<float>(d) - 3) / 2);
   discRows(ctx, x, top, d, 0, c);
   const float bw = std::max(2.0f, std::floor(static_cast<float>(d) * 0.5f));  // the screw base
@@ -945,7 +947,9 @@ void TextView::paint(PaintContext& rootCtx) {
           for (size_t i = lo; i < hi; ++i) {
             const RowRef& r = vis_[i];
             if (p.column < r.start || (p.column >= r.end && r.end < len)) continue;
-            ctx.fill(intersect({textX + W.xOf(p.line, r.row, p.column) + hintShift(p.line, r.row, p.column), rowY(r), cw, lh}, clip),
+            ctx.fill(intersect(
+                         {textX + W.xOf(p.line, r.row, p.column) + hintShift(p.line, r.row, p.column), rowY(r), cw, lh},
+                         clip),
                      th.bracketMatch);
           }
         }
@@ -983,7 +987,8 @@ void TextView::paint(PaintContext& rootCtx) {
       if (const FoldModel::Region* cr = fold_.collapsedAt(r.line)) {
         float gap = 0;
         const std::string txt = foldMarkerText(*cr, r.line, &gap);
-        const float mx = textX + W.xOf(r.line, r.row, r.end) + hintShift(r.line, r.row, r.end + 1) + gap * cw, mw = static_cast<float>(txt.size()) * cw;
+        const float mx = textX + W.xOf(r.line, r.row, r.end) + hintShift(r.line, r.row, r.end + 1) + gap * cw,
+                    mw = static_cast<float>(txt.size()) * cw;
         ctx.fill(intersect({mx, y, mw, lh}, clip),
                  Theme::orElse(th.foldMarkerBackground, mix(th.panelBackground, th.text, 0.12f)));
         ctx.text(mx, y, txt, Theme::orElse(th.foldMarkerText, th.textDim), clip);
@@ -1122,10 +1127,9 @@ void TextView::paintOverlay(PaintContext& ctx) {
     for (size_t i = lo; i < hi; ++i) {
       const RowRef& r = vis_[i];
       if (p.column < r.start || (p.column >= r.end && r.end < len)) continue;
-      const RectF rc = intersect(
-          {x0 + wrap_.xOf(p.line, r.row, p.column) + hintShift(p.line, r.row, p.column),
-           bounds().y + L.lineTop(r.vrow, sy), w, L.lineHeight()},
-          clip);
+      const RectF rc = intersect({x0 + wrap_.xOf(p.line, r.row, p.column) + hintShift(p.line, r.row, p.column),
+                                  bounds().y + L.lineTop(r.vrow, sy), w, L.lineHeight()},
+                                 clip);
       if (rc.w > 0) ctx.fill(rc, c);
       break;
     }

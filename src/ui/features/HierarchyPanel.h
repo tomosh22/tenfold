@@ -15,11 +15,11 @@ namespace tf::ui {
 //
 // Call hierarchy is Visual Studio's "View Call Hierarchy" (Ctrl+K, Ctrl+T): the root is the symbol at the caret, with
 // the two nodes "Calls To 'x'" (its callers) and "Calls From 'x'" (what it calls); every caller or callee below them
-// has the same two nodes (VS: "You can then expand each calling member to see its Calls To, and for C++, Calls From"). Type hierarchy has no Visual Studio
-// C++ window; tenfold adds it in the same panel: the root is the class at the caret with "Base Types" and "Derived
-// Types". Every entry reads "name   file:line" (workspace-relative path; a call edge adds "(N calls)"). Type
-// hierarchy entries have "Base Types" and "Derived Types" nodes in the same way. (Visual Studio's extra "Overrides" /
-// "Implements" nodes for virtual members are not there.)
+// has the same two nodes (VS: "You can then expand each calling member to see its Calls To, and for C++, Calls From").
+// Type hierarchy has no Visual Studio C++ window; tenfold adds it in the same panel: the root is the class at the caret
+// with "Base Types" and "Derived Types". Every entry reads "name   file:line" (workspace-relative path; a call edge
+// adds "(N calls)"). Type hierarchy entries have "Base Types" and "Derived Types" nodes in the same way. (Visual
+// Studio's extra "Overrides" / "Implements" nodes for virtual members are not there.)
 //
 // Everything is lazy and asynchronous: opening the panel asks clangd for the symbol (Editor::callHierarchy /
 // typeHierarchy); a node's children are requested when the node is first expanded (incomingCalls / outgoingCalls /

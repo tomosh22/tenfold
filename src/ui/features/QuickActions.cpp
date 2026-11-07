@@ -152,7 +152,8 @@ int QuickActions::tick(int64_t nowMs) {
                                                                                      const std::string&) {
     if (life.expired() || seq != bulbSeq_) return;
     if (env_.editor.currentDocument() != d || d->version() != version) return;
-    const bool fix = std::any_of(as.begin(), as.end(), [](const CodeAction& a) { return a.kind.rfind("quickfix", 0) == 0; });
+    const bool fix =
+        std::any_of(as.begin(), as.end(), [](const CodeAction& a) { return a.kind.rfind("quickfix", 0) == 0; });
     const int nl = fix ? line : -1;
     bool error = false;
     if (fix)
