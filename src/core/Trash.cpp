@@ -12,8 +12,10 @@
 #ifndef NOMINMAX
 #define NOMINMAX
 #endif
-#include <shellapi.h>
 #include <windows.h>
+
+// After <windows.h>, which it needs (separate block so include sorting keeps the order).
+#include <shellapi.h>
 #else
 #include <fcntl.h>
 #include <sys/stat.h>
