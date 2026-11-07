@@ -7,9 +7,8 @@ namespace tf::ui {
 namespace fs = std::filesystem;
 
 namespace {
-// VS's order: Windows, Macintosh, Unix, then the Unicode separators.
-constexpr LineEnding kEndings[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF,
-                                   LineEnding::LS,   LineEnding::PS, LineEnding::NEL};
+// VS's Advanced Save Options lists exactly these (VS_BEHAVIOUR L11): no Unicode separators there.
+constexpr LineEnding kEndings[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF};
 constexpr int kEndingCount = static_cast<int>(std::size(kEndings));
 
 std::string endingLabel(LineEnding e) {

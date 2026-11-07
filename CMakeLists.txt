@@ -287,6 +287,8 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/TextView.cpp
     src/ui/widgets/InputLine.cpp
     src/ui/widgets/ListPopup.cpp
+    src/ui/widgets/DropDown.cpp
+    src/ui/widgets/CheckBox.cpp
     src/ui/widgets/TreeView.cpp
     src/ui/widgets/ContextMenu.cpp
     src/ui/features/ContextMenus.cpp
@@ -322,6 +324,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/TerminalPanel.cpp
     src/ui/features/ExternalChanges.cpp
     src/ui/features/LineEndingPrompt.cpp
+    src/ui/features/LineEndingDialog.cpp
     src/ui/features/EncodingPrompt.cpp
     src/ui/features/UnsavedPrompt.cpp
     src/ui/features/SwitchPanel.cpp
@@ -413,6 +416,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_config_ui.cpp
     tests/ui/test_p2_ui.cpp
     tests/ui/test_line_endings_ui.cpp
+    tests/ui/test_dropdown_checkbox.cpp
     tests/ui/test_encoding_ui.cpp
     tests/ui/test_w8b.cpp
     tests/ui/test_w8a_commands.cpp

@@ -7,11 +7,27 @@ namespace tf::ui {
 namespace fs = std::filesystem;
 
 namespace {
-constexpr LineEnding kOrder[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF};  // VS's list order (no NEL/LS/PS)
+constexpr LineEnding kOrder[] = {LineEnding::CRLF, LineEnding::CR, LineEnding::LF};  // Advanced Save Options: no LS/PS
 }
 
+// The drop-down of the consistency dialog, in VS's order (VS_BEHAVIOUR L4), Unicode separators included.
+const LineEndingPrompt::Entry LineEndingPrompt::kEntries[5] = {
+    {"Windows (CR LF)", LineEnding::CRLF},
+    {"Macintosh (CR)", LineEnding::CR},
+    {"Unix (LF)", LineEnding::LF},
+    {"Unicode Line Separator (LS)", LineEnding::LS},
+    {"Unicode Paragraph Separator (PS)", LineEnding::PS},
+};
+
 const char* LineEndingPrompt::endingName(LineEnding e) {
-  return e == LineEnding::CRLF ? "Windows (CR LF)" : e == LineEnding::CR ? "Macintosh (CR)" : "Unix (LF)";
+  switch (e) {
+    case LineEnding::CRLF: return "Windows (CR LF)";
+    case LineEnding::CR: return "Macintosh (CR)";
+    case LineEnding::LS: return "Unicode Line Separator (LS)";
+    case LineEnding::PS: return "Unicode Paragraph Separator (PS)";
+    case LineEnding::NEL: return "Next Line (NEL)";
+    default: return "Unix (LF)";
+  }
 }
 
 LineEndingPrompt::LineEndingPrompt(PickerEnv& env) : env_(env) {
@@ -22,66 +38,92 @@ LineEndingPrompt::~LineEndingPrompt() {
   env_.editor.onInconsistentLineEndings(nullptr);
   life_.reset();
   if (popup_) popup_->close();
+  if (dialog_) dialog_->close();
 }
 
 void LineEndingPrompt::askNormalize(const fs::path& file) {
-  if (file == asking_ && popup_) return;
+  if (std::find(asking_.begin(), asking_.end(), file) != asking_.end() && dialog_) return;
   if (std::find(queue_.begin(), queue_.end(), file) == queue_.end()) queue_.push_back(file);
 }
 
 int LineEndingPrompt::tick(int64_t) {
-  if (!popup_ && !queue_.empty() && !env_.root.modal()) {
-    const fs::path next = queue_.front();
-    queue_.pop_front();
-    openNormalize(next);
+  if (!popup_ && !dialog_ && !queue_.empty() && !env_.root.modal()) {
+    std::vector<fs::path> files(queue_.begin(), queue_.end());  // everything queued so far: one dialog, like VS
+    queue_.clear();
+    openNormalize(files);
   }
   return queue_.empty() ? -1 : 200;  // a modal is up: look again soon
 }
 
-void LineEndingPrompt::openNormalize(const fs::path& file) {
-  Document* d = env_.editor.document(file);
-  if (!d || !d->buffer().mixedLineEndings()) return;
-  asking_ = file;
-  forced_ = false;
-  const TextBuffer::EndingCounts c = d->buffer().endingCounts();
-  auto p = std::make_unique<ListPopup>(false);
-  p->setTitle("The line endings in the following files are not consistent. Do you want to normalize the line endings?");
-  std::vector<ListRow> rows;
-  ListRow head;
-  head.key = "file";
-  head.primary = "    " + relativePath(env_.editor.workspace().root(), file);
-  head.secondary = std::to_string(c.crlf) + " CR LF, " + std::to_string(c.lf) + " LF, " + std::to_string(c.cr) + " CR";
-  head.dim = true;
-  rows.push_back(std::move(head));
-  int selected = 1;
-  for (size_t i = 0; i < 3; ++i) {
-    ListRow r;
-    r.key = std::string("yes:") + endingName(kOrder[i]);
-    r.primary = std::string("Yes: normalize line endings to ") + endingName(kOrder[i]);
-    if (kOrder[i] == d->buffer().lineEnding()) selected = static_cast<int>(rows.size());
-    rows.push_back(std::move(r));
+std::vector<DropDownItem> LineEndingPrompt::dropDownItems() {
+  std::vector<DropDownItem> items;
+  for (const Entry& e : kEntries) items.push_back({e.name, e.ending.has_value()});
+  return items;
+}
+
+void LineEndingPrompt::openNormalize(const std::vector<fs::path>& candidates) {
+  std::vector<fs::path> files;
+  std::vector<LineEndingDialog::File> shown;
+  TextBuffer::EndingCounts sum{};
+  Document* only = nullptr;
+  for (const fs::path& f : candidates) {
+    Document* d = env_.editor.document(f);
+    if (!d || !d->buffer().mixedLineEndings()) continue;
+    const TextBuffer::EndingCounts c = d->buffer().endingCounts();
+    sum.crlf += c.crlf;
+    sum.lf += c.lf;
+    sum.cr += c.cr;
+    only = d;
+    files.push_back(f);
+    shown.push_back(
+        {relativePath(env_.editor.workspace().root(), f),
+         std::to_string(c.crlf) + " CR LF, " + std::to_string(c.lf) + " LF, " + std::to_string(c.cr) + " CR"});
   }
-  ListRow no;
-  no.key = "no";
-  no.primary = "No";
-  no.secondary = "keep the line endings as they are";
-  rows.push_back(std::move(no));
-  p->setMaxVisibleRows(static_cast<int>(rows.size()));
-  p->setRows(std::move(rows), selected);
-  p->onAccept([this, file, life = std::weak_ptr<int>(life_)](int row) {
-    if (life.expired() || row < 1 || row > 3) return;  // the file row, or No
-    Document* doc = env_.editor.document(file);
-    if (!doc) return;
-    env_.editor.setLineEnding(*doc, kOrder[row - 1]);
-    env_.say(std::string("Line endings normalized to ") + endingName(kOrder[row - 1]));
-  });
-  p->onClosed([this, file, life = std::weak_ptr<int>(life_)] {
+  if (files.empty()) return;
+  asking_ = files;
+  forced_ = false;
+  // Pre-selected: the most frequent ending (VS's own choice is unknown). One file: its dominant ending; several: the
+  // dominant one over all of them (ties LF, then CRLF).
+  LineEnding pre = only->buffer().lineEnding();
+  if (files.size() > 1)
+    pre = sum.lf >= sum.crlf && sum.lf >= sum.cr ? LineEnding::LF
+          : sum.crlf >= sum.cr                   ? LineEnding::CRLF
+                                                 : LineEnding::CR;
+  int selected = 0;
+  for (size_t i = 0; i < std::size(kEntries); ++i)
+    if (kEntries[i].ending && *kEntries[i].ending == pre) selected = static_cast<int>(i);
+  auto d = std::make_unique<LineEndingDialog>();
+  d->setMessage(
+      "The line endings in the following files are not consistent. Do you want to normalize the line endings?");
+  d->setFiles(std::move(shown));
+  d->dropDown()->setItems(dropDownItems(), selected);
+  d->onAnswer([this, files, life = std::weak_ptr<int>(life_)](bool yes, int entry, bool never) {
     if (life.expired()) return;
-    popup_ = nullptr;
-    asking_.clear();
-    if (forced_) queue_.push_front(file);  // another popup took the screen: ask again later
+    if (never) disableCheck();
+    if (!yes || entry < 0 || entry >= static_cast<int>(std::size(kEntries)) || !kEntries[entry].ending) return;
+    size_t done = 0;
+    for (const fs::path& f : files)
+      if (Document* doc = env_.editor.document(f)) {
+        env_.editor.setLineEnding(*doc, *kEntries[entry].ending);
+        ++done;
+      }
+    if (done == 1) env_.say(std::string("Line endings normalized to ") + kEntries[entry].name);
+    else if (done > 1)
+      env_.say("Line endings of " + std::to_string(done) + " files normalized to " + kEntries[entry].name);
   });
-  popup_ = ListPopup::open(env_.root, std::move(p));
+  d->onClosed([this, files, life = std::weak_ptr<int>(life_)] {
+    if (life.expired()) return;
+    dialog_ = nullptr;
+    asking_.clear();
+    if (forced_)  // another popup took the screen: ask again later
+      queue_.insert(queue_.begin(), files.begin(), files.end());
+  });
+  dialog_ = LineEndingDialog::open(env_.root, std::move(d));
+}
+
+void LineEndingPrompt::disableCheck() {
+  env_.editor.editing().checkLineEndings = false;
+  if (persistCheckOff) persistCheckOff();
 }
 
 void LineEndingPrompt::askSave(Document& doc) {
@@ -118,9 +160,10 @@ void LineEndingPrompt::askSave(Document& doc) {
 }
 
 void LineEndingPrompt::close() {
-  if (!popup_) return;
   forced_ = true;
-  popup_->close();
+  if (dialog_) dialog_->close();
+  forced_ = false;
+  if (popup_) popup_->close();
 }
 
 }  // namespace tf::ui

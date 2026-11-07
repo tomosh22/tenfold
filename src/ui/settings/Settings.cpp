@@ -327,6 +327,62 @@ void Settings::load(const std::filesystem::path& workspaceRoot, const std::files
   apply(std::move(next), std::move(d));
 }
 
+bool writeUserSetting(const std::filesystem::path& userDir, const std::string& key, const std::string& value,
+                      std::string* error) {
+  namespace fs = std::filesystem;
+  auto fail = [&](const std::string& m) {
+    if (error) *error = m;
+    return false;
+  };
+  if (userDir.empty()) return fail("no user settings directory");
+  std::error_code ec;
+  fs::create_directories(userDir, ec);
+  const fs::path file = userDir / "settings.txt";
+  std::string text;
+  if (fs::exists(file, ec) && !readFile(file, text)) return fail("cannot read " + file.generic_string());
+  const std::string eol = text.find("\r\n") != std::string::npos ? "\r\n" : "\n";
+  std::string out;
+  bool found = false;
+  size_t pos = 0;
+  while (pos < text.size()) {
+    size_t end = text.find('\n', pos);
+    const size_t next = end == std::string::npos ? text.size() : end + 1;
+    size_t lineEnd = end == std::string::npos ? text.size() : end;
+    if (lineEnd > pos && text[lineEnd - 1] == '\r') --lineEnd;
+    const std::string line = text.substr(pos, lineEnd - pos);
+    size_t i = 0;
+    while (i < line.size() && (line[i] == ' ' || line[i] == '\t')) ++i;
+    size_t k = i;
+    while (k < line.size() && line[k] != '=' && line[k] != ' ' && line[k] != '\t') ++k;
+    size_t eq = k;
+    while (eq < line.size() && (line[eq] == ' ' || line[eq] == '\t')) ++eq;
+    if (!found && line.compare(i, k - i, key) == 0 && k - i == key.size() && eq < line.size() && line[eq] == '=' &&
+        line[i] != '#') {
+      out += line.substr(0, i) + key + " = " + value + text.substr(lineEnd, next - lineEnd);
+      found = true;
+    } else {
+      out += text.substr(pos, next - pos);
+    }
+    pos = next;
+  }
+  if (!found) {
+    if (!out.empty() && out.back() != '\n') out += eol;
+    out += key + " = " + value + eol;
+  }
+  const fs::path tmp = userDir / "settings.txt.tmp";
+  {
+    std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+    o << out;
+    if (!o.good()) return fail("cannot write " + tmp.generic_string());
+  }
+  fs::rename(tmp, file, ec);
+  if (ec) {
+    fs::remove(tmp, ec);
+    return fail("cannot replace " + file.generic_string());
+  }
+  return true;
+}
+
 EditorSettings editorSettings(const Settings& s) {
   return {s.getBool("editor.smoothScroll"),    s.getBool("editor.wordWrap"),
           s.getBool("editor.caretBlink"),      s.getBool("editor.highlightCurrentLine"),

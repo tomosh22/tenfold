@@ -60,6 +60,12 @@ void parseSettings(std::string_view text, std::string_view source, std::map<std:
                    std::vector<SettingsDiag>& diags);
 std::string_view defaultSettingsText();  // embedded assets/settings.default.txt
 
+// Sets `key = value` in `<userDir>/settings.txt` (the user layer): an existing assignment of the key is changed in
+// place, otherwise a line is appended; every other line, comment and the file's line ending style stay as they are.
+// Creates the directory and the file when missing. Written through a temporary file. False + `error` on failure.
+bool writeUserSetting(const std::filesystem::path& userDir, const std::string& key, const std::string& value,
+                      std::string* error = nullptr);
+
 class Settings {
  public:
   using ChangedFn = std::function<void(const std::set<std::string>& changedKeys)>;

@@ -1024,7 +1024,7 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   wrap in brackets, case change) and pasted text (`insertText(text, literal=true)`, when `pasteKeepsLineBreaks`) is
   inserted literally. Copy puts `selectedTextRaw()` (real breaks) on the clipboard. `Editor::open` reports a document
   read from disk with mixed endings to `onInconsistentLineEndings` (setting `checkLineEndings`); the UI's
-  `LineEndingPrompt` shows VS's dialog. `.editorconfig` `end_of_line` is not read (tenfold reads no `.editorconfig`).
+  `LineEndingPrompt` shows VS's dialog (`LineEndingDialog`, a modal widget built from the reusable `DropDown` and `CheckBox` widgets in `src/ui/widgets`; documents queued together share one dialog; the check box writes `editor.checkLineEndings = false` through `writeUserSetting`). `DropDown` paints its open list beyond its bounds, so `Widget::hitRect()` (default: the bounds) lets a widget take mouse events outside them. `.editorconfig` `end_of_line` is not read (tenfold reads no `.editorconfig`).
 * *Text for clangd.* `didOpen` / full-sync / `reopenDocuments` send `TextBuffer::textForLsp()`: UTF-8 with the
   document's real line endings (CRLF lines are sent with CRLF, LF lines with LF, so for the usual files the buffer
   clangd parses is the file on disk; W9e finding 4), and incremental changes get their new text converted the same way
