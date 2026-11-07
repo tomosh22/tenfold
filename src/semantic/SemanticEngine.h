@@ -19,6 +19,7 @@
 #include "lsp/LspClient.h"
 #include "semantic/CompileCommands.h"
 #include "semantic/FastIndex.h"
+#include "semantic/IncludeNav.h"
 #include "semantic/TuContext.h"
 #include "workspace/Workspace.h"
 
@@ -52,6 +53,11 @@ struct SymbolLocation {
   // Approximate answers only: clangd may still add targets (this single entry is a class used like a constructor
   // call, or an alias), so the Editor does not jump on it until the authoritative answer is in.
   bool refinable = false;
+  // Find All References (VS_BEHAVIOUR N5): what the place does with the name, "Definition" (a declaration or definition
+  // the fast index knows), "Write" (assigned, incremented), "Read", or "Other" (a spelling, not a use of a value:
+  // preprocessor lines, using / typedef / namespace). The list is ordered definitions first, then by file, line and
+  // column. Empty for every other answer.
+  std::string role;
 };
 
 struct Diagnostic {
@@ -279,6 +285,14 @@ class SemanticEngine {
               Callback<std::map<std::filesystem::path, std::vector<std::pair<Range, std::string>>>> cb);
 
   void onDiagnostics(std::function<void(const std::filesystem::path&, std::vector<Diagnostic>)> h);
+  // Miscellaneous files (VS_BEHAVIOUR I5): a file that is no translation unit of the compile database and that no
+  // translation unit includes, directly or through other headers (also not as a fragment given a TU context). Visual
+  // Studio shows no error squiggles in such a file; with `show` false (the default) the engine does not hand clangd's
+  // diagnostics of those files to the onDiagnostics handler (it hands an empty list, so earlier ones disappear).
+  // Without a compile database nothing is a miscellaneous file. Switching it re-delivers the held diagnostics.
+  bool isMiscFile(const std::filesystem::path& file) const;
+  void setMiscFileDiagnostics(bool show);
+  bool miscFileDiagnostics() const { return showMisc_; }
 
   // --- clangd-only features (constraint 1.4: no approximate tier; without clangd the callback gets an error) ---
   // Semantic tokens: the first request for a document is /full, later ones /full/delta against the previous result
@@ -393,6 +407,17 @@ class SemanticEngine {
   void inheritedConstructorChoices(std::shared_ptr<DefQuery> q, SymbolLocation cls, SymbolLocation usingDecl,
                                    std::vector<SymbolLocation> prefix);
   bool classLike(const SymbolLocation& l) const;
+  // Go To Document: the caret is on an #include directive (VS_BEHAVIOUR N1). False when it is not (nothing is
+  // delivered); otherwise `cb` gets the file: authoritative at once when the include search path of the includer's
+  // compile command finds it, else the fast index's best guess and then clangd's answer (system headers).
+  bool gotoInclude(const Document& doc, Position pos, LocationsCallback& cb);
+  incnav::SearchPath searchPathFor(const std::filesystem::path& file) const;
+  void locationQueryWith(
+      std::vector<SymbolLocation> approx, const char* what, const Document& doc, Position pos, LocationsCallback cb,
+      std::function<int(LspClient&, const std::string&, Position, LspClient::Callback<std::vector<LspLocation>>)>
+          issue);
+  // Find All References: roles and the group order (N5).
+  void classifyReferences(std::vector<SymbolLocation>& locs) const;
   std::string lineText(const std::filesystem::path& file, int line) const;
   std::optional<Symbol> fastSymbolAt(const Location& loc) const;
   std::string describeTarget(const Location& loc) const;
@@ -570,6 +595,14 @@ class SemanticEngine {
   std::map<std::string, std::string> fileStatus_;    // uri -> clangd state
   std::map<std::string, const Document*> openDocs_;  // uri -> doc (for encoding conversion)
   std::function<void(const std::filesystem::path&, std::vector<Diagnostic>)> diagHandler_;
+  // Miscellaneous-file rule (isMiscFile): answers cached per compile database snapshot and fast index generation, and
+  // the last diagnostics clangd published for those files (re-delivered when the switch flips).
+  std::atomic<bool> showMisc_{false};
+  mutable std::mutex miscMu_;
+  mutable const void* miscSnap_ = nullptr;
+  mutable uint64_t miscGen_ = 0;
+  mutable std::map<std::string, bool> miscCache_;
+  std::map<std::string, std::pair<std::filesystem::path, std::vector<Diagnostic>>> miscHeld_;
 };
 
 }  // namespace tf

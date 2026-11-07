@@ -36,16 +36,16 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 
 | Feature | Status | Notes |
 |---|---|---|
-| Go to definition / declaration | ✅ | |
+| Go to definition / declaration | ✅ | VS-NAV: on an `#include` line F12 / Ctrl+F12 / the 10x middle-click open the file (Visual Studio's Go To Document): the includer's directory, then the compile command's `-iquote` / `-I` / `-isystem` directories; exact and instant. |
 | Go to type definition / implementation | ✅ | |
-| Find references | ✅ | |
-| Symbol search (workspace, fuzzy, qualified `a::b`) | ✅ | Workspace symbols rank before system headers. GUI picker (B5a, Ctrl+,): approximate results greyed with "verifying...", swapped for the authoritative ones keeping the selection, target-line preview (`picker.preview`, **verify** with 10x), Enter records a navigation jump. Fast tier is 35-270 ms on Godot until A10 makes it asynchronous. |
+| Find references | ✅ | VS-NAV: the list is grouped (Definition, then one heading per file), with Line:Col, the source line and Read / Write / Definition / Other (from the line's text). Not done: Group by menu, scope list, filter, Keep Results, incremental results. |
+| Symbol search (workspace, fuzzy, qualified `a::b`) | ✅ | Workspace symbols rank before system headers. GUI picker (B5a, Ctrl+,): approximate results greyed with "verifying...", swapped for the authoritative ones keeping the selection, target-line preview (`picker.preview`, **verify** with 10x; VS-NAV: a "Preview: on/off" switch in the header, Alt+P), Enter records a navigation jump. Fast tier is 35-270 ms on Godot until A10 makes it asynchronous. |
 | Document outline | ✅ | `documentSymbols` |
 | Autocomplete | ✅ | clangd, detailed style; approximate fallback (greyed). GUI (B5b): popup at the caret, `.` `->` `::` and 2+ identifier characters, client-side fuzzy filter, docs pane, Tab / Enter accept as one undo step. |
 | Signature help | ✅ | GUI (B5b): on `(` / `,`, active parameter highlighted, follows commas locally, Escape / `)` closes. |
 | Hover / quick info | ✅ | GUI (B5b): 400 ms dwell, diagnostics first, approximate text greyed. |
 | Rename | ✅ | clangd only, no approximate tier (an approximate rename would be wrong). GUI (W8c, Control R, Enter): inline box pre-filled with the symbol; open documents are edited in place (one undo step per file), closed files are edited and written to disk. |
-| Diagnostics (squiggles) | ✅ | Pushed per file; `Editor::diagnostics(file)`; squiggles + scrollbar markers in TextView (B2b); list of open-file and build diagnostics (B5b, Ctrl+Shift+M). |
+| Diagnostics (squiggles) | ✅ | VS-NAV: none in files that are in no translation unit (Visual Studio's Miscellaneous Files; `diagnostics.miscFiles`, default off). Pushed per file; `Editor::diagnostics(file)`; squiggles + scrollbar markers in TextView (B2b); list of open-file and build diagnostics (B5b, Ctrl+Shift+M). |
 | Switch header/source | ✅ | clangd extension, fallback by stem. |
 | Semantic highlighting | ✅ | Lexical colours instantly (cached per line, background exact pass), clangd semantic tokens override identifiers only — no flicker (A9 + B2b). Palette pending OPEN_QUESTIONS #7. |
 | Call hierarchy / type hierarchy | 🔶 | Engine done (A9): `Editor::callHierarchy` / `incomingCalls` / `outgoingCalls`, `typeHierarchy` / `supertypes` / `subtypes`, `gotoHierarchyItem` (navigation history). Needs GUI. |
@@ -218,7 +218,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `vcs.diffTool` | DiffExe (auto) | |
 
 No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTrailingWhitespace` (10x documents none),
-`editor.autoCloseQuotes`, `editor.copyLineWhenEmpty`, `editor.copyBlankLines`, `editor.useEditorConfig`, `editor.textFileNames`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `picker.preview`, `vcs.diffToolArgs`.
+`editor.autoCloseQuotes`, `editor.copyLineWhenEmpty`, `editor.copyBlankLines`, `editor.useEditorConfig`, `editor.textFileNames`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `picker.preview`, `diagnostics.miscFiles`, `vcs.diffToolArgs`.
 
 ### Editing
 

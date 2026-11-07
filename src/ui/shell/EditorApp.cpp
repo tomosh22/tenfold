@@ -457,6 +457,7 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
 // settings (applySettings stays public for callers without a SettingsService).
 void EditorApp::applySettings(const Settings& s) {
   pickerEnv_.preview = s.getBool("picker.preview");
+  editor_.setMiscFileDiagnostics(s.getBool("diagnostics.miscFiles"));
   // keys.import10x joins the settings schema in a later change; until it exists the import stays on.
   for (const SettingInfo& si : settingsSchema())
     if (std::string_view(si.key) == "keys.import10x") setKeyImport10x(s.getBool("keys.import10x"));

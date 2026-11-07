@@ -13,6 +13,8 @@ namespace tf::ui {
 // Chooser (W10-CHOOSE): when the targets carry a SymbolLocation::label ("class Widget", "constructor Widget(int)",
 // "using-declaration", "typedef Bar -> Foo") the rows show label, code line and file:line, the popup sits at the
 // caret (setAnchor) and selects the `preferred` target; Enter jumps (history), Escape closes.
+// References (VS-NAV, VS_BEHAVIOUR N5): when the locations carry a SymbolLocation::role the rows are grouped under
+// headings (Definition, then one per file), show Line:Col, the source line and Read / Write / Definition / Other.
 class NavResultPicker {
  public:
   explicit NavResultPicker(PickerEnv& env) : env_(env) {}
@@ -32,6 +34,7 @@ class NavResultPicker {
   PickerEnv& env_;
   ListPopup* popup_ = nullptr;
   std::vector<SymbolLocation> locs_;
+  std::vector<int> rowLoc_;  // popup row -> index into locs_ (-1: a group heading)
   std::optional<RectF> anchor_;
 };
 

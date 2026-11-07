@@ -466,6 +466,11 @@ class Editor {
   // Replaces the diagnostics of `file` (what clangd's publishDiagnostics does, on the calling thread): lets front ends
   // and tests show diagnostics without a language server.
   void setDiagnostics(const std::filesystem::path& file, std::vector<Diagnostic> ds);
+  // Setting diagnostics.miscFiles (VS_BEHAVIOUR I5): false (the default) shows no clangd diagnostics in a file that is
+  // in no translation unit (SemanticEngine::isMiscFile), like Visual Studio's Miscellaneous Files. Takes effect at
+  // once for the open documents; may be called before start().
+  void setMiscFileDiagnostics(bool show);
+  bool miscFileDiagnostics() const { return showMiscDiagnostics_; }
 
   // --- Visual Studio solution configuration (C5) ---
   // The solution's configurations ("Debug|x64", ...), and the one compile commands are generated for.
@@ -647,6 +652,7 @@ class Editor {
   Breakpoints breakpoints_;
   bool breakpointsLoaded_ = false;
   std::map<std::string, std::vector<Diagnostic>> diagnostics_;
+  bool showMiscDiagnostics_ = false;
   std::vector<SearchHandle> searches_;
 
   struct BuildSession;

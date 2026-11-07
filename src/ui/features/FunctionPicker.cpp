@@ -24,6 +24,10 @@ bool FunctionPicker::open() {
   p->input()->setPlaceholder("Find function in " + d->path().filename().string());
   p->setEmptyText("Searching...");
   p->setPreviewEnabled(env_.preview);
+  p->onPreviewToggle([this](bool on) {  // the switch in the header (VS_BEHAVIOUR P1); kept until the setting changes
+    env_.preview = on;
+    updatePreview();
+  });
   p->onQuery([this](const std::string&) { refilter(); });
   p->onAccept([this](int row) {
     if (row < 0 || row >= static_cast<int>(shown_.size())) return;

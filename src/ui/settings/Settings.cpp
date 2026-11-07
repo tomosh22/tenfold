@@ -87,6 +87,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"nav.statusCounts", SettingType::Bool},
                                              {"keys.import10x", SettingType::Bool},
                                              {"picker.preview", SettingType::Bool},
+                                             {"diagnostics.miscFiles", SettingType::Bool},
                                              {"explorer.trackActiveFile", SettingType::Bool},
                                              {"explorer.openWithSolution", SettingType::Bool},
                                              {"explorer.dragDrop", SettingType::Bool},

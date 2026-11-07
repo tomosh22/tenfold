@@ -257,6 +257,33 @@ and the chooser follows at the authoritative answer (documented in OPEN_QUESTION
 The chooser is `NavResultPicker` (below). The `def` of the corpus format can judge the whole list and its default
 (docs/TESTING.md, `def A = B C default C`).
 
+### Navigation like Visual Studio (VS-NAV)
+
+* **Go To Document on `#include`.** `SemanticEngine::gotoDefinition` and `gotoDeclaration` first ask `gotoInclude`: the
+  caret line is read by `incnav::includeAt` (`src/semantic/IncludeNav.*`: `#`, `include` / `include_next` / `import`, a
+  literal `"..."` or `<...>`, comments blanked; the caret may be anywhere from the `#` to just after the closing
+  delimiter). The file is then resolved the way the compiler does (`incnav::resolveInclude` over `searchPathOf` of the
+  includer's compile command: its own directory for `"..."`, `-iquote`, `-I`, `-isystem`, `-idirafter`, `/I`, `/imsvc`;
+  for a file in no command, the directories of every command; for an include-only fragment, the command of its TU
+  context). A hit is delivered **Authoritative at once** (no clangd round trip: it is a file-system fact) as one
+  `SymbolLocation` at 0:0 with `extent` = the first line, and `augmentWithFastDefinitions` / the word-based lookups are
+  skipped (the word would be `h`). A miss goes through `locationQueryWith` (the old `locationQuery` body with a given
+  approximate tier): the approximate tier is the workspace file whose path ends with the spelling nearest to the includer
+  (FastIndex::exportFiles), clangd's `definition` is the authoritative one (system headers). The Editor needs no change: a
+  single location jumps through `gotoLocation`.
+* **Find All References.** `findReferences` post-processes clangd's list (`classifyReferences`): `SymbolLocation::role`
+  (`Definition` when the fast index has a symbol of that name on that line, else `incnav::classifyReference`: Read / Write /
+  Other from the line text; every file is read once, open documents from their buffers) and the order Definition first,
+  then by file path, line, column. `NavResultPicker` turns a list whose entries carry a role into grouped rows
+  (`ListRow::header` headings that `ListPopup` never selects, hovers or accepts; `rowLoc_` maps rows to locations).
+* **Miscellaneous files.** `SemanticEngine::isMiscFile` (compile commands snapshot + fast-index include graph through
+  `compdb::filesReachableFrom`, cached per snapshot and fast-index generation) decides in the clangd diagnostics handler:
+  with `showMisc_` false (setting `diagnostics.miscFiles`, `Editor::setMiscFileDiagnostics`) the handler delivers an empty
+  list and keeps the real one in `miscHeld_`, which flipping the switch on delivers. No database or an unfinished fast
+  index means "not misc". Diagnostics set through `Editor::setDiagnostics` and the build's are not filtered.
+* **Preview switch.** `ListPopup::onPreviewToggle` adds the header switch (click on `previewToggleRect()`, Alt+P) and the
+  pickers keep the state in `PickerEnv::preview` until `EditorApp::applySettings` reads `picker.preview` again.
+
 ### What the fast tier indexes, and how its answer is shaped (W9-FIX-C1)
 
 The fast tier is `CppLexer` + the `Extractor` in `src/semantic/FastIndex.cpp`: no preprocessing, no types, no scopes

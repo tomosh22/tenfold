@@ -182,6 +182,7 @@ bool Editor::start(std::string* error) {
   semantic_->onDiagnostics([this](const fs::path& file, std::vector<Diagnostic> ds) {
     post([this, file, ds = std::move(ds)]() mutable { diagnostics_[pathKeyUtf8(file)] = std::move(ds); });
   });
+  semantic_->setMiscFileDiagnostics(showMiscDiagnostics_);
   semantic_->onApplyEdit([this](const std::string&, FileEdits edits) {
     post([this, edits = std::move(edits)] {
       std::string err;
@@ -2190,6 +2191,16 @@ Editor::ReplaceInFilesResult Editor::replaceInFiles(const std::vector<SearchMatc
 
 void Editor::setDiagnostics(const fs::path& file, std::vector<Diagnostic> ds) {
   diagnostics_[pathKeyUtf8(file)] = std::move(ds);
+}
+
+void Editor::setMiscFileDiagnostics(bool show) {
+  if (show == showMiscDiagnostics_) return;
+  showMiscDiagnostics_ = show;
+  if (!semantic_) return;
+  semantic_->setMiscFileDiagnostics(show);
+  if (show) return;           // what the engine held back is delivered through the diagnostics handler
+  for (auto& [k, d] : docs_)  // the open files that just became quiet
+    if (semantic_->isMiscFile(d->path())) diagnostics_.erase(pathKeyUtf8(d->path()));
 }
 
 void Editor::hookTokens() {

@@ -1,0 +1,24 @@
+# vs-nav (VS-NAV): Go To Document on an #include line (VS_BEHAVIOUR N1). F12 (and Go To Declaration, and the middle
+# button) on `#include "x.h"` / `<x.h>` opens the file the compiler would pick: the includer's directory first for a
+# quoted spelling, then the -I directories. The caret may be anywhere on the directive; the answer is the top of the file.
+
+# The answer is exact (the include search path of the includer's compile command), so the fast tier already gives it.
+fast def inc_quoted -> util_h
+fast def inc_dup -> dup_src_h          # quoted: the includer's own directory wins over -Iinclude
+fast def inc_deep -> deep_h
+fast def inc_angle -> lib_h
+fast def inc_spaced -> util_h
+fast decl inc_quoted -> util_h
+fast def inc_missing -> none
+
+def inc_quoted -> util_h
+def inc_dup -> dup_src_h
+def inc_deep -> deep_h
+def inc_angle -> lib_h
+def inc_spaced -> util_h
+decl inc_deep -> deep_h
+def inc_missing -> none
+
+# An ordinary name is untouched by the include rule.
+def counter_use -> counter_def
+refs counter_def >= counter_def counter_use

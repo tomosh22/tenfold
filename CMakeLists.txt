@@ -52,6 +52,7 @@ add_library(tenfold_core STATIC
   src/semantic/FastIndexStore.cpp
   src/semantic/CompileCommands.cpp
   src/semantic/DefChoice.cpp
+  src/semantic/IncludeNav.cpp
   src/semantic/TuContext.cpp
   src/semantic/XmlLite.cpp
   src/semantic/SemanticEngine.cpp
@@ -182,6 +183,7 @@ add_executable(tenfold-tests
   tests/test_tu_context.cpp
   tests/test_pathological.cpp
   tests/test_w10_choose.cpp
+  tests/test_vs_nav.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.
