@@ -285,6 +285,8 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/TextView.cpp
     src/ui/widgets/InputLine.cpp
     src/ui/widgets/ListPopup.cpp
+    src/ui/widgets/DropDown.cpp
+    src/ui/widgets/CheckBox.cpp
     src/ui/widgets/TreeView.cpp
     src/ui/widgets/ContextMenu.cpp
     src/ui/features/ContextMenus.cpp

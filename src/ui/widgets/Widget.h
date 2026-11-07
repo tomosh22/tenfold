@@ -83,7 +83,9 @@ class Widget {
   void layout(const RectF& r);  // stores bounds, calls onLayout (which lays out children)
   bool visible() const { return visible_; }
   void setVisible(bool v);
-  bool contains(float x, float y) const { return visible_ && ui::contains(bounds_, x, y); }
+  bool contains(float x, float y) const { return visible_ && ui::contains(hitRect(), x, y); }
+  // Where the widget takes mouse events: its bounds, unless it paints beyond them (DropDown's open list).
+  virtual RectF hitRect() const { return bounds_; }
 
   // ---- painting ----
   void paintTree(PaintContext& ctx, bool inTop = false);  // paint(), then children in order (top-layer ones skipped
