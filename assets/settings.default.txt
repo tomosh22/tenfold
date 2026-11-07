@@ -151,6 +151,9 @@ vcs.diffTool =
 vcs.diffToolArgs = ""{base}" "{current}""
 # vcs.p4vPath: the p4v program PerforceShowInP4v starts (empty = `p4v` from PATH).
 vcs.p4vPath =
+# perforce.promptOnEdit: the first edit of a read-only, not checked-out Perforce file asks "Check out?" (P4VS) instead of
+# checking it out silently (10x: auto-checkout, so off by default; VS_BEHAVIOUR 4 VC5).
+perforce.promptOnEdit = false
 
 # Terminal panel (W8f). The first five mirror 10x's TerminalCommand (cmd.exe), ClaudeTerminalCommand (claude),
 # CursorTerminalCommand (cmd /c agent), TerminalFont and TerminalFontSize; command lines are split like a shell command

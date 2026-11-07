@@ -116,6 +116,12 @@ struct Theme {
   Color tabVcsAdded{0, 0, 0, 0};     // new / untracked / opened for add; unset = the added colour
   Color tabVcsCheckedOut{0, 0, 0, 0};  // Perforce checked out; unset = the deleted colour (red)
   Color tabVcsReadOnly{0, 0, 0, 0};    // Perforce read-only, not checked out (outlined marker); unset = textDim
+  // VS-VCS (P4VS badges, VC3), optional: opened for add (red plus), not in the depot (blue ?), newer revision in the
+  // depot (yellow triangle), needs resolve (red ?). Unset = the deleted colour / a blue / a yellow / diagnosticError.
+  Color tabVcsOpenedForAdd{0, 0, 0, 0};
+  Color tabVcsNotInDepot{0, 0, 0, 0};
+  Color tabVcsOutOfDate{0, 0, 0, 0};
+  Color tabVcsConflict{0, 0, 0, 0};
   // Workspace explorer (W8f), optional: tree background (unset = panelBackground), selected row while the tree has the
   // keyboard focus (unset = selection) and while it has not (unset = currentLine), folder icon (unset = dirtyMarker).
   Color treeBackground{0, 0, 0, 0};

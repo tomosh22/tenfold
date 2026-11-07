@@ -45,6 +45,9 @@ class VcsManager {
     std::string provider = "auto";
     std::string p4Path;  // workspace.json "vcs.p4Path": the p4 executable; empty = `p4` from PATH
     DiffOptions diff;
+    // VC5 (VS-VCS), setting perforce.promptOnEdit: the first edit of a read-only, not checked-out Perforce file asks
+    // through onEditPrompt instead of checking out silently. Off by default (10x answered #10: auto-checkout).
+    bool promptOnEdit = false;
     std::function<void(const std::string&)> log;
     // Test hook: runs on the worker thread right before every diff is computed.
     std::function<void()> diffHook;
@@ -95,6 +98,23 @@ class VcsManager {
   using ErrorHandler = std::function<void(const std::filesystem::path& file, const std::string& message)>;
   void onError(ErrorHandler h) { errorHandler_ = std::move(h); }
 
+  // ---- VC5: ask before the first edit checks a Perforce file out ----
+  enum class EditAnswer { CheckOut, CheckOutAlways, Leave };
+  // Called on the main thread (from the edit) with the file and a reply function (call it once, on the main thread).
+  // With no handler, or promptOnEdit off, the first edit checks out silently. CheckOutAlways also stops asking (for
+  // this VcsManager). Leave keeps the edit in the buffer and the file as it is (read-only on disk).
+  using EditPrompt = std::function<void(const std::filesystem::path& file, std::function<void(EditAnswer)> reply)>;
+  void onEditPrompt(EditPrompt h) { editPrompt_ = std::move(h); }
+  void setPromptOnEdit(bool on) { opt_.promptOnEdit = on; }
+  bool promptOnEdit() const { return opt_.promptOnEdit; }
+
+  // ---- VC3: status of files that are shown but not open (the explorer) ----
+  // Perforce only knows the state of a file when asked (the workspace-wide status lists the opened files only). The
+  // explorer calls this for every file row it paints; unknown files are collected and asked in one batch shortly
+  // after (off the UI thread). No-op for other providers, files outside the root, and files already asked since the
+  // last refreshStatus().
+  void probe(const std::filesystem::path& file);
+
   // ---- commands (main thread) ----
   // Re-reads the status of the whole workspace and the base of every open document (call after commits made
   // outside the editor, e.g. when the window regains focus). Results arrive via post().
@@ -122,6 +142,9 @@ class VcsManager {
   // `p4 print` of one revision.
   void perforceRevisionText(const std::filesystem::path& file, int rev,
                             std::function<void(bool ok, std::string text, const std::string& error)> done);
+  // `haveRev` of `file` (0: not synced / not in the depot); ok=false with the message when the call failed.
+  void perforceHaveRevision(const std::filesystem::path& file,
+                            std::function<void(bool ok, int rev, const std::string& error)> done);
   // Connection and depot path for `p4v -s` (PerforceShowInP4v).
   void perforceP4vTarget(
       const std::filesystem::path& file,
@@ -164,6 +187,8 @@ class VcsManager {
   void reportError(const std::filesystem::path& file, const std::string& msg);
   void applyStatuses(std::vector<VcsFileInfo> infos, bool replaceAll);
   void post(std::function<void()> fn);
+  void scheduleProbeFlush();
+  void flushProbes();
   // Runs `job` on the worker with the Perforce provider (or reports why there is none); the closure `job` returns is
   // posted to the pump thread.
   void withPerforce(const std::function<std::function<void()>(PerforceProvider&)>& job,
@@ -184,6 +209,9 @@ class VcsManager {
   mutable std::unordered_map<std::string, std::string> keyCache_;
   ChangedHandler changed_;
   ErrorHandler errorHandler_;
+  EditPrompt editPrompt_;
+  std::map<std::string, std::filesystem::path> probed_;  // keys already asked (probe)
+  std::vector<std::filesystem::path> probePending_;
   Stats mainStats_;
   bool stopped_ = false;
 

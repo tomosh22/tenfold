@@ -140,6 +140,12 @@ color.tabVcsModified = #E2C08D
 color.tabVcsAdded = #73C991
 color.tabVcsCheckedOut = #F14C4C
 color.tabVcsReadOnly = #999999
+# P4VS badges in the explorer (VS_BEHAVIOUR 4 VC3): red plus = opened for add, blue ? = not in the depot, yellow triangle
+# = newer revision in the depot, red ? = needs resolve. [?] P4VS documents the colour names, not hex values.
+color.tabVcsOpenedForAdd = #F14C4C
+color.tabVcsNotInDepot = #569CD6
+color.tabVcsOutOfDate = #DCBB54
+color.tabVcsConflict = #F14C4C
 # Workspace explorer (Solution Explorer look): selected row with / without keyboard focus, folder icon.
 color.treeBackground = #252526
 # [S34] focused selected row; unfocused is #3F3F46

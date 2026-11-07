@@ -51,6 +51,8 @@ class PerforceProvider : public VcsProvider {
   // the depot. Empty with an error: the call failed.
   std::vector<Revision> filelog(const std::filesystem::path& file, std::string* error = nullptr,
                                 int maxRevisions = 200);
+  // The revision of `file` in the workspace (`haveRev` of fstat): 0 when it is not synced / not in the depot.
+  int haveRevision(const std::filesystem::path& file, std::string* error = nullptr);
   // `p4 print -q <file>#<rev>`: the text of one revision (bytes as stored). Nullopt + error when the call failed.
   std::optional<std::string> printRevision(const std::filesystem::path& file, int rev, std::string* error = nullptr);
   // What p4v needs to select a file (PerforceShowInP4v): the connection from `p4 info` (serverAddress, userName,

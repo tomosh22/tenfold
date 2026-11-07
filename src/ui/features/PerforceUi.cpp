@@ -38,6 +38,7 @@ std::string PerforceUi::relName(const fs::path& p) const {
 void PerforceUi::applySettings(const Settings& s) { p4vPath_ = s.getString("vcs.p4vPath"); }
 
 void PerforceUi::close() {
+  if (menu_) menu_->close();
   if (popup_) popup_->close();
 }
 
@@ -112,7 +113,13 @@ void PerforceUi::history() {
       say(relName(file) + " is not in the Perforce depot");
       return;
     }
-    showRevisions(file, std::move(revs));
+    // The workspace revision decides which actions the menu offers; a failure only hides "against have".
+    env_.editor.vcs().perforceHaveRevision(
+        file, [this, file, revs = std::move(revs), life](bool ok, int have, const std::string&) mutable {
+          if (life.expired()) return;
+          haveRev_ = ok ? have : 0;
+          showRevisions(file, std::move(revs));
+        });
   });
 }
 
@@ -126,7 +133,7 @@ void PerforceUi::showRevisions(const fs::path& file, std::vector<PerforceProvide
   p->setEmptyText("No matching revisions");
   p->onQuery([this](const std::string&) { rebuild(); });
   p->onAccept([this](int row) {
-    if (row >= 0 && row < static_cast<int>(shown_.size())) openRevision(file_, shown_[static_cast<size_t>(row)]);
+    if (row >= 0 && row < static_cast<int>(shown_.size())) showActions(shown_[static_cast<size_t>(row)]);
   });
   p->onClosed([this] { popup_ = nullptr; });
   popup_ = ListPopup::open(env_.root, std::move(p));
@@ -151,6 +158,97 @@ void PerforceUi::rebuild() {
     shown_.push_back(r);
   }
   popup_->setRows(std::move(rows), 0);
+}
+
+void PerforceUi::showActions(const PerforceProvider::Revision& rev) {
+  if (menu_) menu_->close();
+  enum class Act { Open, Previous, Have };
+  struct Item {
+    Act act;
+    PerforceProvider::Revision other;
+  };
+  auto items = std::make_shared<std::vector<Item>>();
+  std::vector<ListRow> rows;
+  const std::string tag = "#" + std::to_string(rev.rev);
+  auto add = [&](Act a, const std::string& key, const std::string& text, const std::string& detail,
+                 PerforceProvider::Revision other = {}) {
+    ListRow r;
+    r.key = key;
+    r.primary = text;
+    r.secondary = detail;
+    rows.push_back(std::move(r));
+    items->push_back({a, std::move(other)});
+  };
+  add(Act::Open, "open", "Open " + tag, "read-only copy in a new tab");
+  if (hooks_.diff) {
+    auto older = std::find_if(revs_.begin(), revs_.end(), [&](const auto& r) { return r.rev < rev.rev; });
+    if (older != revs_.end())
+      add(Act::Previous, "previous", "Diff against previous revision (#" + std::to_string(older->rev) + ")",
+          "external diff tool", *older);
+    if (haveRev_ > 0 && haveRev_ != rev.rev) {
+      auto have = std::find_if(revs_.begin(), revs_.end(), [&](const auto& r) { return r.rev == haveRev_; });
+      PerforceProvider::Revision h;
+      h.rev = haveRev_;
+      if (have != revs_.end()) h = *have;
+      add(Act::Have, "have", "Diff against have revision (#" + std::to_string(haveRev_) + ")", "external diff tool",
+          h);
+    }
+  }
+  auto p = std::make_unique<ListPopup>(false);
+  p->setTitle("Revision " + tag + " of " + relName(file_));
+  p->setMaxVisibleRows(3);
+  p->setRows(std::move(rows), 0);
+  p->onAccept([this, rev, items, life = std::weak_ptr<int>(life_)](int row) {
+    if (life.expired() || row < 0 || row >= static_cast<int>(items->size())) return;
+    const Item& it = (*items)[static_cast<size_t>(row)];
+    if (it.act == Act::Open) openRevision(file_, rev);
+    else diffRevisions(it.other, rev);  // older / have on the left, the chosen revision on the right
+    if (popup_) popup_->close();        // the action is taken: the list goes too
+  });
+  p->onClosed([this, life = std::weak_ptr<int>(life_)] {
+    if (!life.expired()) menu_ = nullptr;
+  });
+  menu_ = ListPopup::open(env_.root, std::move(p));
+}
+
+void PerforceUi::diffRevisions(const PerforceProvider::Revision& left, const PerforceProvider::Revision& right) {
+  struct Pair {
+    std::string a, b;
+    int done = 0;
+    bool failed = false;
+  };
+  auto pr = std::make_shared<Pair>();
+  const fs::path file = file_;
+  const std::string title = relName(file);
+  auto finish = [this, pr, file, title, left, right] {
+    if (pr->failed || pr->done < 2 || !hooks_.diff) return;
+    DiffTool::Request r;
+    r.file = file;
+    r.title = title;
+    r.baseText = pr->a;
+    r.currentText = pr->b;
+    r.baseLabel = "#" + std::to_string(left.rev);
+    r.currentLabel = "#" + std::to_string(right.rev);
+    hooks_.diff(r);
+  };
+  auto fetch = [&](int rev, bool isLeft) {
+    env_.editor.vcs().perforceRevisionText(
+        file, rev,
+        [this, pr, finish, rev, title, isLeft, life = std::weak_ptr<int>(life_)](bool ok, std::string text,
+                                                                                std::string err) {
+          if (life.expired() || pr->failed) return;
+          if (!ok) {
+            pr->failed = true;
+            say("Cannot read " + title + "#" + std::to_string(rev) + ": " + err, 8000);
+            return;
+          }
+          (isLeft ? pr->a : pr->b) = std::move(text);
+          ++pr->done;
+          finish();
+        });
+  };
+  fetch(left.rev, true);
+  fetch(right.rev, false);
 }
 
 void PerforceUi::openRevision(const fs::path& file, const PerforceProvider::Revision& rev) {

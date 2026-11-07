@@ -212,6 +212,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
     PerforceUi::Hooks ph;
     ph.message = [this](const std::string& text, int ttlMs) { setMessage(text, ttlMs); };
     ph.launcher = [this]() -> const OsLauncher& { return launcher_; };
+    ph.diff = [this](const DiffTool::Request& r) { return vcsUi_->launchDiff(r); };
     perforceUi_ = std::make_unique<PerforceUi>(pickerEnv_, std::move(ph));
   }
   registerEditorCommands(registry_);
