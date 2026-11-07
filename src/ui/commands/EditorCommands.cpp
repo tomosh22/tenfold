@@ -246,7 +246,10 @@ void registerEditorCommands(CommandRegistry& r) {
   };
   for (const EolCmd& ec : {EolCmd{"Editor.LineEndingLF", "Line Endings: Unix (LF)", LineEnding::LF},
                            EolCmd{"Editor.LineEndingCRLF", "Line Endings: Windows (CR LF)", LineEnding::CRLF},
-                           EolCmd{"Editor.LineEndingCR", "Line Endings: Macintosh (CR)", LineEnding::CR}})
+                           EolCmd{"Editor.LineEndingCR", "Line Endings: Macintosh (CR)", LineEnding::CR},
+                           EolCmd{"Editor.LineEndingLS", "Line Endings: Unicode Line Separator (LS)", LineEnding::LS},
+                           EolCmd{"Editor.LineEndingPS", "Line Endings: Unicode Paragraph Separator (PS)", LineEnding::PS},
+                           EolCmd{"Editor.LineEndingNEL", "Line Endings: Next Line (NEL)", LineEnding::NEL}})
     addEd(r, ec.id, ec.name, [e = ec.e](const CommandContext& c, std::string_view) {
       c.editor->setLineEnding(*c.editor->currentDocument(), e);
       return true;

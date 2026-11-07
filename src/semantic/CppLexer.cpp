@@ -1,5 +1,6 @@
 #include "semantic/CppLexer.h"
 
+#include <algorithm>
 #include <array>
 #include <cctype>
 #include <string>
@@ -259,12 +260,25 @@ void CppLexer::skipSpaceAndComments() {
   }
 }
 
+void CppLexer::place(size_t off, int clangLine, size_t clangLineStart, int& line, int& col) {
+  if (seps_.empty()) {
+    line = clangLine;
+    col = static_cast<int>(off - clangLineStart);
+    return;
+  }
+  while (sepIdx_ < seps_.size() && seps_[sepIdx_].first < off) ++sepIdx_;
+  line = clangLine + static_cast<int>(sepIdx_);
+  size_t from = clangLineStart;
+  if (sepIdx_ > 0) from = std::max(from, seps_[sepIdx_ - 1].first + seps_[sepIdx_ - 1].second);
+  col = static_cast<int>(off - from);
+}
+
 Token CppLexer::next() {
   skipSpaceAndComments();
-  if (i_ >= s_.size()) return Token{Tok::End, {}, line_, static_cast<int>(i_ - lineStart_)};
+  int line = line_, col = 0;
+  place(i_, line_, lineStart_, line, col);
+  if (i_ >= s_.size()) return Token{Tok::End, {}, line, col};
   const size_t start = i_;
-  const int line = line_;
-  const int col = static_cast<int>(i_ - lineStart_);
   const char c = s_[i_];
   auto peek = [&](size_t k) -> char { return i_ + k < s_.size() ? s_[i_ + k] : '\0'; };
 

@@ -460,6 +460,7 @@ class Extractor {
         p += 2;
         while (p < text.size() && !(text[p] == '*' && p + 1 < text.size() && text[p + 1] == '/')) {
           if (size_t n = newlineAt(p)) breakLine(n);
+          else if (size_t u = linebreak::separatorLen(text, p)) breakLine(u);  // NEL / LS / PS: a line of the editor
           else ++p;
         }
         p = std::min(p + 2, text.size());

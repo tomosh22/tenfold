@@ -16,6 +16,7 @@
 #include <vector>
 
 #include "core/Document.h"
+#include "core/LspLineMap.h"
 #include "lsp/LspClient.h"
 #include "semantic/CompileCommands.h"
 #include "semantic/FastIndex.h"
@@ -442,6 +443,17 @@ class SemanticEngine {
   Position toServer(const Document& doc, Position p) const;
   Range toServer(const Document& doc, Range r) const { return {toServer(doc, r.start), toServer(doc, r.end)}; }
   Position posFromServer(const std::string& uri, Position p) const;
+  // NEL / LS / PS (docs/ARCHITECTURE.md "Text for clangd"): the line map of what clangd was sent for an open document
+  // that has them (null for the rest, the common case), kept up to date by didOpen / didChange.
+  std::shared_ptr<const LspLineMap> lspMapFor(const std::string& uri) const;
+  void noteLspText(const Document& doc);
+  // A file that is not open, decoded, when it has NEL / LS / PS (null: it has none, or is not UTF-8); cached by
+  // mtime and size.
+  struct DiskSeparators {
+    TextBuffer text;
+    std::shared_ptr<const LspLineMap> map;
+  };
+  std::shared_ptr<const DiskSeparators> diskSeparators(const std::filesystem::path& file) const;
   // Encoding of a file that is NOT open as a Document (clangd reads those from disk, so its columns count the file's
   // raw bytes); cached per path and invalidated by mtime/size. Utf8 for unreadable or huge files.
   Encoding diskEncoding(const std::filesystem::path& file) const;
@@ -570,6 +582,14 @@ class SemanticEngine {
   };
   mutable std::mutex encMu_;
   mutable std::unordered_map<std::string, DiskEncoding> diskEnc_;
+  std::unordered_map<std::string, std::shared_ptr<const LspLineMap>> lspMaps_;  // uri -> map (mu_)
+  std::atomic<int> lspMapCount_{0};                                             // lspMaps_.size(), read without mu_
+  struct DiskSepEntry {
+    int64_t mtime = 0;
+    uint64_t size = 0;
+    std::shared_ptr<const DiskSeparators> sep;
+  };
+  mutable std::unordered_map<std::string, DiskSepEntry> diskSep_;  // encMu_
   mutable std::mutex tokMu_;
   std::map<std::string, TokenState> tokens_;
   TokenStats tokenStats_;

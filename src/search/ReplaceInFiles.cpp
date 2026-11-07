@@ -4,11 +4,25 @@
 #include <fstream>
 #include <sstream>
 
+#include "core/LineBreaks.h"
 #include "core/PathUtil.h"
 
 namespace tf {
 
 namespace fs = std::filesystem;
+
+namespace {
+// `starts` (which holds {0}) gets the offset of every line after the first, `ends` where the content of each line ends
+// (before its break).
+void lineStarts(std::string_view text, std::vector<size_t>& starts, std::vector<size_t>& ends) {
+  size_t len = 0;
+  linebreak::BreakFinder bf(text);
+  for (size_t at = bf.next(0, len); at != std::string_view::npos; at = bf.next(starts.back(), len)) {
+    ends.push_back(at);
+    starts.push_back(at + len);
+  }
+}
+}  // namespace
 
 bool matchStillAt(std::string_view line, const SearchMatch& m) {
   if (m.column < 0 || m.length <= 0 || m.textOffset < 0) return false;
@@ -24,14 +38,13 @@ std::string replaceMatchesInText(std::string_view text, std::vector<SearchMatch>
   std::sort(matches.begin(), matches.end(), [](const SearchMatch& a, const SearchMatch& b) {
     return a.line != b.line ? a.line < b.line : a.column < b.column;
   });
-  // Line start offsets; a line ends before its '\n' (and a '\r' in front of it) or at a lone '\r'.
-  std::vector<size_t> starts{0};
-  for (size_t i = 0; i < text.size(); ++i)
-    if (text[i] == '\n' || (text[i] == '\r' && !(i + 1 < text.size() && text[i + 1] == '\n'))) starts.push_back(i + 1);
+  // Line start offsets and where each line's content ends; the line breaks are the editor's ("\r\n", '\n', a lone '\r',
+  // NEL, LS, PS: core/LineBreaks.h), as in TextSearch.
+  std::vector<size_t> starts{0}, ends;
+  lineStarts(text, starts, ends);
   auto lineView = [&](int l) {
     const size_t b = starts[static_cast<size_t>(l)];
-    size_t e = static_cast<size_t>(l) + 1 < starts.size() ? starts[static_cast<size_t>(l) + 1] - 1 : text.size();
-    if (e > b && text[e - 1] == '\r') --e;
+    const size_t e = static_cast<size_t>(l) < ends.size() ? ends[static_cast<size_t>(l)] : text.size();
     return text.substr(b, e - b);
   };
   ReplaceCounts local;
@@ -88,10 +101,8 @@ bool replaceMatchesInFile(const fs::path& file, const std::vector<SearchMatch>& 
       if (probe.replaced == 0) return true;  // nothing to replace, so nothing to refuse
       UnencodableReport bad;
       bad.encoding = enc;
-      std::vector<size_t> starts{0};  // line starts, by replaceMatchesInText's rule (CRLF, LF, lone CR)
-      for (size_t i = 0; i < text.size(); ++i)
-        if (text[i] == '\n' || (text[i] == '\r' && !(i + 1 < text.size() && text[i + 1] == '\n')))
-          starts.push_back(i + 1);
+      std::vector<size_t> starts{0}, ends;  // line starts, by replaceMatchesInText's rule
+      lineStarts(text, starts, ends);
       for (const auto& [line, column] : probe.appliedAt) {
         // Matches are raw byte columns; in Windows-1252 every byte is one character, so decode the line start.
         const size_t from = starts[static_cast<size_t>(line)];

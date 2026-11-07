@@ -36,6 +36,7 @@ endif()
 
 add_library(tenfold_core STATIC
   src/core/TextBuffer.cpp
+  src/core/LspLineMap.cpp
   src/core/TextEncoding.cpp
   src/core/Document.cpp
   src/core/PathUtil.cpp

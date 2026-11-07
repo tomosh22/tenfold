@@ -13,49 +13,19 @@ bool isIdentChar(unsigned char c) {
 }  // namespace
 
 namespace {
-// Finds the line breaks of a text: "\r\n", "\n" or a lone '\r'. next(from, len) gives the offset of the first break at
-// or after `from` (npos if none) and its length. '\n' is found with memchr per line; the position of the next '\r' is
-// remembered, so a file without CRs (or with CRLF everywhere) costs one extra memchr pass over the text in total,
-// not one per line.
-class BreakFinder {
- public:
-  explicit BreakFinder(std::string_view t) : t_(t) {}
-  size_t next(size_t from, size_t& len) {
-    constexpr size_t npos = std::string_view::npos;
-    if (from >= t_.size()) return npos;
-    const char* base = t_.data();
-    const size_t n = t_.size();
-    const char* nlp = static_cast<const char*>(std::memchr(base + from, '\n', n - from));
-    const size_t nl = nlp ? static_cast<size_t>(nlp - base) : npos;
-    if (!crKnown_ || (cr_ != npos && cr_ < from)) {
-      const char* c = static_cast<const char*>(std::memchr(base + from, '\r', n - from));
-      cr_ = c ? static_cast<size_t>(c - base) : npos;
-      crKnown_ = true;
-    }
-    if (cr_ != npos && (nl == npos || cr_ < nl)) {
-      len = (cr_ + 1 < n && base[cr_ + 1] == '\n') ? 2 : 1;
-      return cr_;
-    }
-    if (nl != npos) {
-      len = 1;
-      return nl;
-    }
-    return npos;
-  }
-
- private:
-  std::string_view t_;
-  size_t cr_ = 0;
-  bool crKnown_ = false;
-};
+using linebreak::BreakFinder;
 
 bool hasBreak(std::string_view t) {
-  if (t.size() <= 32) {  // keystrokes and short pastes: a plain loop beats two library calls
-    for (char c : t)
+  if (t.size() <= 32) {  // keystrokes and short pastes: a plain loop beats library calls
+    for (size_t i = 0; i < t.size(); ++i) {
+      const char c = t[i];
       if (c == '\n' || c == '\r') return true;
+      if (static_cast<unsigned char>(c) >= 0xC2 && linebreak::separatorLen(t, i)) return true;
+    }
     return false;
   }
-  return std::memchr(t.data(), '\n', t.size()) != nullptr || std::memchr(t.data(), '\r', t.size()) != nullptr;
+  return std::memchr(t.data(), '\n', t.size()) != nullptr || std::memchr(t.data(), '\r', t.size()) != nullptr ||
+         linebreak::hasSeparator(t);
 }
 
 size_t countBreaks(std::string_view t) {
@@ -66,7 +36,10 @@ size_t countBreaks(std::string_view t) {
 }
 
 LineEnding kindOf(std::string_view t, size_t at, size_t len) {
-  return len == 2 ? LineEnding::CRLF : t[at] == '\n' ? LineEnding::LF : LineEnding::CR;
+  const unsigned char c = static_cast<unsigned char>(t[at]);
+  if (c == 0xC2) return LineEnding::NEL;
+  if (c == 0xE2) return static_cast<unsigned char>(t[at + 2]) == 0xA8 ? LineEnding::LS : LineEnding::PS;
+  return len == 2 ? LineEnding::CRLF : c == '\n' ? LineEnding::LF : LineEnding::CR;
 }
 
 // Every break of `t` is of kind `e`.
@@ -85,6 +58,7 @@ void TextBuffer::setText(std::string_view text) {
   lines_.clear();
   ends_.clear();
   statsValid_ = false;
+  sepValid_ = false;
   baseSet_ = false;
   bool have = false;
   LineEnding first = LineEnding::LF;
@@ -119,13 +93,23 @@ const TextBuffer::EndingCounts& TextBuffer::stats() const {
   stats_ = {};
   if (ends_.empty()) {
     const int n = lineCount() - 1;
-    (base_ == LineEnding::CRLF ? stats_.crlf : base_ == LineEnding::CR ? stats_.cr : stats_.lf) = n;
+    switch (base_) {
+      case LineEnding::CRLF: stats_.crlf = n; break;
+      case LineEnding::CR: stats_.cr = n; break;
+      case LineEnding::NEL: stats_.nel = n; break;
+      case LineEnding::LS: stats_.ls = n; break;
+      case LineEnding::PS: stats_.ps = n; break;
+      default: stats_.lf = n; break;
+    }
   } else {
-    size_t c[3] = {0, 0, 0};
+    size_t c[6] = {0, 0, 0, 0, 0, 0};
     for (size_t i = 0; i + 1 < ends_.size(); ++i) ++c[static_cast<size_t>(ends_[i])];
     stats_.lf = static_cast<int>(c[0]);
     stats_.crlf = static_cast<int>(c[1]);
     stats_.cr = static_cast<int>(c[2]);
+    stats_.nel = static_cast<int>(c[3]);
+    stats_.ls = static_cast<int>(c[4]);
+    stats_.ps = static_cast<int>(c[5]);
   }
   statsValid_ = true;
   return stats_;
@@ -136,9 +120,17 @@ TextBuffer::EndingCounts TextBuffer::endingCounts() const { return stats(); }
 LineEnding TextBuffer::lineEnding() const {
   const EndingCounts& c = stats();
   if (c.total() == 0) return base_;
-  if (c.crlf > c.lf && c.crlf >= c.cr) return LineEnding::CRLF;
-  if (c.cr > c.lf && c.cr > c.crlf) return LineEnding::CR;
-  return LineEnding::LF;
+  // The most frequent; ties: LF, then CRLF, CR, NEL, LS, PS.
+  LineEnding best = LineEnding::LF;
+  int most = c.lf;
+  const std::pair<LineEnding, int> rest[] = {{LineEnding::CRLF, c.crlf}, {LineEnding::CR, c.cr}, {LineEnding::NEL, c.nel},
+                                             {LineEnding::LS, c.ls},     {LineEnding::PS, c.ps}};
+  for (const auto& [e, n] : rest)
+    if (n > most) {
+      best = e;
+      most = n;
+    }
+  return best;
 }
 
 void TextBuffer::setLineEnding(LineEnding e) {
@@ -146,6 +138,7 @@ void TextBuffer::setLineEnding(LineEnding e) {
   baseSet_ = true;
   ends_.clear();
   statsValid_ = false;
+  sepValid_ = false;
 }
 
 void TextBuffer::compact() {
@@ -158,7 +151,7 @@ void TextBuffer::compact() {
 bool TextBuffer::mixedLineEndings() const {
   if (ends_.empty()) return false;
   const EndingCounts& c = stats();
-  return (c.crlf != 0) + (c.lf != 0) + (c.cr != 0) > 1;
+  return (c.crlf != 0) + (c.lf != 0) + (c.cr != 0) + (c.nel != 0) + (c.ls != 0) + (c.ps != 0) > 1;
 }
 
 LineEnding TextBuffer::endingAfter(int i) const {
@@ -199,15 +192,45 @@ std::string TextBuffer::textForDisk() const {
 }
 
 std::string TextBuffer::textForLsp() const {
-  if (ends_.empty() && base_ != LineEnding::CRLF) return text();
+  if (ends_.empty() && (base_ == LineEnding::LF || base_ == LineEnding::CR)) return text();
   std::string out;
   out.reserve(byteSize() + lines_.size());
   for (size_t i = 0; i < lines_.size(); ++i) {
     out += lines_[i];
-    if (i + 1 < lines_.size()) out += endOf(i) == LineEnding::CRLF ? std::string_view("\r\n") : "\n";
+    if (i + 1 < lines_.size()) {
+      const LineEnding e = endOf(i);
+      out += e == LineEnding::CRLF || isUnicodeSeparator(e) ? terminatorText(e) : std::string_view("\n");
+    }
   }
   return out;
 }
+
+std::string TextBuffer::textForIndex() const {
+  if (!hasSeparators()) return text();
+  std::string out;
+  out.reserve(byteSize() + lines_.size() * 2);
+  for (size_t i = 0; i < lines_.size(); ++i) {
+    out += lines_[i];
+    if (i + 1 < lines_.size()) {
+      const LineEnding e = endOf(i);
+      out += isUnicodeSeparator(e) ? terminatorText(e) : std::string_view("\n");
+    }
+  }
+  return out;
+}
+
+bool TextBuffer::hasSeparators() const { return stats().separators() > 0; }
+
+const std::vector<int>& TextBuffer::separatorLines() const {
+  if (sepValid_) return sepLines_;
+  sepLines_.clear();
+  if (hasSeparators())
+    for (size_t i = 0; i + 1 < lines_.size(); ++i)
+      if (isUnicodeSeparator(endOf(i))) sepLines_.push_back(static_cast<int>(i) + 1);
+  sepValid_ = true;
+  return sepLines_;
+}
+
 
 std::string TextBuffer::lspText(std::string_view text) {
   std::string out(text);
@@ -220,7 +243,7 @@ std::string TextBuffer::lspText(std::string_view text) {
 }
 
 std::string TextBuffer::withLineEnding(std::string_view text, LineEnding e) {
-  const std::string_view sep = e == LineEnding::CRLF ? "\r\n" : e == LineEnding::CR ? "\r" : "\n";
+  const std::string_view sep = terminatorText(e);
   std::string out;
   out.reserve(text.size() + 16);
   size_t start = 0, len = 0;
@@ -393,6 +416,7 @@ TextBuffer::EditResult TextBuffer::replace(Range r, std::string_view text) {
   if (m < o)
     lines_.erase(lines_.begin() + static_cast<std::ptrdiff_t>(sl + m),
                  lines_.begin() + static_cast<std::ptrdiff_t>(el + 1));
+  sepValid_ = false;
   if (!ends_.empty()) {  // the new lines get the breaks of the inserted text; the last keeps the old last line's
     statsValid_ = false;
     kinds.push_back(ends_[el]);
@@ -454,6 +478,7 @@ std::vector<TextBuffer::EditResult> TextBuffer::replaceMany(const std::vector<Ed
       }
   }
   statsValid_ = false;
+  sepValid_ = false;
   const bool track = !ends_.empty();
   std::vector<LineEnding> oe;
   const size_t extra = extra0(edits);

@@ -88,7 +88,7 @@ bool doCut(Editor& ed, const SetClipboard& set, const EditorApp::LineCopyOptions
   return true;
 }
 
-// N carets and exactly N lines on the clipboard (a final line break does not count): one line per caret, in document
+// N carets and exactly N lines on the clipboard (a final line break does not count; NEL / LS / PS are line breaks too): one line per caret, in document
 // order. Anything else pastes the whole text at every caret. The text keeps its own line breaks (CRLF, LF, CR) unless
 // editor.pasteKeepsLineBreaks is off.
 bool pasteText(Editor& ed, const std::string& t) {
@@ -97,12 +97,10 @@ bool pasteText(Editor& ed, const std::string& t) {
   if (carets > 1) {
     std::vector<std::string> lines;
     size_t from = 0, len = 0;
-    for (size_t i = 0; i < t.size(); ++i) {
-      if (t[i] != '\n' && t[i] != '\r') continue;
-      len = (t[i] == '\r' && i + 1 < t.size() && t[i + 1] == '\n') ? 2 : 1;
-      lines.push_back(t.substr(from, i - from));
-      i += len - 1;
-      from = i + 1;
+    linebreak::BreakFinder bf(t);
+    for (size_t at = bf.next(0, len); at != std::string::npos; at = bf.next(from, len)) {
+      lines.push_back(t.substr(from, at - from));
+      from = at + len;
     }
     if (from < t.size() || lines.empty()) lines.push_back(t.substr(from));
     if (lines.size() == carets) {
