@@ -20,6 +20,7 @@
 #include "lsp/LspClient.h"
 #include "semantic/CompileCommands.h"
 #include "semantic/FastIndex.h"
+#include "semantic/FastScope.h"
 #include "semantic/IncludeNav.h"
 #include "semantic/TuContext.h"
 #include "workspace/Workspace.h"
@@ -481,6 +482,9 @@ class SemanticEngine {
   Workspace& ws_;
   Options opt_;
   FastIndex fast_;
+  mutable ScopeCache scopeCache_;  // lexical scope maps of files (FastScope), keyed by the index entry
+  // The scope map of `file` for the fast tier: from the open document or from disk, cached per index entry.
+  std::shared_ptr<const ScopeMap> scopeMapOf(const std::filesystem::path& file, const Document* doc = nullptr) const;
   // clangd_ and compileCommands_ are replaced from other threads than the ones reading them; both are only
   // touched through the snapshot accessors. clientMu_ is a leaf lock (never held across a call out).
   mutable std::mutex clientMu_;

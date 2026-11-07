@@ -50,6 +50,8 @@ add_library(tenfold_core STATIC
   src/lsp/LspClient.cpp
   src/semantic/CppLexer.cpp
   src/semantic/FastIndex.cpp
+  src/semantic/FastScope.cpp
+  src/semantic/ScopeScan.cpp
   src/semantic/FastIndexStore.cpp
   src/semantic/CompileCommands.cpp
   src/semantic/DefChoice.cpp

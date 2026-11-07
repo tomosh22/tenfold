@@ -174,10 +174,20 @@ class Extractor {
 
   // Number of parameters of the list whose '(' is token `open` and ')' token `close`: top-level commas plus one;
   // `()` and `(void)` are 0. Template arguments are tracked loosely (`std::map<int, int> m` is one parameter).
-  int countParams(size_t open, size_t close) const {
+  // `minArity` (when given) is the count of parameters with no default argument and no `...`; `variadic` tells whether
+  // the list has a `...` (C varargs or a parameter pack).
+  int countParams(size_t open, size_t close, int* minArity = nullptr, bool* variadic = nullptr) const {
+    if (minArity) *minArity = 0;
+    if (variadic) *variadic = false;
     if (close <= open + 1 || close >= toks_.size()) return 0;
     if (close == open + 2 && toks_[open + 1].is("void")) return 0;
-    int n = 1, depth = 0, angle = 0;
+    int n = 1, depth = 0, angle = 0, defaulted = 0, packs = 0;
+    bool segDefault = false, segPack = false;
+    auto endSegment = [&] {
+      if (segDefault) ++defaulted;
+      if (segPack) ++packs;
+      segDefault = segPack = false;
+    };
     for (size_t k = open + 1; k < close; ++k) {
       const Token& t = toks_[k];
       if (t.kind != Tok::Punct) continue;
@@ -186,9 +196,17 @@ class Extractor {
       else if (t.text == "<" && k > open + 1 && toks_[k - 1].kind == Tok::Identifier) ++angle;
       else if (t.text == ">") angle = std::max(0, angle - 1);
       else if (t.text == ">>") angle = std::max(0, angle - 2);
-      else if (t.text == "," && depth == 0 && angle == 0) ++n;
+      else if (t.text == "," && depth == 0 && angle == 0) {
+        ++n;
+        endSegment();
+      } else if (t.text == "=" && depth == 0 && angle == 0) segDefault = true;
+      else if (t.text == "..." && depth == 0) segPack = true;
     }
-    return std::min(n, kMaxArity);
+    endSegment();
+    const int total = std::min(n, kMaxArity);
+    if (minArity) *minArity = std::max(0, std::min(n - defaulted - packs, kMaxArity));
+    if (variadic) *variadic = packs > 0;
+    return total;
   }
 
   bool inClass() const {
@@ -197,7 +215,7 @@ class Extractor {
   }
 
   void emit(const Token& nameTok, std::string name, SymbolKind kind, bool definition, std::string scope = "\x01",
-            int arity = -1) {
+            int arity = -1, int minArity = -1, bool variadic = false, bool fileLocal = false) {
     if (name.empty()) return;  // a declarator cut off after "::" (`int a::,`) has no name to index
     Symbol s;
     s.name = std::move(name);
@@ -208,6 +226,9 @@ class Extractor {
     s.definition = definition;
     s.isTemplate = pendingTemplate_;
     s.arity = static_cast<int8_t>(arity > kMaxArity ? kMaxArity : arity);
+    s.minArity = static_cast<int8_t>(minArity > kMaxArity ? kMaxArity : minArity);
+    s.variadic = variadic;
+    s.fileLocal = fileLocal;
     out_.push_back(std::move(s));
   }
 
@@ -827,7 +848,6 @@ class Extractor {
     Token lastNameTok{};
     bool haveName = false;
     bool isExtern = false, isStatic = false;
-    (void)isStatic;
 
     while (!at(Tok::End)) {
       const Token& t = tok();
@@ -905,7 +925,10 @@ class Extractor {
           const int nameLine = lastNameTok.line;
           const size_t parenOpen = i_;
           skipBalanced("(", ")");
-          const int arity = countParams(parenOpen, i_ - 1);
+          int minArity = -1;
+          bool variadic = false;
+          const int arity = countParams(parenOpen, i_ - 1, &minArity, &variadic);
+          const bool fileLocal = isStatic && !inClass();
           // Macro-invocation heuristic: next token on a later line and not a valid continuation.
           if (tok().line > std::max(nameLine, startLine) && !isDeclTerminatorAfterParams() && !atP("{")) {
             if (typeTokens == 0) {
@@ -981,19 +1004,19 @@ class Extractor {
             // hidden friend, found by ADL only) is indexed: a plain `friend void f();` repeats a declaration made
             // elsewhere. The function belongs to the innermost enclosing non-class scope, not to the class.
             if (definition) {
-              emit(lastNameTok, unq, SymbolKind::Function, true, scopeOutsideClasses(), arity);
+              emit(lastNameTok, unq, SymbolKind::Function, true, scopeOutsideClasses(), arity, minArity, variadic);
               skipBalanced("{", "}");
               if (atP(";")) advance();
             } else if (atP(";")) {
               advance();
             }
           } else if (definition) {
-            emit(lastNameTok, unq, kind, true, scope, arity);
+            emit(lastNameTok, unq, kind, true, scope, arity, minArity, variadic, fileLocal);
             skipBalanced("{", "}");
             // "} ;" after a function body is harmless; also handles "}" of lambda-less bodies.
             if (atP(";")) advance();
           } else {
-            emit(lastNameTok, unq, kind, !sawPureOrDefault && false, scope, arity);
+            emit(lastNameTok, unq, kind, !sawPureOrDefault && false, scope, arity, minArity, variadic, fileLocal);
             if (atP(";")) advance();
           }
           pendingTemplate_ = false;
@@ -1001,7 +1024,8 @@ class Extractor {
         }
         if (t.is("=") || t.is(";") || t.is(",") || t.is("{") || t.is("[")) {
           if (haveName && typeTokens > 0 && lastName.find("::") == std::string::npos) {
-            emit(lastNameTok, lastName, inClass() ? SymbolKind::Field : SymbolKind::Variable, !isExtern);
+            emit(lastNameTok, lastName, inClass() ? SymbolKind::Field : SymbolKind::Variable, !isExtern, "\x01", -1, -1, false,
+           isStatic && !inClass());
           } else if (haveName && typeTokens > 0) {
             // out-of-line static member definition: "int Foo::count = 0;"
             size_t q = lastName.rfind("::");
@@ -1018,7 +1042,8 @@ class Extractor {
             while (!at(Tok::End) && !atP(";")) {
               while (atP("*") || atP("&") || atP("&&")) advance();
               if (at(Tok::Identifier)) {
-                emit(tok(), std::string(tok().text), inClass() ? SymbolKind::Field : SymbolKind::Variable, !isExtern);
+                emit(tok(), std::string(tok().text), inClass() ? SymbolKind::Field : SymbolKind::Variable, !isExtern, "\x01", -1,
+                     -1, false, isStatic && !inClass());
                 advance();
               }
               // skip initializer / array / to next ',' or ';'
@@ -1196,9 +1221,24 @@ inline uint32_t maskOf(std::string_view s) {
 
 }  // namespace
 
+namespace {
+std::string baseKey(const std::filesystem::path& p) {
+  std::string n = pathKeyUtf8(p.filename());
+  for (char& c : n) c = lowerAscii(c);
+  return n;
+}
+}  // namespace
+
+std::string FastIndex::pathKey(const std::filesystem::path& p) { return keyFor(p); }
+
 void FastIndex::addLocked(std::shared_ptr<const FileSymbols> fs) {
   std::string key = keyFor(fs->file);
+  {
+    auto old = files_.find(key);
+    if (old == files_.end() || old->second->includes != fs->includes) ++reachGen_;
+  }
   removeLocked(key);
+  byBase_[baseKey(fs->file)].push_back(fs.get());
   for (size_t i = 0; i < fs->symbols.size(); ++i) {
     auto& refs = byName_[fs->symbols[i].name];
     if (refs.empty()) ++namesGen_;  // a fresh node: its vector is still empty
@@ -1225,6 +1265,13 @@ void FastIndex::removeLocked(const std::string& key) {
   }
   symbolCount_ -= old->symbols.size();
   fileInfo_.erase(old.get());
+  {
+    auto bb = byBase_.find(baseKey(old->file));
+    if (bb != byBase_.end()) {
+      std::erase(bb->second, old.get());
+      if (bb->second.empty()) byBase_.erase(bb);
+    }
+  }
   files_.erase(it);
   ++generation_;
 }
@@ -1352,6 +1399,7 @@ std::vector<std::string> FastIndex::allIncludes() const {
 void FastIndex::removeFile(const std::filesystem::path& file) {
   std::unique_lock<std::shared_mutex> lk(mu_);
   removeLocked(keyFor(file));
+  ++reachGen_;
 }
 
 void FastIndex::clear() {
@@ -1359,6 +1407,8 @@ void FastIndex::clear() {
   files_.clear();
   fileInfo_.clear();
   byName_.clear();
+  byBase_.clear();
+  ++reachGen_;
   ++namesGen_;
   symbolCount_ = 0;
   ++generation_;
@@ -1371,6 +1421,61 @@ size_t FastIndex::fileCount() const {
 size_t FastIndex::symbolCount() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   return symbolCount_;
+}
+
+std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::filesystem::path& file,
+                                                                  size_t maxFiles) const {
+  const std::string start = keyFor(file);
+  const uint64_t gen = reachGen_.load(std::memory_order_acquire);
+  {
+    std::lock_guard<std::mutex> lk(reachMu_);
+    auto it = reach_.find(start);
+    if (it != reach_.end() && it->second.gen == gen) return it->second.set;
+  }
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  auto root = files_.find(start);
+  auto out = std::make_shared<Reach>();
+  out->insert(start);
+  bool tooBig = false;
+  if (root != files_.end()) {
+    std::vector<const FileSymbols*> work{root->second.get()};
+    while (!work.empty() && !tooBig) {
+      const FileSymbols* cur = work.back();
+      work.pop_back();
+      const std::filesystem::path dir = cur->file.parent_path();
+      for (const std::string& inc : cur->includes) {
+        if (inc.empty()) continue;
+        const std::filesystem::path sp = std::filesystem::path(inc).lexically_normal();
+        if (sp.empty()) continue;
+        auto visit = [&](const FileSymbols* f, const std::string& k) {
+          if (out->insert(k).second) {
+            work.push_back(f);
+            if (out->size() > maxFiles) tooBig = true;
+          }
+        };
+        const std::string nearKey = keyFor((dir / sp).lexically_normal());
+        if (auto nf = files_.find(nearKey); nf != files_.end()) {
+          visit(nf->second.get(), nearKey);
+          continue;
+        }
+        std::string spell = keyFor(sp);
+        auto bb = byBase_.find(baseKey(sp));
+        if (bb == byBase_.end()) continue;
+        if (spell.rfind("../", 0) == 0) continue;
+        for (const FileSymbols* c : bb->second) {
+          const std::string ck = keyFor(c->file);
+          if (ck.size() > spell.size() && ck.compare(ck.size() - spell.size(), spell.size(), spell) == 0 &&
+              ck[ck.size() - spell.size() - 1] == '/')
+            visit(c, ck);
+        }
+      }
+    }
+  }
+  std::shared_ptr<const Reach> res = tooBig || root == files_.end() ? nullptr : std::move(out);
+  std::lock_guard<std::mutex> rl(reachMu_);
+  if (reach_.size() >= 16) reach_.clear();
+  reach_[start] = {gen, res};
+  return res;
 }
 
 namespace {

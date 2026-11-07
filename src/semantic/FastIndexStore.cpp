@@ -22,9 +22,9 @@ namespace {
 
 constexpr char kMagic[8] = {'T', 'F', 'F', 'I', 'D', 'X', 0, 1};
 constexpr size_t kHeaderSize = 48;
-constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1;
+constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1 + 1;
 constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4;
-constexpr uint32_t kExtractorSalt = 4;  // 4: NEL / LS / PS count as line breaks in token positions (stored lines of
+constexpr uint32_t kExtractorSalt = 5;  // 5: minArity, variadic and fileLocal (static) per symbol. 4: NEL / LS / PS count as line breaks in token positions (stored lines of
                                         // files that have them were off). 3: arity in the flags byte, operator names,
                                         // macros behind comments, friends, typedef bodies. 2: BOM skipped, lone CR
                                         // ends lines, C keywords for .c
@@ -114,6 +114,10 @@ uint32_t FastIndexStore::extractorFingerprint() {
       concept Cc = true;
       enum Old { O1, O2 };
       operator bool() const;
+      static int sv;
+      static void sf(int a, int b = 1);
+      void vf(const char* f, ...);
+      template <class... A> void pk(int a, A... r);
     )cpp";
     std::vector<std::string> inc;
     auto syms = extractSymbols(probe, &inc);
@@ -131,6 +135,8 @@ uint32_t FastIndexStore::extractorFingerprint() {
       put<uint8_t>(blob, static_cast<uint8_t>(s.definition));
       put<uint8_t>(blob, static_cast<uint8_t>(s.isTemplate));
       put<int8_t>(blob, s.arity);
+      put<int8_t>(blob, s.minArity);
+      put<uint8_t>(blob, static_cast<uint8_t>((s.fileLocal ? 1 : 0) | (s.variadic ? 2 : 0)));
     }
     for (auto& i : inc) {
       blob += i;
@@ -174,6 +180,8 @@ std::string FastIndexStore::serialize(const Entries& files) {
       put<uint8_t>(body, static_cast<uint8_t>(s.kind));
       // bit 0 definition, bit 1 template, bits 2..7 arity + 1 (0 = not a function / unknown)
       put<uint8_t>(body, static_cast<uint8_t>((s.definition ? 1 : 0) | (s.isTemplate ? 2 : 0) | ((s.arity + 1) << 2)));
+      // bits 0..5 minArity + 1 (0 = unknown), bit 6 fileLocal, bit 7 variadic
+      put<uint8_t>(body, static_cast<uint8_t>((s.minArity + 1) | (s.fileLocal ? 64 : 0) | (s.variadic ? 128 : 0)));
     }
     for (auto& inc : f->includes) put<uint32_t>(body, intern(inc));
   }
@@ -284,6 +292,7 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         s.col = fr.get<int32_t>();
         uint8_t kind = fr.get<uint8_t>();
         uint8_t flags = fr.get<uint8_t>();
+        uint8_t extra = fr.get<uint8_t>();
         if (!fr.ok || name >= stringCount || scope >= stringCount || kind > static_cast<uint8_t>(SymbolKind::Unknown)) {
           failed = true;
           return;
@@ -294,6 +303,9 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         s.definition = flags & 1;
         s.isTemplate = flags & 2;
         s.arity = static_cast<int8_t>((flags >> 2) - 1);
+        s.minArity = static_cast<int8_t>((extra & 63) - 1);
+        s.fileLocal = extra & 64;
+        s.variadic = extra & 128;
       }
       fs->includes.resize(ninc);
       for (auto& inc : fs->includes) {

@@ -1784,6 +1784,39 @@ SymbolLocation fromFast(const FastIndex::Match& m) {
 }
 }  // namespace
 
+std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem::path& file,
+                                                              const Document* doc) const {
+  constexpr size_t kMaxBytes = 4u << 20;
+  if (!doc) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(pathToUri(file));
+    if (it != openDocs_.end()) doc = it->second;
+  }
+  uint64_t a = 0, b = 0;
+  if (doc) {
+    a = static_cast<uint64_t>(doc->version());
+    b = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(doc));
+  } else if (auto fsyms = fast_.fileSymbols(file)) {
+    a = static_cast<uint64_t>(fsyms->mtime);
+    b = fsyms->size;
+  }
+  return scopeCache_.get(FastIndex::pathKey(file), a, b, [&]() -> std::shared_ptr<const ScopeMap> {
+    std::string text;
+    if (doc) {
+      text = doc->buffer().textForIndex();
+    } else {
+      std::error_code ec;
+      const auto sz = std::filesystem::file_size(file, ec);
+      if (ec || sz > kMaxBytes) return nullptr;
+      std::string raw;
+      if (!readRegularFile(file, raw)) return nullptr;
+      text = isValidUtf8(raw) ? std::move(raw) : decodeFileBytes(raw).text;
+    }
+    if (text.size() > kMaxBytes) return nullptr;
+    return std::make_shared<const ScopeMap>(scanScopes(text, isCSourceFile(file), kMaxBytes));
+  });
+}
+
 std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Document& doc, Position pos,
                                                                    FastIndex::Want want) const {
   auto word = doc.buffer().wordAt(pos);
@@ -1793,10 +1826,21 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
   std::string qualifier;
   {
     const std::string& line = doc.buffer().line(doc.buffer().clamp(pos).line);
-    int i = word.range.start.column;
-    if (i > 0 && line[static_cast<size_t>(i) - 1] == '~') --i;  // Name::~Name
+    // blanks and /* comments */ between the qualifier and the word are skipped (`geo::/*note*/f`)
+    auto skipBack = [&line](int p) {
+      for (;;) {
+        while (p > 0 && (line[static_cast<size_t>(p) - 1] == ' ' || line[static_cast<size_t>(p) - 1] == '\t')) --p;
+        if (p < 2 || line[static_cast<size_t>(p) - 1] != '/' || line[static_cast<size_t>(p) - 2] != '*') return p;
+        const size_t open = line.rfind("/*", static_cast<size_t>(p) - 2);
+        if (open == std::string::npos) return p;
+        p = static_cast<int>(open);
+      }
+    };
+    int i = skipBack(word.range.start.column);
+    if (i > 0 && line[static_cast<size_t>(i) - 1] == '~') i = skipBack(i - 1);  // Name::~Name
     while (i >= 2 && line[static_cast<size_t>(i) - 1] == ':' && line[static_cast<size_t>(i) - 2] == ':') {
       i -= 2;
+      i = skipBack(i);
       int e = i;
       while (i > 0 && (std::isalnum(static_cast<unsigned char>(line[static_cast<size_t>(i) - 1])) ||
                        line[static_cast<size_t>(i) - 1] == '_'))
@@ -1846,6 +1890,62 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
       }
     }
   }
+  // Lexical scope of the caret (FastScope): the enclosing namespaces / classes / functions, the declared types of
+  // locals and fields, using-directives. Not for operator names.
+  CaretInfo ci;
+  ScopeEnv env;
+  const bool scoped = word.text != "operator" && !(b > 0 && text[b - 1] == '~' && lookupName != word.text);
+  if (scoped) {
+    const int lineNo = doc.buffer().clamp(pos).line;
+    ci.file = doc.path();
+    ci.map = scopeMapOf(doc.path(), &doc);
+    ci.at = {word.range.start.line, word.range.start.column};
+    ci.text = text;
+    ci.wordStart = wStart;
+    ci.wordEnd = wEnd;
+    ci.word = word.text;
+    ci.qualifier = qualifier;
+    ci.lineAt = [&doc](int l) -> const std::string& { return doc.buffer().line(l); };
+    ci.lineCount = doc.buffer().lineCount();
+    (void)lineNo;
+    ci.globalQualifier = qualifier.empty() && [&] {
+      size_t q = b;
+      return q >= 2 && text[q - 1] == ':' && text[q - 2] == ':' && !(q >= 3 && (std::isalnum(static_cast<unsigned char>(text[q - 3])) || text[q - 3] == '_'));
+    }();
+    env.index = &fast_;
+    env.mapOf = [this, &doc](const std::filesystem::path& f) { return scopeMapOf(f, f == doc.path() ? &doc : nullptr); };
+    // A parameter or local variable of the enclosing function is what an unqualified, unaccessed name means.
+    if (qualifier.empty() && !ci.globalQualifier && accessKindOf(ci) == AccessKind::None) {
+      if (auto v = findLocal(ci)) {
+        SymbolLocation loc;
+        loc.loc.file = doc.path();
+        loc.loc.pos = {v->at.line, v->at.col};
+        loc.name = v->name;
+        loc.kind = "variable";
+        loc.definition = true;
+        loc.confidence = Confidence::Approximate;
+        out.push_back(std::move(loc));
+        return out;
+      }
+    }
+    if (!qualifier.empty() && ci.map) {
+      const int rg = ci.map->regionAt(ci.at);
+      (void)rg;
+    }
+  }
+  auto passes = [&](const FastIndex::Match& m) {
+    // A macro defined further down the same file cannot be what an earlier line means (a macro acts from its
+    // #define on): `int x = late; #define late 1` names a variable or nothing, not the macro.
+    if (m.sym().kind == SymbolKind::Macro && m.file->file == doc.path() && m.sym().line > word.range.start.line)
+      return false;
+    // A function-like macro is only a macro where a '(' follows its name.
+    if (m.sym().kind == SymbolKind::Macro && m.sym().arity >= 0) {
+      size_t a = wEnd;
+      while (a < text.size() && (text[a] == ' ' || text[a] == '\t')) ++a;
+      if (a >= text.size() || text[a] != '(') return false;
+    }
+    return true;
+  };
   std::vector<FastIndex::Match> kept;
   for (auto& m : matches) {
     if (!qualifier.empty()) {
@@ -1853,18 +1953,23 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
       bool ok = sc == qualifier || sc.ends_with("::" + qualifier);
       if (!ok) continue;
     }
-    // A macro defined further down the same file cannot be what an earlier line means (a macro acts from its
-    // #define on): `int x = late; #define late 1` names a variable or nothing, not the macro.
-    if (m.sym().kind == SymbolKind::Macro && m.file->file == doc.path() && m.sym().line > word.range.start.line)
-      continue;
-    // A function-like macro is only a macro where a '(' follows its name.
-    if (m.sym().kind == SymbolKind::Macro && m.sym().arity >= 0) {
-      size_t a = wEnd;
-      while (a < text.size() && (text[a] == ' ' || text[a] == '\t')) ++a;
-      if (a >= text.size() || text[a] != '(') continue;
-    }
-    kept.push_back(std::move(m));
+    if (passes(m)) kept.push_back(m);
   }
+  if (kept.empty() && !qualifier.empty() && scoped) {
+    // `Derived::f` names a member of a base class; `fs::path` goes through a namespace alias
+    std::set<std::string> scopes;
+    for (const std::string& sc : classScopesOfQualifier(env, ci, qualifier)) scopes.insert(sc);
+    if (ci.map) {
+      std::string q = qualifier;
+      const std::string first = q.substr(0, q.find("::"));
+      for (const ScanRegion& g : ci.map->regions)
+        for (const ScanAlias& al : g.aliases)
+          if (al.alias == first) scopes.insert(al.target + q.substr(first.size()));
+    }
+    for (auto& m : matches)
+      if (scopes.count(m.sym().scope) && passes(m)) kept.push_back(m);
+  }
+  if (scoped) kept = narrowByScope(env, ci, std::move(kept));
   for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
   // Same-file first, definitions first.
   std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {
