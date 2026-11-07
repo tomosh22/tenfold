@@ -173,6 +173,11 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   };
   external_ = std::make_unique<ExternalChanges>(pickerEnv_, bench_);
   lineEndings_ = std::make_unique<LineEndingPrompt>(pickerEnv_);
+  lineEndings_->persistCheckOff = [this] {  // "Do not show this message again": into the user settings file
+    std::string err;
+    if (!keyOpts_.userDir.empty() && !writeUserSetting(keyOpts_.userDir, "editor.checkLineEndings", "false", &err))
+      setMessage("Cannot save editor.checkLineEndings: " + err, kDiagMs);
+  };
   encodings_ = std::make_unique<EncodingPrompt>(pickerEnv_, *unsaved_);
   saveRefused_->saveWithEncoding = [this](const std::filesystem::path& file) {  // the way out of a refused save
     if (Document* d = editor_.document(file)) encodings_->askSave(*d, EncodingChoice::Utf8);
