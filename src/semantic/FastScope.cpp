@@ -547,35 +547,6 @@ int callArgCount(const CaretInfo& ci) {
   return countArgsFrom(ci, p);
 }
 
-int constructionArgCount(const CaretInfo& ci) {
-  std::string_view t = ci.text;
-  if (ci.afterTagKeyword) return -2;
-  size_t p = skipSpacesFwd(t, ci.wordEnd);
-  if (p >= t.size()) return -2;
-  if (t[p] == '(' || t[p] == '{') {
-    // `Name(args)` / `Name{args}`: a temporary, `new Name(...)`, a delegating or base initializer
-    const int n = countArgsFrom(ci, p);
-    return n < 0 ? -1 : n;
-  }
-  // `Name var{args};` / `Name var;` inside a function body
-  if (!ci.map || !isIdentCh(t[p]) || std::isdigit(static_cast<unsigned char>(t[p]))) return -2;
-  const int region = ci.map->regionAt(ci.at);
-  if (region <= 0) return -2;
-  const ScanRegion::Kind k = ci.map->regions[static_cast<size_t>(region)].kind;
-  if (k != ScanRegion::Function && k != ScanRegion::Block) return -2;
-  size_t e = p;
-  while (e < t.size() && isIdentCh(t[e])) ++e;
-  const std::string_view var = t.substr(p, e - p);
-  if (var == "const" || var == "volatile" || var == "operator") return -2;
-  const size_t q = skipSpacesFwd(t, e);
-  if (q >= t.size()) return -2;
-  if (t[q] == '{') {
-    const int n = countArgsFrom(ci, q);
-    return n < 0 ? -1 : n;
-  }
-  return -2;
-}
-
 std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const CaretInfo& ci,
                                                 const std::string& qualifier) {
   std::string q = qualifier;

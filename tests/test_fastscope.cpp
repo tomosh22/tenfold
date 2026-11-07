@@ -23,31 +23,27 @@ const ScanVar* var(const ScanRegion& r, const std::string& name) {
 }  // namespace
 
 TEST(scopescan_regions_namespaces_classes_functions) {
+  // clang-format off
   const char* src = R"cpp(
-    namespace geo::detail {
-    struct Base {
-      int b;
-    };
-    class Vec : public Base, private geo::Other<int> {
-     public:
-      int x = 0;
-      std::unique_ptr<Base> owned;
-      double len(int a, const Vec& o = {}) const { return a; }
-    };
-    }  // namespace geo::detail
-    namespace {
-    int hidden;
-    }
-    void geo::detail::Vec::run(int n) {
-      int local = 1, *p = nullptr;
-      auto it = new Vec();
-      for (int i = 0; i < n; ++i) { Vec inner; }
-      auto f = [&](int q) { return q + local; };
-    }
-    extern "C" {
-    int c_fn(void) { return 0; }
-    }
-  )cpp";
+namespace geo::detail {
+struct Base { int b; };
+class Vec : public Base, private geo::Other<int> {
+ public:
+  int x = 0;
+  std::unique_ptr<Base> owned;
+  double len(int a, const Vec& o = {}) const { return a; }
+};
+}
+namespace { int hidden; }
+void geo::detail::Vec::run(int n) {
+  int local = 1, *p = nullptr;
+  auto it = new Vec();
+  for (int i = 0; i < n; ++i) { Vec inner; }
+  auto f = [&](int q) { return q + local; };
+}
+extern "C" { int c_fn(void) { return 0; } }
+)cpp";
+  // clang-format on
   ScopeMap m = scanScopes(src);
   const ScanRegion* ns = find(m, ScanRegion::Namespace, "geo::detail");
   REQUIRE(ns != nullptr);
@@ -89,17 +85,19 @@ TEST(scopescan_regions_namespaces_classes_functions) {
 }
 
 TEST(scopescan_using_aliases_and_initializer_braces) {
+  // clang-format off
   const char* src = R"cpp(
-    namespace fs = std::filesystem;
-    using namespace geo::util;
-    using geo::Other;
-    struct S {
-      int a{1};
-      int b = {2};
-      S() : a{3}, b{4} {}
-      void m() { int z; }
-    };
-  )cpp";
+namespace fs = std::filesystem;
+using namespace geo::util;
+using geo::Other;
+struct S {
+  int a{1};
+  int b = {2};
+  S() : a{3}, b{4} {}
+  void m() { int z; }
+};
+)cpp";
+  // clang-format on
   ScopeMap m = scanScopes(src);
   REQUIRE(!m.regions[0].aliases.empty());
   CHECK_EQ(m.regions[0].aliases[0].alias, std::string("fs"));

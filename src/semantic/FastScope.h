@@ -80,11 +80,6 @@ std::optional<ScanVar> findLocal(const CaretInfo& ci);
 // or it cannot be counted reliably (template-looking angle brackets, an unterminated list).
 int callArgCount(const CaretInfo& ci);
 
-// How many arguments the construction of a class written at the caret has (`Name(a, b)`, `Name{a}`, `new Name(...)`,
-// and in a function body `Name var{a};`; a plain `Name var;` names the class only, as clangd answers): -2 when the
-// caret is not a construction, -1 when it is but the count is unknown.
-int constructionArgCount(const CaretInfo& ci);
-
 // Narrows `matches` (a by-name lookup of ci.word, qualifier already applied by the caller) with the rules of the
 // design: visibility of file-local entities, member access by the receiver's lexical type, the caret's namespace /
 // class chain with using-directives and base classes, the include graph, and the call's argument count.
