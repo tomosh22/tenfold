@@ -79,11 +79,13 @@ struct FileWatcher::Impl {
       const std::string s = pathKeyUtf8(p);
       return s.compare(0, prefix.size(), prefix) == 0 ? pathFromUtf8(to + s.substr(from.size())) : p;
     };
-    // Delivery is by sequence number: these events must come after the rename itself (whose entry the caller has just
-    // made), or the consumer sees "deleted to/x" first and the rename then moves a file that is already gone.
+    // These events must come after the rename itself (whose entry the caller has just made), both in sequence and in
+    // due time (an entry with an old `last` would be flushed on its own, before the rename), or the consumer sees
+    // "deleted to/x" first and the rename then moves a file that is already gone.
     std::sort(moved.begin(), moved.end(), [](const Pending& a, const Pending& b) { return a.seq < b.seq; });
     for (Pending& p : moved) {
       p.seq = seq++;
+      p.last = std::max(p.last, Clock::now());  // not due before the rename's own entry (made just before)
       p.ev.path = remap(p.ev.path);
       p.ev.oldPath = remap(p.ev.oldPath);
       auto& slot = pending[pathKeyUtf8(p.ev.path)];
