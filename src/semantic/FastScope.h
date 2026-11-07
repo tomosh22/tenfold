@@ -43,6 +43,10 @@ struct ScopeEnv {
   const FastIndex* index = nullptr;
   // The scope map of any indexed file (the engine reads it from the open document or from disk); may return null.
   std::function<std::shared_ptr<const ScopeMap>(const std::filesystem::path&)> mapOf;
+  // The include directories of the compile command of `file` (quoted-only, then all), if it has one; may be null.
+  std::function<void(const std::filesystem::path& file, std::vector<std::filesystem::path>& quote,
+                     std::vector<std::filesystem::path>& angle)>
+      includeDirsOf;
 };
 
 // What the caret says.

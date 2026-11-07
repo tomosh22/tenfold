@@ -1784,6 +1784,32 @@ SymbolLocation fromFast(const FastIndex::Match& m) {
 }
 }  // namespace
 
+void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vector<std::filesystem::path>& quote,
+                                    std::vector<std::filesystem::path>& angle) const {
+  const auto snap = compileCommands();
+  if (snap->empty()) return;
+  const CompileCommand* cc = nullptr;
+  {
+    std::lock_guard<std::mutex> lk(cmdIndexMu_);
+    if (cmdIndexSnap_ != snap) {
+      cmdIndex_.clear();
+      cmdIndex_.reserve(snap->size());
+      for (size_t i = 0; i < snap->size(); ++i) {
+        const CompileCommand& c = (*snap)[i];
+        const fs::path f = c.file.is_relative() ? c.directory / c.file : c.file;
+        cmdIndex_.emplace(FastIndex::pathKey(f.lexically_normal()), i);
+      }
+      cmdIndexSnap_ = snap;
+    }
+    auto it = cmdIndex_.find(FastIndex::pathKey(file.lexically_normal()));
+    if (it != cmdIndex_.end()) cc = &(*snap)[it->second];
+  }
+  if (!cc) return;
+  incnav::SearchPath sp = incnav::searchPathOf(*cc);
+  quote = std::move(sp.quote);
+  angle = std::move(sp.angle);
+}
+
 std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem::path& file,
                                                               const Document* doc) const {
   constexpr size_t kMaxBytes = 4u << 20;
@@ -1917,6 +1943,8 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
                           static_cast<unsigned char>(text[q - 3]) >= 0x80));
     }();
     env.index = &fast_;
+    env.includeDirsOf = [this](const std::filesystem::path& f, std::vector<std::filesystem::path>& q,
+                               std::vector<std::filesystem::path>& a) { includeDirsOf(f, q, a); };
     env.mapOf = [this, &doc](const std::filesystem::path& f) { return scopeMapOf(f, f == doc.path() ? &doc : nullptr); };
     // A parameter or local variable of the enclosing function is what an unqualified, unaccessed name means.
     if (qualifier.empty() && !ci.globalQualifier && accessKindOf(ci) == AccessKind::None) {

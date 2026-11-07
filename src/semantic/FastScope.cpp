@@ -162,6 +162,7 @@ struct Level {
   bool contains(const std::string& s) const { return std::find(scopes.begin(), scopes.end(), s) != scopes.end(); }
   bool has(const std::string& s) const {
     if (contains(s)) return true;
+    if (s.find("(anonymous)") == std::string::npos) return false;
     const std::string t = stripAnonymous(s);
     return t != s && contains(t);
   }
@@ -552,11 +553,16 @@ std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const Caret
 std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo& ci,
                                             std::vector<FastIndex::Match> matches) {
   if (matches.empty() || !env.index) return matches;
+  // Keeps the matches `pred` accepts, unless that would leave none.
   auto keepIf = [&](auto pred) {
-    std::vector<FastIndex::Match> out;
-    for (auto& m : matches)
-      if (pred(m)) out.push_back(m);
-    if (!out.empty() && out.size() < matches.size()) matches = std::move(out);
+    std::vector<char> keep(matches.size());
+    size_t kept = 0;
+    for (size_t i = 0; i < matches.size(); ++i) kept += (keep[i] = pred(matches[i])) ? 1 : 0;
+    if (kept == 0 || kept == matches.size()) return;
+    size_t w = 0;
+    for (size_t i = 0; i < matches.size(); ++i)
+      if (keep[i]) matches[w++] = std::move(matches[i]);
+    matches.resize(w);
   };
   const std::filesystem::path& here = ci.file;
   auto sameFile = [&](const FastIndex::Match& m) { return m.file->file == here; };
@@ -707,23 +713,37 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
     bool multiFile = false;
     for (auto& m : matches) multiFile = multiFile || m.file != matches[0].file;
     if (multiFile) {
-      if (auto reach = env.index->reachableFrom(here)) {
-        auto visible = [&](const FastIndex::Match& m) { return reach->count(FastIndex::pathKey(m.file->file)) > 0; };
+      std::vector<std::filesystem::path> quoteDirs, angleDirs;
+      if (env.includeDirsOf) env.includeDirsOf(here, quoteDirs, angleDirs);
+      if (auto reach = env.index->reachableFrom(here, quoteDirs, angleDirs)) {
+        std::unordered_map<const FileSymbols*, bool> seen;  // one path key per candidate file
+        auto visible = [&](const FastIndex::Match& m) {
+          auto [it, fresh] = seen.try_emplace(m.file.get(), false);
+          if (fresh) it->second = reach->count(FastIndex::pathKey(m.file->file)) > 0;
+          return it->second;
+        };
         auto pairKey = [](const Symbol& s) {
           return s.scope + "\x01" + s.name + "\x01" + std::to_string(static_cast<int>(s.arity)) + "\x01" +
                  (isFunctionKind(s.kind) ? "f" : "v");
         };
-        std::set<std::string> keys;
-        bool any = false;
-        for (auto& m : matches)
-          if (visible(m)) {
-            any = true;
-            keys.insert(pairKey(m.sym()));
-          }
-        if (any)
+        // a definition in a file the caret cannot see stays when its prototype / declaration is visible
+        auto pairable = [](const Symbol& s) {
+          return s.definition && (isFunctionKind(s.kind) || s.kind == SymbolKind::Variable || s.kind == SymbolKind::Field);
+        };
+        size_t nVisible = 0, nHiddenDefs = 0;
+        for (auto& m : matches) {
+          if (visible(m)) ++nVisible;
+          else if (pairable(m.sym())) ++nHiddenDefs;
+        }
+        if (nVisible > 0 && nVisible < matches.size()) {
+          std::set<std::string> keys;
+          if (nHiddenDefs > 0)
+            for (auto& m : matches)
+              if (visible(m)) keys.insert(pairKey(m.sym()));
           keepIf([&](const FastIndex::Match& m) {
-            return visible(m) || (m.sym().definition && keys.count(pairKey(m.sym())) > 0);
+            return visible(m) || (pairable(m.sym()) && keys.count(pairKey(m.sym())) > 0);
           });
+        }
       }
     }
   }

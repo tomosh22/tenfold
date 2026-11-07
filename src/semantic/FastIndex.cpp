@@ -1450,12 +1450,17 @@ size_t FastIndex::symbolCount() const {
 }
 
 std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::filesystem::path& file,
+                                                                  const std::vector<std::filesystem::path>& quoteDirs,
+                                                                  const std::vector<std::filesystem::path>& angleDirs,
                                                                   size_t maxFiles) const {
-  const std::string start = keyFor(file);
+  std::string start = keyFor(file);
   const uint64_t gen = reachGen_.load(std::memory_order_acquire);
+  std::string cacheKey = start;
+  for (const auto& d : quoteDirs) cacheKey += "\x01q" + keyFor(d);
+  for (const auto& d : angleDirs) cacheKey += "\x01a" + keyFor(d);
   {
     std::lock_guard<std::mutex> lk(reachMu_);
-    auto it = reach_.find(start);
+    auto it = reach_.find(cacheKey);
     if (it != reach_.end() && it->second.gen == gen) return it->second.set;
   }
   std::shared_lock<std::shared_mutex> lk(mu_);
@@ -1484,6 +1489,20 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
           visit(nf->second.get(), nearKey);
           continue;
         }
+        // the compile command's include directories, in search order
+        bool found = false;
+        for (const auto* list : {&quoteDirs, &angleDirs}) {
+          for (const auto& d : *list) {
+            const std::string k = keyFor((d / sp).lexically_normal());
+            if (auto nf = files_.find(k); nf != files_.end()) {
+              visit(nf->second.get(), k);
+              found = true;
+              break;
+            }
+          }
+          if (found) break;
+        }
+        if (found) continue;
         std::string spell = keyFor(sp);
         auto bb = byBase_.find(baseKey(sp));
         if (bb == byBase_.end()) continue;
@@ -1500,7 +1519,7 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
   std::shared_ptr<const Reach> res = tooBig || root == files_.end() ? nullptr : std::move(out);
   std::lock_guard<std::mutex> rl(reachMu_);
   if (reach_.size() >= 16) reach_.clear();
-  reach_[start] = {gen, res};
+  reach_[cacheKey] = {gen, res};
   return res;
 }
 

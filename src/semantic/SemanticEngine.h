@@ -482,6 +482,12 @@ class SemanticEngine {
   Workspace& ws_;
   Options opt_;
   FastIndex fast_;
+  // The include search path of the compile command of a file, if the compile database has one (FastScope).
+  void includeDirsOf(const std::filesystem::path& file, std::vector<std::filesystem::path>& quote,
+                     std::vector<std::filesystem::path>& angle) const;
+  mutable std::mutex cmdIndexMu_;
+  mutable std::shared_ptr<const std::vector<CompileCommand>> cmdIndexSnap_;  // the snapshot cmdIndex_ was built from
+  mutable std::unordered_map<std::string, size_t> cmdIndex_;                 // path key -> index into the snapshot
   mutable ScopeCache scopeCache_;  // lexical scope maps of files (FastScope), keyed by the index entry
   // The scope map of `file` for the fast tier: from the open document or from disk, cached per index entry.
   std::shared_ptr<const ScopeMap> scopeMapOf(const std::filesystem::path& file, const Document* doc = nullptr) const;

@@ -166,8 +166,14 @@ class FastIndex {
   // includer, else by path suffix against the indexed files (no include directories are known to the lexer index).
   // Null when the walk reaches more than `maxFiles` files (the answer is then "no restriction"). Cached per file
   // until a file is added, removed or changes its #include list.
+  // `quoteDirs` / `angleDirs` (optional) are the include directories of the file's compile command, in the order the
+  // compiler searches them: a spelling is looked up next to the includer (quoted only), in `quoteDirs` (quoted only),
+  // then in `angleDirs`; a spelling none of them resolves falls back to the path-suffix rule.
   using Reach = std::unordered_set<std::string>;
-  std::shared_ptr<const Reach> reachableFrom(const std::filesystem::path& file, size_t maxFiles = 6000) const;
+  std::shared_ptr<const Reach> reachableFrom(const std::filesystem::path& file,
+                                             const std::vector<std::filesystem::path>& quoteDirs = {},
+                                             const std::vector<std::filesystem::path>& angleDirs = {},
+                                             size_t maxFiles = 6000) const;
   static std::string pathKey(const std::filesystem::path& p);
 
   size_t fileCount() const;
