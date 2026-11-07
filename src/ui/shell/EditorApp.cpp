@@ -157,6 +157,10 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   };
   external_ = std::make_unique<ExternalChanges>(pickerEnv_, bench_);
   lineEndings_ = std::make_unique<LineEndingPrompt>(pickerEnv_);
+  encodings_ = std::make_unique<EncodingPrompt>(pickerEnv_, *unsaved_);
+  saveRefused_->saveWithEncoding = [this](const std::filesystem::path& file) {  // the way out of a refused save
+    if (Document* d = editor_.document(file)) encodings_->askSave(*d, EncodingChoice::Utf8);
+  };
   {
     CommandPalette::Hooks ph;
     ph.binding = [this](const std::string& id) { return bindingFor(id); };
@@ -215,6 +219,11 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
       const RectF r = bench_->status().segmentRect("eol");
       if (editor_.currentDocument()) showContextMenu(buildCommandMenu(statusMenuEntries("eol")), r, false);
     });
+    // The encoding indicator opens Reopen with Encoding... / Save with Encoding... (left or right click).
+    bench_->status().setOnClick("encoding", [this](const std::string&) {
+      const RectF r = bench_->status().segmentRect("encoding");
+      if (editor_.currentDocument()) showContextMenu(buildCommandMenu(statusMenuEntries("encoding")), r, false);
+    });
     bench_->status().setOnClick(
         "flags", [this](const std::string&) { runCommandId("Help.ShowCompileCommand", "", activeContext()); });
     bench_->status().addSegment("navcounts", StatusBar::Align::Right);
@@ -270,6 +279,7 @@ EditorApp::~EditorApp() {
   palette_.reset();
   external_.reset();     // unhooks Editor::onExternalChange
   lineEndings_.reset();  // unhooks Editor::onInconsistentLineEndings
+  encodings_.reset();
   unsaved_.reset();
   saveAs_.reset();
   saveRefused_.reset();
@@ -384,6 +394,8 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.replicateNewLine = s.getBool("editor.replicateNewLine");
   o.pasteKeepsLineBreaks = s.getBool("editor.pasteKeepsLineBreaks");
   o.checkLineEndings = s.getBool("editor.checkLineEndings");
+  o.autoDetectUtf8 = s.getBool("editor.autoDetectUtf8");
+  o.defaultEncoding = parseEncodingChoice(s.getString("editor.defaultEncoding")).value_or(EncodingChoice::Utf8);
   {
     std::string eol = s.getString("editor.defaultLineEnding");
     for (char& c : eol) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -467,6 +479,7 @@ void EditorApp::closePickers() {
   saveRefused_->close();
   external_->close();
   lineEndings_->close();
+  encodings_->close();
   if (files_) files_->close();
   if (vcsUi_) vcsUi_->closeConfirm();
   if (pasteHistory_) pasteHistory_->close();
@@ -883,6 +896,26 @@ void EditorApp::bindUiCommands() {
         if (!d || d->isUntitled()) return false;
         closePickers();
         lineEndings_->askSave(*d);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "File.ReopenWithEncoding",
+      [this](const CommandContext& c, std::string_view) {
+        Document* d = c.editor->currentDocument();
+        if (!d) return false;
+        closePickers();
+        encodings_->askReopen(*d);
+        return true;
+      },
+      [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
+  registry_.bind(
+      "File.SaveWithEncoding",
+      [this](const CommandContext& c, std::string_view) {
+        Document* d = c.editor->currentDocument();
+        if (!d) return false;
+        closePickers();
+        encodings_->askSave(*d);
         return true;
       },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });

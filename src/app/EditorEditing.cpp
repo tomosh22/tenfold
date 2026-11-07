@@ -598,6 +598,39 @@ bool Editor::saveWithLineEnding(Document& doc, LineEnding e, std::string* error)
   return save(doc, error);
 }
 
+bool Editor::saveWithEncoding(Document& doc, EncodingChoice c, std::optional<LineEnding> ending, std::string* error,
+                              UnencodableReport* refused) {
+  UnencodableReport rep = doc.findUnencodable(c);
+  if (!rep.empty()) {  // refuse before touching anything: encoding, text and line endings stay as they are
+    if (error) *error = doc.path().filename().string() + " was not saved: " + describeUnencodable(rep);
+    noteSaveRefused(doc, rep);
+    if (refused) *refused = std::move(rep);
+    return false;
+  }
+  const bool cur = &doc == current_;
+  if (cur) breakTyping();
+  const bool dropsBom = doc.buffer().line(0).compare(0, 3, "\xEF\xBB\xBF") == 0 && c != EncodingChoice::Utf8Signature;
+  doc.beginGroup(cur ? carets_ : std::vector<Selection>{});
+  const bool was = inEdit_;
+  inEdit_ = true;
+  doc.applyEncodingChoice(c);
+  if (cur && dropsBom) {  // the signature left line 1: carets behind it move three bytes left
+    auto shift = [](Position& p) {
+      if (p.line == 0) p.column = std::max(0, p.column - 3);
+    };
+    for (Selection& s : carets_) {
+      shift(s.anchor);
+      shift(s.head);
+    }
+  }
+  if (ending) doc.convertLineEndings(*ending);
+  inEdit_ = was;
+  doc.endGroup(cur ? carets_ : std::vector<Selection>{});
+  if (cur) clampCarets();
+  if (doc.isUntitled()) return true;  // nothing to write yet: saveAs writes it in this encoding
+  return save(doc, error, refused);
+}
+
 // ---------------------------------------------------------------------------
 // 10x editing commands (W8a)
 // ---------------------------------------------------------------------------

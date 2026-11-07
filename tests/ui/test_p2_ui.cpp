@@ -855,9 +855,11 @@ TEST(w10_many_unencodable_characters_are_listed_first_n_and_m_more) {
   CHECK(rowWith(pop, "... and 12 more") != nullptr);
   CHECK(contains(pop->rows()[0].primary, "20 characters"));
   // A click or Enter on the "and more" row still goes to the first character.
-  const int more = pop->indexOfKey("info");
+  int more = -1;  // the last "... and N more" row (the "Save with Encoding..." row follows it)
+  for (size_t i = 0; i < pop->rows().size(); ++i)
+    if (pop->rows()[i].key == "info") more = static_cast<int>(i);
   REQUIRE(more >= 0);
-  pop->setSelected(static_cast<int>(pop->rows().size()) - 1);
+  pop->setSelected(more);
   env.key(Key::Enter);
   CHECK_EQ(env.ed->cursor().pos.column, 0);
 }

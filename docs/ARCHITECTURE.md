@@ -930,7 +930,31 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   `EditorApp` turns into the status-bar message and `SaveRefusedDialog` (characters as text, `U+XXXX`, `line:column`,
   first 8 and "and M more", Enter goes there through `gotoLocation`); the save on close / quit keeps the document
   open (`UnsavedPrompt::saveAll` returns false after saving the rest). The old `saveNote()` and the silent switch to
-  UTF-8 are gone. No command changes a document's encoding yet (OPEN_QUESTIONS, "W9 detail: encodings").
+  UTF-8 are gone.
+* *Choosing the encoding (VS-ENC, docs/VS_BEHAVIOUR.md section 2).* `EncodingChoice` (`core/TextEncoding.h`: UTF-8, UTF-8
+  with signature, UTF-16 LE/BE, Windows-1252) is what the pickers and the status-bar segment speak; `Encoding` stays
+  the codec's. The UTF-8 signature is not an `Encoding`: it stays in the text of a file that was read with one (so
+  line-1 columns are unchanged) and `Document::encodingChoice()` derives "with signature" from the text, or from
+  `pendingSignature_` (a signature asked for on a document whose text has none; `saveToDisk` then writes EF BB BF in
+  front, a new `utf-8-bom` document or Save with Encoding "UTF-8 with signature"). `Document::applyEncodingChoice`
+  switches: dropping the signature is an ordinary undoable edit of line 1, the encoding itself is not an undo step.
+  `Document::findUnencodable(EncodingChoice)` is the check for a target (a leading U+FEFF that the switch drops does not
+  count; reported columns are the document's). `Editor::saveWithEncoding(doc, choice, optional<LineEnding>)` first runs
+  that check and on any unencodable character returns the same refusal as `save` (nothing changes: encoding, text and
+  line endings stay), otherwise applies the encoding and the line endings as one group and calls `save`; an untitled
+  document only gets the encoding. `Editor::reopenWithEncoding(doc, choice)` shares `reloadWith` with `reloadFromDisk`:
+  the file's bytes are decoded with `decodeForced` (no detection; UTF-16 must be well-formed, UTF-8 keeps stray bytes so
+  nothing is lost on save), only the differing lines are replaced, then `Document::loadFromDisk(..., LoadOptions)` resets
+  encoding, dirty flag and undo history. Detection takes `DetectOptions`: `editing().autoDetectUtf8` (off: BOM-less
+  non-ASCII is not guessed to be UTF-8) and the fallback page. `fallbackEncoding(codePage)` is always Windows-1252, the
+  only single-byte page the codec has; `systemAnsiCodePage()` is `GetACP()` on Windows (1252 elsewhere, overridable with
+  `setAnsiCodePageForTesting`), and `Editor` logs once when it differs from 1252. The Fast index, clangd file reads and
+  the corpus use the default detection. `Editor::newUntitled` applies `editing().defaultEncoding`. The UI is
+  `EncodingPrompt` (`ui/features`): the Reopen list (a modified document goes through `UnsavedPrompt` first) and the
+  Advanced Save Options list (one `ListPopup` that is reopened after each choice; Save writes through
+  `Editor::saveWithEncoding`); `SaveRefusedDialog::saveWithEncoding` is its row for one refused file. `Workbench::
+  refreshStatus` sets the "encoding" segment from `encodingLabel(doc.encodingChoice())`; `EditorApp` opens the menu
+  (`statusMenuEntries("encoding")`) on a click. `.editorconfig` `charset` is not read (tenfold reads no `.editorconfig`).
 * *Line endings (W10, like Visual Studio: docs/VS_BEHAVIOUR.md section 1).* A line ends at `\r\n`, `\n` or a lone `\r`
   (clang's rule) in `TextBuffer::setText` and in text passed to `replace()` / `replaceMany()`, in the fast lexer, in
   find-in-files (`TextSearch`, `ReplaceInFiles`), in `vcs::splitLines` and in the corpus anchor scanner. NEL / LS / PS
@@ -2051,7 +2075,8 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
   lines indents them. Files are decoded to UTF-8 on load and encoded again on save (see "Encodings and line endings"
   in the text model; the status bar shows the line ending, `CR` for classic Mac files; a click on it, `Editor.LineEndingLF` /
-  `LineEndingCRLF` / `LineEndingCR` convert the document, `File.SaveWithLineEndings` converts and saves).
+  `LineEndingCRLF` / `LineEndingCR` convert the document, `File.SaveWithLineEndings` converts and saves; the
+  status bar also shows the encoding, whose click opens `File.ReopenWithEncoding` / `File.SaveWithEncoding`).
 
 #### Code folding (W8f, `src/ui/view/FoldModel.*`, `WrapLayout`, `TextView`)
 

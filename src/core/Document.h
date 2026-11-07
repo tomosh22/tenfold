@@ -1,6 +1,7 @@
 #pragma once
 #include <filesystem>
 #include <functional>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -47,9 +48,16 @@ class Document {
   // If the text holds a character the file's encoding cannot represent (a Windows-1252 file with U+6F22; UTF-16 with a
   // lone surrogate), saveToDisk REFUSES: it returns false, writes nothing, leaves the document dirty and in its
   // encoding, sets `error` to a sentence naming the first character and fills `refused` (when given) with every such
-  // character (OPEN_QUESTIONS, "User decisions of 2026-11-06"). The user fixes the text; there is no command that
-  // changes the encoding yet (setEncoding exists for a future one).
-  bool loadFromDisk(std::string* error = nullptr);
+  // character (OPEN_QUESTIONS, "User decisions of 2026-11-06"). The way out is to fix the text or to save with another
+  // encoding (Editor::saveWithEncoding).
+  // How loadFromDisk reads: detection (editor.autoDetectUtf8, the fallback code page) or, with `forced`, the encoding
+  // the user chose (File.ReopenWithEncoding; a UTF-16 file that is not well-formed fails with `error`).
+  struct LoadOptions {
+    DetectOptions detect;
+    std::optional<Encoding> forced;
+  };
+  bool loadFromDisk(std::string* error = nullptr) { return loadFromDisk(error, LoadOptions{}); }
+  bool loadFromDisk(std::string* error, const LoadOptions& opts);
   bool saveToDisk(std::string* error = nullptr, UnencodableReport* refused = nullptr);
   Encoding encoding() const { return encoding_; }
   // Chooses the encoding used on the next save (marks the document dirty). Not an undo step.
@@ -61,6 +69,22 @@ class Document {
   // Every character of the text that encoding() cannot hold, in document order (see TextEncoding.h). Empty for UTF-8.
   UnencodableReport findUnencodable() const { return findUnencodable(encoding_); }
   UnencodableReport findUnencodable(Encoding e) const;
+
+  // --- the encoding as the user sees it (status bar, pickers; VS_BEHAVIOUR E3-E5) ---
+  // The UTF-8 signature (BOM) is part of the text of a document that was read with one (line 1 starts with U+FEFF, as
+  // clangd counts it), so a document is "UTF-8 with signature" when its encoding is Utf8 and its text starts with it,
+  // or when a signature was asked for on a document that has none in its text (`pendingSignature_`, e.g. a new file
+  // with editor.defaultEncoding = utf-8-bom): saveToDisk then writes EF BB BF in front of the text.
+  bool hasUtf8Signature() const;
+  EncodingChoice encodingChoice() const;
+  // The characters `c` cannot hold. A leading U+FEFF that applyEncodingChoice would drop is not one.
+  UnencodableReport findUnencodable(EncodingChoice c) const;
+  // Makes `c` the encoding of the next save. Precondition: findUnencodable(c) is empty. Dropping a signature the text
+  // holds is an ordinary (undoable) edit of line 1; adding one only sets the flag. Marks the document dirty when
+  // anything changed. Returns whether it did.
+  bool applyEncodingChoice(EncodingChoice c);
+  // For a new document: the encoding it starts with; no edit, not dirty.
+  void initEncodingChoice(EncodingChoice c);
 
   const std::filesystem::path& path() const { return path_; }
   std::string uri() const;
@@ -140,6 +164,7 @@ class Document {
   bool onDisk_ = false;
   bool untitled_ = false;
   Encoding encoding_ = Encoding::Utf8;
+  bool pendingSignature_ = false;  // write a UTF-8 signature the text does not hold
   std::vector<UndoGroup> undo_, redo_;
   UndoGroup open_;  // the group being built while depth_ > 0
   int depth_ = 0;

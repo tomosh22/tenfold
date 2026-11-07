@@ -255,6 +255,12 @@ void registerEditorCommands(CommandRegistry& r) {
   r.add({"File.SaveWithLineEndings", "Save with Line Endings...", nullptr,
          [](const CommandContext& c) { return hasEditor(c); }});
 
+  // Encoding widget (VS_BEHAVIOUR E3-E5): the pickers are bound by the UI, which owns the list popups.
+  r.add({"File.ReopenWithEncoding", "Reopen with Encoding...", nullptr,
+         [](const CommandContext& c) { return hasEditor(c); }});
+  r.add({"File.SaveWithEncoding", "Save with Encoding...", nullptr,
+         [](const CommandContext& c) { return hasEditor(c); }});
+
   // --- debugger (C2c): Visual Studio's commands; they queue work on the DebugSession (asynchronous, errors reach
   // lastError and the status bar) and edit the breakpoint store, which the session syncs to the backend ---
   struct DebugCmd {

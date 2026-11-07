@@ -1,7 +1,18 @@
 #include "core/TextEncoding.h"
 
+#include <atomic>
 #include <cstdint>
 #include <cstring>
+
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#endif
 
 namespace tf {
 
@@ -175,9 +186,108 @@ std::string decodeAs(std::string_view bytes, Encoding e) {
   return std::string(bytes);
 }
 
-DecodedText decodeFileBytes(std::string_view bytes) {
+Encoding encodingOf(EncodingChoice c) {
+  switch (c) {
+    case EncodingChoice::Utf8:
+    case EncodingChoice::Utf8Signature: return Encoding::Utf8;
+    case EncodingChoice::Utf16LE: return Encoding::Utf16LE;
+    case EncodingChoice::Utf16BE: return Encoding::Utf16BE;
+    case EncodingChoice::Windows1252: return Encoding::Windows1252;
+  }
+  return Encoding::Utf8;
+}
+
+const char* encodingLabel(EncodingChoice c) {
+  switch (c) {
+    case EncodingChoice::Utf8: return "UTF-8";
+    case EncodingChoice::Utf8Signature: return "UTF-8 with signature";
+    case EncodingChoice::Utf16LE: return "UTF-16 LE";
+    case EncodingChoice::Utf16BE: return "UTF-16 BE";
+    case EncodingChoice::Windows1252: return "Windows-1252";
+  }
+  return "UTF-8";
+}
+
+const char* encodingChoiceSetting(EncodingChoice c) {
+  switch (c) {
+    case EncodingChoice::Utf8: return "utf-8";
+    case EncodingChoice::Utf8Signature: return "utf-8-bom";
+    case EncodingChoice::Utf16LE: return "utf-16le";
+    case EncodingChoice::Utf16BE: return "utf-16be";
+    case EncodingChoice::Windows1252: return "windows-1252";
+  }
+  return "utf-8";
+}
+
+std::optional<EncodingChoice> parseEncodingChoice(std::string_view setting) {
+  std::string s;
+  for (char c : setting)
+    if (c != ' ' && c != '\t') s += static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
+  for (EncodingChoice c : kEncodingChoices)
+    if (s == encodingChoiceSetting(c)) return c;
+  if (s == "utf8") return EncodingChoice::Utf8;
+  if (s == "utf8-bom" || s == "utf-8-sig") return EncodingChoice::Utf8Signature;
+  if (s == "cp1252" || s == "windows1252" || s == "ansi") return EncodingChoice::Windows1252;
+  return std::nullopt;
+}
+
+namespace {
+std::atomic<unsigned> g_ansiOverride{0};
+}
+
+unsigned systemAnsiCodePage() {
+  if (const unsigned o = g_ansiOverride.load()) return o;
+#ifdef _WIN32
+  return GetACP();
+#else
+  return 1252;
+#endif
+}
+
+void setAnsiCodePageForTesting(unsigned codePage) { g_ansiOverride = codePage; }
+
+Encoding fallbackEncoding(unsigned codePage, bool* exact) {
+  if (codePage == 0) codePage = systemAnsiCodePage();
+  if (exact) *exact = codePage == 1252;
+  return Encoding::Windows1252;
+}
+
+DecodedText decodeFileBytes(std::string_view bytes) { return decodeFileBytes(bytes, DetectOptions{}); }
+
+bool decodeForced(std::string_view bytes, Encoding e, std::string& out, std::string* error) {
+  out.clear();
+  switch (e) {
+    case Encoding::Utf8: out.assign(bytes); return true;
+    case Encoding::Windows1252: out = decodeAs(bytes, e); return true;
+    case Encoding::Utf16LE:
+    case Encoding::Utf16BE: {
+      const bool be = e == Encoding::Utf16BE;
+      if (bytes.size() >= 2) {
+        const auto b0 = static_cast<unsigned char>(bytes[0]), b1 = static_cast<unsigned char>(bytes[1]);
+        if (be ? (b0 == 0xFE && b1 == 0xFF) : (b0 == 0xFF && b1 == 0xFE)) bytes.remove_prefix(2);
+      }
+      if (!decodeUtf16(bytes, be, &out)) {
+        out.clear();
+        if (error) *error = "the file is not well-formed " + std::string(encodingName(e)) + " text";
+        return false;
+      }
+      return true;
+    }
+  }
+  return false;
+}
+
+DecodedText decodeFileBytes(std::string_view bytes, const DetectOptions& opts) {
   DecodedText d;
-  if (isValidUtf8(bytes)) {
+  const bool bom8 = bytes.size() >= 3 && bytes.substr(0, 3) == "\xEF\xBB\xBF";
+  bool ascii = true;
+  if (!opts.autoDetectUtf8 && !bom8)
+    for (unsigned char c : bytes)
+      if (c >= 0x80) {
+        ascii = false;
+        break;
+      }
+  if ((opts.autoDetectUtf8 || ascii || bom8) && isValidUtf8(bytes)) {
     d.text = std::string(bytes);
     return d;
   }
@@ -187,8 +297,8 @@ DecodedText decodeFileBytes(std::string_view bytes) {
     d.text = decodeAs(bytes, e);
     return d;
   }
-  d.encoding = Encoding::Windows1252;
-  d.text = decodeAs(bytes, Encoding::Windows1252);
+  d.encoding = fallbackEncoding(opts.ansiCodePage);
+  d.text = decodeAs(bytes, d.encoding);
   return d;
 }
 
@@ -243,7 +353,7 @@ bool encodeText(std::string_view text, Encoding e, std::string& out, size_t* fir
   return false;
 }
 
-void collectUnencodable(std::string_view line, int lineNo, UnencodableReport& rep) {
+void collectUnencodable(std::string_view line, int lineNo, UnencodableReport& rep, int columnBase) {
   if (rep.encoding == Encoding::Utf8) return;  // UTF-8 holds every character (and writes stray bytes as they are)
   for (size_t i = 0; i < line.size();) {
     const size_t len = utf8SeqLen(line, i);
@@ -268,7 +378,7 @@ void collectUnencodable(std::string_view line, int lineNo, UnencodableReport& re
     }
     ++rep.total;
     c.line = lineNo;
-    c.column = static_cast<int>(i);
+    c.column = columnBase + static_cast<int>(i);
     if (rep.chars.size() < kMaxUnencodableListed) rep.chars.push_back(std::move(c));
     i += step;
   }

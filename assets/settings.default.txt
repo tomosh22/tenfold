@@ -84,6 +84,12 @@ editor.defaultLineEnding = CRLF
 editor.replicateNewLine = true
 editor.pasteKeepsLineBreaks = true
 editor.checkLineEndings = true
+# Encodings follow Visual Studio. autoDetectUtf8 ("Auto-detect UTF-8 encoding without signature"): a file without a
+# byte order mark that is valid UTF-8 opens as UTF-8; off, such a file with non-ASCII text opens as Windows-1252.
+# defaultEncoding: encoding of a new untitled file: utf-8, utf-8-bom, utf-16le, utf-16be or windows-1252 (UTF-16 is
+# written with its byte order mark). The status bar's encoding segment changes it per file (Reopen / Save with Encoding).
+editor.autoDetectUtf8 = true
+editor.defaultEncoding = utf-8
 # autoNameUntitledFiles: an untitled file takes its name from the first word typed in it (the name is only a
 # suggestion for the Save As prompt until the file is saved).
 editor.autoNameUntitledFiles = false

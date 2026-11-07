@@ -70,6 +70,8 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"editor.replicateNewLine", SettingType::Bool},
                                              {"editor.pasteKeepsLineBreaks", SettingType::Bool},
                                              {"editor.checkLineEndings", SettingType::Bool},
+                                             {"editor.autoDetectUtf8", SettingType::Bool},
+                                             {"editor.defaultEncoding", SettingType::String},
                                              {"editor.autoNameUntitledFiles", SettingType::Bool},
                                              {"editor.internetSearchCommand", SettingType::String},
                                              {"editor.pasteHistorySize", SettingType::Int},

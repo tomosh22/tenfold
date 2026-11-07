@@ -705,3 +705,374 @@ TEST(replace_in_files_does_not_write_a_windows1252_file_when_the_replacement_is_
   CHECK_EQ(Tmp::read(again), latinBytes);
   ed.shutdown();
 }
+
+// ---------------------------------------------------------------------------
+// VS-ENC: encoding picker, Reopen / Save with Encoding, autoDetectUtf8, defaultEncoding, the fallback code page
+// ---------------------------------------------------------------------------
+
+namespace {
+const std::string kBom = "\xEF\xBB\xBF";
+const std::string kUtf8Cafe = "caf\xC3\xA9;\n";  // "café;"
+}  // namespace
+
+TEST(encoding_choices_have_vs_labels_and_setting_names) {
+  CHECK_EQ(std::string(encodingLabel(EncodingChoice::Utf8)), std::string("UTF-8"));
+  CHECK_EQ(std::string(encodingLabel(EncodingChoice::Utf8Signature)), std::string("UTF-8 with signature"));
+  CHECK_EQ(std::string(encodingLabel(EncodingChoice::Utf16LE)), std::string("UTF-16 LE"));
+  CHECK_EQ(std::string(encodingLabel(EncodingChoice::Utf16BE)), std::string("UTF-16 BE"));
+  CHECK_EQ(std::string(encodingLabel(EncodingChoice::Windows1252)), std::string("Windows-1252"));
+  for (EncodingChoice c : kEncodingChoices) {
+    auto back = parseEncodingChoice(encodingChoiceSetting(c));
+    REQUIRE(back.has_value());
+    CHECK(*back == c);
+  }
+  CHECK(*parseEncodingChoice(" UTF-8-BOM ") == EncodingChoice::Utf8Signature);
+  CHECK(!parseEncodingChoice("shift_jis").has_value());
+  CHECK(!parseEncodingChoice("").has_value());
+}
+
+TEST(document_encoding_choice_is_derived_from_the_bytes_it_was_read_from) {
+  Tmp t;
+  struct C {
+    const char* name;
+    std::string bytes;
+    EncodingChoice want;
+  };
+  std::string u16le, u16be;
+  encodeText("a\n", Encoding::Utf16LE, u16le);
+  encodeText("a\n", Encoding::Utf16BE, u16be);
+  for (const C& c :
+       {C{"a.cpp", "int a;\n", EncodingChoice::Utf8}, C{"b.cpp", kBom + "int a;\n", EncodingChoice::Utf8Signature},
+        C{"c.cpp", u16le, EncodingChoice::Utf16LE}, C{"d.cpp", u16be, EncodingChoice::Utf16BE},
+        C{"e.cpp", "caf\xE9\n", EncodingChoice::Windows1252}}) {
+    Document d(t.write(c.name, c.bytes));
+    REQUIRE(d.loadFromDisk());
+    CHECK(d.encodingChoice() == c.want);
+  }
+}
+
+TEST(reopen_with_encoding_decodes_the_bytes_again_and_resets_undo) {
+  Tmp t;
+  auto p = t.write("a.cpp", kUtf8Cafe);
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d);
+  CHECK(d->encoding() == Encoding::Utf8);
+  d->insert({0, 0}, "// edit\n");  // unsaved edit, undo history
+  CHECK(d->dirty() && d->canUndo());
+  // UTF-8 bytes read as Windows-1252: the two bytes of U+00E9 become two characters; edits are discarded.
+  REQUIRE(ed.reopenWithEncoding(*d, EncodingChoice::Windows1252, &err));
+  CHECK(d->encoding() == Encoding::Windows1252);
+  CHECK_EQ(d->buffer().line(0), std::string("caf\xC3\x83\xC2\xA9;"));
+  CHECK(!d->dirty() && !d->canUndo() && !d->canRedo());
+  CHECK_EQ(Tmp::read(p), kUtf8Cafe);  // the file is untouched
+  // Back to UTF-8.
+  REQUIRE(ed.reopenWithEncoding(*d, EncodingChoice::Utf8, &err));
+  CHECK(d->encoding() == Encoding::Utf8);
+  CHECK_EQ(d->buffer().line(0), std::string("caf\xC3\xA9;"));
+  // A Latin-1 file is Windows-1252 by detection; as UTF-8 its stray byte stays a byte (saving writes it back).
+  auto q = t.write("l.cpp", "caf\xE9;\n");
+  Document* l = ed.open(q, &err);
+  REQUIRE(l);
+  CHECK(l->encoding() == Encoding::Windows1252);
+  CHECK_EQ(l->buffer().line(0), std::string("caf\xC3\xA9;"));
+  REQUIRE(ed.reopenWithEncoding(*l, EncodingChoice::Utf8, &err));
+  CHECK(l->encoding() == Encoding::Utf8);
+  CHECK_EQ(l->buffer().line(0), std::string("caf\xE9;"));
+  REQUIRE(ed.save(*l, &err));  // nothing changed: nothing lost
+  l->insert({0, 0}, "x");
+  REQUIRE(ed.save(*l, &err));
+  CHECK_EQ(Tmp::read(q), std::string("xcaf\xE9;\n"));
+  ed.shutdown();
+}
+
+TEST(reopen_with_utf16_needs_well_formed_text_and_drops_a_matching_bom) {
+  Tmp t;
+  std::string le;
+  encodeText("A\xC3\xA9\n", Encoding::Utf16LE, le);
+  auto p = t.write("u.cpp", le);
+  auto raw = t.write("raw.cpp", std::string("a\0\n\0", 4));  // UTF-16 LE without a BOM: detected as ASCII/UTF-8
+  auto odd = t.write("odd.cpp", "abc\n");                    // 4 bytes: well-formed UTF-16 (two units) after all
+  auto bad = t.write("bad.cpp", "abcde\n");                  // 6 bytes... use an odd length instead
+  auto odd5 = t.write("odd5.cpp", "abcd\n");                 // 5 bytes: odd, not UTF-16
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d && d->encoding() == Encoding::Utf16LE);
+  // As UTF-16 BE the same bytes are different (FF FE is no BOM there): U+FFFE then more; reopening still works.
+  REQUIRE(ed.reopenWithEncoding(*d, EncodingChoice::Utf16BE, &err));
+  CHECK(d->encoding() == Encoding::Utf16BE);
+  REQUIRE(ed.reopenWithEncoding(*d, EncodingChoice::Utf16LE, &err));
+  CHECK_EQ(d->buffer().line(0), std::string("A\xC3\xA9"));
+  Document* r = ed.open(raw, &err);
+  REQUIRE(r);
+  REQUIRE(ed.reopenWithEncoding(*r, EncodingChoice::Utf16LE, &err));  // no BOM needed to ask for UTF-16
+  CHECK_EQ(r->buffer().line(0), std::string("a"));
+  REQUIRE(ed.save(*r, &err));  // written with a BOM
+  CHECK_EQ(Tmp::read(raw), std::string("\xFF\xFE"
+                                       "a\0\n\0",
+                                       6));
+  // Not well-formed: refused with a reason, the document is untouched.
+  Document* o = ed.open(odd5, &err);
+  REQUIRE(o);
+  o->insert({0, 0}, "x");
+  CHECK(!ed.reopenWithEncoding(*o, EncodingChoice::Utf16LE, &err));
+  CHECK(err.find("not well-formed UTF-16 LE") != std::string::npos);
+  CHECK(o->dirty() && o->buffer().line(0) == "xabcd" && o->encoding() == Encoding::Utf8);
+  (void)odd;
+  (void)bad;
+  // An untitled document has no file to read.
+  Document* u = ed.newUntitled(LineEnding::LF);
+  CHECK(!ed.reopenWithEncoding(*u, EncodingChoice::Utf8, &err));
+  ed.shutdown();
+}
+
+TEST(save_with_encoding_converts_the_file_and_the_document_keeps_the_new_encoding) {
+  Tmp t;
+  auto p = t.write("a.cpp", kUtf8Cafe);
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d);
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Windows1252, std::nullopt, &err));
+  CHECK_EQ(Tmp::read(p), std::string("caf\xE9;\n"));
+  CHECK(d->encoding() == Encoding::Windows1252 && !d->dirty());
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Utf16BE, std::nullopt, &err));
+  std::string be;
+  encodeText(kUtf8Cafe, Encoding::Utf16BE, be);
+  CHECK_EQ(Tmp::read(p), be);
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Utf8Signature, std::nullopt, &err));
+  CHECK_EQ(Tmp::read(p), kBom + kUtf8Cafe);
+  CHECK(d->encodingChoice() == EncodingChoice::Utf8Signature && !d->dirty());
+  CHECK_EQ(d->buffer().line(0), std::string("caf\xC3\xA9;"));  // the signature added by a save is not text
+  // A plain save keeps the signature.
+  d->insert({0, 0}, "x");
+  REQUIRE(ed.save(*d, &err));
+  CHECK_EQ(Tmp::read(p), kBom + "xcaf\xC3\xA9;\n");
+  // ... and so does UTF-8 with signature -> UTF-8 (the BOM leaves the file).
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Utf8, std::nullopt, &err));
+  CHECK_EQ(Tmp::read(p), std::string("xcaf\xC3\xA9;\n"));
+  CHECK(d->encodingChoice() == EncodingChoice::Utf8);
+  ed.shutdown();
+}
+
+TEST(save_with_encoding_handles_a_signature_that_is_part_of_the_text) {
+  Tmp t;
+  auto p = t.write("b.cpp", kBom + "int a;\r\nint b;\r\n");
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d);
+  CHECK(d->encodingChoice() == EncodingChoice::Utf8Signature);
+  d->insert({1, 0}, "// ");
+  // U+FEFF is not in Windows-1252, but the signature leaves the text with this conversion: no refusal.
+  CHECK(d->findUnencodable(EncodingChoice::Windows1252).empty());
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Windows1252, std::nullopt, &err));
+  CHECK_EQ(Tmp::read(p), std::string("int a;\r\n// int b;\r\n"));
+  CHECK_EQ(d->buffer().line(0), std::string("int a;"));
+  CHECK(d->encoding() == Encoding::Windows1252);
+  // The edit that removed the BOM is part of the undo history; the encoding is not.
+  Document* e = ed.open(t.write("e.cpp", kBom + "x\n"), &err);
+  REQUIRE(e);
+  REQUIRE(ed.saveWithEncoding(*e, EncodingChoice::Utf16LE, std::nullopt, &err));
+  CHECK_EQ(e->buffer().line(0), std::string("x"));
+  CHECK(e->undo());
+  CHECK_EQ(e->buffer().line(0), kBom + "x");
+  ed.shutdown();
+}
+
+TEST(save_with_encoding_refusal_keeps_the_old_encoding_text_and_line_endings) {
+  Tmp t;
+  auto p = t.write("a.cpp", kUtf8Cafe + "x\n");
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d);
+  d->insert({0, 0}, kHan);
+  const std::string before = Tmp::read(p);
+  UnencodableReport rep;
+  CHECK(!ed.saveWithEncoding(*d, EncodingChoice::Windows1252, LineEnding::CRLF, &err, &rep));
+  CHECK_EQ(rep.total, size_t(1));
+  CHECK(rep.encoding == Encoding::Windows1252);
+  CHECK_EQ(rep.chars[0].codePoint, uint32_t(0x6F22));
+  CHECK(err.find("was not saved") != std::string::npos);
+  CHECK(d->encoding() == Encoding::Utf8 && d->dirty());
+  CHECK(d->buffer().endingAfter(0) == LineEnding::LF);  // the requested line endings were not applied either
+  CHECK_EQ(Tmp::read(p), before);
+  // UTF-16 holds the character.
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Utf16LE, LineEnding::CRLF, &err));
+  CHECK(d->encoding() == Encoding::Utf16LE);
+  std::string want;
+  encodeText(kHan + "caf\xC3\xA9;\r\nx\r\n", Encoding::Utf16LE, want);
+  CHECK_EQ(Tmp::read(p), want);
+  ed.shutdown();
+}
+
+TEST(save_with_encoding_utf8_is_the_way_out_of_a_refused_windows1252_save) {
+  Tmp t;
+  auto p = t.write("l.cpp", kLatin1File);
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d && d->encoding() == Encoding::Windows1252);
+  d->insert({1, 0}, kHan);
+  UnencodableReport rep;
+  CHECK(!ed.save(*d, &err, &rep));  // the refusal
+  CHECK_EQ(rep.total, size_t(1));
+  CHECK_EQ(Tmp::read(p), kLatin1File);
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Utf8, std::nullopt, &err));
+  CHECK(d->encoding() == Encoding::Utf8 && !d->dirty());
+  CHECK_EQ(Tmp::read(p), std::string("int a; // Gr\xC3\xB6\xC3\x9F"
+                                     "e\r\n" +
+                                     kHan + "int b;\r\n"));
+  // The same through "UTF-8 with signature".
+  auto q = t.write("m.cpp", kLatin1File);
+  Document* m = ed.open(q, &err);
+  REQUIRE(m);
+  m->insert({1, 0}, kEmoji);
+  REQUIRE(ed.saveWithEncoding(*m, EncodingChoice::Utf8Signature, std::nullopt, &err));
+  CHECK_EQ(Tmp::read(q).substr(0, 3), kBom);
+  ed.shutdown();
+}
+
+TEST(save_with_encoding_converts_line_endings_in_the_same_save_and_untitled_only_takes_the_encoding) {
+  Tmp t;
+  auto p = t.write("a.cpp", "a\nb\n");
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  Document* d = ed.open(p, &err);
+  REQUIRE(d);
+  REQUIRE(ed.saveWithEncoding(*d, EncodingChoice::Windows1252, LineEnding::CRLF, &err));
+  CHECK_EQ(Tmp::read(p), std::string("a\r\nb\r\n"));
+  Document* u = ed.newUntitled(LineEnding::LF);
+  u->insert({0, 0}, "caf\xC3\xA9");
+  REQUIRE(ed.saveWithEncoding(*u, EncodingChoice::Windows1252, std::nullopt, &err));  // writes nothing
+  CHECK(u->isUntitled() && u->encoding() == Encoding::Windows1252);
+  REQUIRE(ed.saveAs(*u, "new.cpp", &err));
+  CHECK_EQ(Tmp::read(t.dir / "new.cpp"), std::string("caf\xE9"));
+  ed.shutdown();
+}
+
+TEST(auto_detect_utf8_off_reads_bomless_non_ascii_as_the_fallback_code_page) {
+  Tmp t;
+  auto p = t.write("a.cpp", kUtf8Cafe);
+  auto ascii = t.write("b.cpp", "int a;\n");
+  auto bom = t.write("c.cpp", kBom + kUtf8Cafe);
+  DetectOptions off;
+  off.autoDetectUtf8 = false;
+  CHECK(decodeFileBytes(kUtf8Cafe).encoding == Encoding::Utf8);
+  const DecodedText t0 = decodeFileBytes(kUtf8Cafe, off);
+  CHECK(t0.encoding == Encoding::Windows1252);
+  CHECK_EQ(t0.text, std::string("caf\xC3\x83\xC2\xA9;\n"));
+  CHECK(decodeFileBytes("int a;\n", off).encoding == Encoding::Utf8);        // ASCII is both
+  CHECK(decodeFileBytes(kBom + kUtf8Cafe, off).encoding == Encoding::Utf8);  // a signature is a signature
+  CHECK(decodeFileBytes(std::string("\xFF\xFE"
+                                    "a\0",
+                                    4),
+                        off)
+            .encoding == Encoding::Utf16LE);  // so is a UTF-16 BOM
+  Editor::Options o;
+  Editor ed(t.dir, o);
+  std::string err;
+  REQUIRE(ed.start(&err));
+  ed.editing().autoDetectUtf8 = false;
+  Document* d = ed.open(p, &err);
+  REQUIRE(d);
+  CHECK(d->encoding() == Encoding::Windows1252);
+  CHECK_EQ(d->buffer().line(0), std::string("caf\xC3\x83\xC2\xA9;"));
+  CHECK(ed.open(ascii, &err)->encoding() == Encoding::Utf8);
+  CHECK(ed.open(bom, &err)->encodingChoice() == EncodingChoice::Utf8Signature);
+  // On again: reload (an external change) detects UTF-8 again.
+  ed.editing().autoDetectUtf8 = true;
+  REQUIRE(ed.reloadFromDisk(*d, &err));
+  CHECK(d->encoding() == Encoding::Utf8);
+  // The unsaved bytes survive a round trip in the chosen encoding: with detection off, saving writes the file as read.
+  ed.editing().autoDetectUtf8 = false;
+  REQUIRE(ed.reloadFromDisk(*d, &err));
+  d->insert({0, 0}, "x");
+  REQUIRE(ed.save(*d, &err));
+  CHECK_EQ(Tmp::read(p), std::string("xcaf\xC3\xA9;\n"));
+  ed.shutdown();
+}
+
+TEST(new_untitled_documents_take_the_default_encoding) {
+  Tmp t;
+  Editor ed(t.dir, Editor::Options{});
+  std::string err;
+  REQUIRE(ed.start(&err));
+  CHECK(ed.newUntitled(LineEnding::LF)->encodingChoice() == EncodingChoice::Utf8);  // the default
+  struct C {
+    EncodingChoice c;
+    std::string file, want;
+  };
+  std::string u16;
+  encodeText("h\xC3\xA9\n", Encoding::Utf16LE, u16);
+  int n = 0;
+  for (const C& c :
+       {C{EncodingChoice::Utf8Signature, "a.txt", kBom + "h\xC3\xA9\n"}, C{EncodingChoice::Utf16LE, "b.txt", u16},
+        C{EncodingChoice::Windows1252, "c.txt", "h\xE9\n"}, C{EncodingChoice::Utf8, "d.txt", "h\xC3\xA9\n"}}) {
+    ed.editing().defaultEncoding = c.c;
+    Document* d = ed.newUntitled(LineEnding::LF);
+    CHECK(d->encodingChoice() == c.c);
+    CHECK(!d->dirty());  // a new document with a signature or UTF-16 is still empty and clean
+    d->insert({0, 0}, "h\xC3\xA9\n");
+    REQUIRE(ed.saveAs(*d, c.file, &err));
+    CHECK_EQ(Tmp::read(t.dir / c.file), c.want);
+    ++n;
+  }
+  CHECK_EQ(n, 4);
+  // A new Windows-1252 document refuses what the page cannot hold, like any other.
+  ed.editing().defaultEncoding = EncodingChoice::Windows1252;
+  Document* d = ed.newUntitled(LineEnding::LF);
+  d->insert({0, 0}, kHan);
+  UnencodableReport rep;
+  CHECK(!ed.saveAs(*d, "e.txt", &err, &rep));
+  CHECK_EQ(rep.total, size_t(1));
+  ed.shutdown();
+}
+
+TEST(fallback_code_page_is_injectable_and_other_pages_read_as_windows1252) {
+  bool exact = false;
+  setAnsiCodePageForTesting(0);
+  CHECK(fallbackEncoding(1252, &exact) == Encoding::Windows1252);
+  CHECK(exact);
+  CHECK(fallbackEncoding(932, &exact) == Encoding::Windows1252);  // Shift-JIS: the codec has no table for it
+  CHECK(!exact);
+  CHECK(fallbackEncoding(0, &exact) == Encoding::Windows1252);  // the system page: 1252 off Windows
+#ifndef _WIN32
+  CHECK(exact);
+  CHECK_EQ(systemAnsiCodePage(), 1252u);
+#endif
+  setAnsiCodePageForTesting(932);
+  CHECK_EQ(systemAnsiCodePage(), 932u);
+  CHECK(fallbackEncoding(0, &exact) == Encoding::Windows1252);
+  CHECK(!exact);
+  DetectOptions o;
+  o.ansiCodePage = 932;
+  const DecodedText d = decodeFileBytes("caf\xE9", o);
+  CHECK(d.encoding == Encoding::Windows1252);
+  CHECK_EQ(d.text, std::string("caf\xC3\xA9"));
+  // The editor says so once (in its log) when it opens a non-UTF-8 file.
+  Tmp t;
+  int warnings = 0;
+  Editor::Options eo;
+  eo.log = [&](const std::string& m) {
+    if (m.find("system ANSI code page is 932") != std::string::npos) ++warnings;
+  };
+  Editor ed(t.dir, eo);
+  std::string err;
+  REQUIRE(ed.start(&err));
+  REQUIRE(ed.open(t.write("a.cpp", "caf\xE9\n"), &err));
+  REQUIRE(ed.open(t.write("b.cpp", "caf\xE9\n"), &err));
+  CHECK_EQ(warnings, 1);
+  ed.shutdown();
+  setAnsiCodePageForTesting(0);
+}
