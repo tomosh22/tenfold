@@ -505,6 +505,12 @@ Decided without a user decision because the alternative was the editor terminati
 
 ## W10 detail: line endings like Visual Studio (W10-LE)
 
+**User decision of 2026-11-07:** "Keep CRLF everywhere, line ending behaviour must be exactly the same as Visual Studio
+and 10x." New files and break-less buffers use CRLF on every platform. Every row below that is marked low / unknown or
+that deviates (Unicode separators, the dialog's list instead of a drop-down and its missing "do not show again" box) is
+therefore a defect to remove, not an accepted choice: the unknown rows are on the verification checklist
+(docs/VS_BEHAVIOUR.md, section V) and change as soon as Visual Studio's behaviour is confirmed.
+
 Implements docs/VS_BEHAVIOUR.md section 1.3. Where Visual Studio's behaviour is established (high / medium confidence) it is
 followed; the rows below are the places where it is not, so the most plausible reading was chosen. Each is one
 constant, branch or setting, easy to change.
@@ -520,8 +526,8 @@ constant, branch or setting, easy to change.
 * **Empty / break-less buffer (L6, L15):** `editor.defaultLineEnding`, default CRLF (VS's `NewLineCharacter` is `\r\n`;
   10x's DefaultLineEnding is CRLF). On Linux and macOS a user who wants LF in new files sets `editor.defaultLineEnding =
   LF`; a platform-dependent default was not chosen so that the settings file means the same everywhere. Note that a
-  loaded one-line file without a trailing newline also counts as a buffer without a break. **To confirm:** CRLF as the
-  default on Linux.
+  loaded one-line file without a trailing newline also counts as a buffer without a break. **Decided (user, 2026-11-07):**
+  CRLF everywhere, on every platform.
 * **`.editorconfig` `end_of_line` (L13):** tenfold reads no `.editorconfig`, so it is skipped. When `.editorconfig` support
   arrives it replaces `defaultLineEnding` for new lines of files under the config (not the replicated ending of a file that
   already has breaks, matching "VS does not convert existing styles").
