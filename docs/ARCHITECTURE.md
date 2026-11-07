@@ -45,6 +45,13 @@ thread.
   main thread. Files open in a `Document` are never re-indexed from disk
   behind the user's back. Watching is on by default; disable it with
   `"watchFiles": false` in `.tenfold/workspace.json`.
+  The inotify backend reads events late when the machine is loaded, so a path in
+  an event may name a different directory by then. Each watch records its
+  directory's inode; a directory-rename event moves the watches only when the
+  watch under the old name is on the directory that moved (otherwise the moved
+  directory is listed and watched under its new name), and paths a walk could not
+  stat because a rename overtook it are looked up again when that rename arrives
+  (`unwatched`, bounded). No per-event rescans.
 * `SemanticEngine` has a small **timer thread** that implements the result
   budget (below).
 * `SemanticEngine` also has a lazily started **symbol thread** (A10). It
