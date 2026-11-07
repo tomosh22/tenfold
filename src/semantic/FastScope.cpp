@@ -561,9 +561,20 @@ std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const Caret
   return out;
 }
 
-std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo& ci,
+std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo& caret,
                                             std::vector<FastIndex::Match> matches) {
   if (matches.empty() || !env.index) return matches;
+  // Code nested more than kMaxScopeDepth regions deep (generated or pathological) is not scope-resolved: the chain
+  // would cost more than the answer is worth.
+  constexpr int kMaxScopeDepth = 48;
+  CaretInfo ci = caret;
+  if (ci.map) {
+    int depth = 0;
+    for (int r = ci.map->regionAt(ci.at); r > 0 && depth <= kMaxScopeDepth;
+         r = ci.map->regions[static_cast<size_t>(r)].parent)
+      ++depth;
+    if (depth > kMaxScopeDepth) ci.map = nullptr;
+  }
   // Keeps the matches `pred` accepts, unless that would leave none.
   auto keepIf = [&](auto pred) {
     std::vector<char> keep(matches.size());

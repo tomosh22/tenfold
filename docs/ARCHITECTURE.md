@@ -356,7 +356,7 @@ is never emptier than the by-name one; clangd stays the authority and replaces i
   fields (`ScanVar`: name, declared type without cv / `*` / `&` / template arguments, first template argument, pointer,
   position), `using namespace` / `using ns::name` and `namespace x = y`. `auto x = new Foo(...)`, `= Foo(...)`,
   `= std::make_unique<Foo>(...)` give the variable a type; structured bindings, `for` / `if` / `catch` declarations and
-  lambda parameters are locals. Brace initializers (`int x{1}`, `S() : a{1} {}`) are not function bodies. Bounded: texts over 4 MiB are not scanned, no
+  lambda parameters are locals. Brace initializers (`int x{1}`, `S() : a{1} {}`) are not function bodies. Bounded: texts over 512 KiB are not scanned, no
   recursion (10k nested braces are fine), fuzz target `scopescan`.
 * `FastScope.{h,cpp}`: `narrowByScope(env, CaretInfo, matches)`, `findLocal`, `accessKindOf`, `callArgCount`,
   `constructionArgCount`, and `ScopeCache`. `SemanticEngine::scopeMapOf` builds a map from the open document's buffer

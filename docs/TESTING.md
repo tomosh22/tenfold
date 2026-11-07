@@ -19,7 +19,7 @@ for end-to-end answers on awkward code.
 
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
-| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 676 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 683 | clangd for the integration tests (they skip with a message without it) |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 605 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout | 30 | nothing |
 | `tenfold-corpus-tests` | the corpus projects of this file (over about 35 under `tests/corpus`) | 3 | clangd; not part of `ctest` |
@@ -173,7 +173,10 @@ not bind them yet).
   races clangd, whatever it has parsed. The report counts how many fast checks ran before and after the file's TU was
   ready (`fastIsolation`). Fast tier answers per kind: `def`/`decl`/`typedef`/`impl` the fast index's definitions of the
   word under the caret (that is what the UI shows as approximate for all four); `hover` its "kind name (location)" text;
-  `sym` its fuzzy search. `refs` and `rename` have no fast tier.
+  `sym` its fuzzy search. `refs` and `rename` have no fast tier. Since W11-FAST-SCOPE the `def`/`decl` answer is
+  scope-aware (the namespace / class chain of the caret, the receiver's declared type, `static` entities, argument
+  count, include graph, locals; `docs/ARCHITECTURE.md`), which the corpora's `fast` lines now judge; anchors written
+  as `/*@name*/` between a qualifier or an access operator and the word are skipped like blanks.
 * The **final answer** is the first *Authoritative* callback (or any error). Before it the runner waits for clangd to
   have the document's TU (`fileStatus idle`) and, once per project and after every `config`, for clangd's background
   index (it resolves definitions in other TUs). The time spent waiting is not part of the latency.
@@ -423,6 +426,7 @@ check invariants of the parser's result (`FUZZ_REQUIRE`).
 |---------------|--------------------------------------------------------------------------------------------------------|--------------------------------------------------------------|
 | `lexer`       | `CppLexer` (fast lexer)                                                                                | tokens are views into the input, in order, non-empty         |
 | `extract`     | `extractSymbols` (fast symbol extractor)                                                               | lines/columns in range, names non-empty, deterministic       |
+| `scopescan`   | `scanScopes` (lexical scope map of the scope-aware fast tier)                                          | regions nest and lie in the text, deterministic              |
 | `indexstore`  | `FastIndexStore::deserialize` (persisted fast index; header size/hash/fingerprint repaired first)      | accepted stores survive a round trip                         |
 | `xml`         | `xml::parse` (XmlLite)                                                                                 | finite tree                                                  |
 | `msbuild`     | `.vcxproj` + imported `.props` + `Directory.Build.props` + `.sln` + `.filters` through `fromVcxproj`, `fromSolution`, `readSolution` | none beyond "no crash / throw / hang"         |

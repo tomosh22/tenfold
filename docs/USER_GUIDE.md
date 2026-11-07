@@ -144,8 +144,10 @@ tenfold answers code questions from two sources:
 
 * **The fast index** is a lexer-based index of the whole workspace, built at start (a warm start only re-reads files
   that changed) and kept up to date as files change. It needs no compile flags and answers in a millisecond or so.
-  Its answers are *approximate*: it matches by name, so it cannot resolve templates, `auto`, typedef chains,
-  overloads or macro-generated members.
+  Its answers are *approximate*: it matches by name and narrows by what the file itself shows (the namespace and class
+  you are in, the declared type of `x` in `x.f`, `static` functions, the number of arguments, the headers you include,
+  parameters and locals), so it cannot resolve templates, `auto` results of calls, typedef chains, overloads that
+  differ only by parameter type or macro-generated members.
 * **clangd** is the real Clang front end run with your compile flags. Its answers are *authoritative*. It needs a few
   seconds to parse a file after you open it, and until its background index finishes it can only see the translation
   unit you are in (a function defined in another `.cpp` is first found by the fast index).

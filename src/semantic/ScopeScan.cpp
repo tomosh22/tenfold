@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <climits>
+#include <cstdint>
 #include <unordered_set>
 
 #include "semantic/CppLexer.h"
@@ -10,7 +11,26 @@ namespace tf {
 
 namespace {
 
-using Toks = std::vector<Token>;
+// The tokens of a file plus, for every opening bracket, the index of the bracket that closes it (any kind closes any
+// kind, like a depth count): matching is O(1) however unbalanced the text is.
+struct Toks : std::vector<Token> {
+  std::vector<uint32_t> mate;  // opener -> closer (or the End token's index when it has none); other tokens unused
+  void buildMates() {
+    mate.assign(size(), 0);
+    std::vector<uint32_t> open;
+    for (uint32_t k = 0; k < size(); ++k) {
+      const Token& t = (*this)[k];
+      if (t.kind != Tok::Punct) continue;
+      if (t.text == "(" || t.text == "[" || t.text == "{") {
+        open.push_back(k);
+        mate[k] = static_cast<uint32_t>(size() - 1);
+      } else if ((t.text == ")" || t.text == "]" || t.text == "}") && !open.empty()) {
+        mate[open.back()] = k;
+        open.pop_back();
+      }
+    }
+  }
+};
 
 bool isP(const Token& t, std::string_view s) { return t.kind == Tok::Punct && t.text == s; }
 bool isK(const Token& t, std::string_view s) { return t.kind == Tok::Keyword && t.text == s; }
@@ -18,16 +38,12 @@ bool isId(const Token& t) { return t.kind == Tok::Identifier; }
 ScanPos posOf(const Token& t) { return {t.line, t.col}; }
 
 bool isOpen(const Token& t) { return t.kind == Tok::Punct && (t.text == "(" || t.text == "[" || t.text == "{"); }
-bool isClose(const Token& t) { return t.kind == Tok::Punct && (t.text == ")" || t.text == "]" || t.text == "}"); }
 
 // Index of the token that closes the group opened at `i` (any bracket kind), or `limit` when there is none before it.
 size_t matchClose(const Toks& T, size_t i, size_t limit) {
-  int depth = 0;
-  for (size_t k = i; k < limit; ++k) {
-    if (isOpen(T[k])) ++depth;
-    else if (isClose(T[k]) && --depth <= 0) return k;
-  }
-  return limit;
+  if (i >= T.mate.size()) return limit;
+  const size_t m = T.mate[i];
+  return m < limit && m > i ? m : limit;
 }
 
 // At a '<': index after the matching '>', or npos when the angle group does not close before a ';', '{' or '}'.
@@ -256,6 +272,7 @@ void deduceAuto(const Toks& T, size_t term, size_t e, ScanVar& v) {
 }
 
 struct Scanner {
+  static constexpr size_t kMaxHeader = 1024;  // tokens of a declaration header that are looked at
   const Toks& T;
   ScopeMap& m;
   std::vector<int> stack;
@@ -505,6 +522,7 @@ struct Scanner {
   // The `{` at token `i`: opens a region, or skips an initializer brace. Returns the next token index.
   size_t onOpenBrace(size_t i) {
     size_t h0 = stmt;
+    if (i > kMaxHeader && h0 + kMaxHeader < i) h0 = i - kMaxHeader;  // a statement this long is not a declaration
     const Token& brace = T[i];
     const ScanPos bpos = posOf(brace);
     const bool body = inBody();
@@ -827,7 +845,9 @@ ScopeMap scanScopes(std::string_view text, bool isC, size_t maxBytes) {
   root.parent = -1;
   m.regions.push_back(std::move(root));
   if (text.size() > maxBytes) return m;
-  const Toks T = CppLexer(text, isC).all();
+  Toks T;
+  static_cast<std::vector<Token>&>(T) = CppLexer(text, isC).all();
+  T.buildMates();
   Scanner s(T, m);
   s.run();
   return m;

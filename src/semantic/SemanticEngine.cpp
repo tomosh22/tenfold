@@ -1812,7 +1812,7 @@ void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vecto
 
 std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem::path& file,
                                                            const Document* doc) const {
-  constexpr size_t kMaxBytes = 4u << 20;
+  constexpr size_t kMaxBytes = 512u << 10;  // larger files are not scope-scanned (the by-name answer stands)
   if (!doc) {
     std::lock_guard<std::mutex> lk(mu_);
     auto it = openDocs_.find(pathToUri(file));
