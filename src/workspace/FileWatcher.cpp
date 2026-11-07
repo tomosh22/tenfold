@@ -14,9 +14,11 @@
 
 #if defined(__linux__)
 #include <errno.h>
+#include <fcntl.h>
 #include <poll.h>
 #include <sys/eventfd.h>
 #include <sys/inotify.h>
+#include <sys/stat.h>
 #include <unistd.h>
 
 #include <fstream>
@@ -277,17 +279,100 @@ struct FileWatcher::Impl {
   int wakeFd = -1;
   std::unordered_map<int, fs::path> wdPath;
   std::unordered_map<std::string, int> pathWd;
+  // The directory (device, inode) each watch is on, so that a rename event can tell whether the watch registered under
+  // the old name is on the directory that moved, or on a different one that was found under that name later.
+  struct DirId {
+    dev_t dev = 0;
+    ino_t ino = 0;
+    bool operator==(const DirId& o) const { return dev == o.dev && ino == o.ino; }
+  };
+  std::unordered_map<int, DirId> wdId;
   std::atomic<bool> limitHit{false};
 
   static constexpr uint32_t kMask =
       IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ONLYDIR | IN_DONT_FOLLOW;
+
+  // Paths the walk of a new directory could not handle under the name the walk had for them: the directory (or an
+  // ancestor) was renamed on disk while this thread was late, so inotify_add_watch(parent/new) fails, or listing a
+  // directory that has moved on stats every entry under a name that no longer exists (a directory iterator keeps
+  // reading the old directory but its entries' paths are stale), or the listing ends early. Nothing inside such a path
+  // would ever be reported. The rename's own event is still in the queue (this thread has not got to it yet): when it
+  // arrives, those paths are looked up again under their new names. Bounded; entries that never see a rename (the
+  // path was just deleted) fall off, and a retry costs one stat per entry plus the listing of directories it finds.
+  std::vector<fs::path> unwatched;
+  static constexpr size_t kMaxUnwatched = 4096;
+
+  void noteUnwatched(const fs::path& path) {
+    if (limitHit) return;
+    if (unwatched.size() >= kMaxUnwatched) unwatched.erase(unwatched.begin(), unwatched.begin() + kMaxUnwatched / 2);
+    unwatched.push_back(path);
+  }
+
+  // `from` was renamed to `to`: look again at what the walks missed below it.
+  void retryUnwatchedUnder(const fs::path& from, const fs::path& to) {
+    const std::string f = from.string();
+    const std::string prefix = f + "/";
+    std::vector<fs::path> retry;
+    for (auto it = unwatched.begin(); it != unwatched.end();) {
+      const std::string s = it->string();
+      if (s == f || s.compare(0, prefix.size(), prefix) == 0) {
+        retry.push_back(fs::path(to.string() + s.substr(f.size())));
+        it = unwatched.erase(it);
+      } else {
+        ++it;
+      }
+    }
+    for (const fs::path& p : retry) {
+      std::error_code ec;
+      const auto st = fs::symlink_status(p, ec);
+      if (ec || st.type() == fs::file_type::not_found) {  // renamed again already (that rename is next), or deleted
+        noteUnwatched(p);
+      } else if (st.type() == fs::file_type::directory) {
+        if (!ignore(p)) walkWatch(p, true);  // a directory that is watched already is only listed again: duplicates
+      } else if (st.type() == fs::file_type::regular) {
+        Event e;
+        e.kind = Event::Created;
+        e.path = p;
+        note(std::move(e));
+      }
+    }
+  }
 
   bool addWatch(const fs::path& dir) {
     if (opt.maxWatches > 0 && watchesPlatform() >= opt.maxWatches) {
       limitHit = true;
       return false;
     }
-    int wd = inotify_add_watch(inFd, dir.c_str(), kMask);
+    // Watch the directory this path names *now*, and know which one that is: the path is only a name, the watch is
+    // on an inode. Opening the directory first and adding the watch through /proc/self/fd/N ties both to the same
+    // inode (a path-based add could land on another directory that has taken the name in between).
+    int wd = -1;
+    DirId id;
+    bool haveId = false;
+    static const bool procFd = ::access("/proc/self/fd", R_OK) == 0;
+    if (procFd) {
+      const int fd = ::open(dir.c_str(), O_PATH | O_DIRECTORY | O_NOFOLLOW | O_CLOEXEC);
+      if (fd < 0) return false;
+      struct stat st;
+      if (::fstat(fd, &st) == 0) {
+        id.dev = st.st_dev;
+        id.ino = st.st_ino;
+        haveId = true;
+        const std::string viaFd = "/proc/self/fd/" + std::to_string(fd);
+        wd = inotify_add_watch(inFd, viaFd.c_str(), kMask & ~static_cast<uint32_t>(IN_DONT_FOLLOW));
+      }
+      const int err = errno;
+      ::close(fd);
+      errno = err;
+    } else {
+      wd = inotify_add_watch(inFd, dir.c_str(), kMask);
+      struct stat st;
+      if (wd >= 0 && ::lstat(dir.c_str(), &st) == 0) {
+        id.dev = st.st_dev;
+        id.ino = st.st_ino;
+        haveId = true;
+      }
+    }
     if (wd < 0) {
       if (errno == ENOSPC) limitHit = true;
       return false;
@@ -297,6 +382,8 @@ struct FileWatcher::Impl {
     if (old != wdPath.end() && old->second != dir) pathWd.erase(old->second.string());
     wdPath[wd] = dir;
     pathWd[dir.string()] = wd;
+    if (haveId) wdId[wd] = id;
+    else wdId.erase(wd);
     return true;
   }
 
@@ -304,13 +391,22 @@ struct FileWatcher::Impl {
   // emitFiles, regular files found are reported as Created (used for
   // directories that appeared after start, where files may predate the watch).
   void walkWatch(const fs::path& dir, bool emitFiles) {
-    if (!addWatch(dir) && limitHit) return;
+    bool noted = false;
+    if (!addWatch(dir)) {
+      if (limitHit) return;
+      noteUnwatched(dir);
+      noted = true;
+    }
     std::error_code ec;
     fs::directory_iterator it(dir, fs::directory_options::skip_permission_denied, ec), end;
+    if (opt.onListing) opt.onListing(dir);
     for (; !ec && it != end && !limitHit; it.increment(ec)) {
       std::error_code e2;
       auto st = it->symlink_status(e2);
-      if (e2) continue;
+      if (e2) {  // vanished, or the directory moved away under the iterator
+        noteUnwatched(it->path());
+        continue;
+      }
       if (st.type() == fs::file_type::directory) {
         if (!ignore(it->path())) walkWatch(it->path(), emitFiles);
       } else if (emitFiles && st.type() == fs::file_type::regular) {
@@ -320,6 +416,7 @@ struct FileWatcher::Impl {
         note(std::move(e));
       }
     }
+    if (ec && !noted) noteUnwatched(dir);  // the listing broke off: the rest of it is unknown
   }
 
   void forgetWatchesUnder(const fs::path& dir, bool removeFromKernel) {
@@ -330,6 +427,7 @@ struct FileWatcher::Impl {
       if (p == dir.string() || p.compare(0, prefix.size(), prefix) == 0) {
         if (removeFromKernel) inotify_rm_watch(inFd, it->first);
         pathWd.erase(p);
+        wdId.erase(it->first);
         it = wdPath.erase(it);
       } else {
         ++it;
@@ -337,9 +435,18 @@ struct FileWatcher::Impl {
     }
   }
 
-  // A watched directory was renamed: re-point every watch below it.
-  void renameWatches(const fs::path& from, const fs::path& to) {
+  // A watched directory was renamed: re-point every watch below it. Returns false when it must not (and did not):
+  // nothing is watched under the old name, or the watch there is on a different directory than the one that moved
+  // (this thread was late and found another directory under that name, which has the watch now), or the new name
+  // cannot be looked at any more. The caller then lists the directory under its new name.
+  bool renameWatches(const fs::path& from, const fs::path& to) {
+    struct stat st;
+    const bool looked = ::lstat(to.c_str(), &st) == 0 && S_ISDIR(st.st_mode);
     std::lock_guard<std::mutex> lk(mu);
+    auto at = pathWd.find(from.string());
+    if (at == pathWd.end() || !looked) return false;
+    auto id = wdId.find(at->second);
+    if (id != wdId.end() && !(id->second == DirId{st.st_dev, st.st_ino})) return false;
     const std::string f = from.string();
     const std::string prefix = f + "/";
     for (auto& [wd, p] : wdPath) {
@@ -350,6 +457,7 @@ struct FileWatcher::Impl {
         pathWd[p.string()] = wd;
       }
     }
+    return true;
   }
 
   struct MovedFrom {
@@ -394,6 +502,7 @@ struct FileWatcher::Impl {
           auto pw = pathWd.find(it->second.string());
           if (pw != pathWd.end() && pw->second == ev->wd) pathWd.erase(pw);
           wdPath.erase(it);
+          wdId.erase(ev->wd);
         }
         continue;
       }
@@ -429,9 +538,15 @@ struct FileWatcher::Impl {
         if (m != moves.end() && !(isDir && ignore(path))) {
           e.kind = Event::Renamed;
           e.oldPath = m->second.path;
-          if (isDir) renameWatches(m->second.path, path);
+          const fs::path from = m->second.path;
+          const bool followed = !isDir || renameWatches(from, path);
           moves.erase(m);
           note(std::move(e));
+          // After the rename's entry: what they report sorts behind it.
+          if (isDir) {
+            retryUnwatchedUnder(from, path);
+            if (!followed) walkWatch(path, true);
+          }
         } else {
           if (m != moves.end()) {  // renamed into an ignored directory: it left the watched set
             Event d;
@@ -457,6 +572,7 @@ struct FileWatcher::Impl {
     std::lock_guard<std::mutex> lk(mu);
     wdPath.clear();
     pathWd.clear();
+    wdId.clear();
   }
 
   void inotifyLoop() {
