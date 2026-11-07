@@ -41,24 +41,23 @@ inline bool endsWithBreak(std::string_view t) {
 
 // Does `t` contain a NEL / LS / PS? (Two memchr passes; ASCII-only text costs nothing more.)
 inline bool hasSeparator(std::string_view t) {
-  size_t from = 0;
-  while (from < t.size()) {
-    const void* p = std::memchr(t.data() + from, 0xC2, t.size() - from);
-    const void* q = std::memchr(t.data() + from, 0xE2, t.size() - from);
-    if (!p && !q) return false;
-    size_t k = p && q
-                   ? static_cast<size_t>(std::min(static_cast<const char*>(p), static_cast<const char*>(q)) - t.data())
-                   : static_cast<size_t>((p ? static_cast<const char*>(p) : static_cast<const char*>(q)) - t.data());
-    if (separatorLen(t, k)) return true;
-    from = k + 1;
+  for (const unsigned char lead : {static_cast<unsigned char>(0xC2), static_cast<unsigned char>(0xE2)}) {
+    size_t from = 0;
+    while (from < t.size()) {
+      const void* p = std::memchr(t.data() + from, lead, t.size() - from);
+      if (!p) break;
+      const size_t k = static_cast<size_t>(static_cast<const char*>(p) - t.data());
+      if (separatorLen(t, k)) return true;
+      from = k + 1;
+    }
   }
   return false;
 }
 
 // Finds the line breaks of a text. next(from, len) gives the offset of the first break at or after `from` (npos if
-// none) and its length. '\n' is found with memchr per line; the positions of the next '\r', NEL and LS/PS are
-// remembered, so a text without them (or with CRLF everywhere) costs one extra memchr pass over the text in total, not
-// one per line.
+// none) and its length. The positions of the next '\n', '\r', NEL and LS/PS are remembered (each found with memchr), so
+// a text without one of them (or with CRLF everywhere) costs one extra memchr pass over the text in total, not one per
+// line.
 class BreakFinder {
  public:
   explicit BreakFinder(std::string_view t) : t_(t) {}
@@ -67,8 +66,12 @@ class BreakFinder {
     const size_t n = t_.size();
     if (from >= n) return npos;
     const char* base = t_.data();
-    const char* nlp = static_cast<const char*>(std::memchr(base + from, '\n', n - from));
-    size_t best = nlp ? static_cast<size_t>(nlp - base) : npos;
+    if (!nlKnown_ || (nl_ != npos && nl_ < from)) {
+      const char* p = static_cast<const char*>(std::memchr(base + from, '\n', n - from));
+      nl_ = p ? static_cast<size_t>(p - base) : npos;
+      nlKnown_ = true;
+    }
+    size_t best = nl_;
     size_t blen = 1;
     if (!crKnown_ || (cr_ != npos && cr_ < from)) {
       const char* c = static_cast<const char*>(std::memchr(base + from, '\r', n - from));
@@ -115,8 +118,8 @@ class BreakFinder {
   }
 
   std::string_view t_;
-  size_t cr_ = 0, nel_ = 0, ls_ = 0;
-  bool crKnown_ = false, nelKnown_ = false, lsKnown_ = false;
+  size_t nl_ = 0, cr_ = 0, nel_ = 0, ls_ = 0;
+  bool nlKnown_ = false, crKnown_ = false, nelKnown_ = false, lsKnown_ = false;
 };
 
 }  // namespace linebreak

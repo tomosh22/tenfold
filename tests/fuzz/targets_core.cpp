@@ -221,12 +221,13 @@ void runLineMap(const uint8_t* d, size_t n) {
   int prevLine = -1, prevCol = -1;
   for (bool utf16 : {true, false})
     for (int l = 0; l < b.lineCount(); ++l)
-      for (int col : {0, static_cast<int>(b.line(l).size())}) {
+      for (int ci = 0; ci < 2; ++ci) {
+        const int col = ci == 0 ? 0 : static_cast<int>(b.line(l).size());
         const Position e{l, col};
         const Position s = m->toServer(e, b.lines(), utf16);
         FUZZ_REQUIRE(s.line >= 0 && s.line < serverLines && s.column >= 0);
         FUZZ_REQUIRE(m->fromServer(s, b.lines(), utf16) == e);
-        if (utf16 && col == 0) {  // monotonic: later editor lines never map before earlier ones
+        if (utf16 && ci == 0) {  // monotonic: later editor lines never map before earlier ones
           FUZZ_REQUIRE(s.line > prevLine || (s.line == prevLine && s.column > prevCol));
           prevLine = s.line;
           prevCol = s.column;

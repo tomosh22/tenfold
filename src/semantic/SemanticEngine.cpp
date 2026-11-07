@@ -1204,7 +1204,8 @@ Position SemanticEngine::toServer(const Document& doc, Position p) const {
   auto c = client();
   if (!c) return p;
   const bool utf16 = c->offsetEncoding() != "utf-8";
-  if (auto m = lspMapFor(doc.uri())) return m->toServer(p, doc.buffer().lines(), utf16);
+  if (lspMapCount_.load(std::memory_order_relaxed) > 0)  // (doc.uri() is not free: ask only when a map exists)
+    if (auto m = lspMapFor(doc.uri())) return m->toServer(p, doc.buffer().lines(), utf16);
   if (!utf16) return p;
   p = doc.buffer().clamp(p);
   return {p.line, TextBuffer::utf8ToUtf16Column(doc.buffer().line(p.line), p.column)};
