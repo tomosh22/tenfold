@@ -1,4 +1,4 @@
-#Testing tenfold
+# Testing tenfold
 
 Tenfold's code intelligence is judged against **corpus projects**: small C/C++ projects under `tests/corpus/<name>/`
 whose sources carry *anchors* and whose `tenfold-expect.txt` states what go to definition, references, hover and the
@@ -7,12 +7,45 @@ other navigation features must answer. The runner opens the project in the real 
 **final answer** (clangd) separately, and measures. The unit tests (`tenfold-tests`) are for components; the corpus is
 for end-to-end answers on awkward code.
 
+* [Test suites and CI](#test-suites-and-ci)
 * [Running a corpus](#running-a-corpus)
 * [Writing a corpus](#writing-a-corpus)
 * [The expectation file](#the-expectation-file)
 * [How an expectation is judged](#how-an-expectation-is-judged)
 * [Reading the report](#reading-the-report)
 * [Spec decisions](#spec-decisions)
+
+## Test suites and CI
+
+| Executable | What | Tests (Linux) | Needs |
+|---|---|---:|---|
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 676 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 605 | a display (`xvfb-run -a`); golden-image tests skip without one |
+| `tenfold-text-tests` | FreeType font, glyph atlas, text layout | 30 | nothing |
+| `tenfold-corpus-tests` | the corpus projects of this file (over about 35 under `tests/corpus`) | 3 | clangd; not part of `ctest` |
+| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | targets, not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
+
+`ctest --preset release` runs `unit` (`tenfold-tests`), and with the UI also `text` and `ui-unit` (`CMakeLists.txt`,
+`add_test`). Pass a test-name prefix to any suite (`./build/tenfold-tests nav_`). The counts above are the number of
+registered tests on Linux at the time of writing; some tests skip on a platform or without clangd. Performance budgets are printed always and
+asserted only with `TENFOLD_ENFORCE_PERF=1` (`docs/BENCHMARKS.md`).
+
+CI (`.github/workflows/ci.yml`, on every push and pull request):
+
+| Job | What it runs |
+|---|---|
+| `linux-gcc-release`, `linux-clang-release`, `linux-clang-asan-ubsan`, `windows-msvc`, `windows-clang-cl`, `macos-appleclang` | configure, build and `ctest` with the matching preset of `CMakePresets.json` (engine suite only; `linux-gcc-release` also enforces the performance budgets) |
+| `linux-gcc-tsan` | `tenfold-tests` under ThreadSanitizer (`tsan.supp`) |
+| `corpus` | `tenfold-corpus-tests` with clangd from pip; uploads the JSON reports |
+| `format` | `clang-format --dry-run --Werror` on the changed C++ files |
+| `linux-ui-xvfb` | builds with the UI; runs `tenfold-tests`, `tenfold-text-tests`, `tenfold-ui-tests` under Xvfb (Mesa llvmpipe) and a headless screenshot |
+| `windows-ui-d3d11` | builds the UI with the Direct3D 11 backend; runs `tenfold-ui-tests` on WARP, the `d3d11` renderer tests and a screenshot |
+| `windows-vs-debugger` | drives the preinstalled Visual Studio 2022 through EnvDTE (the `vsdte` tests) |
+| `package-windows-x64`, `package-linux-x64`, `package-macos-arm64` | pushes to `main` and `v*` tags only: Release build with the UI, pinned clangd, `cpack`, smoke test of the unpacked package (AppImage best effort; macOS best effort) |
+| `linux-gcc-asan-fuzz` | replays `tests/fuzz/regressions`, then fuzzes every target for 30 s |
+
+`.github/workflows/stress.yml` runs the generated codebases nightly (medium and large) and on demand; its failures are
+results, not CI failures (see "Generated codebases").
 
 ## Running a corpus
 
@@ -21,14 +54,10 @@ cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build tenfol
 
 ./build/tenfold-cli corpus tests/corpus/seed                       # one project, report on stdout
 ./build/tenfold-cli corpus tests/corpus/seed --json seed.json      # plus the JSON report
-./build/tenfold-cli corpus tests/corpus/seed --no-clangd           # fast-tier expectations only;
-the rest are SKIP./ build / tenfold - cli corpus<dir> --timeout 600 --verbose-- keep #time limit(s), engine log,
-    keep the scratch copy
+./build/tenfold-cli corpus tests/corpus/seed --no-clangd           # fast-tier expectations only; the rest are SKIP
+./build/tenfold-cli corpus <dir> --timeout 600 --verbose --keep    # time limit (s), engine log, keep the scratch copy
 
-                ./
-            build / tenfold
-        - corpus -
-        tests #every tests / corpus /*/ (skipped without clangd)
+./build/tenfold-corpus-tests                                       # every tests/corpus/*/ (skipped without clangd)
 TENFOLD_CORPUS_ONLY=seed TENFOLD_CORPUS_REPORT_DIR=reports ./build/tenfold-corpus-tests
 ```
 
@@ -307,7 +336,7 @@ python3 tools/stress/gen_pathological.py --out /tmp/patho --scale full --scenari
 ```sh
 cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build-rel tenfold-cli tenfold-tests
 python3 tools/stress/run_pathological.py --build build-rel --scale full --clangd --md-out /tmp/stress.md
-#sanitizer build, smaller sizes
+# sanitizer build, smaller sizes
 cmake -S . -B build-asan -G Ninja -DCMAKE_BUILD_TYPE=Debug -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined"
 ninja -C build-asan tenfold-cli tenfold-tests
 python3 tools/stress/run_pathological.py --build build-asan --scale asan --timeout 900
