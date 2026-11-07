@@ -391,7 +391,8 @@ TEST(w8f_treeview_filter_is_fuzzy_keeps_ancestors_and_escape_clears) {
   TreeView v;
   v.layout({0, 0, 300, 400});
   v.setModel(sampleModel());
-  v.onEvent(textEv("hlp"));  // fuzzy: helpers.cpp
+  v.onEvent(keyEv(static_cast<Key>(';'), ModCtrl));  // VS-TREE X5: Ctrl+; starts the filter, plain typing jumps
+  v.onEvent(textEv("hlp"));                          // fuzzy: helpers.cpp
   CHECK((names(v) == std::vector<std::string>{"root", "src", "util", "helpers.cpp"}));
   CHECK_EQ(v.model().node(v.selectedNode()).name, "helpers.cpp");  // lands on the first matching file
   v.onEvent(keyEv(Key::Backspace));
@@ -410,6 +411,7 @@ TEST(w8f_treeview_filter_is_fuzzy_keeps_ancestors_and_escape_clears) {
   CHECK_EQ(v.model().node(v.selectedNode()).name, "guide.md");  // the selection survives the filter
   v.onEvent(keyEv(Key::Escape));
   CHECK_EQ(closed, 1);
+  v.onEvent(keyEv(static_cast<Key>(';'), ModCtrl));
   v.onEvent(textEv("zzz"));
   CHECK(v.rows().empty());
 }

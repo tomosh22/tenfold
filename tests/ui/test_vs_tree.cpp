@@ -278,6 +278,8 @@ TEST(vstree_the_same_letter_again_cycles_and_only_visible_nodes_count) {
 
 TEST(vstree_backspace_takes_a_letter_back_and_escape_forgets_the_text) {
   Env env;
+  REQUIRE(env.ed->gotoLocation({env.dir / "README.md", Position{}}, nullptr));
+  env.bench->sync();
   env.open_();
   env.tree().setFocus();
   env.type("s");
@@ -303,8 +305,8 @@ TEST(vstree_ctrl_semicolon_starts_the_filter_and_escape_leaves_it) {
   CHECK(env.shows("impl.cpp") && !env.shows("main.cpp"));
   env.key(Key::Escape);
   CHECK(!env.tree().filterMode() && env.tree().filter().empty());
-  env.type("l");  // back to jumping
-  CHECK_EQ(env.selectedName(), "Libraries");
+  env.type("l");  // back to jumping: from impl.cpp to the next name starting with l
+  CHECK_EQ(env.selectedName(), "lib.cpp");
   CHECK(env.tree().filter().empty());
 }
 
@@ -533,7 +535,7 @@ TEST(vstree_rename_of_an_open_file_reopens_it_and_refuses_unsaved_changes) {
   Document* d = env.ed->currentDocument();
   REQUIRE(d != nullptr);
   env.tree().select(env.nodeNamed("main.cpp"));
-  d->buffer().insert(Position{0, 0}, "// edit\n");
+  env.ed->insertText("// edit\n");
   CHECK(d->dirty());
   CHECK(!env.ex().rename(env.nodeNamed("main.cpp")));
   CHECK(contains(env.status(), "Save main.cpp first"));
@@ -552,6 +554,7 @@ TEST(vstree_rename_of_an_open_file_reopens_it_and_refuses_unsaved_changes) {
 TEST(vstree_rename_a_folder_rewrites_every_include_below_it) {
   Env env;
   env.open_();
+  env.app->runCommand("View.ToggleExplorerFolderView");  // the Solution view has filters, not the folder "include"
   env.revealAll();
   env.tree().select(env.nodeNamed("include"));
   REQUIRE(env.ex().rename(env.nodeNamed("include")));

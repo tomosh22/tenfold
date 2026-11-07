@@ -1536,6 +1536,11 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (e.type == InputType::KeyDown && !root_.modal() && !keys_.pending() &&
       dynamic_cast<TerminalView*>(root_.focused()) && !terminalSkipsShell(chord))
     return root_.dispatch(e);
+  // VS-TREE: the focused explorer tree owns F2 (rename) and Delete before the global bindings (F2 is NextBookmark).
+  if (e.type == InputType::KeyDown && !root_.modal() && !keys_.pending() && explorer_ &&
+      root_.focused() == explorer_->view() && !(e.mods & (ModCtrl | ModAlt | ModShift | ModSuper)) &&
+      (e.key == Key::F2 || e.key == Key::Delete))
+    return root_.dispatch(e);
   const char* ctx = activeContext();
   const KeyMap::Result r = keys_.feed(chord, ctx, nowMs);
   switch (r.status) {
