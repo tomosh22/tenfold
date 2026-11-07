@@ -1,7 +1,7 @@
 # Architecture
 
-Tenfold is split into an engine (everything under `src/` except `cli/`) and
-front ends. The engine never touches a window or a key binding; it exposes an
+Tenfold is split into an engine (everything under `src/` except `cli/`, `ui/` and `ui_app/`) and
+front ends: `tenfold-cli` (`src/cli`) and the graphical `tenfold-ui` (`src/ui`, `src/ui_app`). The engine never touches a window or a key binding; it exposes an
 `Editor` model plus callbacks, and a front end renders that model on its own
 thread.
 
@@ -178,8 +178,8 @@ crashes.
   gets a `log: <path>` line, Windows gets a `crash-<pid>-<tick>.txt` next to the minidump. The handler does not flush the
   log, because that takes a mutex and allocates, which is not async-signal-safe; records from the last flush interval
   (at most about 500 ms, except Errors which are flushed immediately) can be missing after a crash.
-* Not yet logging: `DebugSession`/`BuildRunner`/`FastIndex` have no log callback of their own; the editor-level events
-  around them (build start/finish) are logged, subsystem-internal ones are a follow-up.
+* Not yet logging: `DebugSession` and `BuildRunner` make no `Log` calls of their own; the editor-level events around
+  them (build start/finish) are logged, subsystem-internal ones are a follow-up. `FastIndex` logs the files it skips.
 
 ## The two-tier query policy
 
@@ -705,12 +705,12 @@ compiled into `tenfold-ui-tests` too).
   first open of the picker).
 ## Version control (C3a, `src/vcs`)
 
-Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it. Nothing in `src/vcs`
+Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it (both are done). Nothing in `src/vcs`
 includes a UI header; it depends on `core` and `lsp/Process.h` (and on `app/Editor.h` in `VcsManager.cpp`, for
 `post()`).
 
 ```
- Editor ── owns ── VcsManager ──(jobs)──▶ worker thread ── owns ── VcsProvider (GitProvider, later Perforce)
+ Editor ── owns ── VcsManager ──(jobs)──▶ worker thread ── owns ── VcsProvider (GitProvider, PerforceProvider)
     ▲                    ▲                      │  child processes, line diff
     │ open/edit/save/    │ hunks(), fileStatus() │
     │ reload/close/      └──────── Editor::post() ◀┘  results: base text, status, hunks
@@ -1488,8 +1488,7 @@ against the real `Editor` / `SemanticEngine` / clangd.
 * `corpus/Runner.{h,cpp}` copies the project to a scratch directory (rename, `edit` and `.tenfold/` never touch the
   repository), starts an `Editor`, waits for the fast index and walks the expectations in order. Queries go through the
   calls the UI makes: `Editor::gotoDefinition`, `gotoDeclaration`, `findReferences`, `findSymbols`, `hover`,
-  `renameSymbol`, `selectVsConfiguration`, `open`, `replaceRange`; type definition and implementations have no `Editor`
-  wrapper and call `SemanticEngine::gotoTypeDefinition` / `findImplementations` directly.
+  `renameSymbol`, `selectVsConfiguration`, `open`, `replaceRange`, and `gotoTypeDefinition` / `findImplementations`.
 * **Isolating the fast tier.** `SemanticEngine::Options::fastOnlyQueries` / `setFastOnlyQueries()` is the one hook the
   harness needed in the engine: a single `queryClient()` (null while the flag is on, else `clangd()`) replaces
   `clangd()` at the entry of `deliverWithBudget` (definition, declaration, type definition, implementations, workspace
@@ -1509,11 +1508,12 @@ against the real `Editor` / `SemanticEngine` / clangd.
 
 ## Portability
 
-Everything is standard C++20 except `src/lsp/Process.cpp` (fork/exec and
-pipes). A Windows implementation needs `CreateProcess` with inherited
-anonymous pipes behind the same five methods. On Windows the editor should
-ship `clangd.exe` and use `--query-driver` or the `clang-cl` driver so MSVC
-system headers resolve; `CompileCommands::fromVcxproj` already emits
+Everything is standard C++20 except the platform files behind small interfaces: `src/lsp/Process_posix.cpp` /
+`Process_win32.cpp` (fork/exec and pipes; `CreateProcessW` with inherited pipes and a kill-on-close job object),
+`src/term/Pty_posix.cpp` / `Pty_win32.cpp` (pty; ConPTY), `src/debug/VsDebugger_win32.cpp` (Visual Studio automation;
+Windows only), the file watcher backends in `src/workspace/FileWatcher.cpp` and the platform parts of `src/core`
+(`Platform`, `Trash`, `PathUtil`, `CrashHandler`). On Windows the editor ships `clangd.exe` (Packaging below) and uses
+`--query-driver` or the `clang-cl` driver so MSVC system headers resolve; `CompileCommands::fromVcxproj` emits
 `clang-cl` style commands.
 
 ## Packaging (D1)
@@ -1556,8 +1556,8 @@ are written at configure time into `<build>/generated/tenfold_version.h`; `tenfo
 
 **Smoke test.** `tools/package/smoke-test.sh <package>` unpacks to a temp dir, checks the version, then runs a
 definition query on `examples/sample_project` with every directory containing a `clangd` removed from PATH and fails
-unless the engine logged `(bundled)` and answered authoritatively. CI job `package` (pushes to main and `v*` tags,
-non-blocking until green once) runs build, fetch, cpack, smoke test and uploads the artifacts per platform.
+unless the engine logged `(bundled)` and answered authoritatively. CI jobs `package-<platform>` (pushes to main and `v*` tags
+only; the AppImage step is best effort) run build, fetch, cpack, smoke test and upload the artifacts per platform.
 
 ## Text rendering (`src/ui/gfx`, target `tenfold_text`, option `TENFOLD_BUILD_UI`)
 
@@ -1611,8 +1611,8 @@ quads are emitted after the tree has painted, so a shell frame is one rect batch
 ~0.05 ms CPU for chrome + two text views). If the glyph atlas grows mid-frame the recorded UVs are stale and `render()`
 repaints once. Widgets: `TabStrip` (pinned, dirty marker, close, MRU order, drag reorder / drag-out, overflow
 scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar` (keyed, clickable segments), plus
-`TextView` (below). `Theme` is a neutral dark placeholder until B7 loads it from
-files. The engine never includes any of this.
+`TextView` (below). `Theme` holds the colours; B7 loads them from theme files (default `vs-dark`). The engine never
+includes any of this.
 
 ### Popups: top layer, modal, `InputLine`, `ListPopup` (B5a)
 
@@ -1671,7 +1671,7 @@ document (a message says how many were kept) instead of opening one prompt per t
 All pickers are owned by `EditorApp` and share a `PickerEnv` (root, editor, `LineSource` for previews, the app clock).
 While one is open the key context is `picker`, so the `editor` bindings (arrows, Enter, Escape) do not fire and the
 keys reach the popup. *Symbol search* (`Search.SymbolSearch`, Ctrl+,): typing calls `Editor::findSymbols` on the main
-thread (the fast tier is synchronous until A10: 35-270 ms on Godot); the first
+thread (it returns at once: the fast tier runs on the engine's symbol thread since A10); the first
 keystroke after a pause goes out at once, later ones at most every 25 ms (`tick` returns the wait); every request has a
 sequence number and answers for an older one are dropped. An Approximate answer is shown greyed with "verifying..."
 (or "approximate (reason)" when no authoritative answer will follow, as without clangd); the Authoritative one replaces
@@ -1876,8 +1876,8 @@ The optional colour keys (`editorBackground`, `currentLineFill`, `currentLineBor
 `diffBlockBackground`, `diffBlockText`, `diffBlockHeader`, `tabVcsModified`, `tabVcsAdded`, `tabVcsCheckedOut`,
 `tabVcsReadOnly`, C3c) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
 so `dark` and `light` and their goldens are unchanged; only `vs-dark` sets them. `vs-dark.txt` lists in its header the
-values that are recalled rather than sampled. Control-flow keyword and string-escape colours need lexer kinds that do
-not exist yet; they have no key. The debugger keys fall back to built-in colours (breakpoint #E51400, the dirty-marker
+values that are recalled rather than sampled. The `controlKeyword` token kind (if / for / return ..., W10-THEME) falls back to `keyword`; string-escape colours need a
+lexer kind that does not exist yet and have no key. The debugger keys fall back to built-in colours (breakpoint #E51400, the dirty-marker
 colour for the statement arrow and band); the two status bar keys have no fallback, so the bar only changes in themes
 that set them (`vs-dark`).
 

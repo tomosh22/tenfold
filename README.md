@@ -20,10 +20,10 @@ that 10x gets wrong while keeping everything else it gets right:
    are resolved by the compiler. Approximate answers are only ever shown
    while clangd is still thinking, and they are labelled as such.
 
-This repository contains the **engine and a headless front end**. The
-graphical front end (GPU text rendering, tabs, panels, key bindings) is the
-next milestone; everything here is UI-agnostic so it can sit on top without
-changes. See `docs/ARCHITECTURE.md` and `docs/FEATURE_PARITY.md`.
+The repository holds the UI-agnostic engine (`src/core`, `src/nav`, `src/lsp`, `src/semantic`, ...), a headless
+front end (`tenfold-cli`) and the graphical editor `tenfold-ui` (SDL3, OpenGL 3.3 or Direct3D 11 on Windows, FreeType).
+See [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md) for the design and [`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md)
+for what matches 10x and Visual Studio today.
 
 ## Getting started
 
@@ -44,14 +44,16 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # 31 tests, including clangd integration
+./build/tenfold-tests            # engine tests, including clangd integration (676 on Linux)
 ```
 
 CI / presets: `CMakePresets.json` mirrors the CI matrix, so
 `cmake --preset release && cmake --build --preset release && ctest --preset release`
 works locally (also `debug`, `asan`, and on Windows `msvc` / `clang-cl` from a VS developer prompt).
 GitHub Actions (`.github/workflows/ci.yml`) builds gcc, clang, clang ASan+UBSan, MSVC,
-clang-cl and AppleClang, and runs `clang-format --dry-run --Werror` on changed C++ files only.
+clang-cl and AppleClang, and adds jobs for ThreadSanitizer, the corpora, the UI (Linux under Xvfb, Windows with Direct3D 11),
+the Visual Studio debugger, fuzzing and packages; `clang-format --dry-run --Werror` runs on changed C++ files only. The
+list of jobs and what they run is in [`docs/TESTING.md`](docs/TESTING.md).
 
 ### Install (packages) and build from source
 
@@ -72,9 +74,12 @@ tools/package/smoke-test.sh build-pkg/tenfold-*.tar.gz
 
 Use `-DTENFOLD_BUNDLE_CLANGD=OFF` to install without clangd. `tools/package/appimage.sh build-pkg` makes an AppImage.
 
-## UI (experimental)
+## Building the UI
 
-The SDL3 + OpenGL 3.3 front end is opt-in and not part of the default build:
+`tenfold-ui` (SDL3 + OpenGL 3.3, or Direct3D 11 on Windows; the packages above contain it) is the editor. It is
+opt-in at configure time: `TENFOLD_BUILD_UI` defaults to `OFF` (see `CMakeLists.txt`), so a plain engine build does not
+need SDL3 or FreeType, and the engine never depends on the UI. CI builds it with `-DTENFOLD_BUILD_UI=ON` on Linux, Windows
+and for the packages.
 
 ```
 cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
@@ -83,8 +88,10 @@ xvfb-run -a ./build-ui/tenfold-ui-tests          # golden-image tests skip witho
 ./build-ui/tenfold-ui [workspace]                # or: xvfb-run -a ./build-ui/tenfold-ui --screenshot out.png [--size WxH]
 ```
 
-SDL3 is fetched (static, pinned to `release-3.2.30`); on Linux you need X11/GL dev packages. After an
-intentional rendering change, refresh `tests/golden/b1_scene.png` with `tenfold-ui-tests --update-goldens`.
+SDL3 is fetched (static, pinned to `release-3.2.30`); FreeType is the system library or fetched; on Linux you need
+X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (605 tests on Linux) and
+`tenfold-text-tests` (30; font, atlas and layout, no display needed). After an intentional rendering change, refresh the
+golden images with `tenfold-ui-tests --update-goldens`.
 
 ## Try it
 
@@ -112,10 +119,9 @@ the macro-generated one.
 
 ### The GUI editor
 
-Build with the UI enabled (SDL3 is fetched, needs FreeType and an OpenGL 3.3 context) and open a workspace:
+Build as above (or use a package) and open a workspace:
 
 ```sh
-cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON && ninja -C build-ui
 ./build-ui/tenfold-ui examples/sample_project            # restores <workspace>/.tenfold/layout.json
 ./build-ui/tenfold-ui examples/sample_project src/geometry.cpp
 ```
@@ -142,39 +148,55 @@ running the editor:
 ## What is where
 
 ```
-src/core        TextBuffer (UTF-8 lines, CRLF aware), Document (undo/redo, listeners, URIs)
+src/core        TextBuffer (UTF-8 lines; CRLF, LF, CR, NEL, LS, PS like Visual Studio), Document (undo/redo, listeners, URIs),
+                encodings, .editorconfig, logging, crash handler, Selection, Trash
 src/nav         NavigationHistory: back/forward with coalescing and edit tracking
-src/lsp         Process, JSON-RPC framing, typed LspClient for clangd
-src/semantic    CppLexer, FastIndex (heuristic symbols + fuzzy search),
+src/lsp         Process (POSIX and Windows), JSON-RPC framing, typed LspClient for clangd
+src/semantic    CppLexer, FastIndex (heuristic symbols + fuzzy search) and its on-disk store,
                 CompileCommands (compile_commands.json discovery; CMake, .sln/.vcxproj,
                 heuristic generators; MSBuild property/condition evaluation),
-                SemanticEngine (two-tier query policy)
-src/workspace   Workspace scanning, settings (.tenfold/workspace.json)
+                SemanticEngine (two-tier query policy), TuContext, IncludeNav, DefChoice
+src/workspace   Workspace scanning, settings (.tenfold/workspace.json), FileWatcher
+src/search      TextSearch (find in files), ReplaceInFiles
+src/build       BuildRunner, ErrorParser
+src/debug       Breakpoints, DebugSession, Visual Studio (EnvDTE) debugger backend
+src/vcs         Git and Perforce providers, LineDiff, VcsManager
+src/term        pseudo-terminal (POSIX, ConPTY), VT screen, key encoding
 src/app         Editor: documents + caret + navigation + semantic commands + main-thread queue
+src/corpus      the corpus runner behind `tenfold-cli corpus`
 src/cli         tenfold-cli, the headless reference front end
-tests           unit + integration tests (tiny self-contained framework)
+src/ui          the GUI library: gfx (renderers, fonts), platform (SDL3), widgets, view, commands, settings, features, shell
+src/ui_app      tenfold-ui, the editor executable
+tests           unit + integration tests (tiny self-contained framework), corpora, fuzz, ui, text
+tools           benchmark scripts, stress generators, packaging
 examples        sample project used by the tests
-docs            architecture and 10x feature-parity notes
+docs            user guide, architecture, testing, feature parity, benchmarks, stress results, open questions
 third_party     nlohmann/json (single header)
 ```
 
-## Numbers
+## Performance
 
-Release build, 4 cores. Godot engine source tree (8755 files, 175 MB):
-workspace scan 59 ms, fast index 1.4 s (507k symbols), editor interactive
-2.4 s after a cold launch and 0.2 s warm; clangd has the opened translation
-unit parsed 1.3 s later and answers go-to-definition in under 10 ms from
-then on. Full details and caveats in `docs/IMPLEMENTATION_PLAN.md`.
+Measured numbers, their methodology and the budgets are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). For example, on
+the Godot source tree (8327 indexed files, 507k symbols; 4 cores, light load, "After Wave 1" there) the editor is
+interactive after 1.9 s cold and 0.33 s warm, the fast index takes 1.2 s cold, a go-to-definition is answered in about
+0.2 ms once clangd has parsed the file, and the editor process peaks at 374 MiB (clangd excluded). Stress results for pathological workspaces, the corpora, generated codebases and fuzzing are in
+[`docs/STRESS_RESULTS.md`](docs/STRESS_RESULTS.md).
 
 ## Status
 
-Done and tested: text model, navigation history, LSP client, clangd
-integration (definition, declaration, type definition, implementation,
-references, hover, completion, signature help, document/workspace symbols,
-rename, diagnostics, source/header switch), fast index, compile-command
-discovery and generation, workspace scanning, editor model, CLI.
+Done and tested: text model, navigation history, LSP client and clangd integration (definition, declaration, type
+definition, implementation, references, hover, completion, signature help, document/workspace symbols, rename,
+diagnostics, source/header switch), fast index, compile-command discovery and generation (including Visual Studio
+solutions), workspace scanning and watching, editor model, CLI, the graphical editor (GPU text rendering, tabs, split
+panels, 10x key bindings and command palette, pickers, find and replace, settings and themes), Windows support
+(process spawning, Direct3D 11, ConPTY terminal), build integration, the Visual Studio debugger, Git and Perforce
+integration, and packages with a bundled clangd.
 
-Not yet done: the graphical front end, Windows process spawning
-(`src/lsp/Process.cpp` is POSIX; the interface is ready for a CreateProcess
-implementation), build/debug/VCS integration, scripting. See
-`docs/FEATURE_PARITY.md` for the full list and plan.
+Dropped by decision: scripting (the Python API is not used). Not done yet: GUI for call and type hierarchy, code actions,
+inlay hints, Unreal Engine awareness, some 10x commands and settings, a scope-aware fast tier. See
+[`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) for the full list and
+[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) section 9 for what is next.
+
+More documentation: [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
+[`docs/TESTING.md`](docs/TESTING.md), [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) (decisions) and
+[`docs/VS_BEHAVIOUR.md`](docs/VS_BEHAVIOUR.md) (Visual Studio behaviour that tenfold follows).

@@ -599,7 +599,7 @@ about which configuration you parse with in 10x.
 tenfold does not contain a debugger. It drives Visual Studio's own debugger through Visual Studio's automation
 interface (EnvDTE), so you edit in tenfold and stop in Visual Studio's engine. This is **Windows only**; elsewhere
 the debug commands report `no debugger backend on this platform`. It has been exercised by automated tests, including a
-non-blocking CI job that runs a real Visual Studio, and not yet by long use on your solution.
+CI job (`windows-vs-debugger`) that runs a real Visual Studio, and not yet by long use on your solution.
 
 **How tenfold finds or launches Visual Studio.** The first debug command connects. tenfold looks through the running
 Visual Studio instances (newest first) for the one whose open solution is your workspace's `.sln` (the first `.sln` in
@@ -1585,7 +1585,6 @@ unverified items in the next sections; the log and the output of those two comma
 * An "open log" command.
 * Scripting (the Python API of 10x is deliberately not implemented, OPEN_QUESTIONS #11), `.10x` workspace import (not
   wanted, #12), Unreal Engine awareness.
-* 10x's key bindings (OPEN_QUESTIONS #1).
 
 ## Provisional and unverified
 
@@ -1595,11 +1594,12 @@ unverified items in the next sections; the log and the output of those two comma
 * **Key bindings:** 10x's own format and default key map; 6 of its 183 default bindings (6 commands) are not implemented yet (FEATURE_PARITY).
 * **Perforce** has only run against a fake `p4` (#17): `p4 -ztag -F %clientRoot% info`, `p4 where` for an unmapped
   folder, and what `p4 edit` returns for an exclusively locked file are unchecked on a real server.
-* **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI that does not block merges; a long session
+* **Visual Studio debugging and the MSVC toolchain discovery** are covered by CI jobs (`windows-vs-debugger`, the Windows build jobs); a long session
   against your solution has not been done. Whether `Debug.Start` makes Visual Studio build first is up to Visual
   Studio's own settings; tenfold does not check.
-* **Windows packaging** (the ZIP layout, the unsigned executable) has been produced by CI and unpacked by a smoke
-  test on Linux; a first run on a clean Windows machine is still to be confirmed. The AppImage and the macOS image are best
+* **Windows packaging** (the ZIP layout, the unsigned executable) is produced by CI and unpacked by the smoke test
+  on the Windows runner (version and a definition query with the bundled clangd); a first run on a clean Windows desktop
+  is still to be confirmed. The AppImage and the macOS image are best
   effort.
 * **`msbuild` lookup** is by name on `PATH` only; whether the Developer Command Prompt route is enough on your machine is
   unconfirmed.
