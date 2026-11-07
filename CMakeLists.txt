@@ -322,6 +322,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/TerminalPanel.cpp
     src/ui/features/ExternalChanges.cpp
     src/ui/features/LineEndingPrompt.cpp
+    src/ui/features/LineEndingDialog.cpp
     src/ui/features/EncodingPrompt.cpp
     src/ui/features/UnsavedPrompt.cpp
     src/ui/features/SwitchPanel.cpp
