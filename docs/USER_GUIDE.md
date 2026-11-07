@@ -694,10 +694,13 @@ longer exists is skipped; a damaged file is ignored.
   of the projects and of their `.vcxproj.filters` files that name it (or, for a folder, anything below it) are rewritten in
   the style they were written (backslashes stay backslashes); wildcard items (`gen\*.cpp`) need no change. An open file is
   closed and reopened under its new name when it was the current one. A file with unsaved changes is not renamed: save it first.
-* *Delete* (Delete key): asks "'name' will be deleted permanently." (OK / Cancel; a folder says that everything in it goes,
-  and a modified open file says its changes are lost). The file or folder is deleted from the disk, not moved to the
-  recycle bin, there is no undo, the tabs are closed and the matching project items are removed from the `.vcxproj` and
-  its filters file.
+* *Delete* (Delete key): asks "'name' will be moved to the Recycle Bin." (Windows) or "... moved to the Trash." (Linux,
+  freedesktop.org Trash: `~/.local/share/Trash`, or `$topdir/.Trash-<uid>` for another file system), OK / Cancel; a folder
+  says that everything in it goes and a modified open file says its changes are lost. The item can be restored from the
+  bin. Where there is no trash (macOS, or a Linux file system with no usable trash folder) the question says "will be
+  deleted permanently." and the delete is permanent with no undo. After confirming, tabs are closed and the matching
+  project items are removed from the `.vcxproj` and its filters file; a failed move to the trash never turns into a
+  permanent delete.
 * Only files and folders that exist on disk can be renamed or deleted: solutions, projects and filters (virtual folders
   of a `.vcxproj.filters` file) cannot.
 
@@ -716,7 +719,7 @@ number of files (and projects). Escape closes it. There is no settings dialog, s
 
 Not done: adding new or existing files to a project (Include In Project / Exclude From Project), moving a file between
 filters (a drop on a filter), dragging a file onto the editor to open it, dropping files from the file manager, a recycle
-bin or undo for deletes and moves, "External Dependencies", `.10x` workspaces with their own file lists, a tree of
+undo for moves, a recycle-bin delete on macOS, "External Dependencies", `.10x` workspaces with their own file lists, a tree of
 non-C++ projects (a `.csproj` with explicit items works, an SDK-style one shows an empty project), version-control state on
 folders. Visual Studio's richer solution, project and file menus (Build / Rebuild / Clean, Set as Startup Project, Open
 With...) are not in the menu: the research rates them medium-low (VS_BEHAVIOUR C6-C9).

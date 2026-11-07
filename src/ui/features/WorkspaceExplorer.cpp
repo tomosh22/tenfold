@@ -13,6 +13,7 @@
 
 #include "core/JsonUtil.h"
 #include "core/PathUtil.h"
+#include "core/Trash.h"
 #include "semantic/CompileCommands.h"
 #include "semantic/XmlLite.h"
 #include "ui/features/VcsState.h"
@@ -1171,11 +1172,19 @@ void WorkspaceExplorer::erase(const fs::path& path, bool isDir) {
   std::vector<fs::path> gone;
   if (isDir) gone = ws.filesUnder(path);
   std::error_code ec;
-  if (isDir) fs::remove_all(path, ec);
-  else fs::remove(path, ec);
-  if (ec) {
-    say("Cannot delete " + pathUtf8(path.filename()) + ": " + ec.message());
-    return;
+  if (trashSupported(path)) {  // the Recycle Bin / Trash; it never falls back to a permanent delete after asking
+    std::string why;
+    if (!moveToTrash(path, &why)) {
+      say("Cannot move " + pathUtf8(path.filename()) + " to the trash: " + why);
+      return;
+    }
+  } else {
+    if (isDir) fs::remove_all(path, ec);
+    else fs::remove(path, ec);
+    if (ec) {
+      say("Cannot delete " + pathUtf8(path.filename()) + ": " + ec.message());
+      return;
+    }
   }
   if (isDir) {
     for (const fs::path& f : gone) ws.noteFileRemoved(f);
@@ -1207,13 +1216,19 @@ bool WorkspaceExplorer::remove(int node) {
     return false;
   }
   const fs::path path = pathFromUtf8(n.path);
+  const bool trash = trashSupported(path);
   std::vector<std::string> details;
-  if (isDir) details.push_back("The folder and everything in it is deleted.");
+  if (isDir)
+    details.push_back(trash ? "The folder and everything in it is moved."
+                            : "The folder and everything in it is deleted.");
   std::string which;
   if (dirtyUnder(path, isDir, &which)) details.push_back(which + " has unsaved changes that are lost.");
-  details.push_back("This cannot be undone.");
-  prompt_->confirm("'" + n.name + "' will be deleted permanently.", details, "OK",
-                   [this, path, isDir] { erase(path, isDir); });
+  if (!trash) details.push_back("This cannot be undone.");
+  prompt_->confirm("'" + n.name +
+                       (trash ? "' will be moved to the " +
+                                    std::string(nativePathStyle() == PathStyle::Windows ? "Recycle Bin." : "Trash.")
+                              : "' will be deleted permanently."),
+                   details, "OK", [this, path, isDir] { erase(path, isDir); });
   return true;
 }
 

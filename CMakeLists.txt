@@ -39,6 +39,7 @@ add_library(tenfold_core STATIC
   src/core/TextEncoding.cpp
   src/core/Document.cpp
   src/core/PathUtil.cpp
+  src/core/Trash.cpp
   src/core/CrashHandler.cpp
   src/core/Log.cpp
   src/nav/NavigationHistory.cpp
@@ -83,7 +84,7 @@ add_library(tenfold_core STATIC
 target_include_directories(tenfold_core PUBLIC src third_party "${CMAKE_BINARY_DIR}/generated")
 target_link_libraries(tenfold_core PUBLIC Threads::Threads)
 if(WIN32)
-  target_link_libraries(tenfold_core PUBLIC ole32 oleaut32 uuid)
+  target_link_libraries(tenfold_core PUBLIC ole32 oleaut32 uuid shell32)
 endif()
 target_compile_options(tenfold_core PRIVATE ${TENFOLD_WARN_CORE})
 # Commit recorded in the session header of the local log (core/Log.cpp); "unknown" outside a checkout.
@@ -146,6 +147,7 @@ add_executable(tenfold-tests
   tests/test_semantic.cpp
   tests/test_process.cpp
   tests/test_paths.cpp
+  tests/test_trash.cpp
   tests/test_textsearch.cpp
   tests/test_filewatcher.cpp
   tests/test_multicaret.cpp

@@ -54,7 +54,7 @@ decided by the user). Each has a default we implement until answered.
   X9 and row C10 of section 8:* typing in the tree jumps to the next name that starts with the letters (type-ahead, one
   second reset) and Ctrl+; starts the old fuzzy filter; Switch Views (Solution / Folder) and Show All Files; the expanded
   nodes, the selection and both switches are saved in `.tenfold/explorer.json`; the explorer opens by itself the first
-  time a workspace with a solution is started; New File / New Folder / Rename (F2) / Delete (confirmed, permanent) and
+  time a workspace with a solution is started; New File / New Folder / Rename (F2) / Delete (confirmed; to the Recycle Bin / Trash) and
   drag and drop (move with the "Prompt before moving" question, Ctrl copies) that keep the `.vcxproj` / `.filters`
   Include values in step; a read-only Properties page. X1 (External Dependencies, optional), X4 (low: 10x wins) and X10
   (search dropdown, optional) are unchanged, and the medium-low context-menu rows C6-C9 are not done.
@@ -275,9 +275,11 @@ state, so these are choices, taken from Visual Studio's Solution Explorer:
 * **Show All Files (X2).** Applies to the Solution view only; the extra files come from the workspace scan, not from a
   fresh walk of the disk, and are placed in their folders on disk under the project (merged with a filter of the same name).
 * **Delete (X7).** Visual Studio's Delete key in Solution Explorer offers Remove or Delete; tenfold has no "Remove from
-  project only", so Delete means delete from disk **and** from the projects, with the wording "'x' will be deleted
-  permanently." (the Visual Studio text, from memory). VS_BEHAVIOUR says "to the recycle bin"; there is no portable recycle
-  bin API in the code base and the task asked for undo-free operations, so the file is deleted for good.
+  project only", so Delete means delete from disk **and** from the projects. The item goes to the Recycle Bin (Windows,
+  SHFileOperationW with FOF_ALLOWUNDO) or the freedesktop.org Trash (Linux; `src/core/Trash`), with the confirmation
+  "'x' will be moved to the Recycle Bin." / "... Trash." (wording adapted from Visual Studio's, not verified). macOS has
+  no trash here (it needs Objective-C `trashItemAtURL`) and so, like a Linux file system with no usable trash folder,
+  asks "'x' will be deleted permanently." and deletes for good.
 * **Project files are edited as text.** Rename, move and delete change only the `Include="..."` attribute values (and remove
   whole items) in `.vcxproj` and `.vcxproj.filters`; wildcards and items that need other MSBuild properties are left as
   they are. A new file or folder, and a copy, are not added to any project (VS_BEHAVIOUR C8 "Include In Project" is

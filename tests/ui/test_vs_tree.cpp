@@ -5,6 +5,7 @@
 // renderer, EditorApp driven through events like test_w8f_tree.cpp.
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <sstream>
@@ -106,6 +107,9 @@ struct Env {
       }
     }
     fs::create_directories(dir / ".tenfold");
+#ifndef _WIN32
+    setenv("XDG_DATA_HOME", pathUtf8(dir / "xdg").c_str(), 1);  // Delete goes to this Trash, not the user's
+#endif
     if (!settingsText.empty()) spit(dir / ".tenfold" / "settings.txt", settingsText);
     open();
   }
@@ -575,7 +579,9 @@ TEST(vstree_delete_asks_first_and_removes_the_file_and_its_project_item) {
   env.tree().setFocus();
   env.key(Key::Delete);
   REQUIRE(env.popup() != nullptr);
-  CHECK(env.popupHas("'helpers.cpp' will be deleted permanently."));
+#if !defined(_WIN32) && !defined(__APPLE__)
+  CHECK(env.popupHas("'helpers.cpp' will be moved to the Trash."));
+#endif
   env.key(Key::Escape);  // Cancel
   CHECK(fs::exists(helpers));
   env.tree().setFocus();
@@ -583,6 +589,9 @@ TEST(vstree_delete_asks_first_and_removes_the_file_and_its_project_item) {
   REQUIRE(env.popup() != nullptr);
   env.key(Key::Enter);  // OK
   CHECK(!fs::exists(helpers));
+#if !defined(_WIN32) && !defined(__APPLE__)
+  CHECK(fs::exists(env.dir / "xdg" / "Trash" / "files" / "helpers.cpp"));  // recoverable
+#endif
   const std::string proj = slurp(env.dir / "App" / "App.vcxproj");
   CHECK(!contains(proj, "helpers.cpp"));
   CHECK(contains(proj, "src\\main.cpp"));  // the other items are untouched
