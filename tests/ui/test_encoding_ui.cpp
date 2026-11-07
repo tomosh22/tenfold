@@ -341,7 +341,9 @@ TEST(enc_ui_save_with_encoding_is_one_list_with_encoding_and_line_endings) {
   CHECK(env.rows(p) ==
         (std::vector<std::string>{"Save", "Encoding:", "  (*) UTF-8", "  ( ) UTF-8 with signature", "  ( ) UTF-16 LE",
                                   "  ( ) UTF-16 BE", "  ( ) Windows-1252", "Line endings:", "  (*) Current Setting",
-                                  "  ( ) Windows (CR LF)", "  ( ) Macintosh (CR)", "  ( ) Unix (LF)"}));
+                                  "  ( ) Windows (CR LF)", "  ( ) Macintosh (CR)", "  ( ) Unix (LF)",
+                                  "  ( ) Unicode Line Separator (LS)", "  ( ) Unicode Paragraph Separator (PS)",
+                                  "  ( ) Next Line (NEL)"}));
   CHECK_EQ(rowOf(p, "enc:0")->secondary, std::string("current"));
   CHECK_EQ(rowOf(p, "le:0")->secondary, std::string("Unix (LF)"));
   CHECK_EQ(p->rows()[0].secondary, std::string("UTF-8, Current Setting"));

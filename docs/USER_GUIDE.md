@@ -377,7 +377,8 @@ Encodings are handled like Visual Studio does:
 
 Line endings are handled like Visual Studio does:
 
-* LF, CRLF and classic Mac CR are recognised, and **every line keeps its own ending**. A file is saved exactly as it was
+* LF, CRLF, classic Mac CR and the Unicode separators NEL (U+0085), LS (U+2028) and PS (U+2029) are line breaks, as in
+  Visual Studio, and **every line keeps its own ending**. A file is saved exactly as it was
   loaded, also when its lines end in different ways; nothing is normalised behind your back.
 * **Enter** (and every command that adds a line) gives the new line the ending of the line the caret is on
   (`editor.replicateNewLine`); a file without any line break uses `editor.defaultLineEnding`.
@@ -385,17 +386,25 @@ Line endings are handled like Visual Studio does:
   makes the file mixed. **Copy** puts the stored breaks on the clipboard.
 * **Opening a file** whose lines end differently asks "The line endings in the following files are not consistent. Do you
   want to normalize the line endings?" (`editor.checkLineEndings`). The choices are *Yes* with an ending (Windows (CR LF),
-  Unix (LF), Macintosh (CR); the file's most frequent ending is pre-selected) and *No*. Yes rewrites the line endings as
+  Unix (LF), Macintosh (CR), Unicode Line Separator (LS), Unicode Paragraph Separator (PS); the file's most frequent
+  ending is pre-selected) and *No*. Yes rewrites the line endings as
   one edit: the file becomes modified and Undo brings the old endings back. No (or Escape) opens the file as it is. The
   question is asked when the file is opened, never while typing or pasting.
-* The **status bar** shows the document's line ending (`CRLF`, `LF` or `CR`; a mixed file shows its most frequent
-  one). Clicking it (or right-clicking) offers Windows (CR LF), Unix (LF) and Macintosh (CR): the whole document is
-  converted as one undoable edit. **Save with Line Endings...** (`File.SaveWithLineEndings`, also in that menu) is Visual
-  Studio's Advanced Save Options: Current Setting / Windows (CR LF) / Macintosh (CR) / Unix (LF); the choice converts the
-  document and saves it. `Editor.LineEndingLF`, `Editor.LineEndingCRLF` and `Editor.LineEndingCR` run the same
-  conversions from the command palette; none has a default key.
-* Not like Visual Studio: the Unicode separators NEL, LS and PS are not line breaks here (clangd does not treat them as
-  such), and `.editorconfig` `end_of_line` is not read.
+* The **status bar** shows the document's line ending (`CRLF`, `LF`, `CR`, `NEL`, `LS` or `PS`; a mixed file shows its
+  most frequent one). Clicking it (or right-clicking) offers Windows (CR LF), Unix (LF), Macintosh (CR), Unicode Line
+  Separator (LS), Unicode Paragraph Separator (PS) and Next Line (NEL): the whole document is converted as one undoable
+  edit. **Save with Line Endings...** (`File.SaveWithLineEndings`, also in that menu) is Visual Studio's Advanced Save
+  Options: Current Setting / Windows (CR LF) / Macintosh (CR) / Unix (LF) and the Unicode separators; the choice converts
+  the document and saves it. `Editor.LineEndingLF`, `Editor.LineEndingCRLF`, `Editor.LineEndingCR`, `Editor.LineEndingLS`,
+  `Editor.LineEndingPS` and `Editor.LineEndingNEL` run the same conversions from the command palette; none has a default
+  key. Windows-1252 has no NEL, LS or PS, so a document that ends lines with them cannot be saved in that encoding.
+* **NEL, LS and PS and the language server.** The editor counts them as line breaks (status bar line and column, find,
+  replace in files, Go To Line), but the compiler does not: a `//` comment continues past an LS, and clangd numbers its
+  lines without them. tenfold converts every position between the two, so go to definition, references, rename,
+  diagnostics, semantic colours and the rest land on the line the editor shows. A document that contains them is sent to
+  clangd as a whole after each edit instead of as small changes. The regular expression search treats only CR and LF as
+  line ends for `^`, `$` and `.`; the lines and columns it reports are the editor's.
+* Not like Visual Studio: `.editorconfig` `end_of_line` is not read.
 
 **Carets.** Shift+Alt+Up / Down (`MultiCursorMoveUp` / `Down`) add a caret above / below, **Ctrl+D** (`SelectNextMultiCursor`) selects the word under the caret and then adds the
 next occurrence, **Ctrl-click** adds a caret, **Alt-click** adds a caret and **Alt-drag** makes a column selection,

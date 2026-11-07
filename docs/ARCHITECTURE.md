@@ -996,16 +996,23 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   `Editor::saveWithEncoding`); `SaveRefusedDialog::saveWithEncoding` is its row for one refused file. `Workbench::
   refreshStatus` sets the "encoding" segment from `encodingLabel(doc.encodingChoice())`; `EditorApp` opens the menu
   (`statusMenuEntries("encoding")`) on a click. `.editorconfig` `charset` is not read (tenfold reads no `.editorconfig`).
-* *Line endings (W10, like Visual Studio: docs/VS_BEHAVIOUR.md section 1).* A line ends at `\r\n`, `\n` or a lone `\r`
-  (clang's rule) in `TextBuffer::setText` and in text passed to `replace()` / `replaceMany()`, in the fast lexer, in
-  find-in-files (`TextSearch`, `ReplaceInFiles`), in `vcs::splitLines` and in the corpus anchor scanner. NEL / LS / PS
-  are not line ends (clang and clangd do not treat them as such, columns would diverge): VS does, a documented
-  deviation. **Every line keeps its own terminator.** Representation: `base_` (the ending of every line while the
+* *Line endings (W10, like Visual Studio: docs/VS_BEHAVIOUR.md section 1).* A line ends at `\r\n`, `\n`, a lone `\r`,
+  NEL (U+0085, `C2 85`), LS (U+2028, `E2 80 A8`) or PS (U+2029, `E2 80 A9`), exactly like Visual Studio's editor (user
+  decision 2026-11-07). `LineEnding` is `{LF, CRLF, CR, NEL, LS, PS}`. One finder, `linebreak::BreakFinder`
+  (`core/LineBreaks.h`: memchr for `\n`, and cached next positions of `\r`, `C2 85` and `E2 80 A8/A9`, so a text without
+  them costs one extra pass), is shared by `TextBuffer::setText` / `replace()` / `replaceMany()` / `countBreaks` /
+  `withLineEnding`, find-in-files (`TextSearch`'s `LineTracker`, `ReplaceInFiles`), `vcs::splitLines` (it uses
+  `TextBuffer`), the multi-caret paste split, the corpus anchor scanner and the engine's closed-file line readers. The
+  fast lexer (`CppLexer`) keeps clang's rules for comments, strings and directives (a `//` comment goes on past an LS)
+  but counts NEL / LS / PS as line breaks in the line and column of every token (`place()`), so a symbol after one has the
+  position the editor shows. A Windows-1252 file cannot contain them (its byte 0x85 decodes to U+2026) and such a
+  document cannot be saved as Windows-1252 (`Document::findUnencodable` lists the terminators); a UTF-16 file can.
+  **Every line keeps its own terminator.** Representation: `base_` (the ending of every line while the
   document is uniform: no per-line storage, the usual case) and, as soon as a second kind appears, `ends_`, one byte
   per line parallel to `lines_` (the last entry is unused: the last line has no terminator). `replace()` interprets the
   breaks of the inserted text literally (CRLF, LF, CR) and stores them; the new last line of an edit keeps the old
   last line's terminator, so joining two lines keeps the later one's. `lineEnding()` is the dominant ending (ties: LF,
-  then CRLF; cached counts), `mixedLineEndings()` tells whether the terminators differ, `textForDisk()` writes what is
+  then CRLF, CR, NEL, LS, PS; cached counts), `mixedLineEndings()` tells whether the terminators differ, `textForDisk()` writes what is
   stored. `Document` records undo text with `textInRangeRaw` (real breaks), so undo restores a mixed file byte for
   byte; `Document::convertLineEndings(e)` rewrites only the terminators that differ, as one undo step (the load
   dialog's Yes, the status bar menu and Save with Line Endings all use it; the line structure does not change, so
@@ -1022,9 +1029,34 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   document's real line endings (CRLF lines are sent with CRLF, LF lines with LF, so for the usual files the buffer
   clangd parses is the file on disk; W9e finding 4), and incremental changes get their new text converted the same way
   (`TextBuffer::lspText`). A lone CR is sent as LF, because clangd's LSP layer finds lines at `\n` only (positions,
-  edits) while clang's preprocessor also ends them at a lone `\r`. Line numbers and columns are identical for every
-  ending.
-* *Positions from clangd.* For an open document clangd saw the same UTF-8 text, so columns map directly. For a
+  edits) while clang's preprocessor also ends them at a lone `\r`. Line numbers and columns are identical for those
+  endings. **NEL / LS / PS** are sent as the characters they are (clang and clangd do not end lines there: a `//`
+  comment goes on past an LS), so for a document that has them clangd's lines are the editor's lines glued together at
+  the separators and every position that crosses the boundary goes through `LspLineMap` (`core/LspLineMap.h`).
+  *The map.* `LspLineMap::build(buffer)` returns null for a document without separators (the common case: no map, the
+  editor's line is clangd's line and only the column is converted, as before). Otherwise it is an immutable snapshot of
+  the *runs* (groups of consecutive editor lines that form one clangd line): per run its first editor line, its clangd
+  line, the number of separators before it, and per editor line of a run its offset inside the clangd line in UTF-8 bytes
+  and in UTF-16 units (the separator counts 1 unit, or its 2 / 3 bytes). Lines outside runs only move by the number of
+  separators before them. `toServer(p)` (editor line, byte column -> clangd line, column) and `fromServer(q)` are binary
+  searches over the runs plus the usual byte/UTF-16 column conversion of the one line; a column inside or after a
+  separator clamps to the end of the editor line. The engine keeps the snapshot of what it last sent per open document
+  (`SemanticEngine::lspMaps_`, updated in `didOpen` / `didChange` by `noteLspText`, one atomic load when no document has
+  separators) and uses it for *every* position: `toServer(doc, pos)` for requests (definition, declaration, references,
+  hover, completion, signature help, rename, highlights, hierarchies, code actions, formatting ranges, inlay hints),
+  `serverPosition(file, pos)` for requests about a file by path, `posFromServer(uri, pos)` for every location, range,
+  edit, diagnostic, symbol and folding range that comes back, and `decodeTokens` for semantic tokens (a token that spans
+  a separator becomes one span per editor line). A file that is not open is read and decoded when it has separators
+  (`diskSeparators`, cached by mtime and size; Windows-1252 and UTF-16 files never have any), and the engine's own line
+  readers (`readLineOfFile`, `splitTextLines`, `classifyReferences`) split closed UTF-8 files at the editor's breaks.
+  *Incremental changes.* With UTF-8 offsets the engine sends `didChange` ranges; a range is in the coordinates of the
+  text before the edit, which the map (built from the text after it) does not describe, so a change that removes or
+  inserts a separator (`Document::Change::separators`, set for a whole batch) or any change to a document that has
+  separators is sent as a full-text change. Without separators nothing changes. The fast index is fed
+  `TextBuffer::textForIndex()` (real breaks as `\n`, separators as characters) so it agrees with clang about comments and
+  with the editor about lines.
+* *Positions from clangd.* For an open document clangd saw the same UTF-8 text, so columns map directly (through
+  `LspLineMap` when it has NEL / LS / PS, see above). For a
   Windows-1252 file that is not open, clangd reads the raw bytes from disk and its byte columns are converted
   (`SemanticEngine::posFromServer`, `diskEncoding`). Known gap: a Windows-1252 file that is open in tenfold but whose
   answer comes from clangd data computed from the disk bytes (a stale preamble or the background index) can report raw
