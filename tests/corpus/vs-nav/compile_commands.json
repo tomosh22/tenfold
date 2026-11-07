@@ -1,0 +1,3 @@
+[
+ {"directory":"@CORPUS_ROOT@","file":"src/main.cpp","arguments":["clang++","-std=c++20","-Iinclude","-Ilib","-c","src/main.cpp"]}
+]

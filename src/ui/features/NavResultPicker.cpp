@@ -38,8 +38,8 @@ void NavResultPicker::show(const std::string& title, Confidence c, const std::ve
   std::vector<ListRow> rows;
   rowLoc_.clear();
   int preferred = -1;
-  // Find All References (VS_BEHAVIOUR N5): the engine ordered the answer definitions first, then by file, and gave every
-  // place a role. Group headings (Definition, then one per file) and the columns Line:Col, Code, Read / Write.
+  // Find All References (VS_BEHAVIOUR N5): the engine ordered the answer definitions first, then by file, and gave
+  // every place a role. Group headings (Definition, then one per file) and the columns Line:Col, Code, Read / Write.
   const bool grouped = std::any_of(locs.begin(), locs.end(), [](const SymbolLocation& l) { return !l.role.empty(); });
   std::string group;
   size_t files = 0;
@@ -86,11 +86,10 @@ void NavResultPicker::show(const std::string& title, Confidence c, const std::ve
     rowLoc_.push_back(static_cast<int>(i));
   }
   if (choice) popup_->setMaxVisibleRows(static_cast<int>(std::min<size_t>(rows.size(), 10)));
-  popup_->setTitle(choice ? title + ": choose the target"
-                   : grouped
-                       ? title + " (" + std::to_string(locs_.size()) + " in " + std::to_string(std::max<size_t>(files, 1)) +
-                             (files > 1 ? " files)" : " file)")
-                       : title + " (" + std::to_string(locs_.size()) + ")");
+  popup_->setTitle(choice    ? title + ": choose the target"
+                   : grouped ? title + " (" + std::to_string(locs_.size()) + " in " +
+                                   std::to_string(std::max<size_t>(files, 1)) + (files > 1 ? " files)" : " file)")
+                             : title + " (" + std::to_string(locs_.size()) + ")");
   popup_->setStatus(confidenceBadge(c, err));
   popup_->setRows(std::move(rows), std::max(0, preferred));
   const int at = keep.empty() ? -1 : popup_->indexOfKey(keep);

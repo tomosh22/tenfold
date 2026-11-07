@@ -250,17 +250,42 @@ row accepts it, a click outside closes it.
 | Keys | What |
 | --- | --- |
 | **Control O** (`OpenFile`) or **Shift Alt O** (`FindFile`); tenfold `File.OpenFile` | Open a file by fuzzy name. The file name weighs four times as much as the rest of the path; recently used files come first and lead the empty list. Several words must all match. Opening is a tab switch, not a history jump. |
-| **Ctrl+,** (`Search.SymbolSearch`) | Workspace symbol search: fuzzy and qualified (`geo::Tr`). Approximate rows appear at once and are replaced by clangd's; the right pane previews the target line (`picker.preview`). Enter jumps and records history. |
+| **Ctrl+,** (`Search.SymbolSearch`) | Workspace symbol search: fuzzy and qualified (`geo::Tr`). Approximate rows appear at once and are replaced by clangd's; the right pane previews the target line (`picker.preview`); the **Preview: on/off** switch in the header (click, or **Alt+P**) hides or shows it, like the eye of Visual Studio's Code Search, and the choice is kept until the settings are read again. The function picker has the same switch. Enter jumps and records history. |
 | **Ctrl+Shift+F** (`Search.FindInWorkspace`) | Find in files. Results stream in grouped by file with the match highlighted. **Alt+C** case, **Alt+W** whole word, **Alt+R** regex (PCRE2). Add file globs after ` :: `, for example `foo :: *.cpp, !third_party` (`!` excludes). A single-line selection seeds the query. Open buffers are searched with their unsaved text. |
 | **Ctrl+Shift+H** (`ReplaceInFiles`; tenfold `Search.ReplaceInFiles`) | Replace in files: the find-in-files query (same options and globs) plus a **replace field** (Tab switches fields). The matches are a checklist grouped by file; each row shows the line with the old text struck and the replacement after it, so the list is the preview. **Insert** checks / unchecks the row (a file row: all its matches), **Alt+T** all / none, a click on the box too. **Enter** replaces the checked matches: open documents are edited in place (one undo step per document, left unsaved), files that are not open are rewritten on disk after **one confirmation** (Enter again; Escape goes back). The replacement is literal text (no `$1`), and a match whose line changed since the search is skipped and counted in the message. |
 | **F4** / **Shift F4** (`GotoNextResult` / `GotoPrevResult`) | Next / previous result of the last search or build, whichever started last: a find-in-files result (wrapping, even after the popup is closed; files with matches get marks on the scrollbar) or, after a build, an error or warning with a source location (as **F8** / **Shift F8**, which always walk the build). |
-| `View.ShowDiagnostics` (no default key; command palette) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. |
-| **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list. Through a `using` declaration, a `typedef` / alias and on a constructor call the list is a small **chooser at the caret** (below). |
+| `View.ShowDiagnostics` (no default key; command palette) | List of the diagnostics of the open files (clangd) and of the last build, errors first; type to filter. clangd only reports files that are open, and the list says so. Files that belong to no translation unit (not in the compile database, not included by one of its files) have no squiggles and are not listed, like Visual Studio's Miscellaneous Files; `diagnostics.miscFiles` turns them on. |
+| **F12**, **Ctrl+F12**, **Shift+F12** | Go to definition, declaration, find all references. One definition: jump at once. Several: a list. References always show a list, [grouped](#find-all-references-list). Through a `using` declaration, a `typedef` / alias and on a constructor call the list is a small **chooser at the caret** (below). On an `#include "x.h"` / `#include <x>` line F12 (or Ctrl+F12, or the middle mouse button) opens the file, like Visual Studio's Go To Document ([below](#go-to-document-on-an-include)). |
 | **Alt O** (`CppParser.ToggleSourceHeader`) | Switch between header and source (clangd's answer, else by file name). |
 | **Ctrl+G** (`Editor.GotoLine`) | Go to line: `42` or `42:7` (line:column, 1-based). Numbers past the end go to the last line. Recorded in the history. |
 | **Ctrl+F** / **Ctrl+H** | Find / replace in the current file (see [Editing](#editing)). |
 | **Ctrl+Alt+B** | Breakpoint list (see [Debugging](#debugging-through-visual-studio)). |
 | `Editor.ListBookmarks` (no default key; command palette) | Bookmark list (see [Editing](#editing)). |
+
+### Go to document on an `#include`
+
+With the caret anywhere on an `#include "x.h"`, `#include <x.h>`, `#include_next` or `#import` line, **F12** (Go To
+Definition), **Ctrl+F12** (Go To Declaration) and the middle mouse button (`GotoSymbolDefinitionUnderMouse`) open the file
+the compiler would pick and put the caret at its first line, recorded in the navigation history (Back returns). The file
+is found the way the compiler looks: for `"x.h"` the directory of the including file first, then the `-iquote`, `-I`,
+`-isystem` (clang-cl `/I`, `/imsvc`) directories of the file's compile command (a header that is only included uses the
+command of the translation unit that includes it); `<x.h>` skips the including file's directory. This answer is exact, so
+it is instant and carries no `verifying...` mark. A spelling on no search path (a system header, a file the project does
+not list) is looked up in the workspace by its path tail, nearest to the including file first (greyed, approximate), and
+clangd is asked for the rest. Nothing is found for an include that does not exist: the status bar says `No results`.
+(Visual Studio: F12 on an `#include` line, VS_BEHAVIOUR N1.)
+
+### Find All References list
+
+Shift+F12 lists the places grouped like Visual Studio's "Definition, then Path" grouping: first a **Definition** heading with
+the declarations and definitions of the name, then one heading per file in path order, each with its count. A row shows
+**Line:Col**, the source line and what the place does: **Write** (assigned, `+=`, `++` / `--`, also through `a[i] =`),
+**Read** (any other use of the value), **Definition**, or **Other** (a preprocessor line other than a condition, `using`,
+`typedef`, `namespace`, `class`, `struct`, `enum`). Read and Write are read from the text of the line (clangd does not send
+them for every symbol), so a function call is a Read and an argument passed by reference is a Read. The title counts the
+places and files. Headings are skipped by the arrow keys. Enter or a click (preview tab, `tabs.previewFromFindResults`) goes
+to the place. What the Visual Studio window has beyond this (Group by menu, scope list, filter, Keep Results, checkboxes,
+results that arrive while clangd is still searching) is not done; the list is a modal picker.
 
 ### Go to definition: choosing the target
 
@@ -870,7 +895,8 @@ tests.)
 | `ui.theme` | `vs-dark` | string | Theme name: `.tenfold/themes/<name>.txt` in the workspace, then `themes/<name>.txt` in the user config folder, then the built-ins `dark`, `light`, `vs-dark`. |
 | `nav.statusCounts` | `false` | bool | Show the back and forward counts in the status bar (an arrow with the number of entries in each direction). |
 | `keys.import10x` | `true` | bool | On Windows, read the 10x key mappings file `%APPDATA%\10x\Settings\KeyMappings.10x_settings` as a key-binding layer. |
-| `picker.preview` | `true` | bool | Symbol search shows a preview of the target line on the right (10x documents nothing about it, OPEN_QUESTIONS #6). |
+| `picker.preview` | `true` | bool | Symbol search and the function picker show a preview of the target line on the right (10x documents nothing about it, OPEN_QUESTIONS #6). The "Preview" switch in the picker's header (Alt+P) changes it for the session. |
+| `diagnostics.miscFiles` | `false` | bool | Show clangd's squiggles and diagnostics in files that belong to no translation unit of the project (not in the compile database and not included by one of its files). `false` is Visual Studio's rule for "Miscellaneous Files": IntelliSense, but no error squiggles. Without a compile database nothing counts as such a file. |
 | `explorer.trackActiveFile` | `false` | bool | Keep the active file selected in the workspace explorer while it is open (10x: TrackActiveFileInWorkspaceTree). |
 | `explorer.openWithSolution` | `true` | bool | Open the workspace explorer the first time a workspace with a solution is started (no `.tenfold/layout.json` yet), like Solution Explorer. |
 | `explorer.dragDrop` | `true` | bool | Dragging in the explorer moves (Ctrl: copies) files and folders (10x: EnableWorkspaceTreeDragDrop, default true). |

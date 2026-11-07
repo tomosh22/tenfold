@@ -947,3 +947,155 @@ TEST(pickers_golden_symbol_search_over_editor) {
   }
   CHECK(bad <= golden.size() / 4 / 500);
 }
+
+// ---------------------------------------------------------------------------------------------------------------
+// VS-NAV: the preview switch of the pickers (VS_BEHAVIOUR P1) and the grouped Find All References list (N5)
+// ---------------------------------------------------------------------------------------------------------------
+
+TEST(vsnav_symbol_search_preview_switch_hides_and_shows_the_pane_by_click_and_alt_p) {
+  AppEnv env;
+  env.open("src/main.cpp");
+  env.fakeSymbols();
+  env.key(Key(','), ModCtrl);
+  ListPopup* p = env.popup();
+  REQUIRE(p != nullptr);
+  CHECK(p->previewEnabled());
+  env.type("x");
+  env.pendingQueries.back().second(
+      Confidence::Authoritative, {sym(env, "src/alpha.cpp", 1, "AlphaShape", "struct", Confidence::Authoritative)}, "");
+  env.frame();
+  REQUIRE(!p->previewContent().lines.empty());
+  const RectF sw = p->previewToggleRect();
+  CHECK(sw.w > 0 && sw.h > 0);
+  // A click on the switch turns the pane off; the popup stays open and the row stays selected.
+  env.send(click(sw.x + sw.w / 2, sw.y + sw.h / 2));
+  REQUIRE(env.popup() == p);
+  CHECK(!p->previewEnabled());
+  CHECK_EQ(p->rows().size(), size_t(1));
+  // Alt+P turns it on again and fills the pane for the selected row at once.
+  CHECK(env.key(Key('p'), ModAlt));
+  CHECK(p->previewEnabled());
+  CHECK(!p->previewContent().lines.empty());
+  // Off again, then closed: the next picker starts with the pane off (kept for the session) ...
+  env.key(Key('p'), ModAlt);
+  CHECK(!p->previewEnabled());
+  env.key(Key::Escape);
+  env.key(Key(','), ModCtrl);
+  p = env.popup();
+  REQUIRE(p != nullptr);
+  CHECK(!p->previewEnabled());
+  env.key(Key::Escape);
+  // ... until the setting is read again.
+  Settings st;
+  st.loadTexts("picker.preview = true\n", "");
+  env.app->applySettings(st);
+  env.key(Key(','), ModCtrl);
+  p = env.popup();
+  REQUIRE(p != nullptr);
+  CHECK(p->previewEnabled());
+}
+
+TEST(vsnav_function_picker_has_the_same_preview_switch) {
+  AppEnv env;
+  env.open("src/alpha.cpp");
+  env.app->runCommand("Editor.FindFunction");
+  ListPopup* p = env.popup();
+  REQUIRE(p != nullptr);
+  CHECK(p->previewToggleRect().w > 0);
+  const bool before = p->previewEnabled();
+  env.key(Key('p'), ModAlt);
+  CHECK(p->previewEnabled() == !before);
+}
+
+TEST(vsnav_popup_header_rows_are_never_selected_or_accepted) {
+  AppEnv env;
+  env.open("src/main.cpp");
+  auto* raw = new ListPopup(false);
+  std::unique_ptr<ListPopup> up(raw);
+  int accepted = -1;
+  raw->onAccept([&](int r) { accepted = r; });
+  std::vector<ListRow> rows;
+  auto add = [&](const char* text, bool header) {
+    ListRow r;
+    r.key = text;
+    r.primary = text;
+    r.header = header;
+    rows.push_back(r);
+  };
+  add("h1", true);
+  add("a", false);
+  add("b", false);
+  add("h2", true);
+  add("c", false);
+  ListPopup::open(*env.bench, std::move(up));
+  raw->setRows(rows, 0);  // 0 is a heading: the first row that can be chosen is selected
+  CHECK_EQ(raw->selected(), 1);
+  env.key(Key::Down);
+  CHECK_EQ(raw->selected(), 2);
+  env.key(Key::Down);  // over the heading
+  CHECK_EQ(raw->selected(), 4);
+  env.key(Key::Down);
+  CHECK_EQ(raw->selected(), 4);
+  env.key(Key::Up);
+  CHECK_EQ(raw->selected(), 2);
+  env.key(Key::Home, ModCtrl);
+  CHECK_EQ(raw->selected(), 1);
+  env.key(Key::End, ModCtrl);
+  CHECK_EQ(raw->selected(), 4);
+  // A click on a heading does nothing; a click on a row accepts it.
+  const RectF h = raw->rowRect(3);
+  env.send(click(h.x + 20, h.y + h.h / 2));
+  CHECK_EQ(accepted, -1);
+  CHECK(env.popup() == raw);
+  env.key(Key::Enter);
+  CHECK_EQ(accepted, 4);
+}
+
+TEST(vsnav_find_all_references_list_is_grouped_definition_first_then_by_file) {
+  AppEnv env;
+  env.open("src/main.cpp");
+  auto ref = [&](const char* file, int line, int col, const char* role) {
+    SymbolLocation s;
+    s.loc.file = env.dir / file;
+    s.loc.pos = {line, col};
+    s.role = role;
+    return s;
+  };
+  const size_t base = env.ed->navigation().entries().size();
+  env.app->navResults().show("Find All References", Confidence::Authoritative,
+                             {ref("src/alpha.cpp", 0, 4, "Definition"), ref("src/alpha.cpp", 2, 4, "Write"),
+                              ref("src/beta.cpp", 1, 4, "Read"), ref("src/beta.cpp", 3, 4, "Other")},
+                             "", 1);
+  env.frame();
+  ListPopup* p = env.popup();
+  REQUIRE(p != nullptr);
+  CHECK_EQ(p->title(), std::string("Find All References (4 in 2 files)"));
+  // Definition heading + its row, src/alpha.cpp heading + 1, src/beta.cpp heading + 2.
+  REQUIRE_EQ(p->rows().size(), size_t(7));
+  CHECK(p->rows()[0].header);
+  CHECK_EQ(p->rows()[0].primary, std::string("Definition"));
+  CHECK_EQ(p->rows()[0].detail, std::string("1"));
+  CHECK(!p->rows()[1].header);
+  CHECK_EQ(p->rows()[1].primary, std::string("1:5"));  // Line:Col, 1-based
+  CHECK_EQ(p->rows()[1].badge, std::string("Definition"));
+  CHECK_EQ(p->rows()[1].detail, std::string("src/alpha.cpp:1"));  // the file is in the row, not in a heading
+  CHECK(p->rows()[2].header);
+  CHECK_EQ(p->rows()[2].primary, std::string("src/alpha.cpp"));
+  CHECK_EQ(p->rows()[2].detail, std::string("1"));
+  CHECK_EQ(p->rows()[3].badge, std::string("Write"));
+  CHECK(p->rows()[4].header);
+  CHECK_EQ(p->rows()[4].primary, std::string("src/beta.cpp"));
+  CHECK_EQ(p->rows()[4].detail, std::string("2"));
+  CHECK_EQ(p->rows()[5].badge, std::string("Read"));
+  CHECK_EQ(p->rows()[6].badge, std::string("Other"));
+  CHECK(p->rows()[1].secondary.find("dup") != std::string::npos);  // the source line
+  CHECK_EQ(p->selected(), 1);                                      // the first place, not the heading
+  // Enter on the 'Write' row goes to alpha.cpp line 3 through gotoLocation (history).
+  env.key(Key::Down);
+  CHECK_EQ(p->selected(), 3);
+  CHECK(env.key(Key::Enter));
+  CHECK(env.popup() == nullptr);
+  CHECK_EQ(env.curFile(), std::string("alpha.cpp"));
+  CHECK_EQ(env.ed->cursor().pos.line, 2);
+  CHECK(env.ed->navigation().entries().size() > base);
+}

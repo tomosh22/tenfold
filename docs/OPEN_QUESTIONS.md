@@ -10,7 +10,7 @@ decided by the user). Each has a default we implement until answered.
 | 3 | Undo grouping: does 10x undo a whole typed word or one character? And does a typed space end the word it follows (so "hello world" undoes as "world", then "hello ") or start the next one? | **Still open: the 10x documentation does not describe undo grouping** (Undo: "Undo the last operation"). Meanwhile: word-level grouping with 1 s pause boundary; whitespace joins and then closes the current step. Settings `undoGrouping` ("word"/"char") and `undoGroupPauseMs` in `.tenfold/workspace.json` | A5 |
 | 4 | Does 10x soft-wrap long lines by default? Smooth scrolling? | **Answered:** word wrap on by default, smooth scrolling off by default (`editor.wordWrap`, `editor.smoothScroll`) | B2c |
 | 5 | Tab/panel behaviours: pinned tabs, MRU Ctrl+Tab order, drag between panels. Also: does closing the last tab of a panel close the panel? Does closing a dirty tab prompt to save? Does split duplicate the current tab or move it? | **Answered from the 10x documentation:** pinned tabs exist (commands PinTab, CloseAllButPinnedTabs); Ctrl+Tab opens a switch-file panel over all files by default (setting SwitchFileMode = All, or only the current panel's files); duplicating a panel exists (DuplicatePanel, DuplicatePanelLeft / Right), which fits "split duplicates the active tab"; closing a modified file prompts to save, since RestoreUnsavedFiles is false by default ("If true then it won't prompt to save unsaved files") = `editor.confirmUnsaved` true. **Still open (docs silent):** MRU order of the switch panel, whether an emptied panel closes, drag between panels, and files changed on disk. tenfold: all three tab behaviours implemented; an emptied panel auto-closes after a drag but not after a manual close; split duplicates the active tab. Save prompt (P2): closing the last view of a modified tab, closing the window and quitting ask Save / Don't Save / Cancel (setting `editor.confirmUnsaved`, default true); **VS-TABS (2026-11-06, Visual Studio per the user's decision): several modified documents (quit, Close All, Close All But This / Pinned, Close Panel) get one list dialog "Save changes to the following items?" with Yes / No / Cancel (VS_BEHAVIOUR T6).** Files changed on disk (P2, 10x says nothing): **VS-TABS (VS_BEHAVIOUR T9): the question "The file X has been modified outside of the source editor. Do you want to reload it?" with Yes / Yes to All / No / No to All, settings `editor.detectExternalChanges` (true) and `editor.reloadUnlessUnsaved` (false); the P2 setting `editor.reloadExternalChanges` (`auto` \| `prompt` \| `never`, was `auto`) is now an optional override, empty by default.** Also VS-TABS: MRU switch panel on Ctrl+Tab (T1), preview tab (T2), pinned boundary (T11), Ctrl+K Ctrl+Z (T12). | B3 |
-| 6 | Does symbol search show a preview of the target line? | **Still open: the 10x documentation does not say** (FindSymbol: "Find a symbol in the workspace"; the only related setting is FindSymbolFuzzyMatching, default true, which tenfold's search already does). Meanwhile yes (`picker.preview`) | B5 |
+| 6 | Does symbol search show a preview of the target line? | **Still open: the 10x documentation does not say** (FindSymbol: "Find a symbol in the workspace"; the only related setting is FindSymbolFuzzyMatching, default true, which tenfold's search already does). Meanwhile yes (`picker.preview`). **VS-NAV (VS_BEHAVIOUR P1, implemented):** the pickers have a "Preview: on/off" switch in the header (click or Alt+P), like the eye of Visual Studio's Code Search | B5 |
 | 7 | Default theme colours and font (screenshots of your 10x would be ideal) | **Answered:** dark theme that looks as close to Visual Studio (2022 Dark) as possible: `vs-dark` theme is the default | B7b |
 | 8 | Which editing conveniences you rely on (auto-close brackets, comment toggle, bookmarks, ...) and how 10x behaves for each | **Partly answered from the 10x documentation (B8b):** the editing defaults now follow 10x's settings, see the list below (each item names the 10x setting or says the documentation is silent); the rest of the question (which conveniences you rely on) stays open | B8, B8b |
 | 9 | How you debug from 10x (external debugger launch vs integrated) | **Answered:** strong integration with the Visual Studio debugger (drive VS through its automation interface: start/stop/step, breakpoints synced both ways, follow the current statement) | C2a–C2c |
@@ -67,6 +67,12 @@ decided by the user). Each has a default we implement until answered.
   "Untitled N"), Z19 `editor.useEditorConfig` (`.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` on save;
   no Microsoft source found that VS applies them on save). Not changed: Z2, Z3, Z5, Z6 (user decision), Z9 (10x's Alt+R),
   Z10, Z12, Z13, Z18.
+  *Implemented for navigation (VS-NAV), see docs/VS_BEHAVIOUR.md sections 6, 10 and 13 and "VS-NAV detail" below:* P1 the
+  symbol search / function picker preview switch; N1 Go To Document on an `#include` line (F12, Ctrl+F12 and the 10x
+  middle-click open the file; the 10x keys already matched Visual Studio's F12 / Ctrl+F12 / Shift+F12); N5 (partly) the
+  Find All References list is grouped (Definition, then per file) with Line:Col and Read / Write / Definition / Other;
+  I5 `diagnostics.miscFiles` (false): no squiggles in files that are in no translation unit. Not done: P2 (optional), I4
+  and I1 (medium-low), N2, N3, N6, N7, N9 (low), N4 and N8 (no change by design), I6 (cosmetic).
 
 ### W10-CHOOSE: how the two choosers were implemented (and what was decided where the decision said nothing)
 
@@ -592,3 +598,34 @@ Nothing here blocks the work; these are the assumptions to confirm.
 * **Off Windows the `.sln` route uses the host's standard library**, with `-m32`/`-m64` dropped, `_MSC_VER=1933` defined
   and `-fms-extensions` on. Verified with libstdc++ on Linux; macOS (libc++, `-isysroot`) is wired the same way but was
   not run. The Windows SDK (`<windows.h>`) stays unavailable there.
+
+## VS-NAV detail: navigation like Visual Studio (VS_BEHAVIOUR sections 6, 10, 13)
+
+What was decided where Visual Studio's behaviour was not certain, and what stays on the verification checklist.
+
+* **Go To Document (N1) takes the whole directive.** The caret may be anywhere from the `#` to just after the closing
+  delimiter, also on the word `include`; VS documents only that Go To Document works on an `#include` line, not the exact
+  caret range. Applies to Go To Definition and Go To Declaration (both are "the file" there); Go To Type Definition and
+  Find All References are unchanged. The answer is **authoritative at once** when the include search path of the
+  includer's compile command finds the file (it is a file-system fact, not a parse); only a spelling on no search path is
+  approximate (workspace file whose path ends with the spelling, nearest first) and then asked of clangd. The caret goes to
+  line 1, column 1. A missing header answers nothing ("No results"). A context-menu item "Open Document" (VS has one on the
+  editor menu) is not added: menus belong to VS-MENUS.
+* **Find All References (N5).** VS's default grouping is "Project, then Definition"; tenfold has no projects in the list, so
+  "Definition, then Path" (one of VS's own groupings) is used. The "Definition" group holds the places where the fast index
+  has a declaration or definition of that name on that line. Read / Write is derived from the line's text (VS_BEHAVIOUR N5
+  says only that the C++ column is Read/Write/Other): Write = assigned, compound-assigned, incremented / decremented (also
+  through subscripts), Other = preprocessor lines (not conditions), using / typedef / namespace / class / struct / enum
+  lines, Read = the rest. **Verify against VS (checklist V10):** how VS classifies calls, declarations and type uses.
+  The incremental delivery, scope list, filter, Keep Results and the Disconfirmed class are not done (a modal picker, clangd
+  has no "disconfirmed").
+* **Misc files (I5).** "A file in no translation unit" = no entry of the compile database for it, no TU context for it and
+  not reachable by #include (resolved like `compdb::filesReachableFrom`, every #if branch counts) from any entry. With no
+  compile database nothing is a misc file. While the fast index is still reading, nothing is (squiggles stay). The rule
+  hides the clangd diagnostics and the build diagnostics are untouched. Default false = VS; `true` shows them.
+* **Preview switch (P1).** VS's switch is an eye icon; tenfold writes "Preview: on/off" (no icon font is assumed). The state
+  is kept for the session (not written to the settings file); reading the settings again (a change in the file) resets
+  it to `picker.preview`.
+* **Not changed on purpose:** F12 on a definition (N2) and with several candidates (N3) stay as they are (low confidence in
+  VS's behaviour, checklist V9); virtual-function references (N6) and range-for begin/end (N7) stay clangd's; Alt+F12 Peek
+  is not bound (10x has no Peek; N4 "keep").

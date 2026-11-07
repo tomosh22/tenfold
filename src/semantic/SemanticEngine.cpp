@@ -2602,8 +2602,12 @@ bool SemanticEngine::gotoInclude(const Document& doc, Position pos, LocationsCal
     l.name = pathUtf8(file.filename());
     l.kind = "file";
     l.confidence = c;
-    std::error_code ec;
-    l.extent = Range{Position{0, 0}, Position{0, 1}};  // the top of the file; the first line counts as the target
+    // The top of the file: the extent is its first line, so "the target is the file" holds whatever token starts it.
+    std::ifstream in(file, std::ios::binary);
+    std::string first;
+    std::getline(in, first);
+    if (!first.empty() && first.back() == '\r') first.pop_back();
+    l.extent = Range{Position{0, 0}, Position{0, static_cast<int>(first.size())}};
     return l;
   };
   if (auto f = incnav::resolveInclude(*ref, doc.path(), searchPathFor(doc.path()))) {
@@ -2630,8 +2634,9 @@ bool SemanticEngine::gotoInclude(const Document& doc, Position pos, LocationsCal
     }
   }
   if (!best.empty()) approx.push_back(whole(best, Confidence::Approximate));
-  locationQueryWith(std::move(approx), "definition", doc, pos, std::move(cb),
-                    [](LspClient& c, const std::string& u, Position p, auto k) { return c.definition(u, p, std::move(k)); });
+  locationQueryWith(
+      std::move(approx), "definition", doc, pos, std::move(cb),
+      [](LspClient& c, const std::string& u, Position p, auto k) { return c.definition(u, p, std::move(k)); });
   return true;
 }
 

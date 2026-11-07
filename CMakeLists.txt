@@ -183,6 +183,7 @@ add_executable(tenfold-tests
   tests/test_tu_context.cpp
   tests/test_pathological.cpp
   tests/test_w10_choose.cpp
+  tests/test_vs_nav.cpp
 )
 target_link_libraries(tenfold-tests PRIVATE tenfold_core)
 # Fake clangd / crashing process used by tests/test_crash.cpp.

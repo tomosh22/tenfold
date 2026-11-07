@@ -2174,7 +2174,7 @@ void Editor::setMiscFileDiagnostics(bool show) {
   showMiscDiagnostics_ = show;
   if (!semantic_) return;
   semantic_->setMiscFileDiagnostics(show);
-  if (show) return;  // what the engine held back is delivered through the diagnostics handler
+  if (show) return;           // what the engine held back is delivered through the diagnostics handler
   for (auto& [k, d] : docs_)  // the open files that just became quiet
     if (semantic_->isMiscFile(d->path())) diagnostics_.erase(pathKeyUtf8(d->path()));
 }
