@@ -277,7 +277,7 @@ void Runner::record(ItemResult r) {
 }
 
 std::string Runner::currentText(const fs::path& file) {
-  if (Document* d = ed_->document(file)) return d->buffer().text();
+  if (Document* d = ed_->document(file)) return d->buffer().textForDisk();  // every line break as it is stored
   return decodeFileBytes(readFile(file)).text;  // columns are those of the UTF-8 text tenfold shows
 }
 
@@ -650,10 +650,12 @@ void Runner::runRename(const Item& it, ItemResult& r) {
     const fs::path p = abs(f);
     if (wasOpen.count(f)) {
       Document* d = ed_->document(p);
-      if (d && d->buffer().text() != txt) {
-        FileEdits fe;
-        fe[p].push_back({Range{{0, 0}, d->buffer().endPosition()}, txt});
-        ed_->applyEdits(fe);
+      if (d && d->buffer().textForDisk() != txt) {  // (text() would turn CRLF / LS / NEL into LF)
+        // A literal replacement of the whole text (applyEdits would give every break the Enter ending of its line, which
+        // turns a file with mixed CRLF / LF / LS / NEL line ends into a uniform one).
+        d->beginGroup();
+        d->replace(Range{{0, 0}, d->buffer().endPosition()}, txt);
+        d->endGroup();
         noteDoc(p);
       }
     } else {
@@ -783,7 +785,7 @@ void Runner::runEdit(const Item& it) {
   noteOpened(p);
   ed_->replaceRange({{line, col}, {line, col}}, it.editText);
   noteDoc(p);
-  rescanFile(it.arg, d->buffer().text());
+  rescanFile(it.arg, d->buffer().textForDisk());
 }
 
 void Runner::runItem(const Item& it) {
