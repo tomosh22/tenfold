@@ -1908,7 +1908,14 @@ Eight 10x commands wire the existing engine features to 10x's default keys; none
   `{ }` block around the caret as whole lines from the line of the `{` to the line of the `}` (comments, string and
   character literals and preprocessor lines skipped), else the caret line. clangd only (no approximate formatting).
 * **InsertPrevAutocomplete / InsertNextAutocomplete** are not implemented: their description does not say what is inserted.
-  See FEATURE_PARITY.md.
+  See FEATURE_PARITY.md and OPEN_QUESTIONS #20.
+* **AutocompleteUp / Down / PageUp / PageDown** (W12-CMD) are `Editor.CompletionUp/Down/PageUp/PageDown`, registered with an
+  `enabled` predicate "list open" and filed in the `popup` key context. `EditorApp::handleEventImpl` checks, before
+  `KeyMap::feed`, whether the completion list is open, the active context is `editor` and no chord is pending; if so a
+  single-stroke `popup` binding of one of these commands for the pressed chord wins and runs (context `popup`, so it is not
+  key-sequence recorded). With the list closed the `popup` bindings are not in the active context, `feed` finds
+  `MoveCursorUp` etc. and the key moves the caret. `CompletionPopup::handleKey` keeps only Tab / Enter / Escape. In the
+  rename box (context `popup`) a completion key falls to the widgets, which swallow it. Shift chords never match.
 
 ## Commands and key bindings (`src/ui/commands`, `src/ui/settings/KeyBindings.*`, part of `tenfold_ui`)
 

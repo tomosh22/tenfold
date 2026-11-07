@@ -255,6 +255,7 @@ class EditorApp {
   std::string shortcutFor(const std::string& command) const;
   std::string bindingFor(const std::string& command) const;  // any context, for the command palette
   const char* activeContext() const;
+  static bool isCompletionMoveCommand(const std::string& id);
   void showNavResults(uint64_t token, const std::string& title, size_t minResults, Confidence c,
                       const std::vector<SymbolLocation>& locs, const std::string& err);
 

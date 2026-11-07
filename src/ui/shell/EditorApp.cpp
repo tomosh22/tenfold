@@ -1528,6 +1528,11 @@ bool EditorApp::terminalSkipsShell(const KeyChord& chord) const {
   return false;
 }
 
+bool EditorApp::isCompletionMoveCommand(const std::string& id) {
+  return id == "Editor.CompletionUp" || id == "Editor.CompletionDown" || id == "Editor.CompletionPageUp" ||
+         id == "Editor.CompletionPageDown";
+}
+
 const char* EditorApp::activeContext() const {
   if (root_.modal()) return "picker";
   if (rename_ && rename_->isOpen()) return "popup";  // the rename box: Enter is SubmitRenameSymbol
@@ -1656,6 +1661,17 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
       (e.key == Key::F2 || e.key == Key::Delete))
     return root_.dispatch(e);
   const char* ctx = activeContext();
+  // AutocompleteUp / Down / PageUp / PageDown share their keys with the caret commands (10x files them in the "popup"
+  // context). While the list is open in a focused text view a "popup" binding of one of them wins over the editor's;
+  // a closed list never reaches here, so the same key falls through to MoveCursorUp and the others below.
+  if (!keys_.pending() && e.type == InputType::KeyDown && completion_->isOpen() && std::string_view(ctx) == "editor")
+    for (const KeyBinding& b : keys_.bindings()) {
+      if (b.context != "popup" || b.chords.size() != 1 || !(b.chords[0] == chord)) continue;
+      const std::string id = resolveCommandName(b.command).id;
+      if (!isCompletionMoveCommand(id)) continue;
+      runCommandId(id, "", "popup");  // "popup": not recorded in a key sequence
+      return true;
+    }
   const KeyMap::Result r = keys_.feed(chord, ctx, nowMs);
   switch (r.status) {
     case KeyMap::Status::Pending: setMessage(r.pendingText, 0, true); return true;
@@ -1672,6 +1688,8 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (chord.mouse && chord.button == MouseButton::Middle &&
       resolveCommandName(r.binding->command).id == "Editor.AddCaretAtMouse" && !textViewAt(e.x, e.y))
     return root_.dispatch(e);
+  // A completion-list key with no open list (the rename box's "popup" context): the box swallows it as before.
+  if (isCompletionMoveCommand(resolveCommandName(r.binding->command).id)) return root_.dispatch(e);
   if (!commandRunnable(r.binding->command)) {
     // The middle button also closes tabs and so on: while a middle-click command is not runnable, the click goes to
     // the widgets as before.
@@ -1942,6 +1960,19 @@ void EditorApp::bindParserCommands() {
         return completion_->trigger();
       },
       hasDoc);
+  const auto listOpen = [this](const CommandContext&) { return completion_->isOpen(); };
+  registry_.bind(
+      "Editor.CompletionUp", [this](const CommandContext&, std::string_view) { return completion_->moveSelection(-1); },
+      listOpen);
+  registry_.bind(
+      "Editor.CompletionDown",
+      [this](const CommandContext&, std::string_view) { return completion_->moveSelection(1); }, listOpen);
+  registry_.bind(
+      "Editor.CompletionPageUp",
+      [this](const CommandContext&, std::string_view) { return completion_->moveSelection(-1, true); }, listOpen);
+  registry_.bind(
+      "Editor.CompletionPageDown",
+      [this](const CommandContext&, std::string_view) { return completion_->moveSelection(1, true); }, listOpen);
   registry_.bind(
       "Editor.ShowFunctionArgs", [this](const CommandContext&, std::string_view) { return sigHelp_->trigger(); },
       hasDoc);
