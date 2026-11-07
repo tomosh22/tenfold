@@ -208,13 +208,13 @@ void session(PFx& f, const std::string& what, int expectLastLine) {
   CHECK(msSince(t) < 30000);
 
   const size_t before = f.doc->buffer().byteSize();
-  const int nKeys = kSan > 1 ? 15 : 60;  // + 5 warm-up keys
+  const int nKeys = kSan > 1 ? 15 : 300;  // + 5 warm-up keys; 300: the p99 is not the slowest key
   const Typing typed = typing(f, nKeys, what + ", caret at the end");
   PATHO_BUDGET(typed, what);
   CHECK_EQ(f.doc->buffer().byteSize(), before + static_cast<size_t>(nKeys) + 5);
   t = clk::now();
   f.key(Key('Z'), ModCtrl);  // the typing was one undo group or a few: undo until the text is the original
-  for (int i = 0; i < 100 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
+  for (int i = 0; i < 1000 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
   CHECK_EQ(f.doc->buffer().byteSize(), before);
   std::printf("PERF: pathological %s: undo of the typing %.1f ms\n", what.c_str(), msSince(t));
 
@@ -276,11 +276,11 @@ TEST(pathological_ui_one_line_files) {
       CHECK_EQ(static_cast<size_t>(f.head().column), f.doc->buffer().line(0).size());
       CHECK(f.rec.quads > 0);
       const size_t before = f.doc->buffer().byteSize();
-      const int nKeys = kSan > 1 ? 10 : 40;
+      const int nKeys = kSan > 1 ? 10 : 200;  // 200 so the p99 is not the single slowest key
       const Typing typed = typing(f, nKeys, what + ", caret at the end");
       PATHO_BUDGET(typed, what);
       CHECK_EQ(f.doc->buffer().byteSize(), before + static_cast<size_t>(nKeys) + 5);
-      for (int i = 0; i < 100 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
+      for (int i = 0; i < 1000 && f.doc->buffer().byteSize() > before; ++i) f.key(Key('Z'), ModCtrl);
       CHECK_EQ(f.doc->buffer().byteSize(), before);
       for (int i = 0; i < 3 && f.head().column > 0; ++i) f.key(Key::Home);  // the first Home may stop at the row's edge
       CHECK_EQ(f.head().column, 0);
