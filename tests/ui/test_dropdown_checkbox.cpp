@@ -57,7 +57,7 @@ struct Fixture {
     low->setItems({{"a", true}, {"b", true}, {"c", true}}, 0);
     render();
     dd->layout({20, 20, 200, dd->preferredHeight()});
-    cb->layout({20, 120, cb->preferredWidth(), cb->preferredHeight()});
+    cb->layout({20, 250, cb->preferredWidth(), cb->preferredHeight()});
     low->layout({20, 380, 120, low->preferredHeight()});
   }
   void render() { root->render(rec, 400, 400); }
@@ -136,7 +136,7 @@ TEST(dropdown_keyboard_closed) {
   CHECK(f.key(Key::Down));
   CHECK_EQ(f.dd->selected(), 4);
   CHECK(f.key(Key::End));
-  CHECK_EQ(f.changes, (std::vector<int>{1, 0, 1, 2, 4}));
+  CHECK(f.changes == (std::vector<int>{1, 0, 1, 2, 4}));
   CHECK(!f.dd->isOpen());
 }
 
@@ -159,7 +159,7 @@ TEST(dropdown_keyboard_open_choose_and_cancel) {
   CHECK(f.key(Key::Enter));  // chooses Macintosh and closes
   CHECK(!f.dd->isOpen());
   CHECK_EQ(f.dd->selected(), 1);
-  CHECK_EQ(f.changes, (std::vector<int>{1}));
+  CHECK(f.changes == (std::vector<int>{1}));
   // Enter opens (default), Escape closes without choosing and is consumed
   CHECK(f.key(Key::Enter));
   CHECK(f.dd->isOpen());
@@ -218,7 +218,7 @@ TEST(dropdown_mouse) {
   f.click(f.dd->itemRect(4));
   CHECK(!f.dd->isOpen());
   CHECK_EQ(f.dd->selected(), 4);
-  CHECK_EQ(f.changes, (std::vector<int>{4}));
+  CHECK(f.changes == (std::vector<int>{4}));
   // a click on the box toggles
   f.click(f.dd->bounds());
   CHECK(f.dd->isOpen());
@@ -283,7 +283,7 @@ TEST(checkbox_keyboard_space_toggles) {
   CHECK(!f.cb->checked());
   CHECK(!f.key(Key::Enter));  // Enter is not handled: a dialog's default button gets it
   CHECK(!f.key(Key::Space, ModCtrl));
-  CHECK_EQ(f.ticks, (std::vector<bool>{true, false}));
+  CHECK(f.ticks == (std::vector<bool>{true, false}));
 }
 
 TEST(checkbox_mouse_box_and_label_toggle_and_focus) {
@@ -296,7 +296,7 @@ TEST(checkbox_mouse_box_and_label_toggle_and_focus) {
   f.click(f.cb->bounds().x + f.cb->bounds().w + 20, f.cb->bounds().y + 4);  // outside
   CHECK(!f.cb->checked());
   f.cb->setChecked(true);  // programmatic: no callback
-  CHECK_EQ(f.ticks, (std::vector<bool>{true, false}));
+  CHECK(f.ticks == (std::vector<bool>{true, false}));
   f.cb->toggle();
   CHECK(!f.cb->checked());
   CHECK_EQ(f.ticks.size(), size_t(3));

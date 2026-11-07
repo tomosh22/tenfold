@@ -30,12 +30,12 @@ std::vector<std::string> wrapText(const gfx::TextRenderer& tr, const std::string
 }  // namespace
 
 LineEndingDialog::LineEndingDialog() {
-  auto dd = std::make_unique<DropDown>();
-  dd->setEnterOpens(false);  // Enter is the default button
-  dropDown_ = static_cast<DropDown*>(addChild(std::move(dd)));
   auto cb = std::make_unique<CheckBox>();
   cb->setLabel("Do not show this message again");
   checkBox_ = static_cast<CheckBox*>(addChild(std::move(cb)));
+  auto dd = std::make_unique<DropDown>();
+  dd->setEnterOpens(false);  // Enter is the default button
+  dropDown_ = static_cast<DropDown*>(addChild(std::move(dd)));  // last child: its open list is on top of the others
 }
 
 void LineEndingDialog::setCaption(std::string s) {

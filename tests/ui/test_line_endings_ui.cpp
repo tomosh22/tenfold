@@ -410,8 +410,10 @@ TEST(le_ui_several_files_share_one_dialog_and_get_the_same_answer) {
   CHECK_EQ(env.disk(m1), std::string("int a;\nint b;\nint c;\nint d;\n"));
   CHECK_EQ(env.disk(m2), std::string("x;\ny;\nz;\n"));
   CHECK(m1->dirty() && m2->dirty() && !lf->dirty());
-  CHECK(env.ed->undo());  // one undo step per document: the current one is restored
-  CHECK(!env.bench->status().text("eol").empty());
+  env.open("mixed2.cpp");  // one undo step per document
+  CHECK(env.ed->undo());
+  CHECK_EQ(env.disk(m2), std::string("x;\ny;\nz;\r\n"));
+  CHECK_EQ(env.disk(m1), std::string("int a;\nint b;\nint c;\nint d;\n"));
 }
 
 TEST(le_ui_many_files_scroll_in_the_list) {

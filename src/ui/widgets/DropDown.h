@@ -27,7 +27,7 @@ struct DropDownItem {
 //
 // The list is painted beyond the widget's bounds: hitRect() covers it. Text underneath it that is painted by an
 // earlier widget would show through (text is drawn after all rects), so a parent hides what the list covers while
-// isOpen() (listRect()).
+// isOpen() (listRect()). Add it after the siblings its list may cover, so that it is painted and hit-tested on top.
 class DropDown : public Widget {
  public:
   using ChangedFn = std::function<void(int index)>;
