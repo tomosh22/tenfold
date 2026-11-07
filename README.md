@@ -89,7 +89,7 @@ xvfb-run -a ./build-ui/tenfold-ui-tests          # golden-image tests skip witho
 ```
 
 SDL3 is fetched (static, pinned to `release-3.2.30`); FreeType is the system library or fetched; on Linux you need
-X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (605 tests on Linux) and
+X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (614 tests on Linux) and
 `tenfold-text-tests` (30; font, atlas and layout, no display needed). After an intentional rendering change, refresh the
 golden images with `tenfold-ui-tests --update-goldens`.
 

@@ -34,7 +34,7 @@ like today; for the current design read `docs/ARCHITECTURE.md`, for what matches
 | Headless front end | `src/cli` (`tenfold-cli`: REPL, `compdb`, `why`, `bench`, `corpus`, ...) | done |
 | Graphical editor | `src/ui`, `src/ui_app` (`tenfold-ui`; SDL3, OpenGL 3.3 or Direct3D 11, FreeType) | done; opt-in at configure time (`-DTENFOLD_BUILD_UI=ON`), always built for packages |
 | Packages | CI job `package-*`: Windows `.zip`, Linux `.tar.gz` / AppImage, macOS (best effort), pinned clangd bundled | done |
-| Tests | `tenfold-tests` 676, `tenfold-ui-tests` 605, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over about 35 corpora in `tests/corpus`) on Linux; fuzz targets in `tests/fuzz` | see `docs/TESTING.md` |
+| Tests | `tenfold-tests` 676, `tenfold-ui-tests` 614, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over about 35 corpora in `tests/corpus`) on Linux; fuzz targets in `tests/fuzz` | see `docs/TESTING.md` |
 | Scripting (C4) | not built | dropped by the user (OPEN_QUESTIONS #11) |
 
 Performance numbers: `docs/BENCHMARKS.md`; stress results: `docs/STRESS_RESULTS.md`. The table in the last section of
