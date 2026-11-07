@@ -529,6 +529,18 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
       x.code = d.code;
       out.push_back(std::move(x));
     }
+    if (!showMisc_ && isMiscFile(file)) {  // VS: no squiggles in a file that belongs to no translation unit
+      {
+        std::lock_guard<std::mutex> lk(mu_);
+        miscHeld_[pathKeyUtf8(file)] = {file, std::move(out)};
+      }
+      h(file, {});
+      return;
+    }
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      miscHeld_.erase(pathKeyUtf8(file));
+    }
     h(file, std::move(out));
   });
   c->onApplyEdit([this](const std::string& label, const Json& edit) {
@@ -1933,6 +1945,12 @@ void SemanticEngine::locationQuery(
                                                               w == "definition"    ? FastIndex::Want::Definition
                                                               : w == "declaration" ? FastIndex::Want::Declaration
                                                                                    : FastIndex::Want::Any);
+  locationQueryWith(std::move(approx), what, doc, pos, std::move(cb), std::move(issue));
+}
+
+void SemanticEngine::locationQueryWith(
+    std::vector<SymbolLocation> approx, const char* what, const Document& doc, Position pos, LocationsCallback cb,
+    std::function<int(LspClient&, const std::string&, Position, LspClient::Callback<std::vector<LspLocation>>)> issue) {
   std::string uri = doc.uri();
   Position sp = toServer(doc, pos);
   const std::string what_ = what;
@@ -2196,6 +2214,7 @@ void SemanticEngine::preferConstructorDefinition(SymbolLocation& ctor) const {
 }
 
 void SemanticEngine::gotoDefinition(const Document& doc, Position pos, LocationsCallback cb) {
+  if (gotoInclude(doc, pos, cb)) return;
   const auto word = doc.buffer().wordAt(pos);
   LocationsCallback wrapped = [this, w = word.text, cb = std::move(cb)](Confidence c, std::vector<SymbolLocation> locs,
                                                                         const std::string& err) {
@@ -2512,6 +2531,7 @@ void SemanticEngine::inheritedConstructorChoices(std::shared_ptr<DefQuery> q, Sy
 }
 
 void SemanticEngine::gotoDeclaration(const Document& doc, Position pos, LocationsCallback cb) {
+  if (gotoInclude(doc, pos, cb)) return;
   locationQuery("declaration", doc, pos, std::move(cb), [](LspClient& c, const std::string& u, Position p, auto k) {
     return c.declaration(u, p, std::move(k));
   });
@@ -2532,6 +2552,153 @@ void SemanticEngine::findImplementations(const Document& doc, Position pos, Loca
       [](LspClient& c, const std::string& u, Position p, auto k) { return c.implementation(u, p, std::move(k)); });
 }
 
+// ---------------------------------------------------------------------------
+// Go To Document on an #include line (VS-NAV, VS_BEHAVIOUR N1)
+// ---------------------------------------------------------------------------
+
+incnav::SearchPath SemanticEngine::searchPathFor(const fs::path& file) const {
+  const auto snap = compileCommands();
+  if (!snap || snap->empty()) return {};
+  auto fullPath = [](const CompileCommand& c) {
+    return (c.file.is_relative() ? c.directory / c.file : c.file).lexically_normal();
+  };
+  const std::string key = pathKey(file.lexically_normal());
+  const CompileCommand* use = nullptr;
+  for (const CompileCommand& c : *snap)
+    if (pathKey(fullPath(c)) == key) {
+      use = &c;
+      break;
+    }
+  if (!use) {  // an included fragment: the translation unit it was given
+    if (auto ctx = tuContext(file))
+      for (const CompileCommand& c : *snap)
+        if (pathKey(fullPath(c)) == pathKey(ctx->root.lexically_normal())) {
+          use = &c;
+          break;
+        }
+  }
+  if (use) return incnav::searchPathOf(*use);
+  // A file in no translation unit: every directory the database searches (first command first), each once.
+  incnav::SearchPath all;
+  std::set<std::string> seen;
+  for (const CompileCommand& c : *snap) {
+    incnav::SearchPath sp = incnav::searchPathOf(c);
+    for (auto* v : {&sp.angle}) {
+      for (fs::path& d : *v)
+        if (seen.insert(pathKey(d)).second) all.angle.push_back(std::move(d));
+    }
+    if (all.angle.size() > 256) break;
+  }
+  return all;
+}
+
+bool SemanticEngine::gotoInclude(const Document& doc, Position pos, LocationsCallback& cb) {
+  const Position at = doc.buffer().clamp(pos);
+  const auto ref = incnav::includeAt(doc.buffer().line(at.line), at.column);
+  if (!ref) return false;
+  auto whole = [](const fs::path& file, Confidence c) {
+    SymbolLocation l;
+    l.loc = {file, Position{0, 0}};
+    l.name = pathUtf8(file.filename());
+    l.kind = "file";
+    l.confidence = c;
+    std::error_code ec;
+    l.extent = Range{Position{0, 0}, Position{0, 1}};  // the top of the file; the first line counts as the target
+    return l;
+  };
+  if (auto f = incnav::resolveInclude(*ref, doc.path(), searchPathFor(doc.path()))) {
+    cb(Confidence::Authoritative, {whole(*f, Confidence::Authoritative)}, "");
+    return true;
+  }
+  // Not on the include path (a system header clangd knows, or a file the database does not mention): the fast index
+  // offers the workspace file whose path ends with the spelling nearest to the includer; clangd answers for the rest.
+  std::vector<SymbolLocation> approx;
+  std::string spelling = ref->spelling;
+  std::replace(spelling.begin(), spelling.end(), '\\', '/');
+  const std::string suffix = "/" + spelling;
+  const std::string base = pathKeyUtf8(doc.path().parent_path());
+  size_t bestShared = 0;
+  fs::path best;
+  for (const auto& fsyms : fast_.exportFiles()) {
+    const std::string g = pathKeyUtf8(fsyms->file);
+    if (g.size() < suffix.size() || g.compare(g.size() - suffix.size(), suffix.size(), pathKey(suffix)) != 0) continue;
+    size_t shared = 0;
+    while (shared < base.size() && shared < g.size() && base[shared] == g[shared]) ++shared;
+    if (best.empty() || shared > bestShared || (shared == bestShared && fsyms->file < best)) {
+      best = fsyms->file;
+      bestShared = shared;
+    }
+  }
+  if (!best.empty()) approx.push_back(whole(best, Confidence::Approximate));
+  locationQueryWith(std::move(approx), "definition", doc, pos, std::move(cb),
+                    [](LspClient& c, const std::string& u, Position p, auto k) { return c.definition(u, p, std::move(k)); });
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Find All References: roles and group order (VS-NAV, VS_BEHAVIOUR N5)
+// ---------------------------------------------------------------------------
+
+void SemanticEngine::classifyReferences(std::vector<SymbolLocation>& locs) const {
+  // Every file is read once (the open document's text, else the disk), whatever the number of references in it.
+  std::map<std::string, std::vector<std::string>> cache;
+  auto linesOf = [&](const fs::path& file) -> const std::vector<std::string>& {
+    auto [it, fresh] = cache.try_emplace(pathKeyUtf8(file));
+    if (!fresh) return it->second;
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      auto d = openDocs_.find(pathToUri(file));
+      if (d != openDocs_.end()) {
+        const TextBuffer& b = d->second->buffer();
+        for (int i = 0; i < b.lineCount(); ++i) it->second.push_back(b.line(i));
+        return it->second;
+      }
+    }
+    std::error_code ec;
+    std::string bytes;
+    if (fs::file_size(file, ec) > (8u << 20) || !readRegularFile(file, bytes)) return it->second;
+    size_t i = 0;
+    while (i <= bytes.size()) {
+      size_t e = i;
+      while (e < bytes.size() && bytes[e] != '\n' && bytes[e] != '\r') ++e;
+      it->second.push_back(bytes.substr(i, e - i));
+      if (e >= bytes.size()) break;
+      i = e + ((bytes[e] == '\r' && e + 1 < bytes.size() && bytes[e + 1] == '\n') ? 2 : 1);
+    }
+    return it->second;
+  };
+  for (SymbolLocation& l : locs) {
+    const std::vector<std::string>& lines = linesOf(l.loc.file);
+    const std::string text = l.loc.pos.line >= 0 && static_cast<size_t>(l.loc.pos.line) < lines.size()
+                                 ? lines[static_cast<size_t>(l.loc.pos.line)]
+                                 : std::string();
+    const int col = l.loc.pos.column;
+    size_t len = 0;
+    while (static_cast<size_t>(col) + len < text.size() &&
+           (std::isalnum(static_cast<unsigned char>(text[static_cast<size_t>(col) + len])) ||
+            text[static_cast<size_t>(col) + len] == '_'))
+      ++len;
+    const std::string word = col >= 0 && static_cast<size_t>(col) <= text.size()
+                                 ? text.substr(static_cast<size_t>(col), len)
+                                 : std::string();
+    bool decl = false;
+    if (auto fsyms = fast_.fileSymbols(l.loc.file))
+      for (const Symbol& s : fsyms->symbols)
+        if (s.line == l.loc.pos.line && s.name == word) {
+          decl = true;
+          break;
+        }
+    l.role = decl ? "Definition" : incnav::roleName(incnav::classifyReference(text, col, static_cast<int>(len)));
+  }
+  std::stable_sort(locs.begin(), locs.end(), [](const SymbolLocation& a, const SymbolLocation& b) {
+    const bool da = a.role == "Definition", db = b.role == "Definition";
+    if (da != db) return da;
+    const std::string fa = pathKeyUtf8(a.loc.file), fb = pathKeyUtf8(b.loc.file);
+    if (fa != fb) return fa < fb;
+    return a.loc.pos < b.loc.pos;
+  });
+}
+
 void SemanticEngine::findReferences(const Document& doc, Position pos, LocationsCallback cb) {
   // No approximate tier for references (a text search would be misleading); go straight to clangd.
   auto c = queryClient();
@@ -2542,7 +2709,9 @@ void SemanticEngine::findReferences(const Document& doc, Position pos, Locations
   g->id = c->references(doc.uri(), toServer(doc, pos), true,
                         [this, cb, g](std::vector<LspLocation> ls, const std::string& err) {
                           if (g->done.exchange(true)) return;
-                          cb(Confidence::Authoritative, fromServer(ls, Confidence::Authoritative), err);
+                          std::vector<SymbolLocation> out = fromServer(ls, Confidence::Authoritative);
+                          if (err.empty()) classifyReferences(out);
+                          cb(Confidence::Authoritative, std::move(out), err);
                         });
   armRequestTimeout(g, c, "find references", [cb](const std::string& m) { cb(Confidence::Authoritative, {}, m); });
 }
@@ -2719,6 +2888,59 @@ void SemanticEngine::rename(const Document& doc, Position pos, const std::string
     cb(editsFromServer(edit), {});
   });
   armRequestTimeout(g, c, "rename", [cb](const std::string& m) { cb({}, m); });
+}
+
+bool SemanticEngine::isMiscFile(const fs::path& file) const {
+  const auto snap = compileCommands();
+  if (!snap || snap->empty()) return false;  // no database: there is no translation unit to be outside of
+  if (!fastDone_) return false;              // the include graph is still being read: do not guess
+  const std::string key = pathKey(file.lexically_normal());
+  const uint64_t gen = fast_.generation();
+  {
+    std::lock_guard<std::mutex> lk(miscMu_);
+    if (miscSnap_ != snap.get() || miscGen_ != gen) {
+      miscCache_.clear();
+      miscSnap_ = snap.get();
+      miscGen_ = gen;
+    }
+    auto it = miscCache_.find(key);
+    if (it != miscCache_.end()) return it->second;
+  }
+  bool misc = true;
+  for (const CompileCommand& c : *snap) {
+    const fs::path f = (c.file.is_relative() ? c.directory / c.file : c.file).lexically_normal();
+    if (pathKey(f) == key) {
+      misc = false;
+      break;
+    }
+  }
+  if (misc && tuContext(file)) misc = false;  // a fragment that was given its includer's context
+  if (misc) {
+    auto includesOf = [this](const fs::path& f) {
+      auto fsyms = fast_.fileSymbols(f);
+      return fsyms ? fsyms->includes : std::vector<std::string>();
+    };
+    misc = compdb::filesReachableFrom(*snap, includesOf, {key}).empty();
+  }
+  std::lock_guard<std::mutex> lk(miscMu_);
+  if (miscSnap_ == snap.get() && miscGen_ == gen) miscCache_[key] = misc;
+  return misc;
+}
+
+void SemanticEngine::setMiscFileDiagnostics(bool show) {
+  if (showMisc_.exchange(show) == show) return;
+  std::function<void(const fs::path&, std::vector<Diagnostic>)> h;
+  std::vector<std::pair<fs::path, std::vector<Diagnostic>>> held;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    h = diagHandler_;
+    if (show) {  // what was held back appears; it is not held any more
+      for (auto& [k, v] : miscHeld_) held.push_back(std::move(v));
+      miscHeld_.clear();
+    }
+  }
+  if (!h || !show) return;  // turning it off waits for the next publish (the file's diagnostics are replaced then)
+  for (auto& [file, ds] : held) h(file, std::move(ds));
 }
 
 void SemanticEngine::onDiagnostics(std::function<void(const fs::path&, std::vector<Diagnostic>)> h) {

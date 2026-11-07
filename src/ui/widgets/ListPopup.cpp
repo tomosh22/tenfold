@@ -72,13 +72,16 @@ int ListPopup::rowAt(float x, float y) const {
   const RectF l = listRect();
   if (!ui::contains(l, x, y)) return -1;
   const int i = first_ + static_cast<int>((y - l.y) / rowHeight());
-  return i >= 0 && i < static_cast<int>(rows_.size()) && i < first_ + maxRows_ ? i : -1;
+  return i >= 0 && i < static_cast<int>(rows_.size()) && i < first_ + maxRows_ && !rows_[static_cast<size_t>(i)].header
+             ? i
+             : -1;
 }
 
 void ListPopup::onLayout() {
   if (!input_) return;
   const RectF p = popupRect();
-  const float pad = theme().padding, sw = status_.empty() ? 0 : root()->text().measure(status_) + pad;
+  const float pad = theme().padding,
+              sw = (status_.empty() ? 0 : root()->text().measure(status_) + pad) + previewToggleWidth();
   input_->layout({p.x + pad, p.y + theme().verticalPad, std::max(0.0f, p.w - 2 * pad - sw), input_->preferredHeight()});
 }
 
@@ -136,6 +139,7 @@ int ListPopup::indexOfKey(const std::string& key) const {
 void ListPopup::setRows(std::vector<ListRow> rows, int selected) {
   rows_ = std::move(rows);
   selected_ = rows_.empty() ? -1 : std::clamp(selected, -1, static_cast<int>(rows_.size()) - 1);
+  if (selected_ >= 0) selected_ = skipHeaders(selected_, 1);
   hover_ = -1;
   first_ = std::min(first_, std::max(0, static_cast<int>(rows_.size()) - maxRows_));
   ensureVisible();
@@ -158,8 +162,8 @@ void ListPopup::scrollTo(int first) {
 
 void ListPopup::setSelected(int i) {
   if (rows_.empty()) return;
-  i = std::clamp(i, 0, static_cast<int>(rows_.size()) - 1);
-  if (i == selected_) return;
+  i = skipHeaders(std::clamp(i, 0, static_cast<int>(rows_.size()) - 1), i < selected_ ? -1 : 1);
+  if (i < 0 || i == selected_) return;
   selected_ = i;
   ensureVisible();
   markDirty();
@@ -167,6 +171,37 @@ void ListPopup::setSelected(int i) {
 }
 
 void ListPopup::moveSelection(int delta) { setSelected(selected_ < 0 ? (delta > 0 ? 0 : -1) : selected_ + delta); }
+
+int ListPopup::skipHeaders(int i, int dir) const {
+  const int n = static_cast<int>(rows_.size());
+  if (i < 0 || i >= n || !rows_[static_cast<size_t>(i)].header) return i;
+  for (int k = i; k >= 0 && k < n; k += dir)
+    if (!rows_[static_cast<size_t>(k)].header) return k;
+  for (int k = i; k >= 0 && k < n; k -= dir)
+    if (!rows_[static_cast<size_t>(k)].header) return k;
+  return -1;
+}
+
+float ListPopup::previewToggleWidth() const {
+  if (!previewToggled_ || !root()) return 0;
+  return root()->text().measure(preview_ ? "Preview: on" : "Preview: off") + 2 * theme().padding;
+}
+
+RectF ListPopup::previewToggleRect() const {
+  const float w = previewToggleWidth();
+  if (w <= 0) return {0, 0, 0, 0};
+  const RectF p = popupRect();
+  const float sw = status_.empty() ? 0 : root()->text().measure(status_) + theme().padding;
+  const float h = input_ ? input_->preferredHeight() : rowHeight();
+  return {p.x + p.w - sw - w, p.y + theme().verticalPad, w, h};
+}
+
+void ListPopup::togglePreview() {
+  if (!previewToggled_) return;
+  setPreviewEnabled(!preview_);
+  markDirty();
+  previewToggled_(preview_);
+}
 
 ListPopup* ListPopup::open(RootWidget& root, std::unique_ptr<ListPopup> p) {
   ListPopup* raw = p.get();
@@ -186,7 +221,7 @@ void ListPopup::close() {
 }
 
 void ListPopup::accept(int row) {
-  if (row < 0 || row >= static_cast<int>(rows_.size())) return;
+  if (row < 0 || row >= static_cast<int>(rows_.size()) || rows_[static_cast<size_t>(row)].header) return;
   if (rows_[static_cast<size_t>(row)].toggle) {
     if (toggled_) toggled_(row);
     return;
@@ -198,6 +233,10 @@ void ListPopup::accept(int row) {
 bool ListPopup::onEvent(const InputEvent& e) {
   switch (e.type) {
     case InputType::KeyDown:
+      if (previewToggled_ && (e.mods & ModAlt) && !(e.mods & (ModCtrl | ModShift)) && e.key == Key('p')) {
+        togglePreview();
+        return true;
+      }
       switch (e.key) {
         case Key::Up: moveSelection(-1); return true;
         case Key::Down: moveSelection(1); return true;
@@ -230,6 +269,8 @@ bool ListPopup::onEvent(const InputEvent& e) {
     }
     case InputType::MouseDown:
       if (!ui::contains(popupRect(), e.x, e.y)) close();
+      else if (e.button == MouseButton::Left && previewToggled_ && ui::contains(previewToggleRect(), e.x, e.y))
+        togglePreview();
       else if (e.button == MouseButton::Left) {
         const int r = rowAt(e.x, e.y);
         if (r >= 0) {
@@ -251,6 +292,18 @@ bool ListPopup::onEvent(const InputEvent& e) {
 void ListPopup::paintRow(PaintContext& ctx, int i, const RectF& r) {
   const ListRow& row = rows_[static_cast<size_t>(i)];
   const Theme& t = ctx.theme;
+  if (row.header) {  // group heading: text on the panel colour, count / detail dim at the right
+    ctx.fill(r, t.panelBackground);
+    const float hy = r.y + (r.h - ctx.lineHeight()) / 2;
+    float right = r.x + r.w - t.padding - 4;
+    if (!row.detail.empty()) {
+      const float w = ctx.measure(row.detail);
+      ctx.text(right - w, hy, row.detail, t.textDim, r);
+      right -= w + 2 * ctx.textRenderer.cellWidth();
+    }
+    ctx.text(r.x + t.padding, hy, row.primary, t.text, RectF{r.x, r.y, std::max(0.0f, right - r.x), r.h});
+    return;
+  }
   if (i == selected_) ctx.fill(r, t.selection);
   else if (i == hover_) ctx.fill(r, t.tabHover);
   const float cell = ctx.textRenderer.cellWidth(), pad = t.padding, ty = r.y + (r.h - ctx.lineHeight()) / 2;
@@ -322,6 +375,10 @@ void ListPopup::paint(PaintContext& ctx) {
   if (!status_.empty()) {
     const float w = ctx.measure(status_);
     ctx.text(p.x + p.w - t.padding - w, hy, status_, t.textDim, p);
+  }
+  if (previewToggled_) {
+    const RectF b = previewToggleRect();
+    ctx.text(b.x + t.padding, hy, preview_ ? "Preview: on" : "Preview: off", preview_ ? t.tabAccent : t.textDim, b);
   }
   const RectF l = listRect();
   if (rows_.empty()) ctx.text(l.x + t.padding, l.y + t.verticalPad, empty_, t.textDim, l);

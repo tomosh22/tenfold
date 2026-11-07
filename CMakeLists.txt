@@ -52,6 +52,7 @@ add_library(tenfold_core STATIC
   src/semantic/FastIndexStore.cpp
   src/semantic/CompileCommands.cpp
   src/semantic/DefChoice.cpp
+  src/semantic/IncludeNav.cpp
   src/semantic/TuContext.cpp
   src/semantic/XmlLite.cpp
   src/semantic/SemanticEngine.cpp

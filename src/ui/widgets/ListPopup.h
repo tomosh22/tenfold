@@ -21,6 +21,7 @@ struct ListRow {
   std::vector<int> match;  // byte offsets inside `primary` drawn highlighted (fuzzy-matched characters)
   bool dim = false;        // greyed out (an approximate result that is still being verified)
   bool toggle = false;     // Enter / click / Space calls onToggle(row) instead of accepting; the popup stays open
+  bool header = false;     // a group heading (primary + detail): never selected, hovered or accepted, painted dim
 };
 
 // Text shown in the optional right-hand pane (preview of the selected row).
@@ -53,6 +54,11 @@ class ListPopup : public Widget {
   void setEmptyText(std::string s) { empty_ = std::move(s); }
   void setWidthCells(int n) { widthCells_ = n; }  // popup width in character cells (default 80, 120 with a preview)
   void setPreviewEnabled(bool on);                // reserves the right pane (even while empty)
+  // The "Preview" switch in the header (VS Code Search's eye, VS_BEHAVIOUR P1): a click on it or Alt+P turns the right
+  // pane on or off and calls `fn(on)`. Without a handler there is no switch.
+  void onPreviewToggle(std::function<void(bool on)> fn) { previewToggled_ = std::move(fn); }
+  void togglePreview();
+  RectF previewToggleRect() const;  // empty when there is no switch
   // A small popup next to a spot (the caret) instead of the centred one: below `r`, or above it when there is no room
   // below, kept inside the window. `clearAnchor` goes back to the centred popup.
   void setAnchor(RectF r);
@@ -106,6 +112,8 @@ class ListPopup : public Widget {
   void ensureVisible();
   void scrollTo(int first);
   void moveSelection(int delta);
+  int skipHeaders(int i, int dir) const;  // nearest row from i (in dir, else the other way) that is no header; -1: none
+  float previewToggleWidth() const;
   void accept(int row);
   void paintRow(PaintContext& ctx, int i, const RectF& r);
   void paintPreview(PaintContext& ctx, const RectF& r);
@@ -121,6 +129,7 @@ class ListPopup : public Widget {
   std::function<void(const std::string&)> query_;
   std::function<void(int)> accept_, selection_, toggled_;
   std::function<void()> closed_;
+  std::function<void(bool)> previewToggled_;
 };
 
 }  // namespace tf::ui

@@ -131,6 +131,10 @@ keys.import10x = true
 # Symbol search shows a preview of the target line on the right (OPEN_QUESTIONS #6: not documented by 10x).
 picker.preview = true
 
+# Squiggles and diagnostics in files that belong to no translation unit of the project (VS "Miscellaneous Files": no
+# error squiggles by default; VS_BEHAVIOUR I5). true = show clangd's diagnostics there too.
+diagnostics.miscFiles = false
+
 # Workspace explorer (W8f): keep the active file selected in the tree while the panel is open (10x:
 # TrackActiveFileInWorkspaceTree).
 explorer.trackActiveFile = false
