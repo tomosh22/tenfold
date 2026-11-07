@@ -825,6 +825,9 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
         std::error_code ec;
         if (!fs::is_regular_file(ev.path, ec)) {
           if (ws_.noteFileRemoved(ev.path)) semantic_->fileRemoved(ev.path);
+          // It may be gone because a directory above it was renamed, an event that is still on its way.
+          if (vanished_.size() >= 8192) vanished_.erase(vanished_.begin(), vanished_.begin() + 4096);
+          vanished_.push_back(ev.path);
           return;
         }
       }
@@ -867,6 +870,21 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           semantic_->watchedFileChanged(f, 3);
           semantic_->watchedFileChanged(to, 1);
           moved.push_back(to);
+        }
+        // Files whose creation was delivered after the directory had already moved: they exist under the new name.
+        for (auto it = vanished_.begin(); it != vanished_.end();) {
+          auto [a, b] = std::mismatch(ev.oldPath.begin(), ev.oldPath.end(), it->begin(), it->end());
+          if (a != ev.oldPath.end()) {
+            ++it;
+            continue;
+          }
+          const fs::path to = ev.path / it->lexically_relative(ev.oldPath);
+          std::error_code ec;
+          if (fs::is_regular_file(to, ec) && ws_.noteFileAdded(to)) {
+            semantic_->watchedFileChanged(to, 1);
+            moved.push_back(to);
+          }
+          it = vanished_.erase(it);
         }
         semantic_->indexFilesAsync(std::move(moved));
       } else {

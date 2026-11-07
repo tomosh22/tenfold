@@ -604,6 +604,7 @@ class Editor {
   std::vector<Selection> carets_;  // primary first, then document order; empty without a current document
   std::vector<int> wants_;         // per caret preferred column (code points), -1 = unset
   int pageLines_ = 30;
+  std::vector<std::filesystem::path> vanished_;  // pump thread: created files that were gone when handled
   bool inEdit_ = false;  // a caret command is editing: the document listener must not touch carets
   // Typing coalescer: the open typing step can be extended while nothing else happened.
   bool typingOpen_ = false;
