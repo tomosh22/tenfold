@@ -754,7 +754,7 @@ TEST(document_encoding_choice_is_derived_from_the_bytes_it_was_read_from) {
 TEST(reopen_with_encoding_decodes_the_bytes_again_and_resets_undo) {
   Tmp t;
   auto p = t.write("a.cpp", kUtf8Cafe);
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -797,7 +797,7 @@ TEST(reopen_with_utf16_needs_well_formed_text_and_drops_a_matching_bom) {
   auto odd = t.write("odd.cpp", "abc\n");                    // 4 bytes: well-formed UTF-16 (two units) after all
   auto bad = t.write("bad.cpp", "abcde\n");                  // 6 bytes... use an odd length instead
   auto odd5 = t.write("odd5.cpp", "abcd\n");                 // 5 bytes: odd, not UTF-16
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -833,7 +833,7 @@ TEST(reopen_with_utf16_needs_well_formed_text_and_drops_a_matching_bom) {
 TEST(save_with_encoding_converts_the_file_and_the_document_keeps_the_new_encoding) {
   Tmp t;
   auto p = t.write("a.cpp", kUtf8Cafe);
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -863,7 +863,7 @@ TEST(save_with_encoding_converts_the_file_and_the_document_keeps_the_new_encodin
 TEST(save_with_encoding_handles_a_signature_that_is_part_of_the_text) {
   Tmp t;
   auto p = t.write("b.cpp", kBom + "int a;\r\nint b;\r\n");
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -889,7 +889,7 @@ TEST(save_with_encoding_handles_a_signature_that_is_part_of_the_text) {
 TEST(save_with_encoding_refusal_keeps_the_old_encoding_text_and_line_endings) {
   Tmp t;
   auto p = t.write("a.cpp", kUtf8Cafe + "x\n");
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -917,7 +917,7 @@ TEST(save_with_encoding_refusal_keeps_the_old_encoding_text_and_line_endings) {
 TEST(save_with_encoding_utf8_is_the_way_out_of_a_refused_windows1252_save) {
   Tmp t;
   auto p = t.write("l.cpp", kLatin1File);
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -945,7 +945,7 @@ TEST(save_with_encoding_utf8_is_the_way_out_of_a_refused_windows1252_save) {
 TEST(save_with_encoding_converts_line_endings_in_the_same_save_and_untitled_only_takes_the_encoding) {
   Tmp t;
   auto p = t.write("a.cpp", "a\nb\n");
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   Document* d = ed.open(p, &err);
@@ -979,8 +979,7 @@ TEST(auto_detect_utf8_off_reads_bomless_non_ascii_as_the_fallback_code_page) {
                                     4),
                         off)
             .encoding == Encoding::Utf16LE);  // so is a UTF-16 BOM
-  Editor::Options o;
-  Editor ed(t.dir, o);
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   ed.editing().autoDetectUtf8 = false;
@@ -1005,7 +1004,7 @@ TEST(auto_detect_utf8_off_reads_bomless_non_ascii_as_the_fallback_code_page) {
 
 TEST(new_untitled_documents_take_the_default_encoding) {
   Tmp t;
-  Editor ed(t.dir, Editor::Options{});
+  Editor ed(t.dir, noClangdOptions());
   std::string err;
   REQUIRE(ed.start(&err));
   CHECK(ed.newUntitled(LineEnding::LF)->encodingChoice() == EncodingChoice::Utf8);  // the default
@@ -1063,7 +1062,7 @@ TEST(fallback_code_page_is_injectable_and_other_pages_read_as_windows1252) {
   // The editor says so once (in its log) when it opens a non-UTF-8 file.
   Tmp t;
   int warnings = 0;
-  Editor::Options eo;
+  Editor::Options eo = noClangdOptions();
   eo.log = [&](const std::string& m) {
     if (m.find("system ANSI code page is 932") != std::string::npos) ++warnings;
   };
@@ -1075,4 +1074,37 @@ TEST(fallback_code_page_is_injectable_and_other_pages_read_as_windows1252) {
   CHECK_EQ(warnings, 1);
   ed.shutdown();
   setAnsiCodePageForTesting(0);
+}
+
+// A file whose line endings changed on disk (an external tool, a git checkout with autocrlf) while lines were also
+// added above must not count as a replacement of every line: positions below the change shift, they are not lost.
+TEST(reload_of_a_file_whose_line_endings_changed_on_disk_keeps_positions_and_takes_the_new_endings) {
+  Tmp t;
+  auto f = t.write("e.cpp", "a\r\nb\r\nc\r\n");
+  Editor ed(t.dir, noClangdOptions());
+  std::string err;
+  REQUIRE(ed.start(&err));
+  REQUIRE(ed.gotoLocation({f, Position{2, 0}}, &err));  // opens it as the current document
+  Document* d = ed.currentDocument();
+  REQUIRE(d != nullptr);
+  ed.insertText("Q");
+  REQUIRE(ed.save(*d));
+  REQUIRE(ed.lastEditLocation().has_value());
+  CHECK_EQ(ed.lastEditLocation()->pos.line, 2);
+  t.write("e.cpp", "x\ny\nz\na\nb\nQc\n");  // three lines above, every terminator now LF
+  REQUIRE(ed.reloadFromDisk(*d, &err));
+  CHECK_EQ(d->buffer().text(), std::string("x\ny\nz\na\nb\nQc\n"));
+  CHECK(d->buffer().lineEnding() == LineEnding::LF);
+  CHECK(!d->buffer().mixedLineEndings());
+  CHECK_EQ(Tmp::read(f), std::string("x\ny\nz\na\nb\nQc\n"));
+  REQUIRE(ed.lastEditLocation().has_value());
+  CHECK_EQ(ed.lastEditLocation()->pos.line, 5);
+  CHECK_EQ(ed.lastEditLocation()->pos.column, 1);
+  // Only the terminators changed: nothing moves, and a mixed file keeps each line's own ending.
+  t.write("e.cpp", "x\r\ny\nz\r\na\nb\nQc\n");
+  REQUIRE(ed.reloadFromDisk(*d, &err));
+  CHECK(d->buffer().mixedLineEndings());
+  CHECK_EQ(d->buffer().textForDisk(), std::string("x\r\ny\nz\r\na\nb\nQc\n"));
+  CHECK_EQ(ed.lastEditLocation()->pos.line, 5);
+  ed.shutdown();
 }

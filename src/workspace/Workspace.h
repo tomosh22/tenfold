@@ -86,6 +86,10 @@ class Workspace {
   // from the editor thread). Paths that are not workspace files are ignored.
   // Each returns true if a list changed.
   bool noteFileAdded(const std::filesystem::path& file);
+  // Lists `dir` from disk now and notes every file in it (returns the ones that were new). For the editor's own,
+  // synchronous file operations (explorer move / copy of a folder). Not for file-watcher events: those are handled
+  // late, and a late listing re-adds files that were already deleted again (the churn race fixed in CI-W4).
+  std::vector<std::filesystem::path> noteTreeAdded(const std::filesystem::path& dir);
   bool noteFileRemoved(const std::filesystem::path& file);
   bool noteFileRenamed(const std::filesystem::path& from, const std::filesystem::path& to);
   // Every listed file at or below `dir`.
