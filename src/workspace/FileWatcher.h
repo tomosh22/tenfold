@@ -42,6 +42,9 @@ class FileWatcher {
     bool forcePolling = false;  // use the portable polling scan on every platform (tests, odd file systems)
     size_t maxWatches = 0;      // inotify: act as if the watch limit were this (0 = system limit); for tests
     std::function<void(const std::string&)> log;
+    // Tests (inotify): called on the watcher thread with a directory whose listing was just opened, before its first
+    // entry is looked at; lets a test move the directory away at that exact moment.
+    std::function<void(const std::filesystem::path&)> onListing;
   };
 
   FileWatcher();

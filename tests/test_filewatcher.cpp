@@ -616,6 +616,72 @@ TEST(watch_compile_commands_location_change_restarts_clangd_only_then) {
 }
 
 #if defined(__linux__)
+// The watcher is late: while it lists a directory it has just been told about, the directory's parent is renamed. The
+// listing keeps reading the old directory, but every entry's path (parent/new/x) is stale and cannot be looked at; the
+// files and subdirectories in it must still be reported under the new names, and watched.
+TEST(fw_listing_of_new_directory_interrupted_by_parent_rename) {
+  TempDir d;
+  fs::create_directories(d.path / "p");
+  Collector c;
+  std::atomic<bool> filesReady{false}, renamed{false};
+  FileWatcher::Options o = watcherOptions(false);
+  o.onListing = [&](const fs::path& dir) {
+    if (dir != d.path / "p/X" || renamed) return;
+    waitUntil([&] { return filesReady.load(); }, 5000);
+    fs::rename(d.path / "p", d.path / "p_m");
+    renamed = true;
+  };
+  FileWatcher w(o);
+  REQUIRE(w.start(d.path, nullptr, c.callback()));
+  fs::create_directories(d.path / "p/X/Y");
+  writeFile(d.path / "p/X/inner.cpp", "int a;");
+  writeFile(d.path / "p/X/Y/deep.cpp", "int b;");
+  filesReady = true;
+  REQUIRE(waitUntil([&] { return renamed.load(); }, 5000));
+  const fs::path m = d.path / "p_m/X";
+  CHECK(waitUntil([&] { return c.has(m / "inner.cpp", FileWatcher::Event::Created); }, 3000));
+  CHECK(waitUntil([&] { return c.has(m / "Y/deep.cpp", FileWatcher::Event::Created); }, 3000));
+  // and the subdirectories are watched under their new names
+  writeFile(m / "Y/later.cpp", "int c;");
+  CHECK(waitUntil([&] { return c.has(m / "Y/later.cpp", FileWatcher::Event::Created); }, 3000));
+  w.stop();
+}
+
+// The watcher is late and the name is reused: a directory is created and filled, renamed, and a new directory takes its
+// name, all before the watcher reads the creation. The path then names the new directory, which is what gets watched,
+// and the rename event must not drag that watch along to the old directory's new name: the moved directory has to be
+// listed and watched under its new name, and the new one must keep being followed under the old name.
+TEST(fw_directory_name_reused_before_the_creation_is_read) {
+  TempDir d;
+  Collector c;
+  std::atomic<bool> go{false}, blocked{false};
+  FileWatcher::Options o = watcherOptions(false);
+  o.onListing = [&](const fs::path& dir) {  // stalls the watcher thread while "stall" is being listed
+    if (dir != d.path / "stall") return;
+    blocked = true;
+    waitUntil([&] { return go.load(); }, 5000);
+  };
+  FileWatcher w(o);
+  REQUIRE(w.start(d.path, nullptr, c.callback()));
+  fs::create_directory(d.path / "stall");
+  REQUIRE(waitUntil([&] { return blocked.load(); }, 3000));
+  fs::create_directories(d.path / "d/c20.h");
+  writeFile(d.path / "d/c20.h/inner.cpp", "int a;");
+  writeFile(d.path / "d/old.cpp", "int b;");
+  fs::rename(d.path / "d", d.path / "d_m");
+  writeFile(d.path / "d/new.cpp", "int c;");  // a different directory under the old name
+  go = true;
+  using E = FileWatcher::Event;
+  CHECK(waitUntil([&] { return c.has(d.path / "d_m/c20.h/inner.cpp", E::Created); }, 3000));
+  CHECK(waitUntil([&] { return c.has(d.path / "d_m/old.cpp", E::Created); }, 3000));
+  // both directories are watched under their right names
+  writeFile(d.path / "d_m/c20.h/later.cpp", "int d;");
+  writeFile(d.path / "d/later.cpp", "int e;");
+  CHECK(waitUntil([&] { return c.has(d.path / "d_m/c20.h/later.cpp", E::Created); }, 3000));
+  CHECK(waitUntil([&] { return c.has(d.path / "d/later.cpp", E::Created); }, 3000));
+  w.stop();
+}
+
 // A directory is created inside a watched directory that is renamed right away. The watcher reads the creation only
 // after the rename happened on disk, so the new directory cannot be watched under the name it was created with
 // (inotify_add_watch fails): its files must still be reported, under the directory's new name.
