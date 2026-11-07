@@ -751,6 +751,14 @@ splits the tagged record, so all records are merged), `printRevision` (`p4 print
 answers `ok=false` with "the workspace is not under Perforce" for any other; results come back through `post`. The fake `p4`
 learned `filelog`, `print file#N` (per-file `"history"` entries) and `serverAddress` in `info`.
 
+**VS-VCS additions (VS_BEHAVIOUR section 4).** `VcsFileInfo::outOfDate` (fstat `headRev > haveRev`, Perforce only) feeds the
+yellow triangle; `PerforceProvider::haveRevision` / `VcsManager::perforceHaveRevision` give the history menu the workspace
+revision. `VcsManager::probe(file)` (Perforce only, called by the explorer for every file row it paints) collects unknown
+files and asks them in one batched `status()` after 60 ms on the worker; `refreshStatus` keeps the probed files' last answer
+until it has re-asked them (no blinking). `Options::promptOnEdit` / `setPromptOnEdit` / `onEditPrompt` (VC5): when on, the
+first edit of a `ReadOnlyNotCheckedOut` Perforce file calls the handler instead of `beforeFirstEdit`; its reply
+(`CheckOut`, `CheckOutAlways`, `Leave`) runs `checkOut` or nothing. Defaults are unchanged: off, auto-checkout.
+
 ### Threading (VCS)
 
 | Thread | Does |
@@ -836,6 +844,12 @@ The UI is a client of `Editor::vcs()` only (hunks, base lines, `fileStatus`, `re
   the splitter repairs the common `"{a}" "{b}"` mistake. Temp directories are removed when a tool that ran at least 3 s
   has exited; those of a tool that returned at once (a launcher handing over to a running instance) are swept after a
   day.
+* **Perforce badges and the question (VS-VCS)**: `vcsMark(vcs, file)` (VcsState.h) is `vcsTabMark(status)` plus, for Perforce,
+  OpenedForAdd / NotInDepot / OutOfDate; `ui/widgets/VcsBadge.h` holds `vcsMarkColor` (theme keys with fallbacks) and
+  `drawVcsGlyph` (5 x 7 pixel-rectangle bitmaps: check, plus, ?, triangle) used by `TreeView` on the file icon; `TabStrip`
+  keeps squares. The explorer hides the ReadOnly mark (every synced file is read-only). `VcsUi` shows the edit question as a
+  modal three-row `ListPopup` (queued per file) and `PerforceUi` the revision action menu; diffs go through
+  `VcsUi::launchDiff` (hook `PerforceUi::Hooks::diff`).
 * **Status**: `Workbench::sync` sets a `TabStrip::VcsMark` per tab (`vcsTabMark`: a small square left of the title,
   filled for modified / added / checked out, outlined for Perforce read-only, theme keys `tabVcs*`) and the left
   status-bar segment `vcs` (`vcsStatusText`: "Git: modified", "P4: checked out", "P4: read-only — will check out on

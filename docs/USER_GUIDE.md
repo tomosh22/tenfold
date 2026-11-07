@@ -609,6 +609,14 @@ lines, a red wedge where lines were deleted; the same marks on the scrollbar. A 
 modified, added or checked out, outlined for Perforce read-only), and a status bar segment such as `Git: modified` or
 `P4: checked out`. A file that is not tracked gets the tab mark and the segment, but no change strip.
 
+**Perforce badges (like P4VS).** In the explorer a Perforce file shows a small glyph on its icon: a red check for a file
+opened for edit, a red plus for one opened for add, a blue `?` for a local file that is not in the depot, a yellow
+triangle when the depot has a newer revision than your workspace, a red `?` when it needs a resolve. The tab squares use
+the same colours (`tabVcsCheckedOut`, `tabVcsOpenedForAdd`, `tabVcsNotInDepot`, `tabVcsOutOfDate`, `tabVcsConflict`). A
+synced file that is simply read-only gets no badge. Files you have not opened are asked about in the background, a few
+at a time, as they scroll into view; **Refresh** (`Vcs.RefreshStatus`, and the window regaining focus) asks again. Git
+files keep the single square.
+
 **Inline diff.** Click the strip, or run `Vcs.ToggleInlineDiff` with the caret on the change: a block opens under it
 showing the old lines on a red tint, with a button to revert that change and a close button. Escape closes the blocks.
 
@@ -617,7 +625,10 @@ changes` / `Cancel`) and then reloads the file from disk.
 
 **Perforce.** The first edit of a file you do not have open for edit runs `p4 edit` on it, in the background; typing is
 never blocked, and if the checkout fails the message appears in the status bar and your edit stays in the buffer.
-`Vcs.CheckOut` does the same on demand. The base text for the diff is `p4 print file#have`. A file that is read-only and
+`Vcs.CheckOut` does the same on demand. If you would rather be asked first, like P4VS, turn on `perforce.promptOnEdit`:
+the first edit of a read-only, not checked-out depot file then opens a small list, **Check out** / **Check out, do not ask
+again** (for the rest of the session) / **Do not check out** (Escape does the same); your typing is already in the buffer, and
+if you decline, saving says the file is read-only until you run `Vcs.CheckOut`. The base text for the diff is `p4 print file#have`. A file that is read-only and
 not checked out shows `P4: read-only — will check out on edit`; saving such a file says
 `<name> is read-only (not checked out in Perforce; run p4 edit, or revert the edit)`. tenfold never runs `p4 add`
 for you. **It has only been tested against a fake `p4`, not a real server** (OPEN_QUESTIONS #17).
@@ -647,9 +658,12 @@ Alt Shift F5: Vcs.RefreshStatus
 
 **History and p4v.** **Control P, Control H** (`PerforceHistory`) runs `p4 filelog` for the current file and lists its
 revisions (`#rev  change N  date  user`, the first line of the description, the action); type to filter by any of that.
-**Enter** opens that revision (`p4 print`) in a new tab, read-only: the text is written to a temp file
-`<temp>/tenfold-p4/<id>/<name>#<rev><ext>` that is read-only on disk, so it cannot be saved over anything. Diffing a revision
-is not offered here (Control P, Control D diffs the working file with `#have`). Dates are UTC. **Control P, Control V**
+**Enter** on a revision opens its action menu (Escape goes back to the list): **Open** (first, so Enter twice opens it) shows
+that revision (`p4 print`) in a new tab, read-only: the text is written to a temp file
+`<temp>/tenfold-p4/<id>/<name>#<rev><ext>` that is read-only on disk, so it cannot be saved over anything. **Diff against
+previous revision** and **Diff against have revision** start the external diff tool (`vcs.diffTool`, p4merge by default) on
+the two revisions; they are left out for the oldest revision and for the revision you have. Control P, Control D still diffs
+the working file with `#have`. Dates are UTC. **Control P, Control V**
 (`PerforceShowInP4v`) starts `p4v -p <port> -u <user> -c <client> -s <depot path>`, taking port, user and client from `p4 info`
 (so `P4CONFIG` and `p4 set` apply) and the depot path from `p4 where`; `vcs.p4vPath` names another program than `p4v`.
 Both say so in the status bar when the workspace is not under Perforce. Like the rest of the Perforce support they have
@@ -687,7 +701,8 @@ selects (a file also opens in the italic **preview tab**, `tabs.previewTab`, kee
 expands, a double click opens a file permanently, the wheel and the thin scroll bar scroll.
 
 **Colours.** A file that version control reports as modified, added / untracked, checked out or read-only (Perforce) gets
-the same colour and marker as its tab (the `tabVcs*` theme keys); the marker is a square at the right edge. Folders show
+the same colour and marker as its tab (the `tabVcs*` theme keys); the marker is a square at the right edge. Perforce files
+show the P4VS glyphs on the icon instead (see Version control); a plain synced read-only file shows nothing. Folders show
 no state.
 
 **Following the workspace.** While the panel is open it rebuilds, at most four times a second, when the workspace scan's
@@ -878,6 +893,7 @@ tests.)
 | `vcs.diffTool` | (empty) | string | External diff program for `Vcs.DiffFileExternal`. Empty means automatic: `p4merge` from PATH (on Windows `p4merge.exe`, then `%ProgramFiles%\Perforce\p4merge.exe`). |
 | `vcs.diffToolArgs` | `"{base}" "{current}"` | string | Arguments of that program, split like a command line (double quotes group). Placeholders: `{base}` (temp file with the committed text), `{current}` (temp file with the buffer), `{baseTitle}`, `{currentTitle}`, `{file}` (the real path). A value wrapped in quotes loses the outer pair, which is why the default file doubles them. With these default arguments and a tool called p4merge, tenfold also passes titles (`-nl`, `-nr`). |
 | `vcs.p4vPath` | (empty) | string | The program `PerforceShowInP4v` starts; empty means `p4v` from `PATH`. |
+| `perforce.promptOnEdit` | `false` | bool | Ask "Check out?" before the first edit of a read-only, not checked-out Perforce file (P4VS) instead of checking it out silently (10x). |
 | `terminal.command` | (empty) | string | The program `NewTerminal` / `ShowTerminal` open, with arguments, split like a command line (double quotes group). 10x: TerminalCommand (10x default `cmd.exe`). Empty (tenfold's default, like Visual Studio's PowerShell default profile) means `pwsh.exe` if it is on `PATH`, else `powershell.exe` on Windows, and `$SHELL`, else `/bin/sh` elsewhere. A value you set is always used as written; off Windows `cmd.exe` still means `$SHELL`. |
 | `terminal.claudeCommand` | `claude` | string | The program of `ClaudeCodeTerminal`. 10x: ClaudeTerminalCommand. |
 | `terminal.cursorCommand` | `cmd /c agent` | string | The program of `CursorTerminal`. 10x: CursorTerminalCommand. Off Windows a leading `cmd /c` is dropped (`agent`). |
@@ -1138,7 +1154,7 @@ differs from the 10x description:
 | `Control Shift V` | `PasteHistory` | `Editor.PasteHistory` | a picker in the middle of the window, not a dropdown at the caret; 20 entries |
 | `Control Shift R` | `RecordKeySequence` | `App.RecordKeySequence` | records commands and typed text of the editor, not mouse or picker input |
 | `Control Shift P` | `PlaybackKeySequence` | `App.PlaybackKeySequence` | one undo step of the document current at the start |
-| `Control P, Control H` | `PerforceHistory` | `Vcs.PerforceHistory` | Enter opens the revision read-only in a new tab |
+| `Control P, Control H` | `PerforceHistory` | `Vcs.PerforceHistory` | Enter opens an action menu: Open (read-only tab), Diff against previous, Diff against have |
 | `Control P, Control V` | `PerforceShowInP4v` | `Vcs.ShowInP4v` | `p4v -p -u -c -s <depot path>` |
 
 **Navigation**

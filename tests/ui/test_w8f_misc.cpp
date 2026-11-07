@@ -366,6 +366,8 @@ TEST(w8f_perforce_history_lists_revisions_and_opens_one_read_only) {
   env.type("bob");  // filter by user
   REQUIRE_EQ(env.app->perforceUi().popup()->rows().size(), size_t(1));
   CHECK_EQ(env.app->perforceUi().popup()->rows()[0].secondary, std::string("Second change"));
+  env.key(Key::Enter);  // VC6: Enter opens the action menu of the revision, "Open" is its first row
+  REQUIRE(env.waitUntil([&] { return env.app->perforceUi().actionMenu() != nullptr; }));
   env.key(Key::Enter);
   REQUIRE(env.waitUntil([&] { return env.name() == "a#2.cpp"; }));
   CHECK_EQ(env.txt(), std::string("second\n"));
