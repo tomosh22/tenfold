@@ -2,9 +2,12 @@
 
 Reproducible numbers for the performance budgets in `IMPLEMENTATION_PLAN.md` section 1.7.
 
-> **PROVISIONAL: measured under load.** The numbers below were taken on a 4-core machine that was
-> running about six other agents at the same time (load average 6 to 12). Treat them as upper bounds.
-> The orchestrator will re-run `tools/bench.sh` on a quiet machine and replace them.
+> **Which numbers to trust.** The first two result tables under "Results" were taken on a 4-core machine that was
+> running about six other agents at the same time (load average 6 to 12): treat them as upper bounds. The section
+> "After Wave 1" (light load) supersedes them for startup, definition latency, symbol search and memory, and the A10 and
+> B2c sections have their own measurement conditions. Later UI budgets are asserted by the test suites (list below);
+> `docs/STRESS_RESULTS.md` has the numbers for pathological workspaces and generated codebases. Re-run `tools/bench.sh`
+> on a quiet machine before quoting an absolute number.
 
 ## How to run
 
@@ -92,7 +95,7 @@ set it.
 | `symAuth[q]Ms` | `findSymbols` to the authoritative callback, median of N. Depends on clangd's background index; `counts.clangdIndexPercent` records how far it had got. |
 | `peakRssMiB` | Peak RSS (`VmHWM`) of the editor process, clangd excluded. Best effort off Linux (`getrusage`; `-1` on Windows). |
 
-Not measured: keystroke-to-paint is n/a until B1/B2 (no UI yet).
+Keystroke-to-paint is not a `tenfold-cli bench` phase; the UI tests measure it (see "Enforced budgets" above).
 
 ## Fetching the big workspaces
 
@@ -373,4 +376,4 @@ From the post-Wave 1 run above.
 | Startup to interactive, warm <= 1 s | pass (0.05 s) | pass (0.33 s) |
 | Symbol search, fast tier <= 50 ms | pass (< 0.01 ms) | pass after A10: 1-12 ms in-process on a loaded machine (was 30-250 ms; see the A10 section), `Editor::findSymbols` returns in < 0.05 ms |
 | Editor memory <= 500 MB | pass (6 MiB) | pass (374 MiB cold, 200 MiB warm) |
-| Keystroke-to-paint <= 8 ms | pass (B2a / B2c: 0.1-0.2 ms on a 100k-line file with wrap on, 0.5-3 ms on a 50 MB single line, see the B2c section) | not measured in the editor view |
+| Keystroke-to-paint <= 8 ms | pass (B2a / B2c: 0.1-0.2 ms on a 100k-line file with wrap on, 0.5-3 ms on a 50 MB single line, see the B2c section) | asserted in the UI tests (see "Enforced budgets" above; `docs/STRESS_RESULTS.md` has the pathological files) |

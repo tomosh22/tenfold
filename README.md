@@ -176,9 +176,10 @@ third_party     nlohmann/json (single header)
 
 ## Performance
 
-Measured numbers, their methodology and the budgets are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md) (workspace scan,
-fast index, startup to interactive, go-to-definition latency, memory, on `examples/sample_project` and the Godot source
-tree). Stress results for pathological workspaces, the corpora, generated codebases and fuzzing are in
+Measured numbers, their methodology and the budgets are in [`docs/BENCHMARKS.md`](docs/BENCHMARKS.md). For example, on
+the Godot source tree (8327 indexed files, 507k symbols; 4 cores, light load, "After Wave 1" there) the editor is
+interactive after 1.9 s cold and 0.33 s warm, the fast index takes 1.2 s cold, a go-to-definition is answered in about
+0.2 ms once clangd has parsed the file, and the editor process peaks at 374 MiB (clangd excluded). Stress results for pathological workspaces, the corpora, generated codebases and fuzzing are in
 [`docs/STRESS_RESULTS.md`](docs/STRESS_RESULTS.md).
 
 ## Status

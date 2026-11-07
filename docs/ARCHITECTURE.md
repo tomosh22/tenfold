@@ -178,8 +178,8 @@ crashes.
   gets a `log: <path>` line, Windows gets a `crash-<pid>-<tick>.txt` next to the minidump. The handler does not flush the
   log, because that takes a mutex and allocates, which is not async-signal-safe; records from the last flush interval
   (at most about 500 ms, except Errors which are flushed immediately) can be missing after a crash.
-* Not yet logging: `DebugSession`/`BuildRunner`/`FastIndex` have no log callback of their own; the editor-level events
-  around them (build start/finish) are logged, subsystem-internal ones are a follow-up.
+* Not yet logging: `DebugSession` and `BuildRunner` make no `Log` calls of their own; the editor-level events around
+  them (build start/finish) are logged, subsystem-internal ones are a follow-up. `FastIndex` logs the files it skips.
 
 ## The two-tier query policy
 
@@ -1611,8 +1611,8 @@ quads are emitted after the tree has painted, so a shell frame is one rect batch
 ~0.05 ms CPU for chrome + two text views). If the glyph atlas grows mid-frame the recorded UVs are stale and `render()`
 repaints once. Widgets: `TabStrip` (pinned, dirty marker, close, MRU order, drag reorder / drag-out, overflow
 scrolling), `Splitter`, `Panel` (strip + one content widget per tab), `StatusBar` (keyed, clickable segments), plus
-`TextView` (below). `Theme` is a neutral dark placeholder until B7 loads it from
-files. The engine never includes any of this.
+`TextView` (below). `Theme` holds the colours; B7 loads them from theme files (default `vs-dark`). The engine never
+includes any of this.
 
 ### Popups: top layer, modal, `InputLine`, `ListPopup` (B5a)
 

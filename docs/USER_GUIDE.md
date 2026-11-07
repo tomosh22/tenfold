@@ -599,7 +599,7 @@ about which configuration you parse with in 10x.
 tenfold does not contain a debugger. It drives Visual Studio's own debugger through Visual Studio's automation
 interface (EnvDTE), so you edit in tenfold and stop in Visual Studio's engine. This is **Windows only**; elsewhere
 the debug commands report `no debugger backend on this platform`. It has been exercised by automated tests, including a
-non-blocking CI job that runs a real Visual Studio, and not yet by long use on your solution.
+CI job (`windows-vs-debugger`) that runs a real Visual Studio, and not yet by long use on your solution.
 
 **How tenfold finds or launches Visual Studio.** The first debug command connects. tenfold looks through the running
 Visual Studio instances (newest first) for the one whose open solution is your workspace's `.sln` (the first `.sln` in
