@@ -316,10 +316,12 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install Ninja (pip)
+      # The pinned clangd: without it the clangd tests use whatever the runner has on PATH (an older one from the
+      # Visual Studio LLVM component, which has no outgoing calls), not the version the other jobs test.
+      - name: Install clangd and Ninja (pip)
         shell: bash
         run: |
-          python -m pip install "ninja==${NINJA_VERSION}"
+          python -m pip install "clangd==${CLANGD_VERSION}" "ninja==${NINJA_VERSION}"
           python -c 'import sysconfig; print(sysconfig.get_path("scripts"))' >> "$GITHUB_PATH"
 
       - name: MSVC developer environment
@@ -339,7 +341,9 @@ jobs:
       # fixture). GL-only tests skip themselves when the runner has no OpenGL 3.3 context.
       - name: UI tests (D3D11 on WARP)
         shell: bash
-        run: ./build-ui/tenfold-ui-tests.exe
+        run: |
+          command -v clangd && clangd --version
+          ./build-ui/tenfold-ui-tests.exe
 
       - name: D3D11 renderer tests only
         shell: bash
