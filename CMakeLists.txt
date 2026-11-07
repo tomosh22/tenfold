@@ -414,6 +414,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_config_ui.cpp
     tests/ui/test_p2_ui.cpp
     tests/ui/test_line_endings_ui.cpp
+    tests/ui/test_dropdown_checkbox.cpp
     tests/ui/test_encoding_ui.cpp
     tests/ui/test_w8b.cpp
     tests/ui/test_w8a_commands.cpp
