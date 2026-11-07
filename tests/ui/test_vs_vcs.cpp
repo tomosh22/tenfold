@@ -198,25 +198,27 @@ TEST(vsvcs_explorer_marks_perforce_files_like_p4vs) {
   CHECK(a.treeMark(tv, "a.cpp") == Mark::None);  // synced and read-only: P4VS gives it no badge
   // The glyphs are painted in the theme's colours: each badge adds rectangles of its colour.
   a.frame();
-  const Theme& th = tv.theme();
+  const Theme th;  // the default theme: the app uses it until settings name another
   for (Mark m : {Mark::CheckedOut, Mark::OpenedForAdd, Mark::NotInDepot, Mark::OutOfDate, Mark::Conflict}) {
     CHECK(vcsMarkHasGlyph(m));
     CHECK(a.rec.count(vcsMarkColor(th, m)) > 0);
   }
   // Glyph shapes differ: a check, a plus, a question mark and a triangle do not paint the same number of cells.
-  Recorder r;
   auto cells = [&](Mark m) {
     Recorder one;
     gfx::FontStack stack;
     stack.add(std::make_shared<tftext::MockFont>(U"a", 8));
     auto tr = gfx::TextRenderer::fromFonts(std::move(stack));
-    PaintContext ctx{one, *tr};
+    const Theme theme;
+    PaintContext ctx{one, *tr, theme};
     drawVcsGlyph(ctx, m, {0, 0, 10, 14}, gfx::Color{1, 1, 1, 1});
     return one.rects.size();
   };
   CHECK_EQ(cells(Mark::OpenedForAdd), size_t(9));
-  CHECK_EQ(cells(Mark::OutOfDate), size_t(15));
-  CHECK(cells(Mark::CheckedOut) != cells(Mark::NotInDepot));
+  CHECK_EQ(cells(Mark::OutOfDate), size_t(18));
+  CHECK_EQ(cells(Mark::CheckedOut), size_t(10));
+  CHECK_EQ(cells(Mark::NotInDepot), size_t(10));  // a ? and a check differ in shape, not in cell count
+  CHECK_EQ(cells(Mark::Conflict), size_t(10));
 }
 
 TEST(vsvcs_tabs_carry_the_same_marks_and_status_text) {
@@ -231,7 +233,7 @@ TEST(vsvcs_tabs_carry_the_same_marks_and_status_text) {
     CHECK(a.waitUntil([&] { return a.tabMark() == mark; }));
   }
   // the tab squares use the new theme keys (fallbacks without a theme: red / blue / yellow)
-  const Theme& th = a.bench->theme();
+  const Theme th;
   CHECK(vcsMarkColor(th, Mark::NotInDepot).b > vcsMarkColor(th, Mark::NotInDepot).r);
   CHECK(vcsMarkColor(th, Mark::OutOfDate).r > vcsMarkColor(th, Mark::OutOfDate).b);
 }
@@ -381,14 +383,16 @@ TEST(vsvcs_history_enter_opens_an_action_menu_open_is_first) {
   CHECK_EQ(m->rows()[0].primary, std::string("Open #2"));
   CHECK_EQ(m->rows()[1].primary, std::string("Diff against previous revision (#1)"));
   CHECK_EQ(m->rows()[2].primary, std::string("Diff against have revision (#3)"));
-  a.key(Key::Escape);  // back to the list
+  a.key(Key::Escape);  // closes the menu; the list closed when Enter chose the revision
   CHECK(a.app->perforceUi().actionMenu() == nullptr);
-  CHECK(a.app->perforceUi().isOpen());
+  CHECK(!a.app->perforceUi().isOpen());
+  CHECK_EQ(a.tabCount(), size_t(1));
+  openHistory(a);
+  a.key(Key::Down);
   a.key(Key::Enter);
   a.key(Key::Enter);  // Open
   REQUIRE(a.waitUntil([&] { return a.doc()->path().filename().string() == "a#2.cpp"; }));
   CHECK_EQ(a.doc()->buffer().text(), std::string("second\n"));
-  CHECK(!a.app->perforceUi().isOpen());  // the list closed with the action
 }
 
 TEST(vsvcs_history_menu_omits_actions_that_make_no_sense) {
@@ -400,6 +404,7 @@ TEST(vsvcs_history_menu_omits_actions_that_make_no_sense) {
   REQUIRE_EQ(m->rows().size(), size_t(2));
   CHECK_EQ(m->rows()[1].primary, std::string("Diff against previous revision (#2)"));
   a.key(Key::Escape);
+  openHistory(a);
   a.key(Key::Down);
   a.key(Key::Down);
   a.key(Key::Enter);  // #1 is the oldest: no "previous"

@@ -658,7 +658,7 @@ Alt Shift F5: Vcs.RefreshStatus
 
 **History and p4v.** **Control P, Control H** (`PerforceHistory`) runs `p4 filelog` for the current file and lists its
 revisions (`#rev  change N  date  user`, the first line of the description, the action); type to filter by any of that.
-**Enter** on a revision opens its action menu (Escape goes back to the list): **Open** (first, so Enter twice opens it) shows
+**Enter** on a revision opens its action menu (Escape closes it): **Open** (first, so Enter twice opens it) shows
 that revision (`p4 print`) in a new tab, read-only: the text is written to a temp file
 `<temp>/tenfold-p4/<id>/<name>#<rev><ext>` that is read-only on disk, so it cannot be saved over anything. **Diff against
 previous revision** and **Diff against have revision** start the external diff tool (`vcs.diffTool`, p4merge by default) on

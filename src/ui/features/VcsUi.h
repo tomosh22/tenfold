@@ -59,7 +59,7 @@ class VcsUi {
   // VC5: the "Check out?" question of perforce.promptOnEdit (P4VS: "check out (and save)?"). A modal three-row
   // ListPopup, "Check out" / "Check out, do not ask again" / "Do not check out"; Escape = do not check out. Questions
   // for several files are asked one after the other.
-  ListPopup* editPrompt() const { return editPrompt_; }
+  ListPopup* editPrompt() const { return editPrompt_ && env_.root.modal() == editPrompt_ ? editPrompt_ : nullptr; }
   size_t editPromptsPending() const { return editQueue_.size(); }
   // Runs the diff tool on a request with the vcs.diffTool settings (used by the Perforce history actions); the status
   // bar says what was started or why not.

@@ -132,6 +132,7 @@ void PerforceUi::showRevisions(const fs::path& file, std::vector<PerforceProvide
   p->setMaxVisibleRows(14);
   p->setEmptyText("No matching revisions");
   p->onQuery([this](const std::string&) { rebuild(); });
+  // Enter / click on a revision opens its action menu (the list closes first: there is one modal at a time).
   p->onAccept([this](int row) {
     if (row >= 0 && row < static_cast<int>(shown_.size())) showActions(shown_[static_cast<size_t>(row)]);
   });
@@ -202,7 +203,6 @@ void PerforceUi::showActions(const PerforceProvider::Revision& rev) {
     const Item& it = (*items)[static_cast<size_t>(row)];
     if (it.act == Act::Open) openRevision(file_, rev);
     else diffRevisions(it.other, rev);  // older / have on the left, the chosen revision on the right
-    if (popup_) popup_->close();        // the action is taken: the list goes too
   });
   p->onClosed([this, life = std::weak_ptr<int>(life_)] {
     if (!life.expired()) menu_ = nullptr;

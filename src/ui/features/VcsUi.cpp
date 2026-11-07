@@ -22,7 +22,7 @@ VcsUi::~VcsUi() {
   closeConfirm();
   env_.editor.vcs().onEditPrompt(nullptr);
   editQueue_.clear();  // the replies must not run any more
-  if (editPrompt_) editPrompt_->close();
+  if (editPrompt_ && env_.root.modal() == editPrompt_) editPrompt_->close();
   env_.editor.vcs().onError(nullptr);
   tool_.onError = nullptr;
 }
@@ -43,6 +43,7 @@ void VcsUi::applySettings(const Settings& s) {
 }
 
 void VcsUi::askNextEdit() {
+  if (editPrompt_ && env_.root.modal() != editPrompt_) editPrompt_ = nullptr;  // another modal replaced it silently
   if (editPrompt_ || editQueue_.empty()) return;
   const std::string name = relName(editQueue_.front().file);
   auto p = std::make_unique<ListPopup>(false);
@@ -83,8 +84,13 @@ void VcsUi::askNextEdit() {
   p->onClosed([this, finish, life = std::weak_ptr<int>(life_)] {
     if (life.expired()) return;
     editPrompt_ = nullptr;
-    finish(VcsManager::EditAnswer::Leave);  // Escape; no-op after an accept
-    askNextEdit();
+    // ListPopup closes before it calls onAccept, so an Escape is told apart one pump later: by then the accept (if
+    // there was one) has answered, and `finish` is a no-op.
+    env_.editor.post([this, finish, life] {
+      if (life.expired()) return;
+      finish(VcsManager::EditAnswer::Leave);
+      askNextEdit();
+    });
   });
   editPrompt_ = ListPopup::open(env_.root, std::move(p));
 }

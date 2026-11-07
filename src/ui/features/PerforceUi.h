@@ -27,8 +27,8 @@ class Settings;
 //      Diff against previous (#N-1)  external diff tool (vcs.diffTool, p4merge by default) on the two revisions; absent
 //                                    for the oldest revision in the list
 //      Diff against have (#H)        the revision against the one in the workspace; absent for the have revision itself
-//    Escape in the menu goes back to the list. The working copy's diff against #have is Vcs.DiffFileExternal. Dates are
-//    UTC (`p4 filelog` reports epoch seconds).
+//    Escape closes the menu (and with it the history; run PerforceHistory again). The working copy's diff against #have
+//    is Vcs.DiffFileExternal. Dates are UTC (`p4 filelog` reports epoch seconds).
 //  * PerforceShowInP4v (Control P, Control V): starts `p4v -p <port> -u <user> -c <client> -s <depot path>` through the
 //    OsLauncher (setting vcs.p4vPath names another program; empty = `p4v` from PATH). Port, user and client come from
 //    `p4 info`, so P4CONFIG / `p4 set` are honoured; any that p4 does not report are left out and p4v uses its own.
