@@ -44,12 +44,13 @@ class CppLexer {
   static bool isCKeyword(std::string_view s);  // C (C11 plus the C23 spellings and the MSVC/GNU extensions)
 
  private:
+  Token nextRaw();  // clang's lines and columns
   void skipSpaceAndComments();
   bool nlAt(size_t k) const;       // a line break ends at k ('\n', or '\r' not followed by '\n')
   size_t contLen(size_t k) const;  // length of a backslash-newline at k, else 0
   Token make(Tok k, size_t start, int line, int col) const;
-  // Line and column of offset `off` (clang's line `clangLine` starting at `clangLineStart`) in the editor's lines.
-  void place(size_t off, int clangLine, size_t clangLineStart, int& line, int& col);
+  // (Line, column) of offset `off` (clang's line `clangLine` starting at `clangLineStart`) in the editor's lines.
+  std::pair<int, int> place(size_t off, int clangLine, size_t clangLineStart);
 
   std::string_view s_;
   bool isC_ = false;
