@@ -37,7 +37,7 @@ std::vector<int> caretLines(const Editor& ed) {
 
 // Caret lines a Copy / Cut without a selection acts on: blank (whitespace-only) lines are skipped unless
 // editor.copyBlankLines.
-std::vector<int> emptySelectionLines(const Editor& ed, const EditorApp::LineCopyOptions& opts) {
+std::vector<int> emptySelectionLines(Editor& ed, const EditorApp::LineCopyOptions& opts) {
   std::vector<int> lines = caretLines(ed);
   if (opts.blankLines) return lines;
   const TextBuffer& b = ed.currentDocument()->buffer();

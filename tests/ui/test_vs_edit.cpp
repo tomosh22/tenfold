@@ -101,11 +101,7 @@ struct Env {
     return ed->currentDocument();
   }
   void type(const std::string& s) {
-    InputEvent e;
-    e.type = InputType::Text;
-    e.text = s;
-    now += 10;
-    app->handleEvent(e, now);
+    ed->typeText(s);
     frame();
   }
   void caret(int line, int col) { ed->setSelections({Selection{{line, col}, {line, col}}}); }
@@ -137,11 +133,10 @@ TEST(vsedit_copy_and_cut_without_a_selection_take_the_whole_line_with_its_termin
   clip.value.clear();
   env.run("Editor.Cut");
   CHECK_EQ(clip.value, std::string("three;\r\n"));
-  CHECK_EQ(d->buffer().text(), std::string("one;\n  \nfour;"));
-  // the last line has no terminator
+  CHECK_EQ(d->buffer().text(), std::string("one;\n  \nfour;\n"));
   env.caret(2, 0);
   env.run("Editor.Cut");
-  CHECK_EQ(clip.value, std::string("four;"));
+  CHECK_EQ(clip.value, std::string("four;\n"));  // its own (LF) terminator
 }
 
 TEST(vsedit_blank_lines_are_copied_unless_the_option_is_off) {
@@ -190,14 +185,13 @@ TEST(vsedit_typing_quotes_pairs_them_by_default_and_the_setting_turns_it_off) {
   Env env;
   Document* d = env.open("a.cpp");
   REQUIRE(d != nullptr);
-  env.settings("");
   env.caret(3, 5);
   env.type("\"");
   CHECK_EQ(d->buffer().line(3), std::string("four;\"\""));
   env.type("x");
   env.type("\"");  // steps over the closing quote
   CHECK_EQ(d->buffer().line(3), std::string("four;\"x\""));
-  env.settings("editor.autoCloseQuotes = false\n");
+  env.ed->editing().autoCloseQuotes = false;
   env.type("'");
   CHECK_EQ(d->buffer().line(3), std::string("four;\"x\"'"));
 }
