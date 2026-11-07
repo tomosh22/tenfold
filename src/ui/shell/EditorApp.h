@@ -27,7 +27,9 @@
 #include "ui/features/FindReplace.h"
 #include "ui/features/FunctionPicker.h"
 #include "ui/features/GoToLine.h"
+#include "ui/features/HierarchyPanel.h"
 #include "ui/features/HoverTooltip.h"
+#include "ui/features/InlayHints.h"
 #include "ui/features/KeySequence.h"
 #include "ui/features/LineEndingPrompt.h"
 #include "ui/features/NavResultPicker.h"
@@ -35,6 +37,7 @@
 #include "ui/features/OsLauncher.h"
 #include "ui/features/PasteHistory.h"
 #include "ui/features/PerforceUi.h"
+#include "ui/features/QuickActions.h"
 #include "ui/features/RenameInput.h"
 #include "ui/features/ReplaceInFiles.h"
 #include "ui/features/SaveAsPrompt.h"
@@ -128,7 +131,13 @@ class EditorApp {
   RenameInput& renameInput() { return *rename_; }
   FunctionPicker& functionPicker() { return *functions_; }
   WorkspaceExplorer* explorer() { return explorer_.get(); }  // the "Explorer" left-dock panel; null without a Workbench
-  BuildPanel* buildPanel() { return build_; }                // the "Build" bottom-dock panel; null without a Workbench
+  // W11-GUI-LSP: the "Hierarchy" bottom-dock panel (View.CallHierarchy, View.TypeHierarchy; null without a Workbench),
+  // the Quick Actions list and light bulb (Editor.QuickActions, Ctrl+.) and the inlay hints (editor.inlayHints,
+  // Alt+F1).
+  HierarchyPanel* hierarchyPanel() { return hierarchy_; }
+  QuickActions& quickActions() { return *quick_; }
+  InlayHints& inlayHints() { return *inlay_; }
+  BuildPanel* buildPanel() { return build_; }  // the "Build" bottom-dock panel; null without a Workbench
   TerminalPanel* terminalPanel() {
     return terminals_.get();
   }  // W8f: NewTerminal, ShowTerminal, ...; null without a Workbench
@@ -235,6 +244,9 @@ class EditorApp {
   std::function<bool(const std::string&)> clipboardSetter();
   void bindEditingCommands();
   std::pair<TextView*, Position> identifierUnderMouse(float x, float y);  // {null, _} when not over an identifier
+  bool clangdResultsAllowed(std::string* why = nullptr);  // clangd running and the file in a translation unit
+  void syncBulb();
+  void openHierarchy(HierarchyPanel::Mode mode);
   void bindParserCommands();  // W8c: rename, autocomplete, signature help, symbol info, FindFunction, format
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
   bool stepBuildResult(bool forward);      // next / previous build error or warning (F8; F4 after a build)
@@ -319,9 +331,13 @@ class EditorApp {
     bool frozen = false;  // the first word is complete
   };
   std::map<std::string, UntitledName> untitledNames_;  // generic path of an untitled document -> its name
-  BuildPanel* build_ = nullptr;                        // owned by the Workbench's bottom dock
-  std::unique_ptr<TerminalPanel> terminals_;           // W8f: terminal tabs of the editor panels
-  std::unique_ptr<WorkspaceExplorer> explorer_;        // its TreeView is owned by the Workbench's left dock
+  HierarchyPanel* hierarchy_ = nullptr;                // owned by the Workbench's bottom dock
+  std::unique_ptr<QuickActions> quick_;
+  std::unique_ptr<InlayHints> inlay_;
+  bool inlayHeld_ = false;
+  BuildPanel* build_ = nullptr;                  // owned by the Workbench's bottom dock
+  std::unique_ptr<TerminalPanel> terminals_;     // W8f: terminal tabs of the editor panels
+  std::unique_ptr<WorkspaceExplorer> explorer_;  // its TreeView is owned by the Workbench's left dock
   // W8f
   ContextMenu* menu_ = nullptr;  // use contextMenu(): it is stale once another modal replaced the menu
   std::vector<ContextMenuProvider> menuProviders_;

@@ -112,10 +112,14 @@ struct Theme {
                              0};     // the {...} marker of a collapsed region; unset = panelBackground 12% towards text
   Color foldMarkerText{0, 0, 0, 0};  // its text; unset = textDim
   Color foldGlyph{0, 0, 0, 0};       // the outlining margin glyphs (editor.showFoldGlyphs); unset = gutterText
-  Color tabVcsModified{0, 0, 0, 0};  // tab marker, file modified (Git / Perforce); unset = dirtyMarker
-  Color tabVcsAdded{0, 0, 0, 0};     // new / untracked / opened for add; unset = the added colour
-  Color tabVcsCheckedOut{0, 0, 0, 0};  // Perforce checked out; unset = the deleted colour (red)
-  Color tabVcsReadOnly{0, 0, 0, 0};    // Perforce read-only, not checked out (outlined marker); unset = textDim
+  Color inlayHint{0, 0, 0, 0};       // inlay hint text (parameter names, deduced types); unset = textDim
+  Color inlayHintBackground{0, 0, 0, 0};  // the box behind it; unset = panelBackground 12% towards text
+  Color lightBulb{0, 0, 0, 0};            // the Quick Actions light bulb in the margin; unset = #ffcc00
+  Color lightBulbError{0, 0, 0, 0};       // its red variant, a fix for an error; unset = diagnosticError
+  Color tabVcsModified{0, 0, 0, 0};       // tab marker, file modified (Git / Perforce); unset = dirtyMarker
+  Color tabVcsAdded{0, 0, 0, 0};          // new / untracked / opened for add; unset = the added colour
+  Color tabVcsCheckedOut{0, 0, 0, 0};     // Perforce checked out; unset = the deleted colour (red)
+  Color tabVcsReadOnly{0, 0, 0, 0};       // Perforce read-only, not checked out (outlined marker); unset = textDim
   // VS-VCS (P4VS badges, VC3), optional: opened for add (red plus), not in the depot (blue ?), newer revision in the
   // depot (yellow triangle), needs resolve (red ?). Unset = the deleted colour / a blue / a yellow / diagnosticError.
   Color tabVcsOpenedForAdd{0, 0, 0, 0};

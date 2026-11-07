@@ -331,8 +331,12 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/ParserCommands.cpp
     src/ui/features/RenameInput.cpp
     src/ui/features/FunctionPicker.cpp
+    src/ui/features/HierarchyPanel.cpp
+    src/ui/features/QuickActions.cpp
+    src/ui/features/InlayHints.cpp
     src/ui/features/WorkspaceExplorer.cpp
     src/ui/view/Viewport.cpp
+    src/ui/view/InlayMap.cpp
     src/ui/view/Layout.cpp
     src/ui/view/Highlighter.cpp
     src/ui/view/Scrollbar.cpp
@@ -433,6 +437,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_vs_tabs.cpp
     tests/ui/test_vs_edit.cpp
     tests/ui/test_vs_vcs.cpp
+    tests/ui/test_w11_gui.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

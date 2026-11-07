@@ -12,7 +12,7 @@
 namespace tf::ui {
 
 // What a tree node looks like (icon) and means. The tree itself does not care.
-enum class TreeKind : uint8_t { Root, Solution, Project, Folder, File };
+enum class TreeKind : uint8_t { Root, Solution, Project, Folder, File, Symbol };
 
 struct TreeNode {
   std::string name;
@@ -21,6 +21,9 @@ struct TreeNode {
   TreeKind kind = TreeKind::File;
   std::vector<int32_t> kids;
   bool dim = false;  // a file on disk that no project lists (Show All Files): painted dimmed
+  // Enter / double click calls TreeView::onActivate even when the node has children (a hierarchy entry: it opens its
+  // place and also expands to its callers); the arrow and Left / Right still expand and collapse it.
+  bool jumpable = false;
   bool expandable() const { return !kids.empty(); }
 };
 

@@ -49,6 +49,7 @@ const std::vector<SettingInfo>& settingsSchema() {
                                              {"outline.enabled", SettingType::Bool},
                                              {"outline.pragmaRegions", SettingType::Bool},
                                              {"outline.statementBlocks", SettingType::Bool},
+                                             {"editor.inlayHints", SettingType::String},
                                              {"editor.indentUnit", SettingType::String},
                                              {"editor.detectIndent", SettingType::Bool},
                                              {"editor.autoIndent", SettingType::Bool},

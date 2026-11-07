@@ -499,6 +499,10 @@ void TreeView::moveSelection(int delta) {
 
 void TreeView::activateOrToggle(int node) {
   if (node < 0) return;
+  if (model_.node(node).jumpable) {
+    if (onActivate) onActivate(node);
+    return;
+  }
   if (model_.node(node).expandable()) {
     if (filter_.empty()) toggle(node);
   } else if (model_.node(node).kind == TreeKind::File && onActivate) {
@@ -750,6 +754,11 @@ void TreeView::paint(PaintContext& ctx) {
       }
       case TreeKind::Solution:
       case TreeKind::Project: ctx.fill(intersect({ix, cy - is / 2, is, is}, rr), th.tabAccent); break;
+      case TreeKind::Symbol: {  // a code symbol: a small filled diamond-ish square in the accent colour
+        const float q = is * 0.7f;
+        ctx.fill(intersect({ix + (is - q) / 2, cy - q / 2, q, q}, rr), th.tabAccent);
+        break;
+      }
       case TreeKind::File: {
         const RectF f{ix + is * 0.1f, cy - is * 0.55f, is * 0.8f, is * 1.1f};
         ctx.fill(intersect({f.x, f.y, f.w, 1}, rr), dim);

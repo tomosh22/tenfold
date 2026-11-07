@@ -186,14 +186,13 @@ interactive after 1.9 s cold and 0.33 s warm, the fast index takes 1.2 s cold, a
 
 Done and tested: text model, navigation history, LSP client and clangd integration (definition, declaration, type
 definition, implementation, references, hover, completion, signature help, document/workspace symbols, rename,
-diagnostics, source/header switch), fast index, compile-command discovery and generation (including Visual Studio
+diagnostics, source/header switch, quick fixes and refactorings, call and type hierarchy, inlay hints), fast index, compile-command discovery and generation (including Visual Studio
 solutions), workspace scanning and watching, editor model, CLI, the graphical editor (GPU text rendering, tabs, split
 panels, 10x key bindings and command palette, pickers, find and replace, settings and themes), Windows support
 (process spawning, Direct3D 11, ConPTY terminal), build integration, the Visual Studio debugger, Git and Perforce
 integration, and packages with a bundled clangd.
 
-Dropped by decision: scripting (the Python API is not used). Not done yet: GUI for call and type hierarchy, code actions,
-inlay hints, Unreal Engine awareness, some 10x commands and settings, a scope-aware fast tier. See
+Dropped by decision: scripting (the Python API is not used). Not done yet: Unreal Engine awareness, some 10x commands and settings, a scope-aware fast tier. See
 [`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) for the full list and
 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) section 9 for what is next.
 

@@ -475,9 +475,60 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
 * The matching bracket of the one at the caret is highlighted. `editor.showWhitespace`, `editor.columnGuide`,
   `editor.highlightCurrentLine` and the caret blink are settings.
 
-Not available yet: code actions and fix-its, call and type hierarchy, inlay hints, the document outline.
-The engine has them; the GUI does not (see [What does not exist yet](#what-does-not-exist-yet)). Rename and formatting
-are the Control R and Control K, Control F commands above.
+Not available yet: the document outline. Rename and formatting are the Control R and Control K, Control F commands
+above; quick fixes, the call and type hierarchies and inlay hints are in the next section.
+
+## Quick actions, hierarchies and inlay hints
+
+These four features answer from clangd, so they need clangd running and a file that belongs to a translation unit (in the
+compile database or included by one of its files). In any other file ("Miscellaneous Files" in Visual Studio) they offer
+nothing, as there are no squiggles there either (`diagnostics.miscFiles` lifts the rule). Every request runs in the
+background, the window never waits for it, and an answer for something that has changed since is dropped.
+
+### Quick Actions and Refactorings (Control .)
+
+**Control .** (Visual Studio's *Quick Actions and Refactorings*; the same item is first in the editor context menu) opens
+a small list at the caret with what clangd offers for the selection, or for the caret's line: quick fixes for the
+diagnostics there (a missing `;`, an `#include` to add, a misspelt name) and refactorings such as "Extract subexpression
+to variable". Up / Down choose, Enter or a click applies, Escape closes. Applying one action is **one undo step** per file
+(Control Z restores everything it changed). Visual Studio also binds Alt+Enter; that is 10x's `ToggleFullscreen`, so tenfold
+does not take it. Without clangd, or when it has nothing for the line, the status bar says so.
+
+The **light bulb**: when the caret has rested on a line (a third of a second after the last move or edit) and clangd has a
+quick fix for it, a light bulb appears in the margin left of the line number (red, Visual Studio's "error light bulb", when the line has an error; yellow otherwise); a click on it opens the same list. It
+goes away when the caret leaves the line and comes back when clangd's answer changes (a fix applied, the error corrected).
+Refactorings alone do not light it, unlike Visual Studio's screwdriver (see VS_BEHAVIOUR). Theme keys `lightBulb`, `lightBulbError`.
+
+### Call hierarchy (Control K, Control T) and type hierarchy
+
+**Control K, Control T** (Visual Studio's *View Call Hierarchy*; also in the editor context menu) opens the **Hierarchy**
+panel in the bottom dock for the symbol at the caret: the symbol is the root, with **Calls To 'x'** (its callers, opened
+at once) and **Calls From 'x'** (what it calls). Every entry reads `name   path:line`, with `(N calls)` when it calls
+or is called from several places. Entries expand to their own callers (below *Calls To*) or callees (below *Calls
+From*). Expanding is lazy: the node says *Loading...* until clangd answers, and a node is asked only the first time it is
+opened. Up / Down / Left / Right / Home / End move as in the workspace explorer; **Enter** or a double click on an entry
+jumps to it through navigation history, so **Control -** (Back) returns; the arrow, Right and Left expand without
+jumping; Escape or the x closes the panel and gives the editor the keys back. Opening another hierarchy replaces the
+shown one; answers of the old one are ignored.
+
+**View Type Hierarchy** (command palette `View.TypeHierarchy` and the editor context menu; no default key) is the same
+panel for the class at the caret with **Base Types** and **Derived Types**. Visual Studio has no C++ type hierarchy window:
+this is a tenfold addition and uses no key of 10x's or Visual Studio's.
+
+### Inlay hints (hold Alt+F1)
+
+clangd's **inlay hints** are the parameter names at call sites (`area(`scale:`3, `exact:`true)`) and the deduced types
+after `auto` (`auto half`: double` = ...`). They are drawn as dim text in a small box between the characters
+(theme keys `inlayHint`, `inlayHintBackground`; vs-dark uses Visual Studio's grey on grey). They are virtual text: they
+move the text to their right, but nothing in the document changes and no column does: a caret never stops inside a hint,
+the status bar column, selections, search and copy see only the real text, a click in a hint puts the caret at the place
+it belongs to, and Left / Right cross it without a pause. Setting `editor.inlayHints`:
+
+* `while-pressed` (the default): hints are shown only while **Alt+F1** is held, like Visual Studio's hold-to-show key.
+* `on`: always shown. `off`: never shown, Alt+F1 does nothing.
+
+Only the visible lines (and a margin) of the current file are asked, a short pause after the last scroll or edit. The
+hints of an edited line disappear until clangd has answered again. Rows with hints can run past the wrap width.
 
 ## Code folding
 
@@ -889,6 +940,7 @@ tests.)
 | `outline.enabled` | `true` | bool | Visual Studio's Enable Outlining (C/C++). Off: no regions, no margin, the folding commands do nothing. |
 | `outline.pragmaRegions` | `true` | bool | Visual Studio's Outline Pragma Regions: `#pragma region` / `#pragma endregion` pairs are regions. |
 | `outline.statementBlocks` | `true` | bool | Visual Studio's Outline Statement Blocks: brace blocks inside a function body (if, for, while, try, plain blocks) are regions. Off: only function, class and namespace bodies and comments. |
+| `editor.inlayHints` | `while-pressed` | string | Inlay hints from clangd (parameter names, deduced types) as dim text between the characters. `off`: never; `on`: always; `while-pressed`: only while Alt+F1 is held, which is what Visual Studio does by default (Tools > Options > Text Editor > C/C++ > IntelliSense > Inlay Hints). Needs clangd and a file that belongs to a translation unit. |
 | `editor.indentUnit` | `tab` | string | One indent level: `tab`, or a number of spaces from 1 to 16 (anything else means 4). Used when `editor.detectIndent` finds nothing in the file, or is off. 10x: IndentMode (Tabs). |
 | `editor.detectIndent` | `false` | bool | Take the indent unit from the file itself (its first 400 lines: tabs, or the most common step) instead of `editor.indentUnit`. 10x: AutoDetectIndentMode (false). |
 | `editor.autoIndent` | `true` | bool | Enter copies the previous line's indentation (one level deeper after `{`, `(`, `[` or a trailing operator). 10x: AutoIndent. |
@@ -1372,13 +1424,16 @@ Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in 
 | `Alt Z` | `ToggleWordWrap` |
 | `Control F9`, `Control F10`, `Control Alt Cancel`, `Control Alt B` | `Debug.ToggleBreakpointEnabled`, `Debug.RunToCursor`, `Debug.BreakAll`, `ListBreakpoints` (breakpoint list) |
 | `Alt 1` to `Alt 4` | `Workbench.FocusPanel 1..4` |
+| `Control .` | `Editor.QuickActions` (Visual Studio's Quick Actions and Refactorings; Visual Studio's second key Alt+Enter is 10x's `ToggleFullscreen`) |
+| `Control K, Control T` | `View.CallHierarchy` (Visual Studio's View Call Hierarchy) |
+| `Alt F1` | `Editor.InlayHintsHold` (shows the inlay hints while held; Visual Studio's key) |
 
 The earlier placeholder defaults that clash with 10x's map are gone, and the same keys now do what 10x does: for example
 `Alt Left` / `Alt Right` are `MovePanelFocusLeft` / `Right` (use `Control -` / `Control Shift -` or the thumb buttons to go
 back and forward), `Control Shift P` is `PlaybackKeySequence` (the command palette is `Control Shift X`), `F4` / `F8`
 step through search results / build messages, and `Control Shift M` selects the bracket scope (the diagnostics list has no
 key now). Commands with no default key: `View.ShowDiagnostics`, `Editor.ListBookmarks`, `Editor.ToggleBlockComment`,
-`Editor.Indent`... see the palette. They are reachable from the [command palette](#command-palette) (`Control Shift X`);
+`Editor.Indent`, `View.TypeHierarchy`... see the palette. They are reachable from the [command palette](#command-palette) (`Control Shift X`);
 there is no menu yet. A command whose user interface is missing says `<name> is not available yet` in the status bar.
 
 ### Command palette
@@ -1399,7 +1454,7 @@ listed (see FEATURE_PARITY).
 **Right-click** opens the context menu of what is under the pointer, **Shift F10** or the **AppsKey** (10x's
 `ShowContextMenu`) opens the one for the focused element: the editor menu at the caret. Pressing the key again closes it.
 
-* **Editor text**: Cut, Copy, Paste, Go To Definition, Go To Declaration, Find All References, Rename, Quick Info, Switch
+* **Editor text**: Cut, Copy, Paste, Quick Actions and Refactorings, Go To Definition, Go To Declaration, Find All References, View Call Hierarchy, View Type Hierarchy, Rename, Quick Info, Switch
   Header/Source, Format Selection, Toggle Comment, Select All, Toggle Breakpoint, Run To Cursor, Revert Change and Show
   Change (only when the caret is on a version-control change), Open in Visual Studio (Windows), Show in Workspace Tree,
   Open Containing Folder, Copy Full Path. A right-click outside the selection moves the caret
@@ -1581,7 +1636,7 @@ unverified items in the next sections; the log and the output of those two comma
 
 * Opening a folder from the window, menus, a recent-workspaces list, drag and drop.
 * Autosave and recovery of unsaved buffers after a crash.
-* GUI for code actions / fix-its, call and type hierarchy, inlay hints, the document outline.
+* The document outline.
 * An "open log" command.
 * Scripting (the Python API of 10x is deliberately not implemented, OPEN_QUESTIONS #11), `.10x` workspace import (not
   wanted, #12), Unreal Engine awareness.

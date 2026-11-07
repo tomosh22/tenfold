@@ -13,6 +13,7 @@
 #include "ui/settings/Settings.h"
 #include "ui/view/FoldModel.h"
 #include "ui/view/Highlighter.h"
+#include "ui/view/InlayMap.h"
 #include "ui/view/Layout.h"
 #include "ui/view/RowBlocks.h"
 #include "ui/view/Scrollbar.h"
@@ -211,6 +212,22 @@ class TextView : public Widget {
   void ensureCaretVisible(bool animate = true);
   std::string positionText() const;  // "Ln 3, Col 5" of the primary caret (Col is the visual column, tabs expanded)
 
+  // ---- Quick Actions light bulb and inlay hints (W11-GUI-LSP) ----
+  // The light bulb sits in the gutter, left of the line number of `line` (-1: none); a click on it calls onLightBulb.
+  void setLightBulb(int line, bool error = false);  // `error`: the red variant (a fix for an error)
+  int lightBulbLine() const { return bulbLine_; }
+  bool lightBulbIsError() const { return bulbError_; }
+  RectF lightBulbRect() const;  // window pixels; empty when there is no bulb or its line is off screen
+  std::function<void()> onLightBulb;
+  // Inlay hints (InlayMap): virtual text between characters. They are drawn only while `shown`; they move the text to
+  // their right but never change a column: caretRect / positionAt / selections work in document columns.
+  void setInlayHints(const std::vector<LspInlayHint>& hints);
+  void setInlayHintsShown(bool on);
+  bool inlayHintsShown() const { return hintsShown_; }
+  const InlayMap& inlayMap() const { return hints_; }
+  // First and last document line with a visible row (all lines before the first paint).
+  std::pair<int, int> visibleLines() const;
+
   int settingsGen = 0;                   // EditorApp: the settings generation last applied to this view
   std::function<void()> onStateChanged;  // document, version or carets changed (status bar)
 
@@ -246,6 +263,11 @@ class TextView : public Widget {
   void toggleBreakpointAt(int line);
   int wrapCols() const;
   void syncWrap();
+  // Pixels the shown inlay hints on row `row` of `line` push the caret position `col` to the right (0 without
+  // hints). `end`: the position closes a range, so a hint that precedes the character at `col` is not counted.
+  float hintShift(int line, int row, int col, bool end = false) const;
+  bool rowHasHints(int line, int row) const;
+  void paintLightBulb(PaintContext& ctx, const Layout& L, float y);
   float scrollX() const;
   float totalHeight() const;
   void collectVisibleRows(std::vector<RowRef>& out) const;
@@ -330,6 +352,10 @@ class TextView : public Widget {
   std::vector<int> searchLines_;  // find-in-files markers, restored when the in-file matches go away
   uint64_t bookmarkGen_ = ~0ull, breakpointGen_ = ~0ull, debugGen_ = ~0ull;
   std::vector<int> bookmarkLines_;  // of the bound document, refreshed on paint
+  InlayMap hints_;
+  bool hintsShown_ = false;
+  int bulbLine_ = -1;
+  bool bulbError_ = false;
 
   // What was last seen, to detect changes.
   const Document* seenDoc_ = nullptr;
