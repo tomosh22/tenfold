@@ -548,7 +548,7 @@ TEST(w8b_new_text_file_then_save_asks_for_a_path) {
   Document* d = env.ed->currentDocument();
   REQUIRE(d != nullptr);
   CHECK(d->isUntitled());
-  CHECK_EQ(env.activeTitle(env.bench->activePanel()), std::string("TextFile1.txt"));
+  CHECK_EQ(env.activeTitle(env.bench->activePanel()), std::string("Untitled 1"));
   CHECK_EQ(env.status("eol"), std::string("CRLF"));  // 10x DefaultLineEnding
   CHECK_EQ(env.status("encoding"), std::string("UTF-8"));
   env.type("hello");
@@ -556,8 +556,8 @@ TEST(w8b_new_text_file_then_save_asks_for_a_path) {
   // Control S has nowhere to write: it asks for a path.
   CHECK(env.key(Key('S'), ModCtrl));
   REQUIRE(env.app->saveAsPrompt().isOpen());
-  CHECK_EQ(env.app->saveAsPrompt().popup()->input()->text(), std::string("TextFile1.txt"));
-  CHECK(!fs::exists(env.dir / "TextFile1.txt"));
+  CHECK_EQ(env.app->saveAsPrompt().popup()->input()->text(), std::string("Untitled 1"));
+  CHECK(!fs::exists(env.dir / "Untitled 1"));
   // A name that exists is refused and asked again.
   env.type("a.cpp");
   env.key(Key::Enter);
@@ -585,10 +585,10 @@ TEST(w8b_new_text_file_then_save_asks_for_a_path) {
   // The untitled tab never reaches layout.json or the recent files.
   env.app->runCommand("File.New");
   CHECK_EQ(env.ed->currentDocument()->path().filename().string(),
-           std::string("TextFile1.txt"));  // the number is free again
+           std::string("Untitled 1"));  // the number is free again
   const std::string layout = env.bench->layoutJson();
-  CHECK(layout.find("TextFile") == std::string::npos);
-  for (const fs::path& r : env.bench->recentFiles()) CHECK(r.filename() != "TextFile1.txt");
+  CHECK(layout.find("Untitled") == std::string::npos);
+  for (const fs::path& r : env.bench->recentFiles()) CHECK(r.filename() != "Untitled 1");
 }
 
 TEST(w8b_new_text_file_line_ending_follows_the_setting_and_clean_untitled_closes_silently) {
@@ -597,13 +597,13 @@ TEST(w8b_new_text_file_line_ending_follows_the_setting_and_clean_untitled_closes
   CHECK_EQ(env.status("eol"), std::string("LF"));
   Panel* p = env.bench->activePanel();
   env.key(Key('N'), ModCtrl);
-  CHECK_EQ(env.activeTitle(p), std::string("TextFile2.txt"));
+  CHECK_EQ(env.activeTitle(p), std::string("Untitled 2"));
   env.changeSettings("editor.defaultLineEnding = CRLF\n");
   env.key(Key('N'), ModCtrl);
   CHECK_EQ(env.status("eol"), std::string("CRLF"));
   // Closing a clean untitled document does not ask and frees the document.
   env.app->runCommand("Workbench.CloseTab");
-  CHECK(env.ed->document(env.dir / "TextFile3.txt") == nullptr);
+  CHECK(env.ed->document(env.dir / "Untitled 3") == nullptr);
   // A dirty one asks, and Don't Save drops it.
   env.key(Key('N'), ModCtrl);
   env.type("x");
@@ -629,11 +629,11 @@ TEST(w8b_auto_name_untitled_files_takes_the_first_word_typed) {
   CHECK_EQ(env.app->saveAsPrompt().popup()->input()->text(), std::string("foo"));
   env.key(Key::Escape);
   CHECK(!env.app->saveAsPrompt().isOpen());
-  // Without the setting the title stays "TextFileN.txt".
+  // Without the setting the title stays "Untitled N".
   Env plain;
   plain.key(Key('N'), ModCtrl);
   plain.type("word ");
-  CHECK_EQ(plain.activeTitle(plain.bench->activePanel()), std::string("TextFile1.txt"));
+  CHECK_EQ(plain.activeTitle(plain.bench->activePanel()), std::string("Untitled 1"));
 }
 
 TEST(w8b_quit_with_a_dirty_untitled_file_prompts_and_save_says_why_it_cannot) {
@@ -644,7 +644,7 @@ TEST(w8b_quit_with_a_dirty_untitled_file_prompts_and_save_says_why_it_cannot) {
   CHECK(env.app->unsavedPrompt().isOpen());
   env.key(Key::Enter);  // Save: there is no file name yet
   CHECK(!env.app->quitRequested());
-  CHECK(env.app->message().find("TextFile1.txt") != std::string::npos);
+  CHECK(env.app->message().find("Untitled 1") != std::string::npos);
   CHECK(env.ed->currentDocument()->dirty());
 }
 

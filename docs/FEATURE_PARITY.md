@@ -58,7 +58,7 @@ Legend: ✅ done in the engine · 🔶 engine support exists, needs the GUI ·
 | UTF-8 text, CRLF preserved | ✅ | W10: every line keeps its own ending (LF / CRLF / CR); mixed files are saved as they are; Visual Studio's load check, status-bar conversion and Save with Line Endings |
 | Undo / redo | ✅ | Per document, linear; nestable undo groups restore caret sets; typed-word grouping (A5, setting). **verify** 10x's grouping of typed characters (OPEN_QUESTIONS #3). |
 | Multi-caret / column select | ✅ | Engine (A5) + TextView (B2a): click/drag/double/triple/Alt-drag column select, Ctrl/Alt-click add caret, multi-caret clipboard; keystroke-to-paint 0.36 ms with 1000 carets on 100k lines. |
-| Auto-indent, auto-close brackets and quotes | 🔶 | B8 / B8b: Enter copies / extends the indentation (brace and operator continuation), `}` dedents, closing and wrapping are split like 10x's settings (`editor.autoAddCloseBrace`, `editor.autoAddCloseBracket`, `editor.bracketSelectedText`, tenfold-only `editor.autoCloseQuotes`, on by default like Visual Studio C++ (VS-EDIT Z1)) with 10x's defaults for the rest (braces and brackets do not pair, selections are bracketed, tab indent, no detection). Formatting, case alignment, re-indent on paste are not done (see "10x settings not yet supported"). |
+| Auto-indent, auto-close brackets and quotes | 🔶 | B8 / B8b: Enter copies / extends the indentation (brace and operator continuation), `}` dedents, closing and wrapping are split like 10x's settings (`editor.autoAddCloseBrace`, `editor.autoAddCloseBracket`, `editor.bracketSelectedText`, tenfold-only `editor.autoCloseQuotes`, off; VS C++ pairs, unverified, VS-EDIT Z1) with 10x's defaults for the rest (braces and brackets do not pair, selections are bracketed, tab indent, no detection). Formatting, case alignment, re-indent on paste are not done (see "10x settings not yet supported"). |
 | Bracket matching | ✅ | B2b: box behind the matching `(){}[]` of the caret. |
 | Comment toggle, duplicate / move / join / delete line, indent / outdent | 🔶 | B8: Ctrl+/ and Ctrl+Shift+/, Ctrl+Shift+D, Alt+Up/Down, Ctrl+J, Ctrl+Shift+K, Tab / Shift+Tab; multi-caret, one undo step each. Placeholder keys. |
 | Go to line | ✅ | B8: Ctrl+G, `line[:column]`, recorded in the navigation history. |
@@ -208,16 +208,17 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.wordWrap` | WordWrap (false) | tenfold true by decision (OPEN_QUESTIONS #4) |
 | `editor.smoothScroll` | SmoothScroll (true) | tenfold false by decision (#4) |
 | `font.editor`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7). ZoomIn / ZoomOut (and Control + wheel, `editor.mouseWheelZoom`) add to the size of the editor text for the session only (VS-EDIT; tabs, status bar and menus keep their size, the status bar shows "N %") UI font |
-| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile` (named `TextFileN.txt`, VS-EDIT Z14); new files are UTF-8 (DefaultEncoding is not mirrored) |
+| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile` (named `Untitled N`, or `TextFileN.txt` with `editor.textFileNames`, VS-EDIT Z14); new files are UTF-8 (DefaultEncoding is not mirrored) |
 | `editor.copyLineWhenEmpty`, `editor.copyBlankLines` | (none) | VS-EDIT Z4: Visual Studio's two options for Copy / Cut without a selection (both true) |
-| `editor.useEditorConfig` | (none) | VS-EDIT Z19: save honours `.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` |
+| `editor.useEditorConfig` | (none) | VS-EDIT Z19 (default off, unverified): save honours `.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` |
+| `editor.textFileNames` | (none) | VS-EDIT Z14 (default off, unverified): `NewTextFile` is named `TextFileN.txt` |
 | `editor.autoNameUntitledFiles` | AutoNameUntitledFiles (false) | the first word typed names the tab and is the Save As suggestion |
 | `editor.internetSearchCommand` | InternetSearchCommand | |
 | `ui.theme` | ColorScheme (Sunset) | vs-dark by decision (#7) |
 | `vcs.diffTool` | DiffExe (auto) | |
 
 No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTrailingWhitespace` (10x documents none),
-`editor.autoCloseQuotes`, `editor.copyLineWhenEmpty`, `editor.copyBlankLines`, `editor.useEditorConfig`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `picker.preview`, `vcs.diffToolArgs`.
+`editor.autoCloseQuotes`, `editor.copyLineWhenEmpty`, `editor.copyBlankLines`, `editor.useEditorConfig`, `editor.textFileNames`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `picker.preview`, `vcs.diffToolArgs`.
 
 ### Editing
 

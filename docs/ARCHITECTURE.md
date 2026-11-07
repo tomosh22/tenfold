@@ -1014,8 +1014,7 @@ edits at every caret and forms ONE undo step; the behaviours that could differ f
 (`autoIndent`, `autoIndentBraces`, `formatBracesOnEnterSplit`, `autoCloseBrace`, `autoCloseBracket`, `autoCloseQuotes`,
 `bracketSelectedText`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`, `commentBlockUsesLineComments`; the UI fills them from the `editor.*`
 settings, OPEN_QUESTIONS #8). The struct's defaults are 10x's documented defaults (B8b: braces and brackets do not auto-close, tab
-indent, no detection, selections are bracketed) except `autoCloseQuotes`, which is on like Visual Studio C++ (VS-EDIT); `trimTrailingWhitespace`
-and `insertFinalNewline`-style `.editorconfig` defaults (`core/EditorConfig.*`, `useEditorConfig`) are applied by `Editor::save`; the engine tests pin the behaviours they test explicitly. Two entry
+indent, no detection, selections are bracketed) ; `useEditorConfig` (off) lets `Editor::save` apply `.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` (`core/EditorConfig.*`) and `textFileNames` (off) names new files `TextFileN.txt` (VS-EDIT); the engine tests pin the behaviours they test explicitly. Two entry
 points exist for text: `insertText` gives the breaks of its text the document's line ending, unless it is a paste (`literal`), and `typeText` is what the view calls for typed
 characters (auto-close per pair kind, typing over the closer that is already there and Backspace between an empty pair,
 both only for a pair kind whose auto-close is on; wrapping a selection with `( [ {` per `bracketSelectedText`, with quotes
@@ -1817,7 +1816,7 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
   Control + wheel over a `TextView` into `zoomBy(+-1)` (`editor.mouseWheelZoom`). **Fullscreen**: `EditorApp::WindowHooks::setFullscreen` (`Window::setFullscreen`, SDL borderless
   desktop fullscreen); without the hook the command only says so.
 * **Untitled documents** (engine): `Document::untitled(path, lineEnding)` / `isUntitled()`; `Editor::newUntitled` picks
-  "TextFileN.txt" under the workspace root (a name that is neither open nor on disk), keeps it out of clangd, version
+  "Untitled N" (`textFileNames`: "TextFileN.txt") under the workspace root (a name that is neither open nor on disk), keeps it out of clangd, version
   control and the disk hash; `Editor::save` refuses it; `Editor::saveAs(doc, path)` re-keys the same `Document` (history
   and carets stay), writes it and then announces it to clangd and version control. The workbench follows with
   `documentRenamed`; `noteRecent` and `layout.json` skip untitled tabs; `ExternalChanges` does not poll them.
@@ -2051,7 +2050,7 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
 * **Settings** (`assets/settings.default.txt`, defaults = 10x's, B8b): `editor.indentUnit` (`tab` or a number of
   spaces, default `tab`), `editor.detectIndent` (false), `editor.autoIndent` (true), `editor.autoIndentBraces` (true),
   `editor.formatBracesOnEnterSplit` (false), `editor.autoAddCloseBrace` (false), `editor.autoAddCloseBracket` (false),
-  `editor.autoCloseQuotes` (true, tenfold only; VS-EDIT), `editor.bracketSelectedText` (true), `editor.trimTrailingWhitespace`
+  `editor.autoCloseQuotes` (false, tenfold only), `editor.bracketSelectedText` (true), `editor.trimTrailingWhitespace`
   (false), `editor.commentBlockUsesLineComments` (true). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
   lines indents them. Files are decoded to UTF-8 on load and encoded again on save (see "Encodings and line endings"

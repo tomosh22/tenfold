@@ -151,7 +151,7 @@ TEST(b8_defaults_parse_clean_and_bind_the_new_commands) {
   CHECK(!s.getBool("editor.formatBracesOnEnterSplit"));  // FormatBracesOnEnterSplit
   CHECK(!s.getBool("editor.autoAddCloseBrace"));         // AutoAddCloseBrace
   CHECK(!s.getBool("editor.autoAddCloseBracket"));       // AutoAddCloseBracket
-  CHECK(s.getBool("editor.autoCloseQuotes"));            // tenfold only; on like Visual Studio C++ (VS-EDIT Z1)
+  CHECK(!s.getBool("editor.autoCloseQuotes"));           // tenfold only
   CHECK(s.getBool("editor.bracketSelectedText"));        // BracketSelectedText
   CHECK(!s.getBool("editor.detectIndent"));              // AutoDetectIndentMode
   CHECK(!s.getBool("editor.trimTrailingWhitespace"));

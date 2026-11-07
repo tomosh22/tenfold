@@ -46,17 +46,17 @@ TEST(untitled_documents_are_numbered_and_keep_their_line_ending) {
   Document* b = fx.ed->newUntitled(LineEnding::LF);
   REQUIRE(a && b && a != b);
   CHECK(a->isUntitled() && b->isUntitled());
-  CHECK_EQ(a->path().filename().string(), std::string("TextFile1.txt"));
-  CHECK_EQ(b->path().filename().string(), std::string("TextFile2.txt"));
+  CHECK_EQ(a->path().filename().string(), std::string("Untitled 1"));
+  CHECK_EQ(b->path().filename().string(), std::string("Untitled 2"));
   CHECK(a->buffer().lineEnding() == LineEnding::CRLF);
   CHECK(b->buffer().lineEnding() == LineEnding::LF);
   CHECK(!a->dirty());
   CHECK_EQ(fx.ed->document(a->path()), a);
   // A freed number is used again; a file of that name on disk is skipped.
   fx.ed->close(a->path());
-  std::ofstream(fx.dir / "TextFile1.txt") << "x";
+  std::ofstream(fx.dir / "Untitled 1") << "x";
   Document* c = fx.ed->newUntitled(LineEnding::LF);
-  CHECK_EQ(c->path().filename().string(), std::string("TextFile3.txt"));
+  CHECK_EQ(c->path().filename().string(), std::string("Untitled 3"));
 }
 
 TEST(untitled_document_cannot_be_saved_in_place_and_is_not_written) {
@@ -84,7 +84,7 @@ TEST(save_as_gives_an_untitled_document_its_file_and_keeps_history) {
   CHECK_EQ(d->path().filename().string(), std::string("notes.txt"));
   CHECK_EQ(Fx::slurp(fx.dir / "notes.txt"), std::string("first\r\nsecond"));  // the default line ending is CRLF
   CHECK_EQ(fx.ed->document(fx.dir / "notes.txt"), d);
-  CHECK(fx.ed->document(fx.dir / "TextFile1.txt") == nullptr);
+  CHECK(fx.ed->document(fx.dir / "Untitled 1") == nullptr);
   CHECK_EQ(fx.ed->currentDocument(), d);
   CHECK(fx.ed->cursor().file == d->path());
   CHECK(d->canUndo());

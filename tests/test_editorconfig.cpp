@@ -83,6 +83,7 @@ TEST(editorconfig_closer_file_and_later_section_win_and_root_stops_the_walk) {
 
 TEST(editorconfig_save_trims_and_adds_the_final_newline_in_one_undoable_step_each) {
   Fx fx;
+  fx.ed->editing().useEditorConfig = true;
   fx.write(".editorconfig", "root = true\n[*.cpp]\ntrim_trailing_whitespace = true\ninsert_final_newline = true\n");
   fx.write("a.cpp", "int a;  \r\nint b;\t");  // CRLF file, trailing blanks, no final newline
   fx.write("a.txt", "x  ");
@@ -104,7 +105,7 @@ TEST(editorconfig_use_editor_config_off_ignores_the_file) {
   Fx fx;
   fx.write(".editorconfig", "[*]\ntrim_trailing_whitespace = true\ninsert_final_newline = true\n");
   fx.write("a.cpp", "int a;  ");
-  fx.ed->editing().useEditorConfig = false;
+  CHECK(!fx.ed->editing().useEditorConfig);  // the default: a save does not rewrite whitespace
   Document* d = fx.ed->open("a.cpp");
   REQUIRE(d != nullptr);
   fx.ed->gotoLocation({d->path(), {0, 0}});

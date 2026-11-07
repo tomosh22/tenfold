@@ -400,6 +400,7 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
   o.useEditorConfig = s.getBool("editor.useEditorConfig");
+  o.textFileNames = s.getBool("editor.textFileNames");
   o.replicateNewLine = s.getBool("editor.replicateNewLine");
   o.pasteKeepsLineBreaks = s.getBool("editor.pasteKeepsLineBreaks");
   o.checkLineEndings = s.getBool("editor.checkLineEndings");
@@ -1139,7 +1140,7 @@ void EditorApp::setFullscreen(bool on) {
 }
 
 // The name an untitled document offers the Save As prompt: the first word typed (editor.autoNameUntitledFiles) or
-// "TextFileN.txt".
+// "Untitled N" ("TextFileN.txt" with editor.textFileNames).
 std::string EditorApp::untitledSuggestion(const Document& d) const {
   const auto it = untitledNames_.find(d.path().generic_string());
   if (autoNameUntitled_ && it != untitledNames_.end() && !it->second.word.empty()) return it->second.word;

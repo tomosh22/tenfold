@@ -112,7 +112,9 @@ struct Env {
 TEST(vsedit_defaults_follow_visual_studio) {
   Settings s;
   s.loadTexts("", "");
-  CHECK(s.getBool("editor.autoCloseQuotes"));         // Z1
+  CHECK(!s.getBool("editor.autoCloseQuotes"));        // Z1: low confidence, off pending verification
+  CHECK(!s.getBool("editor.textFileNames"));          // Z14: same
+  CHECK(!s.getBool("editor.useEditorConfig"));        // Z19: same
   CHECK(s.getBool("editor.copyLineWhenEmpty"));       // Z4
   CHECK(s.getBool("editor.copyBlankLines"));          // Z4
   CHECK(s.getBool("editor.mouseWheelZoom"));          // Z8 (10x MouseWheelZoom)
@@ -181,10 +183,11 @@ TEST(vsedit_copy_line_when_empty_off_leaves_copy_and_cut_inert_without_a_selecti
   CHECK_EQ(clip.value, std::string("one"));
 }
 
-TEST(vsedit_typing_quotes_pairs_them_by_default_and_the_setting_turns_it_off) {
+TEST(vsedit_typing_quotes_pairs_only_when_the_setting_is_on) {
   Env env;
   Document* d = env.open("a.cpp");
   REQUIRE(d != nullptr);
+  env.ed->editing().autoCloseQuotes = true;
   env.caret(3, 5);
   env.type("\"");
   CHECK_EQ(d->buffer().line(3), std::string("four;\"\""));
@@ -196,14 +199,15 @@ TEST(vsedit_typing_quotes_pairs_them_by_default_and_the_setting_turns_it_off) {
   CHECK_EQ(d->buffer().line(3), std::string("four;\"x\"'"));
 }
 
-TEST(vsedit_a_new_text_file_is_named_like_visual_studios) {
+TEST(vsedit_new_file_is_untitled_n_and_text_file_n_txt_with_the_setting) {
   Env env;
+  env.run("File.New");
+  CHECK_EQ(env.ed->currentDocument()->path().filename().string(), std::string("Untitled 1"));
+  env.ed->editing().textFileNames = true;
   std::ofstream(env.dir / "TextFile1.txt") << "x";  // taken on disk: the next free number
   env.run("File.New");
-  Document* d = env.ed->currentDocument() ? env.ed->currentDocument() : nullptr;
+  Document* d = env.ed->currentDocument();
   REQUIRE(d != nullptr);
   CHECK(d->isUntitled());
   CHECK_EQ(d->path().filename().string(), std::string("TextFile2.txt"));
-  env.run("File.New");
-  CHECK_EQ(env.ed->currentDocument()->path().filename().string(), std::string("TextFile3.txt"));
 }

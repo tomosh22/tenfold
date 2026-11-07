@@ -394,7 +394,8 @@ bool Editor::save(Document& doc, std::string* error, UnencodableReport* refused)
 Document* Editor::newUntitled(LineEnding lineEnding) {
   std::error_code ec;
   for (int n = 1;; ++n) {
-    const fs::path path = ws_.root() / ("TextFile" + std::to_string(n) + ".txt");
+    const fs::path path = ws_.root() / (editing_.textFileNames ? "TextFile" + std::to_string(n) + ".txt"
+                                                               : "Untitled " + std::to_string(n));
     if (document(path) || fs::exists(path, ec)) continue;
     auto doc = std::make_unique<Document>(Document::untitled(path, lineEnding));
     Document* raw = doc.get();

@@ -50,13 +50,15 @@ decided by the user). Each has a default we implement until answered.
   `editor.reloadUnlessUnsaved`, with `editor.reloadExternalChanges` kept as an optional override); pinned tabs cannot be
   crossed by moves or drags; Ctrl+K, Ctrl+Z restores the last closed tab (a tenfold addition). T3, T4, T5, T7, T8, T10
   and T13 are unchanged.
-  *Implemented for the editing rows (VS-EDIT), see docs/VS_BEHAVIOUR.md section 14:* Z1 quotes close by default
-  (`editor.autoCloseQuotes` true); Z4 Copy / Cut with no selection take the line with its terminator, with the two
-  Visual Studio switches `editor.copyLineWhenEmpty` and `editor.copyBlankLines` (both true); Z7 wheel 3 lines, Z11
-  clipboard ring 20 and Z20 Tab / Shift+Tab (already as Visual Studio, nothing changed); Z8 zoom scales only the editor
-  text, with a "N %" indicator in the status bar and Control + wheel (`editor.mouseWheelZoom`, 10x MouseWheelZoom);
-  Z14 a new file is `TextFileN.txt`; Z19 `.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` apply on save
-  (`editor.useEditorConfig`). Not changed: Z2, Z3, Z5, Z9 (10x's Alt+R), Z10, Z12, Z13, Z18 (see VS_BEHAVIOUR section 14).
+  *Implemented for the editing rows (VS-EDIT), see docs/VS_BEHAVIOUR.md section 14:* Z4 Copy / Cut with no selection take
+  the line with its terminator, with the two Visual Studio switches `editor.copyLineWhenEmpty` and `editor.copyBlankLines`
+  (both true); Z7 wheel 3 lines, Z11 clipboard ring 20 and Z20 Tab / Shift+Tab (already as Visual Studio); Z8 zoom scales
+  only the editor text, with a "N %" indicator in the status bar and Control + wheel (`editor.mouseWheelZoom`, 10x
+  MouseWheelZoom). **Low-confidence rows built but OFF by default, on the user's verification checklist (VS_BEHAVIOUR V12
+  to V14):** Z1 `editor.autoCloseQuotes` (VS C++ pairs quotes), Z14 `editor.textFileNames` (`TextFileN.txt` instead of
+  "Untitled N"), Z19 `editor.useEditorConfig` (`.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` on save;
+  no Microsoft source found that VS applies them on save). Not changed: Z2, Z3, Z5, Z6 (user decision), Z9 (10x's Alt+R),
+  Z10, Z12, Z13, Z18.
 
 ### W10-CHOOSE: how the two choosers were implemented (and what was decided where the decision said nothing)
 
@@ -113,11 +115,11 @@ Settings are `editor.*` in `settings.txt`; key bindings are 10x's (#1) in `asset
   when the next character is blank, end of line or one of `) ] } ; ,`; typing the closer when it is the next character
   steps over it (stateless), Backspace between an empty pair deletes both; these two follow the auto-close setting of
   that pair and are docs silent. `editor.autoCloseQuotes` (`" '`) is tenfold only: 10x documents no setting for
-  quotes. **Now on by default (VS-EDIT, VS_BEHAVIOUR §14 Z1, Visual Studio C++ "Automatic brace completion").** Quotes are not
+  quotes. Off by default; Visual Studio C++ pairs quotes ("Automatic brace completion") but the row is low confidence (VS_BEHAVIOUR §14 Z1, checklist V12). Quotes are not
   paired after an identifier character, a backslash or the same quote.
 * Wrap selection (`editor.bracketSelectedText`, on): answered from the 10x documentation: BracketSelectedText (true,
   "Typing an open bracket/brace char ((,{,[) with selected text will enclose the selection"). The selection stays
-  selected (docs silent). Quotes wrap a selection with `editor.autoCloseQuotes` (on).
+  selected (docs silent). Quotes wrap a selection only with `editor.autoCloseQuotes`.
 * Comments: Ctrl+/ toggles `//` at the minimum indentation of the selected lines (blank lines untouched; uncomments
   when every non-blank line has it); a selection ending at column 0 does not take that last line. Ctrl+Shift+/ wraps each
   selection in `/* */` (a bare caret: its line's text) and unwraps when already wrapped. C / C++ comment syntax only.
@@ -166,7 +168,7 @@ against a running 10x.
   tabs, status bar, menus and pickers keep their size; the terminal follows the editor font as before), the status bar
   shows the zoom as "113 %" while it is not 100 % (Visual Studio's "100 %" box; a click resets it), and **`MouseWheelZoom`
   is mirrored** as `editor.mouseWheelZoom` (default true): Control + wheel over the editor zooms.
-* `NewTextFile`: **"TextFileN.txt"** (VS-EDIT, VS_BEHAVIOUR §14 Z14: Visual Studio's File > New > File > Text File name; was "Untitled N") in the workspace root, line ending `editor.defaultLineEnding` (CRLF), UTF-8. Saving asks for a
+* `NewTextFile`: "Untitled N" (VS-EDIT, VS_BEHAVIOUR §14 Z14: `editor.textFileNames` switches to Visual Studio's `TextFileN.txt`; off, low confidence, checklist V13) in the workspace root, line ending `editor.defaultLineEnding` (CRLF), UTF-8. Saving asks for a
   path (relative to the workspace, or absolute) in an input line; it refuses a file that exists (10x's save dialog is not
   documented) and a folder that does not exist. An untitled document is not saved in `layout.json`, is not sent to clangd
   and has no version-control state until it has a file; quitting with it dirty offers Save, which says to use Control S

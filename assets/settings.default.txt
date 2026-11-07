@@ -46,10 +46,10 @@ editor.formatBracesOnEnterSplit = false
 editor.autoAddCloseBrace = false
 # 10x AutoAddCloseBracket: the same for ( and [.
 editor.autoAddCloseBracket = false
-# tenfold only (10x documents no setting for quotes; on like Visual Studio's C/C++ "Automatic brace completion"): "
-# inserts a second quote and ' does too (not after a letter or digit), typing the closing quote steps over it, and a
-# quote typed over a selection wraps it.
-editor.autoCloseQuotes = true
+# tenfold only (10x documents no setting for quotes; off pending verification, Visual Studio's C/C++ "Automatic brace
+# completion" is on): " inserts a second quote and ' does too (not after a letter or digit), typing the closing quote
+# steps over it, and a quote typed over a selection wraps it.
+editor.autoCloseQuotes = false
 # Visual Studio's "Cut or Copy commands with no selection" (Tools > Options > Text Editor > General): Copy and Cut
 # with nothing selected act on the whole caret line including its line ending, and, like VS's option "Apply Cut or Copy
 # commands to blank lines when there is no selection", on blank lines too. Off: Copy / Cut do nothing without a selection.
@@ -59,9 +59,11 @@ editor.copyBlankLines = true
 editor.bracketSelectedText = true
 # Not documented by 10x; stays off.
 editor.trimTrailingWhitespace = false
-# Visual Studio honours .editorconfig; on, saving also applies its trim_trailing_whitespace and insert_final_newline
-# properties (trimming happens when either this file's setting above or the .editorconfig asks for it).
-editor.useEditorConfig = true
+# Visual Studio honours .editorconfig (when formatting; no source found that it rewrites whitespace on save, so off): on,
+# saving also applies the file's .editorconfig trim_trailing_whitespace and insert_final_newline properties.
+editor.useEditorConfig = false
+# NewTextFile names the file TextFileN.txt like Visual Studio's File > New > File > Text File instead of "Untitled N".
+editor.textFileNames = false
 # 10x CommentBlockUsesLineComments: ToggleComment with a selection uses // line comments (false: /* */ around the selection).
 editor.commentBlockUsesLineComments = true
 
