@@ -798,12 +798,6 @@ void Editor::rescanWorkspace() {
   for (auto* d : documents()) checkExternalChange(*d);
 }
 
-void Editor::addTree(const fs::path& dir) {
-  std::vector<fs::path> added = ws_.noteTreeAdded(dir);
-  for (auto& f : added) semantic_->watchedFileChanged(f, 1);
-  if (!added.empty()) semantic_->indexFilesAsync(std::move(added));
-}
-
 void Editor::handleFileEvent(const FileWatcher::Event& ev) {
   if (!semantic_) return;  // shut down while the event was queued
   vcs_->fileEvent(ev.path);
@@ -822,9 +816,8 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
       return;
     case E::Created:
     case E::Modified:
-      if (ev.isDirectory) {
-        // The files inside a directory that appeared may have been made before it was watched or after its listing.
-        if (ev.kind == E::Created) addTree(ev.path);
+      if (ev.isDirectory) {  // a file replaced by a directory: its delete and the creation folded into this event
+        if (ws_.noteFileRemoved(ev.path)) semantic_->fileRemoved(ev.path);
         return;
       }
       {
@@ -835,6 +828,15 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           return;
         }
       }
+      // A regular file has no children: when a directory was replaced by a file, its delete and the file's creation
+      // fold into one "modified" event, so what was listed below the old directory goes here.
+      for (auto& f : ws_.filesUnder(ev.path))
+        if (f != ev.path) {
+          ws_.noteFileRemoved(f);
+          semantic_->fileRemoved(f);
+          semantic_->watchedFileChanged(f, 3);
+          nav_.onFileRemoved(f);
+        }
       ws_.noteFileAdded(ev.path);
       touched(ev.path);
       semantic_->watchedFileChanged(ev.path, ev.kind == E::Created ? 1 : 2);  // skipped for open documents
@@ -867,7 +869,6 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
           moved.push_back(to);
         }
         semantic_->indexFilesAsync(std::move(moved));
-        addTree(ev.path);  // files under the new name that were never listed (made while the rename was pending)
       } else {
         ws_.noteFileRenamed(ev.oldPath, ev.path);
         nav_.onFileRenamed(ev.oldPath, ev.path);
