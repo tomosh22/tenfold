@@ -29,37 +29,47 @@ bool LexState::operator==(const LexState& o) const {
   return mode == o.mode && dlen == o.dlen && std::memcmp(delim, o.delim, dlen) == 0;
 }
 
-LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
+namespace {
+// The scanner behind lexLine and the long-line paths. Scans s from byte `i` (0 = the start of the line, where the
+// incoming state `st` applies; any other value is a token boundary of a line in the None state with `lineStart` as
+// reported by an earlier stop). `out` may be null (only the state / stops are wanted). At the top of every token
+// iteration stop(i, lineStart) is asked; true ends the scan there (*stopped = true, the returned state is then
+// meaningless). lexLine passes a stop that never fires.
+template <class Stop>
+LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, std::vector<LexSpan>* out, Stop&& stop,
+                 bool* stopped) {
   const size_t n = s.size();
-  size_t i = 0;
+  *stopped = false;
   auto add = [&](size_t b, size_t e, Lex k) {
-    if (e <= b) return;
-    if (k == Lex::Operator && !out.empty() && out.back().kind == k && out.back().end == b)
-      out.back().end = static_cast<uint32_t>(e);
-    else out.push_back({static_cast<uint32_t>(b), static_cast<uint32_t>(e), k});
+    if (!out || e <= b) return;
+    if (k == Lex::Operator && !out->empty() && out->back().kind == k && out->back().end == b)
+      out->back().end = static_cast<uint32_t>(e);
+    else out->push_back({static_cast<uint32_t>(b), static_cast<uint32_t>(e), k});
   };
   const bool backslash = n && s[n - 1] == '\\';
-  switch (st.mode) {
-    case LexState::Block: {
-      const size_t j = s.find("*/");
-      if (j == std::string_view::npos) return add(0, n, Lex::Comment), st;
-      add(0, j + 2, Lex::Comment);
-      i = j + 2;
-      break;
+  if (i == 0) {
+    switch (st.mode) {
+      case LexState::Block: {
+        const size_t j = s.find("*/");
+        if (j == std::string_view::npos) return add(0, n, Lex::Comment), st;
+        add(0, j + 2, Lex::Comment);
+        i = j + 2;
+        break;
+      }
+      case LexState::Raw: {
+        const std::string close = ")" + std::string(st.delim, st.dlen) + "\"";
+        const size_t j = s.find(close);
+        if (j == std::string_view::npos) return add(0, n, Lex::String), st;
+        add(0, j + close.size(), Lex::String);
+        i = j + close.size();
+        break;
+      }
+      case LexState::LineComment: add(0, n, Lex::Comment); return backslash ? st : LexState{};
+      case LexState::Directive: add(0, n, Lex::Preprocessor); return backslash ? st : LexState{};
+      case LexState::None: break;
     }
-    case LexState::Raw: {
-      const std::string close = ")" + std::string(st.delim, st.dlen) + "\"";
-      const size_t j = s.find(close);
-      if (j == std::string_view::npos) return add(0, n, Lex::String), st;
-      add(0, j + close.size(), Lex::String);
-      i = j + close.size();
-      break;
-    }
-    case LexState::LineComment: add(0, n, Lex::Comment); return backslash ? st : LexState{};
-    case LexState::Directive: add(0, n, Lex::Preprocessor); return backslash ? st : LexState{};
-    case LexState::None: break;
+    lineStart = st.mode == LexState::None;
   }
-  bool lineStart = st.mode == LexState::None;
   auto quoted = [&](size_t from, size_t q) {  // string / char literal whose opening quote is at q
     size_t j = q + 1;
     while (j < n && s[j] != s[q]) j += s[j] == '\\' ? 2 : 1;
@@ -68,6 +78,10 @@ LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
     return j;
   };
   while (i < n) {
+    if (stop(i, lineStart)) {
+      *stopped = true;
+      return {};
+    }
     const unsigned char c = static_cast<unsigned char>(s[i]);
     if (c == ' ' || c == '\t' || c == '\r' || c == '\f' || c == '\v') {
       ++i;
@@ -141,6 +155,12 @@ LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
   }
   return LexState{};
 }
+}  // namespace
+
+LexState lexLine(std::string_view s, LexState st, std::vector<LexSpan>& out) {
+  bool stopped;
+  return lexCore(s, st, 0, true, &out, [](size_t, bool) { return false; }, &stopped);
+}
 
 // ---- cache ----
 
@@ -157,10 +177,98 @@ void Highlighter::attach(const TextBuffer* b) {
 }
 
 void Highlighter::relex(Entry& e, int line, const LexState& begin) {
+  if (buf_->line(line).size() >= kLongLine) return relexLong(e, line, begin);
+  e.longLine = false;
+  e.ck.clear();
+  e.hasTail = false;
+  e.winValid = false;
   e.begin = begin;
   e.spans.clear();
   e.end = lexLine(buf_->line(line), begin, e.spans);
   e.valid = true;
+}
+
+// A long line: resume points and the end state, no spans (those come from windowLex). Starts at the last resume
+// point that survived the edit (when the line begins in the state it was lexed in) and stops at the first point that
+// matches one of the tail.
+void Highlighter::relexLong(Entry& e, int line, const LexState& begin) {
+  const std::string_view s = buf_->line(line);
+  const bool partial = e.longLine && e.begin == begin && !e.ck.empty();
+  if (!partial) {
+    e.ck.clear();
+    e.hasTail = false;
+  }
+  e.longLine = true;
+  e.begin = begin;
+  e.spans.clear();
+  e.winValid = false;
+  size_t from = 0;
+  bool lineStart = true;
+  if (partial) {
+    from = e.ck.back().pos;
+    lineStart = e.ck.back().lineStart;
+  }
+  std::vector<LexResume> tail = e.hasTail ? std::move(e.tail) : std::vector<LexResume>{};
+  const LexState tailEnd = e.tailEnd;
+  const bool hadTail = e.hasTail;
+  e.tail.clear();
+  e.hasTail = false;
+  size_t next = partial ? from + kResumeStride : 0, ti = 0;
+  bool joined = false;
+  bool stopped = false;
+  const LexState end = lexCore(
+      s, begin, from, lineStart, nullptr,
+      [&](size_t pos, bool ls) {
+        if (pos >= next) {
+          e.ck.push_back({static_cast<uint32_t>(pos), ls});
+          next = pos + kResumeStride;
+        }
+        while (ti < tail.size() && tail[ti].pos < pos) ++ti;
+        if (ti < tail.size() && tail[ti].pos == pos && tail[ti].lineStart == ls) {
+          joined = true;
+          return true;
+        }
+        return false;
+      },
+      &stopped);
+  if (stopped && joined) {  // from here on the line is what it was: keep the old points and the old end state
+    if (e.ck.back().pos == tail[ti].pos) ++ti;
+    e.ck.insert(e.ck.end(), tail.begin() + static_cast<long>(ti), tail.end());
+    e.end = tailEnd;
+  } else {
+    e.end = end;
+  }
+  (void)hadTail;
+  e.valid = true;
+}
+
+// Lexes the window around [from, to) of a long line into e.spans (from the resume point before `from`).
+void Highlighter::windowLex(Entry& e, int line, size_t from, size_t to) {
+  const std::string_view s = buf_->line(line);
+  from = std::min(from, s.size());
+  to = std::min(std::max(to, from), s.size());
+  if (e.winValid && e.winB <= from && to <= e.winE) return;
+  const auto it = std::upper_bound(e.ck.begin(), e.ck.end(), from, [](size_t b, const LexResume& r) { return b < r.pos; });
+  e.spans.clear();
+  size_t start = 0;
+  bool ls = true;
+  if (it != e.ck.begin()) {
+    start = (it - 1)->pos;
+    ls = (it - 1)->lineStart;
+  }
+  size_t stopPos = s.size();
+  bool stopped = false;
+  lexCore(
+      s, e.begin, start, ls, &e.spans,
+      [&](size_t pos, bool) {
+        if (pos < to || pos == start) return false;
+        stopPos = pos;
+        return true;
+      },
+      &stopped);
+  e.winB = static_cast<uint32_t>(start);
+  e.winE = static_cast<uint32_t>(stopped ? stopPos : s.size());
+  e.winValid = true;
 }
 
 bool Highlighter::advance(int target, int& budget) {
@@ -183,13 +291,19 @@ bool Highlighter::ensureExact(int line) {
   return advance(std::min(line, buf_->lineCount() - 1), budget);
 }
 
-const std::vector<LexSpan>* Highlighter::spansOf(int line) const {
-  if (line < consistent_) return &e_[static_cast<size_t>(line)].spans;
+const Highlighter::Entry* Highlighter::entryOf(int line) const {
+  if (line < 0) return nullptr;
+  if (line < consistent_) return &e_[static_cast<size_t>(line)];
   if (provValid_)
     for (const Seg& g : provs_)
       if (line >= g.base && line < g.base + static_cast<int>(g.e.size()))
-        return &g.e[static_cast<size_t>(line - g.base)].spans;
+        return &g.e[static_cast<size_t>(line - g.base)];
   return nullptr;
+}
+
+bool Highlighter::isLong(int line) const {
+  const Entry* e = entryOf(line);
+  return e && e->longLine;
 }
 
 void Highlighter::prepare(int first, int last) { prepareRuns({{first, last}}); }
@@ -264,6 +378,31 @@ void Highlighter::onChange(const Document::Change& c) {
       e_.erase(e_.begin() + s + 1,
                e_.begin() + static_cast<long>(std::min<size_t>(e_.size(), static_cast<size_t>(eOld) + 1)));
     if (k > 0) e_.insert(e_.begin() + s + 1, static_cast<size_t>(k), Entry{});
+    if (e_[static_cast<size_t>(s)].longLine) {  // keep what the edit cannot have changed (see the class comment)
+      Entry& le = e_[static_cast<size_t>(s)];
+      const size_t c0 = static_cast<size_t>(std::max(0, c.removed.start.column));
+      const size_t c1 = static_cast<size_t>(std::max(0, c.removed.end.column));
+      const long delta = static_cast<long>(c.newText.size()) - static_cast<long>(c1 - c0);
+      constexpr size_t kLook = 64;  // the scanner decides a token boundary from at most this many bytes beyond it
+      const bool single = s == eOld && k == 0;
+      std::vector<LexResume> oldTail;
+      if (single && le.valid) {  // a fully lexed line: its points behind the edit may re-join
+        for (const LexResume& r : le.ck)
+          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart});
+        le.tailEnd = le.end;
+        le.hasTail = true;
+      } else if (single && le.hasTail) {  // a second edit before the first was lexed
+        for (const LexResume& r : le.tail)
+          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart});
+      } else {
+        le.hasTail = false;
+      }
+      while (!le.ck.empty() && le.ck.back().pos + kLook > c0) le.ck.pop_back();
+      le.tail = std::move(oldTail);
+      le.hasTail = le.hasTail && !le.tail.empty();
+      le.winValid = false;
+      le.spans.clear();
+    }
     for (int i = s; i <= s + k && i < static_cast<int>(e_.size()); ++i) e_[static_cast<size_t>(i)].valid = false;
     consistent_ = std::min(consistent_, s);
     provValid_ = false;
@@ -341,10 +480,22 @@ uint32_t Highlighter::semanticColor(const TokenSpan& s) {
   return semIdx_[key] = r;
 }
 
-const std::vector<gfx::ColorSpan>& Highlighter::colorSpans(int line) {
+bool Highlighter::punctuation(int line, size_t from, size_t to, std::vector<LexSpan>& out, bool exact) {
+  Entry* e = entryOf(line);
+  if (!e || (exact && line >= consistent_)) return false;
+  if (e->longLine) windowLex(*e, line, from, to);
+  const auto lo = std::partition_point(e->spans.begin(), e->spans.end(), [&](const LexSpan& l) { return l.begin < from; });
+  for (auto it = lo; it != e->spans.end() && it->begin < to; ++it)
+    if (it->kind == Lex::Punct) out.push_back(*it);
+  return true;
+}
+
+const std::vector<gfx::ColorSpan>& Highlighter::colorSpans(int line, size_t from, size_t to) {
   out_.clear();
-  const std::vector<LexSpan>* lex = spansOf(line);
-  if (!lex) return out_;
+  Entry* entry = entryOf(line);
+  if (!entry) return out_;
+  if (entry->longLine) windowLex(*entry, line, from, to);
+  const std::vector<LexSpan>* lex = &entry->spans;
   auto lineLess = [](const TokenSpan& t, int l) { return t.line < l; };
   size_t si = static_cast<size_t>(std::lower_bound(sem_.begin(), sem_.end(), line, lineLess) - sem_.begin());
   auto live = [&](size_t i) { return i < sem_.size() && sem_[i].line == line; };

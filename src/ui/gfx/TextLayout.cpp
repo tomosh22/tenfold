@@ -56,6 +56,7 @@ const Range kWide[] = {{0x1100, 0x115F},   {0x2E80, 0x303E},   {0x3041, 0x33FF},
 
 int charCellWidth(char32_t cp) {
   if (cp < 0x300) return 1;
+  if (cp >= 0x4E00 && cp <= 0x9FFF) return 2;  // CJK ideographs: the common case of wide text
   if (inRanges(kZero, std::size(kZero), cp)) return 0;
   if (cp >= 0x1100 && inRanges(kWide, std::size(kWide), cp)) return 2;
   return 1;
@@ -134,56 +135,93 @@ static bool plainAsciiPrefix(std::string_view line, size_t n) {
   return bad == 0 && (n == line.size() || static_cast<unsigned char>(line[n]) < 0x80);
 }
 
-int TextLayout::columnCount(std::string_view line) const {
-  return forEachCell(line, tabWidth_, [](const Cell&) { return true; });
+namespace {
+// An anchor that cannot be used for `byte` (past it, or past the line) is dropped.
+Anchor usable(Anchor a, size_t lineSize, size_t byte) { return a.byte <= byte && a.byte <= lineSize ? a : Anchor{}; }
+}  // namespace
+
+int TextLayout::columnCount(std::string_view line, Anchor from) const {
+  from = usable(from, line.size(), line.size());
+  return forEachCell(line, tabWidth_, [](const Cell&) { return true; }, from.byte, from.col);
 }
 
-int TextLayout::columnForByte(std::string_view line, size_t byteOffset) const {
-  if (plainAsciiPrefix(line, std::min(byteOffset, line.size())))
+int TextLayout::columnForByte(std::string_view line, size_t byteOffset, Anchor from) const {
+  from = usable(from, line.size(), byteOffset);
+  if (from.byte == 0 && plainAsciiPrefix(line, std::min(byteOffset, line.size())))
     return static_cast<int>(std::min(byteOffset, line.size()));
   int result = -1;
-  int total = forEachCell(line, tabWidth_, [&](const Cell& c) {
-    if (c.b1 > byteOffset) {
-      result = c.col;
-      return false;
-    }
-    return true;
-  });
+  int total = forEachCell(
+      line, tabWidth_,
+      [&](const Cell& c) {
+        if (c.b1 > byteOffset) {
+          result = c.col;
+          return false;
+        }
+        return true;
+      },
+      from.byte, from.col);
   return result >= 0 ? result : total;
 }
 
-size_t TextLayout::byteForColumn(std::string_view line, int column) const {
+size_t TextLayout::byteForColumn(std::string_view line, int column, Anchor from) const {
+  if (from.col > column) from = {};
+  from = usable(from, line.size(), line.size());
   size_t result = line.size();
-  forEachCell(line, tabWidth_, [&](const Cell& c) {
-    if (column < c.col + c.width) {
-      result = c.b0;
-      return false;
-    }
-    return true;
-  });
+  forEachCell(
+      line, tabWidth_,
+      [&](const Cell& c) {
+        if (column < c.col + c.width) {
+          result = c.b0;
+          return false;
+        }
+        return true;
+      },
+      from.byte, from.col);
   return column < 0 ? 0 : result;
 }
 
-float TextLayout::xForByte(std::string_view line, size_t byteOffset) const {
-  return static_cast<float>(columnForByte(line, byteOffset)) * cellWidth();
+float TextLayout::xForByte(std::string_view line, size_t byteOffset, Anchor from) const {
+  return static_cast<float>(columnForByte(line, byteOffset, from)) * cellWidth();
 }
 
-size_t TextLayout::byteForX(std::string_view line, float x) const {
+size_t TextLayout::byteForX(std::string_view line, float x, Anchor from) const {
   if (x <= 0) return 0;
   const float cols = x / cellWidth();
+  if (static_cast<float>(from.col) > cols) from = {};
+  from = usable(from, line.size(), line.size());
   size_t result = line.size();
-  forEachCell(line, tabWidth_, [&](const Cell& c) {
-    if (cols < static_cast<float>(c.col + c.width)) {
-      result = (cols - static_cast<float>(c.col)) * 2 < static_cast<float>(c.width) ? c.b0 : c.b1;
-      return false;
-    }
-    return true;
-  });
+  forEachCell(
+      line, tabWidth_,
+      [&](const Cell& c) {
+        if (cols < static_cast<float>(c.col + c.width)) {
+          result = (cols - static_cast<float>(c.col)) * 2 < static_cast<float>(c.width) ? c.b0 : c.b1;
+          return false;
+        }
+        return true;
+      },
+      from.byte, from.col);
   return result;
 }
 
+void TextLayout::collectAnchors(std::string_view line, Anchor from, size_t limitByte, size_t stride,
+                                std::vector<Anchor>& out) const {
+  from = usable(from, line.size(), line.size());
+  size_t next = from.byte + stride;
+  if (next >= line.size()) return;
+  forEachCell(
+      line, tabWidth_,
+      [&](const Cell& c) {
+        if (c.b0 < next) return true;
+        out.push_back({c.b0, c.col});
+        next = c.b0 + stride;
+        return c.b0 < limitByte;
+      },
+      from.byte, from.col);
+}
+
 void TextLayout::layoutLine(std::string_view line, float originX, float baselineY, float scrollX, float visibleWidth,
-                            const std::vector<ColorSpan>& spans, uint32_t defaultColor, LineLayout& out) {
+                            const std::vector<ColorSpan>& spans, uint32_t defaultColor, LineLayout& out,
+                            Anchor from) {
   const float adv = cellWidth();
   const float visEnd = scrollX + visibleWidth;
   const size_t firstQuad = out.quads.size();
@@ -207,9 +245,13 @@ void TextLayout::layoutLine(std::string_view line, float originX, float baseline
   // A line scrolled far to the right (the caret at the end of a 1 MB line): skip the printable-ASCII prefix that is
   // entirely left of the view without visiting its cells.
   size_t startByte = 0;
-  if (scrollX > 2 * adv) {
+  int startCol = 0;
+  if (from.byte > 0 && from.byte <= line.size() && static_cast<float>(from.col) * adv <= scrollX) {
+    startByte = from.byte;
+    startCol = from.col;
+  } else if (scrollX > 2 * adv) {
     const size_t k = std::min(line.size(), static_cast<size_t>(scrollX / adv) - 1);
-    if (plainAsciiPrefix(line, k)) startByte = k;
+    if (plainAsciiPrefix(line, k)) startByte = k, startCol = static_cast<int>(k);
   }
   forEachCell(
       line, tabWidth_,
@@ -230,7 +272,7 @@ void TextLayout::layoutLine(std::string_view line, float originX, float baseline
         for (int i = 0; i < c.nMarks; ++i) emit(c.marks[i], c.col, color);
         return true;
       },
-      startByte, static_cast<int>(startByte));
+      startByte, startCol);
 
   const float inv = 1.0f / static_cast<float>(atlas_.size());
   for (size_t i = firstQuad; i < out.quads.size(); ++i) {

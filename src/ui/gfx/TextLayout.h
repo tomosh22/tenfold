@@ -40,6 +40,14 @@ struct LineLayout {
 //  * Control characters (< 0x20 except tab, and 0x7f) are shown as two cells "^X" ('^' plus letter, DEL is "^?").
 //  * Glyph colours come from the span covering the cell's first byte.
 // Only cells overlapping the visible window are emitted. Not thread-safe.
+// A cell boundary of a line and the column it is at: scanning can start there instead of at byte 0 (a cache of these
+// for very long lines lives in ui/view/LineAnchors). The character at `byte` must not be a zero-width one (so it
+// starts its own cell) unless byte is 0; with the default Anchor every function below behaves as before.
+struct Anchor {
+  size_t byte = 0;
+  int col = 0;
+};
+
 class TextLayout {
  public:
   TextLayout(FontStack& fonts, Atlas& atlas, int tabWidth = 4) : fonts_(fonts), atlas_(atlas), tabWidth_(tabWidth) {}
@@ -52,19 +60,27 @@ class TextLayout {
   // Appends the visible part of `line` to `out`. The line's column 0 is drawn at originX; the viewport shows line-local
   // x in [scrollX, scrollX + visibleWidth). baselineY is the pen baseline in pixels. Glyphs partly inside are emitted
   // whole (the renderer scissors). UVs are filled in last, with the atlas size after any growth during this call.
+  // `from` (an Anchor at or left of the first visible cell) lets a line of megabytes start at the view instead of at
+  // byte 0; spans before it are not needed. The result is the same as without it.
   void layoutLine(std::string_view line, float originX, float baselineY, float scrollX, float visibleWidth,
-                  const std::vector<ColorSpan>& spans, uint32_t defaultColor, LineLayout& out);
+                  const std::vector<ColorSpan>& spans, uint32_t defaultColor, LineLayout& out, Anchor from = {});
 
+  // Every mapping below takes an optional Anchor at or before the answer; the result is exactly the same, only the
+  // scan starts there. An anchor past the answer is ignored (scans from the start).
   // Number of columns the line occupies.
-  int columnCount(std::string_view line) const;
+  int columnCount(std::string_view line, Anchor from = {}) const;
   // Column of the cell containing byteOffset (offsets inside a cell snap to its start; >= size gives columnCount).
-  int columnForByte(std::string_view line, size_t byteOffset) const;
+  int columnForByte(std::string_view line, size_t byteOffset, Anchor from = {}) const;
   // Byte offset of the cell starting at or containing `column` (>= columnCount gives line.size()).
-  size_t byteForColumn(std::string_view line, int column) const;
+  size_t byteForColumn(std::string_view line, int column, Anchor from = {}) const;
   // Line-local x of the caret position before byteOffset. xForByte == columnForByte * cellWidth.
-  float xForByte(std::string_view line, size_t byteOffset) const;
+  float xForByte(std::string_view line, size_t byteOffset, Anchor from = {}) const;
   // Hit test: nearest cell boundary (a valid caret byte offset) for a line-local x; x past the end gives line.size().
-  size_t byteForX(std::string_view line, float x) const;
+  size_t byteForX(std::string_view line, float x, Anchor from = {}) const;
+  // Appends an Anchor at the first cell boundary at or after every `stride` bytes, scanning from `from` until one at
+  // or past `limitByte` has been added (or the line ends).
+  void collectAnchors(std::string_view line, Anchor from, size_t limitByte, size_t stride,
+                      std::vector<Anchor>& out) const;
 
  private:
   FontStack& fonts_;

@@ -1,6 +1,7 @@
 #include "ui/view/WrapLayout.h"
 
 #include <algorithm>
+#include <cmath>
 
 namespace tf::ui {
 
@@ -12,6 +13,7 @@ void WrapLayout::bind(const TextBuffer* buf, const gfx::TextLayout* tl, int cols
   const int tw = tl ? tl->tabWidth() : 0;
   const int c = (buf && tl) ? std::max(0, cols) : 0;
   tl_ = tl;
+  anchors_.bind(buf, tl);
   if (buf == buf_ && c == cols_ && tw == tabWidth_) return;
   buf_ = buf;
   cols_ = c;
@@ -214,6 +216,7 @@ WrapLayout::Entry* WrapLayout::touch(int line) {
 }
 
 void WrapLayout::onChange(const Document::Change& c) {
+  anchors_.onChange(c);
   if (!enabled() || entries_.empty()) return;
   const int s = c.removed.start.line, eOld = c.removed.end.line;
   const int k = static_cast<int>(std::count(c.newText.begin(), c.newText.end(), '\n'));
@@ -313,8 +316,28 @@ float WrapLayout::xOf(int line, int row, int column) {
   const std::string_view v(s.data() + start, static_cast<size_t>(end - start));
   const int off = std::clamp(column - start, 0, end - start);
   const int indent = rowIndent(line, row);
-  return static_cast<float>(indent) * tl_->cellWidth() + tl_->xForByte(v, static_cast<size_t>(off));
+  // The whole line (wrap off, or a line that fits one row): its anchors apply to `v` as they are.
+  const gfx::Anchor a = start == 0 && end == static_cast<int>(s.size()) ? anchors_.atByte(line, static_cast<size_t>(off)) : gfx::Anchor{};
+  return static_cast<float>(indent) * tl_->cellWidth() + tl_->xForByte(v, static_cast<size_t>(off), a);
 }
+
+int WrapLayout::columnOfByte(int line, int column) {
+  if (!buf_ || !tl_ || line < 0 || line >= buf_->lineCount()) return 0;
+  const std::string& s = buf_->line(line);
+  const size_t off = static_cast<size_t>(std::clamp(column, 0, static_cast<int>(s.size())));
+  return tl_->columnForByte(s, off, anchors_.atByte(line, off));
+}
+
+int WrapLayout::columnCount(int line) {
+  if (!buf_ || !tl_ || line < 0 || line >= buf_->lineCount()) return 0;
+  return anchors_.columnCount(line);
+}
+
+gfx::Anchor WrapLayout::anchorAtByte(int line, int column) {
+  return anchors_.atByte(line, static_cast<size_t>(std::max(0, column)));
+}
+
+gfx::Anchor WrapLayout::anchorAtColumn(int line, int col) { return anchors_.atColumn(line, col); }
 
 // ---- whole document ----
 
@@ -422,7 +445,10 @@ Position WrapLayout::positionIn(int line, int r, float x) {
   line = std::clamp(line, 0, buf_->lineCount() - 1);
   const std::string& s = buf_->line(line);
   Entry* e = touch(line);
-  if (!e) return {line, static_cast<int>(tl_->byteForX(s, x))};
+  if (!e) {
+    const gfx::Anchor a = anchors_.atColumn(line, static_cast<int>(std::floor(x / tl_->cellWidth())));
+    return {line, static_cast<int>(tl_->byteForX(s, x, a))};
+  }
   scanThrough(*e, r);
   r = static_cast<int>(std::min(static_cast<size_t>(r), e->starts.size() - 1));
   const int start = rowStart(line, r), end = rowEnd(line, r);

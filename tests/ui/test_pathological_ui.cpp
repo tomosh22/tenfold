@@ -260,6 +260,7 @@ TEST(pathological_ui_one_line_files) {
       {"cjk.txt", rep("\xe4\xb8\xad\xe6\x96\x87 ", scaled(300000)), "single line of wide characters", false, true});
   for (auto& c : cases) {
     for (bool wrap : {false, true}) {
+      if (const char* pc = std::getenv("PCASE")) if (std::string(pc) != std::string(c.name) + (wrap ? "1" : "0")) continue; // TMPPROF
       PFx f(c.content, c.name, wrap);
       const std::string what = std::string(c.what) + ", wrap " + (wrap ? "on" : "off");
       std::printf("PERF: pathological %s: open %.1f ms, first frame %.1f ms\n", what.c_str(), f.openMs, f.firstFrameMs);

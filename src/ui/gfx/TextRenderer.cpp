@@ -94,7 +94,7 @@ void TextRenderer::drawText(float x, float y, std::string_view utf8, Color color
 }
 
 void TextRenderer::drawSpans(float x, float y, std::string_view utf8, const std::vector<ColorSpan>& spans,
-                             const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip) {
+                             const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip, Anchor from) {
   if (utf8.empty() || clip.w <= 0 || clip.h <= 0 || y + lineHeight() <= clip.y || y >= clip.y + clip.h ||
       x >= clip.x + clip.w)
     return;
@@ -106,7 +106,7 @@ void TextRenderer::drawSpans(float x, float y, std::string_view utf8, const std:
   // of a 1 MB line) used to emit a quad for every glyph from its start to the clip's right edge, 60 ms per frame, only
   // for record() to throw them away.
   const float skip = std::max(0.0f, clip.x - x);
-  layout_.layoutLine(utf8, x + skip, base, skip, clip.x + clip.w - (x + skip), spans, defaultColor, tmp_);
+  layout_.layoutLine(utf8, x + skip, base, skip, clip.x + clip.w - (x + skip), spans, defaultColor, tmp_, from);
   record(palette, clip);
 }
 

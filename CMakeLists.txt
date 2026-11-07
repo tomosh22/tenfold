@@ -335,6 +335,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/view/Viewport.cpp
     src/ui/view/Layout.cpp
     src/ui/view/Highlighter.cpp
+    src/ui/view/LineAnchors.cpp
     src/ui/view/Scrollbar.cpp
     src/ui/view/WrapLayout.cpp
     src/ui/view/RowBlocks.cpp

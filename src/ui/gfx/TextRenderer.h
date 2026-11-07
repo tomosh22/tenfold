@@ -62,8 +62,10 @@ class TextRenderer {
   void drawTextItalic(float x, float y, std::string_view utf8, Color color, const RectF& clip);
   // As drawText with per-byte-range colours (B2b syntax colouring): `spans` (sorted, non-overlapping, see ColorSpan)
   // index into `palette`; uncovered bytes use palette[defaultColor]. Runs of one colour share a recorded batch.
+  // `from`: a cell boundary of `utf8` at or left of the clip's left edge (see Anchor); only a speed-up for very long
+  // lines: the cells before it are not visited, so `spans` need not cover them.
   void drawSpans(float x, float y, std::string_view utf8, const std::vector<ColorSpan>& spans,
-                 const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip);
+                 const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip, Anchor from = {});
   void setTabWidth(int w) { layout_.setTabWidth(w); }
   // `utf8` shortened with a trailing "..." (U+2026) so that it fits in maxWidth; unchanged if it already fits.
   std::string fit(std::string_view utf8, float maxWidth) const;
