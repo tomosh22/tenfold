@@ -75,7 +75,8 @@ LexState lexCore(std::string_view s, LexState st, size_t i, bool lineStart, char
   }
   bool halted = false;
   // The body of a string / char literal that started at `from`, scanned from j (after the opening quote, or a stop
-  // inside it) to the closing quote or the end of the line. Returns where it ended; `halted` when stop() ended the scan.
+  // inside it) to the closing quote or the end of the line. Returns where it ended; `halted` when stop() ended the
+  // scan.
   auto body = [&](size_t from, size_t j, char qc) {
     const Lex kind = qc == '"' ? Lex::String : Lex::Char;
     for (;;) {
@@ -279,7 +280,8 @@ void Highlighter::windowLex(Entry& e, int line, size_t from, size_t to) {
   from = std::min(from, s.size());
   to = std::min(std::max(to, from), s.size());
   if (L.winValid && L.winB <= from && to <= L.winE) return;
-  const auto it = std::upper_bound(L.ck.begin(), L.ck.end(), from, [](size_t b, const LexResume& r) { return b < r.pos; });
+  const auto it =
+      std::upper_bound(L.ck.begin(), L.ck.end(), from, [](size_t b, const LexResume& r) { return b < r.pos; });
   e.spans.clear();
   size_t start = 0;
   bool ls = true;
@@ -436,12 +438,14 @@ void Highlighter::onChange(const Document::Change& c) {
       std::vector<LexResume> oldTail;
       if (single && le.valid) {  // a fully lexed line: its points behind the edit may re-join
         for (const LexResume& r : L.ck)
-          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
+          if (r.pos >= c1)
+            oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
         L.tailEnd = le.end;
         L.hasTail = true;
       } else if (single && L.hasTail) {  // a second edit before the first was lexed
         for (const LexResume& r : L.tail)
-          if (r.pos >= c1) oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
+          if (r.pos >= c1)
+            oldTail.push_back({static_cast<uint32_t>(static_cast<long>(r.pos) + delta), r.lineStart, r.mid});
       } else {
         L.hasTail = false;
       }
@@ -532,7 +536,8 @@ bool Highlighter::punctuation(int line, size_t from, size_t to, std::vector<LexS
   Entry* e = entryOf(line);
   if (!e || (exact && line >= consistent_)) return false;
   if (e->longLine) windowLex(*e, line, from, to);
-  const auto lo = std::partition_point(e->spans.begin(), e->spans.end(), [&](const LexSpan& l) { return l.begin < from; });
+  const auto lo =
+      std::partition_point(e->spans.begin(), e->spans.end(), [&](const LexSpan& l) { return l.begin < from; });
   for (auto it = lo; it != e->spans.end() && it->begin < to; ++it)
     if (it->kind == Lex::Punct) out.push_back(*it);
   return true;

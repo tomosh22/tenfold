@@ -51,7 +51,8 @@ gfx::Anchor LineAnchors::atByte(int line, size_t byte) {
   Entry* e = entry(line);
   if (!e) return {};
   extend(*e, byte);
-  const auto it = std::upper_bound(e->a.begin(), e->a.end(), byte, [](size_t b, const gfx::Anchor& a) { return b < a.byte; });
+  const auto it =
+      std::upper_bound(e->a.begin(), e->a.end(), byte, [](size_t b, const gfx::Anchor& a) { return b < a.byte; });
   return *(it - 1);
 }
 
@@ -65,7 +66,8 @@ gfx::Anchor LineAnchors::atColumn(int line, int col) {
     extend(*e, e->a.back().byte + kStride);
     if (e->a.size() == before) break;
   }
-  const auto it = std::upper_bound(e->a.begin(), e->a.end(), col, [](int c, const gfx::Anchor& a) { return c < a.col; });
+  const auto it =
+      std::upper_bound(e->a.begin(), e->a.end(), col, [](int c, const gfx::Anchor& a) { return c < a.col; });
   return *(it - 1);
 }
 

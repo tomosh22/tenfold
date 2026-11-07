@@ -31,8 +31,9 @@ namespace {
 // emoji (4 bytes, 2 cells), combining marks (0 cells), control characters (2 cells) and invalid UTF-8.
 std::string mixedLine(size_t n, unsigned seed = 7) {
   std::mt19937 rng(seed);
-  static const char* kPieces[] = {"word", " ", "  ", "\t", "\xe4\xb8\xad", "\xe6\x96\x87", "e\xcc\x81", "\xf0\x9f\x98\x80",
-                                  "x",    "(",  ")",  "\x01", "\xff",     "\xe4\xb8",     "a\xcc\x81\xcc\x82", "12"};
+  static const char* kPieces[] = {
+      "word", " ", "  ", "\t",   "\xe4\xb8\xad", "\xe6\x96\x87", "e\xcc\x81",         "\xf0\x9f\x98\x80",
+      "x",    "(", ")",  "\x01", "\xff",         "\xe4\xb8",     "a\xcc\x81\xcc\x82", "12"};
   std::string s;
   while (s.size() < n) s += kPieces[rng() % std::size(kPieces)];
   return s;
@@ -189,7 +190,7 @@ TEST(long_lines_anchors_are_kept_for_edits_after_them) {
   CHECK(before > 100);
   f.doc.insert({0, static_cast<int>(f.doc.buffer().line(0).size())}, "z");  // typing at the end
   CHECK(f.la.anchorsOf(0)->size() + 1 >= before);                           // nothing but the last one is gone
-  f.doc.insert({0, 10}, "z");                                                // typing at the start
+  f.doc.insert({0, 10}, "z");                                               // typing at the start
   CHECK(f.la.anchorsOf(0)->size() == 1);
   f.verify();
 }
@@ -289,7 +290,8 @@ TEST(long_lines_highlighter_windows_match_a_full_lex_through_edits) {
   f.doc.insert({1, static_cast<int>(f.doc.buffer().line(1).size())}, "\\");
   f.verify();
   f.doc.erase({{1, 0}, {1, 2}});
-  f.doc.erase({{1, static_cast<int>(f.doc.buffer().line(1).size()) - 1}, {1, static_cast<int>(f.doc.buffer().line(1).size())}});
+  f.doc.erase(
+      {{1, static_cast<int>(f.doc.buffer().line(1).size()) - 1}, {1, static_cast<int>(f.doc.buffer().line(1).size())}});
   f.verify();
   f.doc.insert({1, 0}, "R\"x(");  // a raw string opened at the start
   f.verify();
@@ -349,7 +351,9 @@ struct CountingRenderer : gfx::Renderer {
   void beginFrame(int, int, gfx::Color) override { quads = 0; }
   void drawRect(const gfx::RectF&, gfx::Color) override {}
   void drawLine(float, float, float, float, float, gfx::Color) override {}
-  void drawGlyphs(gfx::TextureId, const gfx::GlyphQuad*, int n, gfx::Color) override { quads += static_cast<size_t>(n); }
+  void drawGlyphs(gfx::TextureId, const gfx::GlyphQuad*, int n, gfx::Color) override {
+    quads += static_cast<size_t>(n);
+  }
   void pushScissor(const gfx::RectF&) override {}
   void popScissor() override {}
   gfx::TextureId createTexture(int, int, gfx::TextureFormat) override { return 1; }
@@ -383,15 +387,17 @@ struct LFx {
 
   LFx(const std::string& content, bool wrap, const char* name = "long.cpp") {
     static int counter = 0;
-    dir = uitest::tempRoot() / ("tenfold_long_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) +
-                                "_" + std::to_string(counter++));
+    dir = uitest::tempRoot() /
+          ("tenfold_long_" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()) + "_" +
+           std::to_string(counter++));
     fs::create_directories(dir);
     std::ofstream(dir / name, std::ios::binary) << content;
     ed = std::make_unique<Editor>(dir);
     doc = ed->open(name);
     ed->gotoLocation({doc->path(), {0, 0}});
     gfx::FontStack stack;
-    stack.add(std::make_shared<tftext::MockFont>(U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-:,;(){}[]=+*/<>\"'\\#"));
+    stack.add(std::make_shared<tftext::MockFont>(
+        U"abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 ._-:,;(){}[]=+*/<>\"'\\#"));
     text = gfx::TextRenderer::fromFonts(std::move(stack));
     root = std::make_unique<RootWidget>(*text);
     auto v = std::make_unique<TextView>(*ed);
@@ -440,7 +446,8 @@ void checkGeometry(LFx& f, Position p) {
   const gfx::RectF r = f.tv->caretRect(p);
   const float cw = f.tl().cellWidth();
   const float origin = f.tv->textArea().x + cw / 2;  // the text starts half a cell right of the gutter
-  const float want = origin - f.tv->viewport().x() + static_cast<float>(f.tl().columnForByte(s, static_cast<size_t>(p.column))) * cw;
+  const float want =
+      origin - f.tv->viewport().x() + static_cast<float>(f.tl().columnForByte(s, static_cast<size_t>(p.column))) * cw;
   CHECK(std::fabs(r.x - want) < 0.01f);
   if (r.x >= f.tv->textArea().x && r.x + cw < f.tv->textArea().x + f.tv->textArea().w) {
     // Hit testing the middle of the caret's cell comes back to the caret position (cells start at their caret).
@@ -491,7 +498,9 @@ TEST(long_lines_view_geometry_matches_a_plain_scan_wrap_off) {
     f.root->dispatch(mouseAt(InputType::MouseDown, a.x + x, y));
     f.root->dispatch(mouseAt(InputType::MouseUp, a.x + x, y));
     const std::string& s = f.doc->buffer().line(f.head().line);
-    if (f.head().line == 1) CHECK_EQ(static_cast<size_t>(f.head().column), f.tl().byteForX(s, x - f.tl().cellWidth() / 2 + f.tv->viewport().x()));
+    if (f.head().line == 1)
+      CHECK_EQ(static_cast<size_t>(f.head().column),
+               f.tl().byteForX(s, x - f.tl().cellWidth() / 2 + f.tv->viewport().x()));
   }
   // Selecting to the end of the line (Shift+End) paints and keeps the caret exact.
   f.key(Key::End, ModShift);
@@ -517,8 +526,8 @@ TEST(long_lines_view_geometry_matches_a_plain_scan_wrap_on) {
     const int a = W.rowStart(0, row), z = W.rowEnd(0, row);
     const std::string_view v(f.doc->buffer().line(0).data() + a, static_cast<size_t>(z - a));
     for (int off : {0, static_cast<int>(v.size()) / 2, static_cast<int>(v.size())})
-      CHECK_EQ(W.xOf(0, row, a + off),
-               static_cast<float>(W.rowIndent(0, row)) * f.tl().cellWidth() + f.tl().xForByte(v, static_cast<size_t>(off)));
+      CHECK_EQ(W.xOf(0, row, a + off), static_cast<float>(W.rowIndent(0, row)) * f.tl().cellWidth() +
+                                           f.tl().xForByte(v, static_cast<size_t>(off)));
   }
   f.type("\xe4\xb8\xad\t");
   f.key(Key::Home, ModCtrl);

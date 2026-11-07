@@ -2,8 +2,8 @@
 // (a plain expression, a comment, a minified program), a file full of NULs / invalid UTF-8, and a very deep nesting.
 // For each: open, first frame, scroll to the end and back, type, undo, soft wrap on and off, with the
 // keystroke-to-paint budget (8 ms, average and p99 over the typed keys; PERF_CHECK, enforced only with
-// TENFOLD_ENFORCE_PERF=1, scaled by TENFOLD_PERF_SCALE, and only in optimised unsanitised builds). The functional parts (no crash, no hang, the caret ends up where it should, the view still
-// paints) always run.
+// TENFOLD_ENFORCE_PERF=1, scaled by TENFOLD_PERF_SCALE, and only in optimised unsanitised builds). The functional parts
+// (no crash, no hang, the caret ends up where it should, the view still paints) always run.
 //
 // tools/stress/run_pathological.py runs the same bodies on the full-size files when TENFOLD_PATHOLOGICAL_DIR is set.
 #include <algorithm>

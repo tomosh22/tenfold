@@ -220,8 +220,7 @@ void TextLayout::collectAnchors(std::string_view line, Anchor from, size_t limit
 }
 
 void TextLayout::layoutLine(std::string_view line, float originX, float baselineY, float scrollX, float visibleWidth,
-                            const std::vector<ColorSpan>& spans, uint32_t defaultColor, LineLayout& out,
-                            Anchor from) {
+                            const std::vector<ColorSpan>& spans, uint32_t defaultColor, LineLayout& out, Anchor from) {
   const float adv = cellWidth();
   const float visEnd = scrollX + visibleWidth;
   const size_t firstQuad = out.quads.size();

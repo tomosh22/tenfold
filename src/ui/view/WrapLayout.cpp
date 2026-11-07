@@ -317,7 +317,8 @@ float WrapLayout::xOf(int line, int row, int column) {
   const int off = std::clamp(column - start, 0, end - start);
   const int indent = rowIndent(line, row);
   // The whole line (wrap off, or a line that fits one row): its anchors apply to `v` as they are.
-  const gfx::Anchor a = start == 0 && end == static_cast<int>(s.size()) ? anchors_.atByte(line, static_cast<size_t>(off)) : gfx::Anchor{};
+  const gfx::Anchor a =
+      start == 0 && end == static_cast<int>(s.size()) ? anchors_.atByte(line, static_cast<size_t>(off)) : gfx::Anchor{};
   return static_cast<float>(indent) * tl_->cellWidth() + tl_->xForByte(v, static_cast<size_t>(off), a);
 }
 

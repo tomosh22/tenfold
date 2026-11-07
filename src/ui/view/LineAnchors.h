@@ -40,8 +40,8 @@ class LineAnchors {
  private:
   struct Entry {
     int line = 0;
-    size_t size = 0;                // line length when the anchors were built (staleness check)
-    bool done = false;              // the scan reached the end of the line; `cols` is its width
+    size_t size = 0;    // line length when the anchors were built (staleness check)
+    bool done = false;  // the scan reached the end of the line; `cols` is its width
     int cols = 0;
     std::vector<gfx::Anchor> a{{}};  // ascending; a[0] is always {0, 0}
   };

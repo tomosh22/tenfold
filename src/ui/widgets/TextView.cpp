@@ -15,9 +15,9 @@ namespace {
 Color mix(Color a, Color b, float t) {
   return {a.r + (b.r - a.r) * t, a.g + (b.g - a.g) * t, a.b + (b.b - a.b) * t, 1};
 }
-constexpr int kBracketLines = 1000;   // how far a bracket search looks
+constexpr int kBracketLines = 1000;      // how far a bracket search looks
 constexpr size_t kBracketBytes = 65536;  // ... and how many bytes of very long lines it lexes
-constexpr int kFoldDebounceMs = 150;  // typing pause before the regions are recomputed
+constexpr int kFoldDebounceMs = 150;     // typing pause before the regions are recomputed
 }  // namespace
 
 // A region computation off the main thread: owns a copy of the lines, so nothing it reads can change.
@@ -972,7 +972,8 @@ std::optional<std::pair<Position, Position>> TextView::bracketMatch() {
     int depth = 1;
     size_t budget = kBracketBytes;  // bytes of long lines still to search (a short line is always searched whole)
     bool unprepared = false;
-    for (int l = p.line; !unprepared && l >= 0 && l < b.lineCount() && std::abs(l - p.line) <= kBracketLines; l += open ? 1 : -1) {
+    for (int l = p.line; !unprepared && l >= 0 && l < b.lineCount() && std::abs(l - p.line) <= kBracketLines;
+         l += open ? 1 : -1) {
       const std::string& ln = b.line(l);
       const size_t lo = l == p.line && open ? static_cast<size_t>(col) + 1 : 0,
                    hi = l == p.line && !open ? static_cast<size_t>(col) : ln.size();

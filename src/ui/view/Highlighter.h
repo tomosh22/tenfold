@@ -103,8 +103,9 @@ class Highlighter {
   uint32_t defaultColor() const { return textIdx_; }
   // Lexical spans of a short line that is part of the exact prefix (null otherwise, and for long lines).
   const std::vector<LexSpan>* exactSpans(int line) const {
-    return line >= 0 && line < consistent_ && !e_[static_cast<size_t>(line)].longLine ? &e_[static_cast<size_t>(line)].spans
-                                                                                       : nullptr;
+    return line >= 0 && line < consistent_ && !e_[static_cast<size_t>(line)].longLine
+               ? &e_[static_cast<size_t>(line)].spans
+               : nullptr;
   }
   // Lexical spans of a prepared short line, exact or provisional (null when the line was not prepared or is long).
   const std::vector<LexSpan>* lineSpans(int line) const {
