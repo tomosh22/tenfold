@@ -6,6 +6,9 @@ Everything an implementer needs is either in this file or in a file this
 plan points at. Read `README.md`, `docs/ARCHITECTURE.md` and
 `docs/FEATURE_PARITY.md` first; they describe what already exists.
 
+**Status (2026-11).** This file started as the plan handed to the orchestrating agent. Waves 1 to 10 are done (§9);
+§0 is the current state, and the task briefs in §3 to §6 are history. The only open work is the "next" row of §9.
+
 **Product goal.** A C++ code editor with the behaviour and speed of the
 10x editor (10xeditor.com), plus two fixes: (1) a Visual Studio-style
 Navigate Backward/Forward history, and (2) code intelligence that is
@@ -16,51 +19,38 @@ against a running copy by the user; those are flagged **VERIFY WITH USER**.
 
 ---
 
-## 0. State of the repository (what is already done)
+## 0. State of the repository (current)
 
-Location: `/home/user/tenfold` (not yet a git repository; run `git init`
-and make an initial commit as the first orchestration step, after asking
-the user whether they want a remote).
+Location: `github.com/tomosh22/tenfold`, built with CMake (C++20; presets in `CMakePresets.json`; GCC, Clang, MSVC,
+clang-cl and AppleClang are in CI, `.github/workflows/ci.yml`). Phases A to D and the 10x commands of W8 are done and
+merged; waves 1 to 10 of §9 are done except what the last row ("next") lists. The sections of this file below §1 are the
+original task briefs and are kept as history: they say what each task was meant to do and why, not what the code looks
+like today; for the current design read `docs/ARCHITECTURE.md`, for what matches 10x and Visual Studio
+`docs/FEATURE_PARITY.md`, for decisions `docs/OPEN_QUESTIONS.md` and `docs/VS_BEHAVIOUR.md`.
 
-Build: CMake + Ninja, C++20, GCC 13 and Clang 18 both compile it clean with
-`-Wall -Wextra`. `build-rel/` is a Release build, `build/` Debug,
-`build-asan/` ASan+UBSan. All 32 tests pass in all three.
+| Part | Where | State |
+|---|---|---|
+| Engine (text model, navigation history, LSP client, two-tier semantic engine, compile commands, workspace, search, build, debug, VCS, terminal) | `src/core`, `src/nav`, `src/lsp`, `src/semantic`, `src/workspace`, `src/search`, `src/build`, `src/debug`, `src/vcs`, `src/term`, `src/app` | done; Windows process spawning, ConPTY and the Visual Studio (EnvDTE) debugger backend are in |
+| Headless front end | `src/cli` (`tenfold-cli`: REPL, `compdb`, `why`, `bench`, `corpus`, ...) | done |
+| Graphical editor | `src/ui`, `src/ui_app` (`tenfold-ui`; SDL3, OpenGL 3.3 or Direct3D 11, FreeType) | done; opt-in at configure time (`-DTENFOLD_BUILD_UI=ON`), always built for packages |
+| Packages | CI job `package-*`: Windows `.zip`, Linux `.tar.gz` / AppImage, macOS (best effort), pinned clangd bundled | done |
+| Tests | `tenfold-tests` 676, `tenfold-ui-tests` 605, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over about 35 corpora in `tests/corpus`) on Linux; fuzz targets in `tests/fuzz` | see `docs/TESTING.md` |
+| Scripting (C4) | not built | dropped by the user (OPEN_QUESTIONS #11) |
 
-```
-cmake -S . -B build-rel -G Ninja -DCMAKE_BUILD_TYPE=Release && ninja -C build-rel
-./build-rel/tenfold-tests          # optional filter arg: ./build-rel/tenfold-tests nav_
-./build-rel/tenfold-cli examples/sample_project
-```
+Performance numbers: `docs/BENCHMARKS.md`; stress results: `docs/STRESS_RESULTS.md`. The table in the last section of
+this file is the original baseline (historical).
 
-| Module | Files | What it does | Tests |
-|---|---|---|---|
-| core | `src/core/Position.h`, `TextBuffer.{h,cpp}`, `Document.{h,cpp}` | UTF-8 line buffer, CRLF detection, `replace()` with line delta, UTF-16 column conversion, `wordAt`; Document = path + version + undo/redo + change listeners + file URIs | `tests/test_textbuffer.cpp` |
-| nav | `src/nav/NavigationHistory.{h,cpp}` | Back/forward stack: record, far-caret-move detection, coalescing, live-position push on back, truncate-on-new-jump, edit/rename/remove tracking | `tests/test_navigation.cpp` (9 scenario tests; these define the semantics) |
-| lsp | `src/lsp/Process.{h,cpp}` (POSIX), `JsonRpc.{h,cpp}`, `LspClient.{h,cpp}` | Child process with pipes + env; Content-Length framing, request/response/notification dispatch, server→client requests; typed clangd client (definition, declaration, typeDefinition, implementation, references, hover, completion, signatureHelp, documentSymbol, workspace/symbol, rename, switchSourceHeader, diagnostics, clangd fileStatus, background-index `$/progress`, UTF-8 offset negotiation) | integration via `tests/test_semantic.cpp` |
-| semantic | `src/semantic/CppLexer.{h,cpp}`, `FastIndex.{h,cpp}`, `XmlLite.{h,cpp}`, `CompileCommands.{h,cpp}`, `SemanticEngine.{h,cpp}` | Lexer; heuristic symbol extractor + parallel fuzzy index + `#include` capture; XML parser; compile_commands discovery, CMake configure, `.sln`/`.vcxproj` evaluation (MSBuild properties, conditions, `.props` imports, `%(…)` merging) → `clang-cl` commands, include-dir inference by set cover, heuristic commands; two-tier engine with budgeted delivery and cold-start augmentation | `tests/test_fastindex.cpp`, `tests/test_compdb.cpp`, `tests/test_semantic.cpp` |
-| workspace | `src/workspace/Workspace.{h,cpp}` | Root resolution (folder / .sln / CMakeLists), recursive scan with ignore rules, settings in `.tenfold/workspace.json`, `findExecutable` | `tests/test_semantic.cpp` (`workspace_scan_sample_project`) |
-| app | `src/app/Editor.{h,cpp}` | UI-agnostic editor model: documents, caret, `gotoLocation`/`back`/`forward`, semantic commands with auto-jump on single result, editing at caret, main-thread queue (`post`/`pump`/`waitFor`), diagnostics store | `tests/test_semantic.cpp` |
-| cli | `src/cli/main.cpp` | Headless reference front end; `compdb` subcommand | manual (`README.md` walkthrough) |
-| examples | `examples/sample_project` | Templates, aliases, specialisations, `auto`, `decltype`, macro-generated members, overrides, operators; `// @MARK:name` comments are test anchors | used by tests |
-| fixtures | `tests/fixtures/vs/` | `.sln` + `.vcxproj` + `.props` with conditions and per-file metadata | `tests/test_compdb.cpp` |
+Known limitations (current):
 
-Measured on this machine (4 cores, Release build):
-
-| Scenario | Result |
-|---|---|
-| Godot engine source (8755 files, 175 MB of C/C++), cold `.tenfold` | workspace scan 59 ms; fast index 8327 files / 507k symbols in 1.4 s; include dirs inferred; clangd launched; editor interactive at 2.4 s |
-| Godot cold, open `scene/3d/node_3d.cpp` and go to definition | TU parsed 1.3 s after opening (3.7 s from launch); `def` answered in < 10 ms once parsed |
-| Godot warm (second launch, cached database and clangd index) | interactive at 0.2 s; TU parsed at 1.8 s |
-| sample_project, 12 go-to-definition cases that defeat heuristic parsers | all authoritative and correct (`semantic_clangd_resolves_what_the_fast_parser_cannot`) |
-| Fast index throughput | ~130 MB/s on 4 threads |
-
-Known limitations to carry forward:
-
-* `Process.cpp` is POSIX only.
-* Undo is linear and per-edit (no grouping of consecutive keystrokes).
-* `TextBuffer` is a `std::vector<std::string>`; fine to hundreds of MB, not for multi-GB logs.
-* The heuristic symbol extractor is intentionally approximate; do not spend effort perfecting it, clangd is the authority.
-* In heuristic compile-command mode we write a clangd user config under `.tenfold/clangd-config` and point clangd at it via `XDG_CONFIG_HOME`; this hides the user's own clangd user config for that process (documented; `.clangd` at the workspace root still works).
+* The heuristic symbol extractor of the fast tier is intentionally approximate; clangd is the authority. The fast tier
+  has no scope awareness, so its first answer agrees with clangd's final one in about 44% of the `def` / `decl` lines of
+  the corpora (`docs/STRESS_RESULTS.md`, "W9-FIX-C1").
+* `TextBuffer` is a vector of lines (fine to hundreds of MB, not for multi-GB logs); lines of 500 kB or more are slow to
+  highlight (see §9, "next").
+* In heuristic compile-command mode on Linux the include directories shared by every file go into a clangd user config
+  under `.tenfold/clangd-config`, and clangd is pointed at it via `XDG_CONFIG_HOME`; this hides the user's own clangd user
+  config for that process (`.clangd` at the workspace root still works). On macOS and Windows the flags stay in the
+  commands (`SemanticEngine.cpp`, `kFlagsViaConfig`).
 
 ---
 
@@ -96,7 +86,7 @@ Known limitations to carry forward:
 
 ---
 
-## 2. Orchestration protocol
+## 2. Orchestration protocol (how the work was run)
 
 * **Branching.** `main` always builds and passes `tenfold-tests`. One branch
   per task (`task/<phase>-<id>-<slug>`). The orchestrator merges after review.
@@ -125,7 +115,7 @@ Known limitations to carry forward:
 
 ---
 
-## 3. Phase A: hardening and portability of the engine
+## 3. Phase A: hardening and portability of the engine (historical briefs, done)
 
 Goal: the engine is production-grade and runs on Windows before any pixels
 are drawn. Estimated size: 8 tasks, all ∥ unless noted.
@@ -249,7 +239,7 @@ are drawn. Estimated size: 8 tasks, all ∥ unless noted.
 
 ---
 
-## 4. Phase B: graphical front end (the shell)
+## 4. Phase B: graphical front end (the shell) (historical briefs, done)
 
 Goal: a native, GPU-rendered editor window that looks and feels like 10x
 and drives `Editor`. Design first, then implement in layers so tasks are
@@ -417,7 +407,7 @@ independently testable.
 
 ---
 
-## 5. Phase C: 10x behaviours beyond editing
+## 5. Phase C: 10x behaviours beyond editing (historical briefs, done except W9i; C4 dropped)
 
 Each item begins with a VERIFY WITH USER step; implement the engine side
 behind interfaces so the UI can be adjusted when the facts arrive.
@@ -574,7 +564,7 @@ with its sources (and its own `compile_commands.json`, `.sln` / `.vcxproj` or no
   switching configuration mid-index) measured against the frame budget and memory.
 * Findings are fixed in follow-up tasks (one per root cause), each with the corpus entry or input that exposed it.
 
-## 6. Phase D: release engineering
+## 6. Phase D: release engineering (historical briefs, done: D1 packages, D2 crash handling and clangd restart, D3 local log, D4 user guide)
 
 * D1 Packaging: ship `clangd` (LLVM release binaries) next to the editor on
   all platforms; `SemanticEngine` prefers the bundled one unless
@@ -603,7 +593,7 @@ Anything else requires a plan amendment.
 
 ---
 
-## 8. Risk register
+## 8. Risk register (as written at the start)
 
 | Risk | Mitigation |
 |---|---|
@@ -616,7 +606,7 @@ Anything else requires a plan amendment.
 
 ---
 
-## 9. Suggested execution order and sizing
+## 9. Execution order and sizing (waves 1 to 10 done except as marked; "next" is open)
 
 | Wave | Tasks | Notes |
 |---|---|---|
@@ -628,7 +618,9 @@ Anything else requires a plan amendment.
 | 6 | B2c, B7b, C2a, C3a, C5, D2 (∥) | user answers to #4, #7, #9, #10, #12 received |
 | 7 | C2b, C2c (→ C2a), C3b, C3c (→ C3a), D1, D3 | D4 (user docs) last, after 7 |
 | 8 | B4b, B8b, C2d; then W8a, W8b, W8c (∥), W8d, W8e, then W8f | 10x documentation available (key bindings, settings, VS sync) |
-| 9 | W9a, W9f, W9h (∥); then W9b-W9e, W9g (∥, → W9a), W9i (→ W9g); then fixes | extreme stress test on varied codebases |
+| 9 | W9a, W9f, W9h (∥); then W9b-W9e, W9g (∥, → W9a), W9i (→ W9g); then fixes | extreme stress test on varied codebases. Done: W9a-W9h and the W9-FIX tasks (fast index, encodings, translation-unit context, Visual Studio configurations, harness). **Not done: W9i** (editor-level stress) |
+| 10 | W10-ENC, W10-CHOOSE, W10-LE, vs-research; then VS-TERM, VS-TABS, W10-THEME, W10-OUTLINE, VS-ENC, VS-TREE, VS-EDIT, VS-NAV, VS-VCS (∥); CI-W3, CI-W4, CHURN-2; LE-UNICODE, LE-DIALOG | user decisions of 2026-11-06 (OPEN_QUESTIONS, "User decisions of 2026-11-06"): refuse to save characters the encoding cannot hold (W10-ENC), a chooser for go to definition on aliases, using-declarations and constructor calls (W10-CHOOSE), line endings exactly like Visual Studio (W10-LE, LE-UNICODE with NEL / LS / PS as line breaks, LE-DIALOG the inconsistent line endings dialog) and everything else like Visual Studio. `docs/VS_BEHAVIOUR.md` is the research (with sources) behind: terminal keys (VS-TERM), tab well (VS-TABS), theme colours (W10-THEME), outlining (W10-OUTLINE), encodings in the status bar (VS-ENC), Solution Explorer (VS-TREE), editing options (VS-EDIT), navigation (VS-NAV) and version-control marks (VS-VCS). CI-W3 and CI-W4 fixed the Windows, macOS and sanitizer CI failures of the W9 tests (long paths, ASan timeouts, host stdlib, crash signal, pathological names); CHURN-2 made the Linux file watcher follow directories by inode so renames during a walk lose no files |
+| next | not scheduled | GUI for call / type hierarchy, code actions / quick fixes and inlay hints (the engine has them, `Editor::callHierarchy`, `codeActions`, ...); a scope-aware fast tier (fast/final agreement is about 44%, `docs/STRESS_RESULTS.md`); performance of extreme single lines (W9f "Not fixed" 1 and 2: a 1 MB single-line C++ expression costs 15 to 20 ms keystroke-to-paint, a line of wide characters up to 35 ms with wrap off, budget 8 ms); workarounds for clangd answer gaps; W9i editor-level stress; Unreal Engine awareness (`.uproject`); the remaining 10x commands and settings (`docs/FEATURE_PARITY.md`) |
 
 A Sonnet task should be at most ~800 lines of new code plus tests; split
 anything larger (B2 and B5 will each need two or three sub-tasks; the
@@ -636,7 +628,7 @@ orchestrator should split them along the file boundaries listed).
 
 ---
 
-## 10. Definition of done for v1.0
+## 10. Definition of done for v1.0 (open: the "next" row of §9, and the user's week of daily use)
 
 * All Phase A and B tasks merged, CI green on Linux/Windows/macOS.
 * `docs/FEATURE_PARITY.md` has no ⬜ rows in "The two fixes", "Workspace and
@@ -649,7 +641,7 @@ orchestrator should split them along the file boundaries listed).
 
 ---
 
-## Benchmarks (keep updated via A8)
+## Benchmarks (historical baseline)
 
 Current numbers, methodology and per-budget pass/fail live in `docs/BENCHMARKS.md`
 (run `tools/bench.sh`). The table below is the original historical baseline, kept as is.

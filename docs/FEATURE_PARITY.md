@@ -330,7 +330,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | AutoAddFunctionBrackets | true | Completing a function adds `(` and `)` when it takes no arguments | S/M. Needs the signature from clangd |
 | AutocompleteInComments | false | Completion inside comments | S |
 | ExactMatchAutoComplete | `else, endif, once` | Dismiss the popup when the typed text equals one of these | S |
-| UnderlineBuildErrors, AutoUnderlineErrors | true, true | Underline build errors in the source | M. Squiggles come from clangd diagnostics and from the build output (C1-UI); no switch to turn them off |
+| UnderlineBuildErrors, AutoUnderlineErrors | true, true | Underline build errors in the source | M. Squiggles come from clangd diagnostics and from the build output (C1-UI) |
 | GlobalDefines | (empty) | Extra defines for the parser | S. tenfold takes defines from the solution / compile commands (OPEN_QUESTIONS #12) |
 | ParserExtensions, ParserExcludeFilters, AdditionalIncludePaths, ParserPriorityFiles | (lists) | Which files the parser reads, extra include directories, unity-build priority | M |
 | ParserMaxFileSize, MaxPreprocessorTokenCount | 52428800, 10000 | Parser limits | S |
