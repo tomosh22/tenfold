@@ -139,7 +139,6 @@ class WorkspaceExplorer {
   static constexpr int kStateSaveMs = 500;
 
  private:
-  struct OpResult;
   void opened(int node);
   void loadState();
   void markState();

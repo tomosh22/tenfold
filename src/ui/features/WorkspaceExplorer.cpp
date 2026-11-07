@@ -1012,7 +1012,6 @@ std::string WorkspaceExplorer::nameProblem(const std::string& name, const fs::pa
 }
 
 bool WorkspaceExplorer::dirtyUnder(const fs::path& path, bool isDir, std::string* which) const {
-  const std::string key = pathKeyUtf8(path);
   std::vector<fs::path> candidates;
   if (isDir) candidates = editor_.workspace().filesUnder(path);
   else candidates.push_back(path);
