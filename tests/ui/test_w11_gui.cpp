@@ -184,6 +184,14 @@ int nodeByLabel(HierarchyPanel& p, const std::string& prefix, int from = 0) {
   return -1;
 }
 
+// The child of node `parent` whose label starts with `prefix`.
+int childByLabel(HierarchyPanel& p, int parent, const std::string& prefix) {
+  const TreeModel& m = p.tree().model();
+  for (int k : m.node(parent).kids)
+    if (m.node(k).name.rfind(prefix, 0) == 0) return k;
+  return -1;
+}
+
 // A fake call hierarchy: callers and callees answers are held until the test resolves them.
 struct FakeCalls {
   fs::path file;
@@ -374,7 +382,7 @@ TEST(w11_call_hierarchy_opens_the_panel_and_expands_lazily) {
   REQUIRE_EQ(rows.size(), 4u);
   CHECK_EQ(rows[2], std::string("bar   a.cpp:2  (2 calls)"));
   // Expanding "Calls From" asks once, however often it is toggled.
-  const int from = nodeByLabel(env.hp(), "Calls From");
+  const int from = childByLabel(env.hp(), 0, "Calls From");
   env.hp().tree().setExpanded(from, true);
   CHECK_EQ(fake.outgoingAsked, 1);
   env.hp().tree().setExpanded(from, false);
@@ -387,9 +395,9 @@ TEST(w11_call_hierarchy_opens_the_panel_and_expands_lazily) {
   const int bar = nodeByLabel(env.hp(), "bar");
   env.hp().tree().setExpanded(bar, true);
   CHECK_EQ(fake.incomingAsked, 1);
-  const int barTo = nodeByLabel(env.hp(), "Calls To 'bar'");
+  const int barTo = childByLabel(env.hp(), bar, "Calls To 'bar'");
   REQUIRE(barTo > 0);
-  CHECK(nodeByLabel(env.hp(), "Calls From 'bar'") > 0);
+  CHECK(childByLabel(env.hp(), bar, "Calls From 'bar'") > 0);
   env.hp().tree().setExpanded(barTo, true);
   CHECK_EQ(fake.incomingAsked, 2);
   CHECK_EQ(fake.askedFor.back(), std::string("in:bar"));
@@ -429,7 +437,7 @@ TEST(w11_hierarchy_enter_and_double_click_jump_and_arrows_only_expand) {
   CHECK_EQ(fake.jumped.back(), std::string("foo"));
   const size_t n = fake.jumped.size();
   env.hp().focusTree();
-  env.hp().tree().select(nodeByLabel(env.hp(), "Calls To"));
+  env.hp().tree().select(childByLabel(env.hp(), 0, "Calls To"));
   env.key(Key::Enter);  // toggles the group
   CHECK_EQ(fake.jumped.size(), n);
   // Escape closes the panel and gives the editor the keys back.
@@ -509,13 +517,14 @@ TEST(w11_type_hierarchy_shows_base_and_derived_types) {
   CHECK_EQ(rows[1], std::string("Base Types"));
   CHECK_EQ(rows[2], std::string("Base   t.cpp:1"));  // the first group opened by itself
   CHECK_EQ(rows[3], std::string("Derived Types"));
-  env.hp().tree().setExpanded(nodeByLabel(env.hp(), "Derived Types"), true);
+  env.hp().tree().setExpanded(childByLabel(env.hp(), 0, "Derived Types"), true);
   rows = env.hp().rowLabels();
   CHECK_EQ(rows.size(), 6u);
   CHECK_EQ(rows[4], std::string("Derived   t.cpp:5"));
   CHECK_EQ(rows[5], std::string("Other   t.cpp:9"));
-  env.hp().tree().setExpanded(nodeByLabel(env.hp(), "Derived   "), true);  // each entry has both nodes again
-  const int below = nodeByLabel(env.hp(), "Derived Types", 5);
+  const int derived = childByLabel(env.hp(), childByLabel(env.hp(), 0, "Derived Types"), "Derived   ");
+  env.hp().tree().setExpanded(derived, true);  // each entry has both nodes again
+  const int below = childByLabel(env.hp(), derived, "Derived Types");
   REQUIRE(below > 0);
   env.hp().tree().setExpanded(below, true);
   CHECK_EQ(fake.askedFor.back(), std::string("sub:Derived"));  // the next level
@@ -885,7 +894,7 @@ TEST(w11_clangd_call_hierarchy_through_ctrl_k_ctrl_t_and_back) {
   }));
   CHECK(env.hp().rowLabels()[2].find("main.cpp:2") != std::string::npos);
   // "Calls From 'mid'" is asked when expanded and lists leaf.
-  env.hp().tree().setExpanded(nodeByLabel(env.hp(), "Calls From"), true);
+  env.hp().tree().setExpanded(childByLabel(env.hp(), 0, "Calls From"), true);
   REQUIRE(env.until([&] { return nodeByLabel(env.hp(), "leaf") >= 0; }));
   // Enter on main jumps there; Back returns to lib.cpp where we were.
   const int mainNode = nodeByLabel(env.hp(), "main");
@@ -918,7 +927,7 @@ TEST(w11_clangd_type_hierarchy_from_the_command_palette_command) {
     const auto r = env.hp().rowLabels();
     return r.size() >= 3 && r[2].rfind("Base", 0) == 0;
   }));
-  env.hp().tree().setExpanded(nodeByLabel(env.hp(), "Derived Types"), true);
+  env.hp().tree().setExpanded(childByLabel(env.hp(), 0, "Derived Types"), true);
   REQUIRE(env.until([&] { return nodeByLabel(env.hp(), "Leaf") >= 0; }));
 }
 
@@ -1108,7 +1117,7 @@ TEST(w11_golden_call_hierarchy_panel_vs_dark) {
   fake.incomingDone[0](
       {edge(item(g.dir / "main.cpp", "main", 11, 4), 2), edge(item(g.dir / "render.cpp", "Canvas::draw", 40, 6))}, "");
   g.frame();
-  hp.tree().setExpanded(nodeByLabel(hp, "Calls From"), true);
+  hp.tree().setExpanded(childByLabel(hp, 0, "Calls From"), true);
   fake.outgoingDone[0]({edge(item(f, "Shape::area", 1, 17), 2)}, "");
   g.frame();
   hp.tree().select(nodeByLabel(hp, "main"));
