@@ -40,6 +40,7 @@ add_library(tenfold_core STATIC
   src/core/Document.cpp
   src/core/PathUtil.cpp
   src/core/Trash.cpp
+  src/core/EditorConfig.cpp
   src/core/CrashHandler.cpp
   src/core/Log.cpp
   src/nav/NavigationHistory.cpp
@@ -153,6 +154,7 @@ add_executable(tenfold-tests
   tests/test_multicaret.cpp
   tests/test_editing.cpp
   tests/test_untitled.cpp
+  tests/test_editorconfig.cpp
   tests/test_encodings.cpp
   tests/test_lsp_features.cpp
   tests/test_build.cpp
@@ -421,6 +423,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_term.cpp
     tests/ui/test_pathological_ui.cpp
     tests/ui/test_vs_tabs.cpp
+    tests/ui/test_vs_edit.cpp
   )
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)

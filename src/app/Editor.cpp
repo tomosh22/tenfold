@@ -14,6 +14,7 @@
 
 #include <nlohmann/json.hpp>
 
+#include "core/EditorConfig.h"
 #include "core/PathUtil.h"
 #include "search/ReplaceInFiles.h"
 
@@ -331,8 +332,28 @@ bool Editor::save(Document& doc, std::string* error, UnencodableReport* refused)
     if (error) *error = "it has no file name yet";
     return false;
   }
-  if (editing_.trimTrailingWhitespace) {
-    std::vector<Document::BatchEdit> trims;  // one undo step; the carets of the current document are carried along
+  // VS_BEHAVIOUR Z19: the file's .editorconfig adds trim_trailing_whitespace / insert_final_newline as defaults.
+  EditorConfigProps cfg;
+  if (editing_.useEditorConfig) cfg = editorConfigFor(doc.path());
+  const auto applyEdits = [&](std::vector<Document::BatchEdit> edits) {  // one undo step; carets are carried along
+    if (&doc == current_) {
+      runLineEdits(std::move(edits));
+    } else {
+      doc.beginGroup();
+      doc.replaceMany(std::move(edits));
+      doc.endGroup();
+    }
+  };
+  if (cfg.insertFinalNewline.value_or(false)) {
+    const TextBuffer& b = doc.buffer();
+    const int last = b.lineCount() - 1;
+    if (last >= 0 && !b.line(last).empty()) {  // the last line has no line break yet
+      const Position end{last, static_cast<int>(b.line(last).size())};
+      applyEdits({{{end, end}, std::string(TextBuffer::terminatorText(b.lineEnding()))}});
+    }
+  }
+  if (editing_.trimTrailingWhitespace || cfg.trimTrailingWhitespace.value_or(false)) {
+    std::vector<Document::BatchEdit> trims;
     const TextBuffer& b = doc.buffer();
     for (int l = 0; l < b.lineCount(); ++l) {
       const std::string& s = b.line(l);
@@ -340,15 +361,7 @@ bool Editor::save(Document& doc, std::string* error, UnencodableReport* refused)
       while (e > 0 && (s[e - 1] == ' ' || s[e - 1] == '\t')) --e;
       if (e < s.size()) trims.push_back({{{l, static_cast<int>(e)}, {l, static_cast<int>(s.size())}}, {}});
     }
-    if (!trims.empty()) {
-      if (&doc == current_) {
-        runLineEdits(std::move(trims));
-      } else {
-        doc.beginGroup();
-        doc.replaceMany(std::move(trims));
-        doc.endGroup();
-      }
-    }
+    if (!trims.empty()) applyEdits(std::move(trims));
   }
   {
     // A read-only file (Perforce: not checked out, e.g. auto-checkout failed) must say so instead of "cannot write".
@@ -403,7 +416,8 @@ void Editor::noteFallbackEncoding(const Document& doc) {
 Document* Editor::newUntitled(LineEnding lineEnding) {
   std::error_code ec;
   for (int n = 1;; ++n) {
-    const fs::path path = ws_.root() / ("Untitled " + std::to_string(n));
+    const fs::path path = ws_.root() / (editing_.textFileNames ? "TextFile" + std::to_string(n) + ".txt"
+                                                               : "Untitled " + std::to_string(n));
     if (document(path) || fs::exists(path, ec)) continue;
     auto doc = std::make_unique<Document>(Document::untitled(path, lineEnding));
     doc->initEncodingChoice(editing_.defaultEncoding);  // editor.defaultEncoding
@@ -2344,8 +2358,9 @@ Editor::RenameResult Editor::applyRenameEdits(const FileEdits& edits, std::strin
     if (error) *error = e;
     return res;
   }
-  const bool trim = editing_.trimTrailingWhitespace;
+  const bool trim = editing_.trimTrailingWhitespace, useConfig = editing_.useEditorConfig;
   editing_.trimTrailingWhitespace = false;  // a rename must not touch lines it did not edit
+  editing_.useEditorConfig = false;
   std::string saveError;
   for (const auto& [f, list] : edits) {
     if (list.empty()) continue;
@@ -2366,6 +2381,7 @@ Editor::RenameResult Editor::applyRenameEdits(const FileEdits& edits, std::strin
     }
   }
   editing_.trimTrailingWhitespace = trim;
+  editing_.useEditorConfig = useConfig;
   if (error) *error = saveError;
   return res;
 }

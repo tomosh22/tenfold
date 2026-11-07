@@ -135,6 +135,16 @@ class RootWidget : public Widget {
   ~RootWidget() override;
 
   gfx::TextRenderer& text() const { return *text_; }
+  // The renderer of the editor text (TextView): the root's own unless the editor is zoomed (View.ZoomIn / ZoomOut
+  // scale only the editor text, like Visual Studio), when it is a second renderer at the zoomed size. The caller owns
+  // it and passes nullptr (before destroying it) to go back to text().
+  gfx::TextRenderer& editorText() const { return editorText_ ? *editorText_ : *text_; }
+  bool hasEditorText() const { return editorText_ != nullptr; }
+  void setEditorTextRenderer(gfx::TextRenderer* t) {
+    if (t) t->setTabWidth(editorText().textLayout().tabWidth());
+    editorText_ = t;
+    requestLayout();
+  }
   const Theme& rootTheme() const { return theme_; }
   void setTheme(const Theme& t) {
     theme_ = t;
@@ -146,6 +156,7 @@ class RootWidget : public Widget {
   // Replaces the text renderer (font change); the caller keeps the old one alive until after this call, then drops it
   // (releaseTexture first) and requests a layout.
   void setTextRenderer(gfx::TextRenderer& t) {
+    if (!editorText_) t.setTabWidth(text_->textLayout().tabWidth());
     text_ = &t;
     requestLayout();
   }
@@ -192,6 +203,7 @@ class RootWidget : public Widget {
   void setFocusTo(Widget* w);
 
   gfx::TextRenderer* text_;
+  gfx::TextRenderer* editorText_ = nullptr;  // zoomed editor text; null = text_
   Theme theme_;
   Widget *focus_ = nullptr, *capture_ = nullptr, *hover_ = nullptr;
   Widget *modal_ = nullptr, *beforeModal_ = nullptr;

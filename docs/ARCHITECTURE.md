@@ -1037,8 +1037,8 @@ pending OPEN_QUESTIONS #3.
 edits at every caret and forms ONE undo step; the behaviours that could differ from 10x live in `Editor::EditingOptions`
 (`autoIndent`, `autoIndentBraces`, `formatBracesOnEnterSplit`, `autoCloseBrace`, `autoCloseBracket`, `autoCloseQuotes`,
 `bracketSelectedText`, `detectIndent`, `indentUnit`, `trimTrailingWhitespace`, `commentBlockUsesLineComments`; the UI fills them from the `editor.*`
-settings, OPEN_QUESTIONS #8). The struct's defaults are 10x's documented defaults (B8b: nothing auto-closes, tab
-indent, no detection, selections are bracketed); the engine tests pin the behaviours they test explicitly. Two entry
+settings, OPEN_QUESTIONS #8). The struct's defaults are 10x's documented defaults (B8b: braces and brackets do not auto-close, tab
+indent, no detection, selections are bracketed) ; `useEditorConfig` (off) lets `Editor::save` apply `.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` (`core/EditorConfig.*`) and `textFileNames` (off) names new files `TextFileN.txt` (VS-EDIT); the engine tests pin the behaviours they test explicitly. Two entry
 points exist for text: `insertText` gives the breaks of its text the document's line ending, unless it is a paste (`literal`), and `typeText` is what the view calls for typed
 characters (auto-close per pair kind, typing over the closer that is already there and Backspace between an empty pair,
 both only for a pair kind whose auto-close is on; wrapping a selection with `( [ {` per `bracketSelectedText`, with quotes
@@ -1830,13 +1830,17 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
   sets it along the path to the active panel (`applyFocusMode`, also run from `onLayout` and after any change of the
   active panel or the tree), hides the status bar and top bar and treats the dock as closed. Ratios and tabs are not
   touched, so leaving the mode restores the window. Panel focus / move commands find no neighbour while it is on.
-* **Zoom**: `EditorApp::zoomBy` keeps `fontZoomPt()` (-8..+40 points, session only) and calls the `rebuildFont` hook
-  given to `attachSettings`; the app's hook builds the font with `makeEditorTextRenderer(settings, scale, err,
-  app.fontZoomPt())`, so a later `font.*` change keeps the zoom. The TextRenderer is shared by the whole UI, so tabs and
-  status bar scale too. **Fullscreen**: `EditorApp::WindowHooks::setFullscreen` (`Window::setFullscreen`, SDL borderless
+* **Zoom** (VS-EDIT, VS_BEHAVIOUR Z8): `EditorApp::zoomBy` keeps `fontZoomPt()` (-8..+40 points, session only) and calls
+  the `rebuildFont` hook given to `attachSettings`. The hook builds the root's TextRenderer unzoomed and, while
+  `fontZoomPt() != 0`, a second one at configured size + zoom (`makeEditorTextRenderer(..., app.fontZoomPt())`) that it
+  gives to `RootWidget::setEditorTextRenderer`; a later `font.*` change keeps the zoom. `RootWidget::editorText()` is that
+  renderer (the root's own when not zoomed); `TextView` (all metrics and its painting) and the terminal's default font
+  use it, `RootWidget::render` flushes it after the root's, so tabs, status bar and menus keep their size. The status bar
+  segment "zoom" shows the ratio of the two cell widths ("113 %") and a click resets. `EditorApp::handleEventImpl` turns
+  Control + wheel over a `TextView` into `zoomBy(+-1)` (`editor.mouseWheelZoom`). **Fullscreen**: `EditorApp::WindowHooks::setFullscreen` (`Window::setFullscreen`, SDL borderless
   desktop fullscreen); without the hook the command only says so.
 * **Untitled documents** (engine): `Document::untitled(path, lineEnding)` / `isUntitled()`; `Editor::newUntitled` picks
-  "Untitled N" under the workspace root (a name that is neither open nor on disk), keeps it out of clangd, version
+  "Untitled N" (`textFileNames`: "TextFileN.txt") under the workspace root (a name that is neither open nor on disk), keeps it out of clangd, version
   control and the disk hash; `Editor::save` refuses it; `Editor::saveAs(doc, path)` re-keys the same `Document` (history
   and carets stay), writes it and then announces it to clangd and version control. The workbench follows with
   `documentRenamed`; `noteRecent` and `layout.json` skip untitled tabs; `ExternalChanges` does not poll them.

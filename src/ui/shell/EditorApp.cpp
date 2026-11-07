@@ -35,15 +35,28 @@ std::vector<int> caretLines(const Editor& ed) {
   return {lines.begin(), lines.end()};
 }
 
+// Caret lines a Copy / Cut without a selection acts on: blank (whitespace-only) lines are skipped unless
+// editor.copyBlankLines.
+std::vector<int> emptySelectionLines(Editor& ed, const EditorApp::LineCopyOptions& opts) {
+  std::vector<int> lines = caretLines(ed);
+  if (opts.blankLines) return lines;
+  const TextBuffer& b = ed.currentDocument()->buffer();
+  std::erase_if(lines, [&](int l) { return b.line(l).find_first_not_of(" \t") == std::string::npos; });
+  return lines;
+}
+
 // Selected text with the line breaks the buffer holds (multi-caret: selections joined with the document's ending);
 // without a selection the caret lines (one caret: the line plus its own line break, several: joined with the document's
 // ending so that pasting into the same number of carets round-trips).
-std::string copyText(Editor& ed) {
+// `opts` are VS's "Apply Cut or Copy commands to blank lines when there is no selection" (editor.copyBlankLines) and
+// the switch for the whole behaviour (editor.copyLineWhenEmpty); an empty result means there is nothing to copy.
+std::string copyText(Editor& ed, const EditorApp::LineCopyOptions& opts) {
   if (anySelection(ed)) return ed.selectedTextRaw();
+  if (!opts.whenEmpty) return {};
   const TextBuffer& b = ed.currentDocument()->buffer();
   const std::string_view sep = TextBuffer::terminatorText(b.lineEnding());
   std::string out;
-  const std::vector<int> lines = caretLines(ed);
+  const std::vector<int> lines = emptySelectionLines(ed, opts);
   for (size_t i = 0; i < lines.size(); ++i) {
     if (i) out += sep;
     out += b.line(lines[i]);
@@ -54,16 +67,19 @@ std::string copyText(Editor& ed) {
 
 using SetClipboard = std::function<bool(const std::string&)>;
 
-bool doCopy(Editor& ed, const SetClipboard& set) { return set(copyText(ed)); }
+bool doCopy(Editor& ed, const SetClipboard& set, const EditorApp::LineCopyOptions& opts) {
+  const std::string t = copyText(ed, opts);
+  return !t.empty() && set(t);
+}
 
-bool doCut(Editor& ed, const SetClipboard& set) {
-  if (!doCopy(ed, set)) return false;
+bool doCut(Editor& ed, const SetClipboard& set, const EditorApp::LineCopyOptions& opts) {
+  if (!doCopy(ed, set, opts)) return false;
   if (anySelection(ed)) {
     ed.insertText("");  // replaces every selection with nothing; empty carets are untouched
     return true;
   }
   const TextBuffer& b = ed.currentDocument()->buffer();
-  const std::vector<int> lines = caretLines(ed);
+  const std::vector<int> lines = emptySelectionLines(ed, opts);
   for (size_t i = lines.size(); i-- > 0;) {  // bottom-up so earlier line numbers stay valid
     const int l = lines[i];
     ed.deleteRange(l + 1 < b.lineCount() ? Range{{l, 0}, {l + 1, 0}}
@@ -228,6 +244,8 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
         "flags", [this](const std::string&) { runCommandId("Help.ShowCompileCommand", "", activeContext()); });
     bench_->status().addSegment("navcounts", StatusBar::Align::Right);
     bench_->status().addSegment("recording", StatusBar::Align::Right);
+    // VS shows the zoom as a "100 %" box; here it appears while the editor is zoomed, and a click resets it.
+    bench_->status().addSegment("zoom", StatusBar::Align::Right, [this](const std::string&) { zoomBy(-zoomPt_); });
     bench_->confirmClose = [this](int id) {  // the tab's x / middle click on the last view of a dirty document
       if (!confirmUnsaved_) return false;
       closePickers();
@@ -392,6 +410,8 @@ void EditorApp::applyEditingSettings(const Settings& s) {
   o.autoCloseQuotes = s.getBool("editor.autoCloseQuotes");
   o.bracketSelectedText = s.getBool("editor.bracketSelectedText");
   o.trimTrailingWhitespace = s.getBool("editor.trimTrailingWhitespace");
+  o.useEditorConfig = s.getBool("editor.useEditorConfig");
+  o.textFileNames = s.getBool("editor.textFileNames");
   o.replicateNewLine = s.getBool("editor.replicateNewLine");
   o.pasteKeepsLineBreaks = s.getBool("editor.pasteKeepsLineBreaks");
   o.checkLineEndings = s.getBool("editor.checkLineEndings");
@@ -423,7 +443,7 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
       if (k == "editor.wordWrap") wrapOverride_.reset();  // the file has spoken again
       if (k == "editor.showWhitespace") whitespaceOverride_.reset();
     }
-    if (font && rebuildFont_) rebuildFont_();
+    if (font && rebuildFont_ && rebuildFont_()) updateZoomIndicator();
     ++settingsGen_;
     applyEditorSettings();
     showDiagnostics();
@@ -448,6 +468,8 @@ void EditorApp::applySettings(const Settings& s) {
     searchCommand_ = s.getString("editor.internetSearchCommand");
     if (searchCommand_.empty()) searchCommand_ = "https://www.google.com/search?q=";
     autoNameUntitled_ = s.getBool("editor.autoNameUntitledFiles");
+    wheelZoom_ = s.getBool("editor.mouseWheelZoom");
+    lineCopy_ = {s.getBool("editor.copyLineWhenEmpty"), s.getBool("editor.copyBlankLines")};
   }
   external_->setPolicy(ExternalChanges::resolvePolicy(s.getBool("editor.detectExternalChanges"),
                                                       s.getBool("editor.reloadUnlessUnsaved"),
@@ -926,10 +948,12 @@ void EditorApp::bindUiCommands() {
       },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
-      "Editor.Copy", [this](const CommandContext& c, std::string_view) { return doCopy(*c.editor, clipboardSetter()); },
+      "Editor.Copy",
+      [this](const CommandContext& c, std::string_view) { return doCopy(*c.editor, clipboardSetter(), lineCopy_); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
-      "Editor.Cut", [this](const CommandContext& c, std::string_view) { return doCut(*c.editor, clipboardSetter()); },
+      "Editor.Cut",
+      [this](const CommandContext& c, std::string_view) { return doCut(*c.editor, clipboardSetter(), lineCopy_); },
       [](const CommandContext& c) { return c.editor && c.editor->currentDocument(); });
   registry_.bind(
       "Editor.Paste", [](const CommandContext& c, std::string_view) { return doPaste(*c.editor); },
@@ -1154,6 +1178,7 @@ bool EditorApp::zoomBy(float stepPt) {
     setMessage("Cannot change the font size", kMessageMs);
     return false;
   }
+  updateZoomIndicator();
   std::string txt = "Zoom reset";
   if (zoomPt_ != 0) {
     char buf[32];
@@ -1164,13 +1189,23 @@ bool EditorApp::zoomBy(float stepPt) {
   return true;
 }
 
+// The status bar shows the editor text's size relative to the unzoomed one (VS: the "100 %" box of the editor margin).
+void EditorApp::updateZoomIndicator() {
+  if (!bench_) return;
+  std::string txt;
+  const float base = root_.text().cellWidth();
+  if (zoomPt_ != 0 && base > 0)
+    txt = std::to_string(std::lround(100.0f * root_.editorText().cellWidth() / base)) + " %";
+  bench_->status().setText("zoom", txt);
+}
+
 void EditorApp::setFullscreen(bool on) {
   fullscreen_ = on;
   if (window_.setFullscreen) window_.setFullscreen(on);
 }
 
 // The name an untitled document offers the Save As prompt: the first word typed (editor.autoNameUntitledFiles) or
-// "Untitled N".
+// "Untitled N" ("TextFileN.txt" with editor.textFileNames).
 std::string EditorApp::untitledSuggestion(const Document& d) const {
   const auto it = untitledNames_.find(d.path().generic_string());
   if (autoNameUntitled_ && it != untitledNames_.end() && !it->second.word.empty()) return it->second.word;
@@ -1542,6 +1577,10 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
   if (e.type == InputType::MouseDown && e.button == MouseButton::Right && !root_.modal() && !root_.captured() &&
       openContextMenuAt(e.x, e.y))
     return true;
+  // 10x MouseWheelZoom / VS: Control + wheel over the editor zooms its text (wheel up = larger).
+  if (e.type == InputType::Wheel && (e.mods & ModCtrl) && wheelZoom_ && e.dy != 0 && !root_.modal() &&
+      textViewAt(e.x, e.y))
+    return zoomBy(e.dy > 0 ? 1.0f : -1.0f);
   if (terminals_ && (e.type == InputType::FocusGained || e.type == InputType::FocusLost))
     terminals_->setWindowFocused(e.type == InputType::FocusGained);
   if (e.type == InputType::KeyUp || (e.type == InputType::KeyDown && !(e.mods & ModCtrl))) {
