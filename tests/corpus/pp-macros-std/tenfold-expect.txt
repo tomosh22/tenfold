@@ -7,7 +7,7 @@ fast def use_registry -> registry_fn
 fast def use_trace -> trace_on | trace_off
 fast sym "registry" ∋ registry_fn
 fast sym "op_one" -> op_one
-xfail fast def use_trace -> trace_on  # fast index returns both #if branches of trace_name()
+fast def use_trace -> trace_on
 xfail fast def use_Color_names -> decl_enum  # Color_names exists only by pasting inside DEFINE_ENUM: not in the lexer index
 xfail fast def use_Red -> c_Red  # enumerators declared through LIST(ENUM_ITEM): not in the lexer index
 

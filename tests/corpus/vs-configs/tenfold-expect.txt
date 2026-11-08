@@ -8,13 +8,13 @@
 # ---- fast tier, before clangd has parsed anything (the lexer index does not know configurations) ----
 fast def use_core_twice -> core_twice
 fast def use_app_mode -> app_mode_release | app_mode_debug
-fast def use_log_core -> log_fancy | log_plain
+fast def use_log_core -> log_fancy
 fast sym "x64_only_fn" ∋ x64_only_fn
 fast sym "dbg_helper" ∋ dbg_helper_def
 fast sym "dbg_only_free" -> dbg_only_free
 fast sym "app_mode" ∋ app_mode_release app_mode_debug
-xfail fast def use_core_level -> level_dbg  # fast index returns every #if branch (3 core_level definitions), it cannot know the configuration
-xfail fast def use_log_app -> log_plain  # same: log_fancy and log_plain are both returned
+fast def use_core_level -> level_dbg
+fast def use_log_app -> log_plain
 
 
 # ================= Debug|x64 =================
