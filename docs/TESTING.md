@@ -19,7 +19,7 @@ for end-to-end answers on awkward code.
 
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
-| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 683 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 718 | clangd for the integration tests (they skip with a message without it) |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 631 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 614 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout | 30 | nothing |
@@ -434,7 +434,8 @@ check invariants of the parser's result (`FUZZ_REQUIRE`).
 | `lexer`       | `CppLexer` (fast lexer)                                                                                | tokens are views into the input, in order, non-empty         |
 | `extract`     | `extractSymbols` (fast symbol extractor)                                                               | lines/columns in range, names non-empty, deterministic       |
 | `scopescan`   | `scanScopes` (lexical scope map of the scope-aware fast tier)                                          | regions nest and lie in the text, deterministic              |
-| `indexstore`  | `FastIndexStore::deserialize` (persisted fast index; header size/hash/fingerprint repaired first)      | accepted stores survive a round trip                         |
+| `ppcond`      | `evalCondition` / `evalValue` (`#if` expressions, three-valued), `parseDirective`, `extractFile`'s condition arms, store round trip, `Evaluator` (W12-FAST-PP) | a definite answer with nothing known holds whatever the macros are; arm ids point backwards; symbol-arm pairs sorted and in range; the store keeps the tables; the evaluator is deterministic |
+| `indexstore`  | `FastIndexStore::deserialize` (persisted fast index; header size/hash/fingerprint repaired first)      | accepted stores survive a round trip; the evaluator terminates on their arm tables |
 | `xml`         | `xml::parse` (XmlLite)                                                                                 | finite tree                                                  |
 | `msbuild`     | `.vcxproj` + imported `.props` + `Directory.Build.props` + `.sln` + `.filters` through `fromVcxproj`, `fromSolution`, `readSolution` | none beyond "no crash / throw / hang"         |
 | `msbuildexpr` | `evaluateCondition`, `expandProperties` (conditions, `$(..)`, property functions)                      |                                                              |
