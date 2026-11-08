@@ -2,6 +2,43 @@
 
 Each W9 corpus agent adds its own self-contained section below. Format and rules of the corpora: `docs/TESTING.md`.
 
+## W12-FAST-PP-STRICT: absent macros are unknown unless the project mentions them (branch `task/W12-FAST-PP-STRICT`)
+
+User decision of 2026-11-08 (`docs/OPEN_QUESTIONS.md`): an absent macro is "not defined" only when some compile command
+of the workspace passes it as `-D` / `-U` or some indexed file `#define`s it; every other absent name is Unknown (the
+list of platform / standard-library names and the unindexed-include flag of the first version are removed;
+`TuEnv::initialState`, `docs/ARCHITECTURE.md`). Same method as W12-FAST-PP, same corpus files (the main column was
+re-run with the merged binary; it is 2 lines above the table of the first section because the two `fast` lines added
+below are in both columns).
+
+| corpus | main (a08635c) | strict |
+|---|---|---|
+| `c-vcxproj` | 15/18 (83 %) | 13/18 (72 %) |
+| `seed` | 16/24 (67 %) | 14/24 (58 %) |
+| `templates-config` | 12/22 (55 %) | 4/22 (18 %) |
+| `vs-configs` | 91/91 (100 %) | 79/91 (87 %) |
+| `vs-props` | 95/95 (100 %) | 70/95 (74 %) |
+| `vs-std` | 16/16 (100 %) | 15/16 (94 %) |
+| **all 36** | **2238/2690 (83.2 %)** | **2188/2690 (81.3 %)** |
+
+50 `def` / `decl` lines that agreed before are "fast is a superset of clangd's answer" again (clangd's answer is still
+inside the fast one: 0 recall losses, 0 lines newly empty): `vs-props` 25, `vs-configs` 12, `templates-config` 8,
+`c-vcxproj` 2, `seed` 2, `vs-std` 1. Cause, in every one of them: a configuration switch that only another Visual Studio configuration passes
+(`LEVEL_9` in Debug|x86, `TC_FAST` in Release|x64, `TURBO` / `PROPS_DEBUG`-style per-configuration defines, `SEED_DEBUG`,
+`C_DEBUG` and `STDAPP_DEBUG` in Debug only) is not mentioned by the active configuration's database, so when the active
+configuration lacks it the name is Unknown and both branches stay (the database holds one configuration at a time).
+
+**Expectations.** Two `fast` lines I had narrowed in W12-FAST-PP fail with the stricter rule and are `xfail` with the
+reason "absent macro not mentioned by the project is unknown (user decision 2026-11-08)": `vs-props` `fast def
+use_level_value -> level_three` and `templates-config` `fast def use_run_int -> Policy_safe_run`. Their pre-narrowing
+forms (every branch as an alternative, as before W12) are back as passing `fast` lines, so the two cases stay covered.
+No line was deleted; no `final` line changed; 0 `FAIL`, 0 `XPASS` after.
+
+The unit tests keep both directions: the `MSG_NOSIGNAL` case (`<sys/socket.h>`: both definitions offered, at unit and
+engine level), `ENABLE_PROFILER` passed by another unit's command is Undefined in a unit that lacks it, and a name
+`#define`d only in an indexed project header is a project macro. The cached Visual Studio test now expects both
+branches in Debug (nothing in that database mentions `TURBO`) and the Release branch in Release.
+
 ## W12-FAST-PP: the fast tier follows preprocessor conditionals (branch `task/W12-FAST-PP`)
 
 Design and rules: `docs/ARCHITECTURE.md`, "Preprocessor conditionals in the fast tier". Every `#if` / `#ifdef` / `#elif` /
