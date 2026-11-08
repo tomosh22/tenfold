@@ -59,11 +59,6 @@ CommandMacros macrosOfCommand(const CompileCommand& cc, const Host& host = Host:
 // The macro names a command's -D / -U (and /D, /U) arguments mention (no predefined macros), added to `out`.
 void collectFlagNames(const CompileCommand& cc, std::unordered_set<std::string>& out);
 
-// Names a system or standard header, or the compiler, may define without the project knowing: `_X`, `__x`, names with
-// a lower-case letter (`linux`, `unix`, `assert`) and the macros of the C / C++ standard library and the OS headers
-// (`NULL`, `INT_MAX`, `EINVAL`, `PATH_MAX`, `WIN32` ...). An undefined such name is Unknown, not Undefined.
-bool isPlatformMacroName(std::string_view name);
-
 // ---- translation unit
 // ------------------------------------------------------------------------------------------------
 
@@ -78,9 +73,6 @@ class TuEnv {
     // `__has_include("x")` / `<x>` seen in `includer`'s directory: whether the header exists (Unknown when that cannot
     // be told: it may be a system header). Null: always Unknown.
     std::function<Tri(const std::string& spelling, bool angled, const std::filesystem::path& includerDir)> hasInclude;
-    // Some `#include` of those files resolves to no indexed file and does not name a standard header: a project or
-    // third-party header (generated config.h, boost/..., windows.h) may define macros nobody saw.
-    bool foreignIncludes = false;
     std::function<bool(const std::string&)> definedInWorkspace;  // some indexed file #defines this name
     std::function<bool(const std::string&)> setByFlags;          // some compile command -D / -U's this name
   };

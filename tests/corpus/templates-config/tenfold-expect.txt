@@ -3,7 +3,8 @@
 config Debug|x64
 
 # ---- Debug|x64: no TC_FAST ----
-fast def use_run_int -> Policy_safe_run
+fast def use_run_int -> Policy_safe_run | Policy_fast_run | Policy_fast_int_run
+xfail fast def use_run_int -> Policy_safe_run  # TC_FAST is passed only by the Release|x64 database, not by this snapshot: absent macro not mentioned by the project is unknown (user decision 2026-11-08)
 def use_run_int -> Policy_safe_run
 def use_run_dbl -> Policy_safe_run
 def use2_run_int -> Policy_safe_run

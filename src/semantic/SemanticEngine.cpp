@@ -1907,17 +1907,13 @@ std::shared_ptr<const pp::TuEnv> SemanticEngine::ppEnvOf(const fs::path& root) c
     dir = cc->directory;
   }
   std::unordered_set<std::string> seen;
-  bool foreign = false;
   auto addReach = [&](const fs::path& start, std::vector<std::shared_ptr<const FileSymbols>>& into) {
-    bool f = false;
-    auto reach = fast_.reachableFrom(start, quote, angle, 6000, &f);
-    if (!reach) {  // too many files: what the TU defines is not known
-      foreign = true;
+    auto reach = fast_.reachableFrom(start, quote, angle, 6000);
+    if (!reach) {  // too many files: only the file itself is read
       if (seen.insert(FastIndex::pathKey(start)).second)
         if (auto fsyms = fast_.fileSymbols(start)) into.push_back(std::move(fsyms));
       return;
     }
-    foreign = foreign || f;
     for (const std::string& k : *reach)
       if (seen.insert(k).second)
         if (auto fsyms = fast_.fileSymbolsByKey(k)) into.push_back(std::move(fsyms));
@@ -1927,10 +1923,8 @@ std::shared_ptr<const pp::TuEnv> SemanticEngine::ppEnvOf(const fs::path& root) c
     if (p.is_relative()) p = dir / p;
     p = p.lexically_normal();
     if (fast_.fileSymbols(p)) addReach(p, in.prelude);
-    else foreign = true;  // a forced include nobody indexed (a precompiled header, a generated file)
   }
   addReach(root, in.files);
-  in.foreignIncludes = foreign;
   if (const auto vocab = snap->empty() ? nullptr : flagVocabulary(snap)) {
     in.setByFlags = [vocab](const std::string& n) { return vocab->count(n) != 0; };
   }
