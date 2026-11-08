@@ -23,9 +23,14 @@ namespace {
 constexpr char kMagic[8] = {'T', 'F', 'F', 'I', 'D', 'X', 0, 1};
 constexpr size_t kHeaderSize = 48;
 constexpr size_t kSymbolRecord = 4 + 4 + 4 + 4 + 1 + 1 + 1;
-constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4;
+constexpr size_t kFileRecord = 4 + 8 + 8 + 4 + 4 + 4;
+constexpr size_t kPpCounts = 4 * 4;  // nArms, nSymArm, nMacros, nBodies
+constexpr size_t kArmRecord = 4 + 4 + 4 + 1 + 4;
+constexpr size_t kSymArmRecord = 4 + 4;
+constexpr size_t kMacroRecord = 4 + 4 + 4 + 4 + 1;
 constexpr uint32_t kExtractorSalt =
-    5;  // 5: minArity, variadic and fileLocal (static) per symbol, `static int x;` in a class is a
+    6;  // 6: preprocessor conditionals (arms, per-symbol arm, #define / #undef records, integer bodies).
+        // 5: minArity, variadic and fileLocal (static) per symbol, `static int x;` in a class is a
         // declaration. 4: NEL / LS / PS count as line breaks in token positions (stored lines of
         // files that have them were off). 3: arity in the flags byte, operator names,
         // macros behind comments, friends, typedef bodies. 2: BOM skipped, lone CR
@@ -125,9 +130,25 @@ uint32_t FastIndexStore::extractorFingerprint() {
       void vf(const char* f, ...);
       template <class... A>
       void pk(int a, A... r);
+#ifndef GUARD_H
+#define GUARD_H
+#if defined(A) && B > 1
+      int cond_a;
+#elif !defined X
+      int cond_b;
+#else
+      int cond_c;
+#endif
+#ifdef Q
+#define LVL (1 + 2)
+#undef LVL
+#endif
+#endif
     )cpp";
-    std::vector<std::string> inc;
-    auto syms = extractSymbols(probe, &inc);
+    FileSymbols probed;
+    extractFile(probe, probed);
+    auto& syms = probed.symbols;
+    auto& inc = probed.includes;
     std::string blob;
     put<uint32_t>(blob, kExtractorSalt);
     put<uint32_t>(blob, kFormatVersion);
@@ -145,8 +166,32 @@ uint32_t FastIndexStore::extractorFingerprint() {
       put<int8_t>(blob, s.minArity);
       put<uint8_t>(blob, static_cast<uint8_t>((s.fileLocal ? 1 : 0) | (s.variadic ? 2 : 0)));
     }
-    for (auto& i : inc) {
-      blob += i;
+    for (size_t k = 0; k < inc.size(); ++k) {
+      blob += inc[k];
+      blob += (k < probed.angled.size() && probed.angled[k]) ? '\1' : '\0';
+    }
+    for (auto& a : probed.arms) {
+      put<uint8_t>(blob, static_cast<uint8_t>(a.kind));
+      put<uint32_t>(blob, a.parent);
+      put<uint32_t>(blob, a.prev);
+      put<int32_t>(blob, a.line);
+      blob += a.expr;
+      blob += '\0';
+    }
+    for (auto& sa : probed.symArm) {
+      put<uint32_t>(blob, sa.first);
+      put<uint32_t>(blob, sa.second);
+    }
+    for (auto& m : probed.macros) {
+      blob += m.name;
+      blob += '\0';
+      put<int32_t>(blob, m.line);
+      put<uint32_t>(blob, m.arm);
+      put<int32_t>(blob, m.body);
+      put<uint8_t>(blob, static_cast<uint8_t>((m.undef ? 1 : 0) | (m.functionLike ? 2 : 0)));
+    }
+    for (auto& b : probed.bodies) {
+      blob += b;
       blob += '\0';
     }
     uint64_t h = hashBytes(blob.data(), blob.size());
@@ -190,7 +235,35 @@ std::string FastIndexStore::serialize(const Entries& files) {
       // bits 0..5 minArity + 1 (0 = unknown), bit 6 fileLocal, bit 7 variadic
       put<uint8_t>(body, static_cast<uint8_t>((s.minArity + 1) | (s.fileLocal ? 64 : 0) | (s.variadic ? 128 : 0)));
     }
-    for (auto& inc : f->includes) put<uint32_t>(body, intern(inc));
+    for (size_t k = 0; k < f->includes.size(); ++k)  // bit 31: written with angle brackets
+      put<uint32_t>(body, intern(f->includes[k]) | ((k < f->angled.size() && f->angled[k]) ? 0x80000000u : 0u));
+    const bool pp = !f->arms.empty() || !f->macros.empty();
+    put<uint32_t>(body, pp ? 1 : 0);
+    if (pp) {
+      put<uint32_t>(body, static_cast<uint32_t>(f->arms.size()));
+      put<uint32_t>(body, static_cast<uint32_t>(f->symArm.size()));
+      put<uint32_t>(body, static_cast<uint32_t>(f->macros.size()));
+      put<uint32_t>(body, static_cast<uint32_t>(f->bodies.size()));
+      for (auto& a : f->arms) {
+        put<uint32_t>(body, a.parent);
+        put<uint32_t>(body, a.prev);
+        put<int32_t>(body, a.line);
+        put<uint8_t>(body, static_cast<uint8_t>(a.kind));
+        put<uint32_t>(body, intern(a.expr));
+      }
+      for (auto& sa : f->symArm) {
+        put<uint32_t>(body, sa.first);
+        put<uint32_t>(body, sa.second);
+      }
+      for (auto& m : f->macros) {
+        put<uint32_t>(body, intern(m.name));
+        put<int32_t>(body, m.line);
+        put<uint32_t>(body, m.arm);
+        put<int32_t>(body, m.body);
+        put<uint8_t>(body, static_cast<uint8_t>((m.undef ? 1 : 0) | (m.functionLike ? 2 : 0)));
+      }
+      for (auto& b : f->bodies) put<uint32_t>(body, intern(b));
+    }
   }
 
   std::string payload;
@@ -268,6 +341,18 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
     if (nsym > r.left() / kSymbolRecord || ninc > (r.left() - size_t(nsym) * kSymbolRecord) / 4)
       return bad("bad counts");
     r.pos += size_t(nsym) * kSymbolRecord + size_t(ninc) * 4;
+    const uint32_t hasPp = r.get<uint32_t>();
+    if (!r.ok || hasPp > 1) return bad("bad file record");
+    if (hasPp) {
+      const uint32_t na = r.get<uint32_t>(), ns = r.get<uint32_t>(), nm = r.get<uint32_t>(), nb = r.get<uint32_t>();
+      if (!r.ok) return bad("bad file record");
+      const size_t need =
+          size_t(na) * kArmRecord + size_t(ns) * kSymArmRecord + size_t(nm) * kMacroRecord + size_t(nb) * 4;
+      if (na > r.left() / kArmRecord || ns > r.left() / kSymArmRecord || nm > r.left() / kMacroRecord ||
+          nb > r.left() / 4 || need > r.left())
+        return bad("bad counts");
+      r.pos += need;
+    }
   }
   if (r.left() != 0) return bad("trailing data");
 
@@ -315,13 +400,78 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         s.variadic = extra & 128;
       }
       fs->includes.resize(ninc);
-      for (auto& inc : fs->includes) {
-        uint32_t id = fr.get<uint32_t>();
+      fs->angled.assign(ninc, 0);
+      for (uint32_t k = 0; k < ninc; ++k) {
+        const uint32_t raw = fr.get<uint32_t>();
+        const uint32_t id = raw & 0x7fffffffu;
         if (!fr.ok || id >= stringCount) {
           failed = true;
           return;
         }
-        inc.assign(strs[id]);
+        fs->includes[k].assign(strs[id]);
+        fs->angled[k] = (raw >> 31) ? 1 : 0;
+      }
+      if (fr.get<uint32_t>() != 0) {
+        const uint32_t na = fr.get<uint32_t>(), ns = fr.get<uint32_t>(), nm = fr.get<uint32_t>(),
+                       nb = fr.get<uint32_t>();
+        if (!fr.ok) {
+          failed = true;
+          return;
+        }
+        fs->arms.resize(na);
+        uint32_t idx = 0;
+        for (auto& a : fs->arms) {
+          ++idx;
+          a.parent = fr.get<uint32_t>();
+          a.prev = fr.get<uint32_t>();
+          a.line = fr.get<int32_t>();
+          const uint8_t kind = fr.get<uint8_t>();
+          const uint32_t expr = fr.get<uint32_t>();
+          // ids only point backwards: the evaluator relies on the arm tables being acyclic
+          if (!fr.ok || kind > static_cast<uint8_t>(CondArm::Never) || expr >= stringCount || a.parent >= idx ||
+              a.prev >= idx) {
+            failed = true;
+            return;
+          }
+          a.kind = static_cast<CondArm::Kind>(kind);
+          a.expr.assign(strs[expr]);
+        }
+        fs->symArm.resize(ns);
+        int64_t lastSym = -1;
+        for (auto& sa : fs->symArm) {
+          sa.first = fr.get<uint32_t>();
+          sa.second = fr.get<uint32_t>();
+          if (!fr.ok || sa.first >= nsym || static_cast<int64_t>(sa.first) <= lastSym || sa.second == 0 ||
+              sa.second > na) {
+            failed = true;
+            return;
+          }
+          lastSym = sa.first;
+        }
+        fs->macros.resize(nm);
+        for (auto& m : fs->macros) {
+          const uint32_t name = fr.get<uint32_t>();
+          m.line = fr.get<int32_t>();
+          m.arm = fr.get<uint32_t>();
+          m.body = fr.get<int32_t>();
+          const uint8_t fl = fr.get<uint8_t>();
+          if (!fr.ok || name >= stringCount || m.arm > na || m.body < -1 || m.body >= static_cast<int64_t>(nb)) {
+            failed = true;
+            return;
+          }
+          m.name.assign(strs[name]);
+          m.undef = fl & 1;
+          m.functionLike = fl & 2;
+        }
+        fs->bodies.resize(nb);
+        for (auto& b : fs->bodies) {
+          const uint32_t id = fr.get<uint32_t>();
+          if (!fr.ok || id >= stringCount) {
+            failed = true;
+            return;
+          }
+          b.assign(strs[id]);
+        }
       }
       out[fi] = std::move(fs);
     }

@@ -762,9 +762,12 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
         }
         if (nVisible > 0 && nVisible < matches.size()) {
           std::set<std::string> keys;
+          // only a visible declaration (a prototype) leaves room for a definition in a file the caret cannot see: a
+          // visible definition is the definition; the same function defined in another, invisible header (the
+          // `inc_Debug/cfg.h` and `inc_Release/cfg.h` of a build configuration) is another translation unit's.
           if (nHiddenDefs > 0)
             for (auto& m : matches)
-              if (visible(m)) keys.insert(pairKey(m.sym()));
+              if (visible(m) && !m.sym().definition) keys.insert(pairKey(m.sym()));
           keepIf([&](const FastIndex::Match& m) {
             return visible(m) || (pairable(m.sym()) && keys.count(pairKey(m.sym())) > 0);
           });

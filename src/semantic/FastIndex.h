@@ -1,4 +1,5 @@
 #pragma once
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -10,6 +11,7 @@
 #include <string_view>
 #include <unordered_map>
 #include <unordered_set>
+#include <utility>
 #include <vector>
 
 namespace tf {
@@ -55,10 +57,53 @@ struct Symbol {
   std::string qualified() const { return scope.empty() ? name : scope + "::" + name; }
 };
 
+// One arm of a preprocessor conditional group (`#if`, `#ifdef`, `#ifndef`, `#elif`, `#else`). Symbols record the arm
+// they sit in (FileSymbols::symArm); an arm is active when its parent arm is, every earlier arm of its group (`prev`)
+// is not, and its own condition holds. Ids are 1-based indexes into FileSymbols::arms, 0 = outside any conditional.
+// An include guard (`#ifndef X` directly followed by `#define X`) is not an arm: its content is unconditional.
+struct CondArm {
+  enum Kind : uint8_t {
+    If,      // `#if expr`
+    Ifdef,   // `#ifdef NAME` (expr = NAME)
+    Ifndef,  // `#ifndef NAME`
+    Elif,    // `#elif expr` (`#elifdef X` / `#elifndef X` are stored as `defined(X)` / `!defined(X)`)
+    Else,
+    Never  // the `#else` / `#elif` of an include guard: the guard is taken, so these are not
+  };
+  Kind kind = If;
+  uint32_t parent = 0;  // enclosing arm
+  uint32_t prev = 0;    // previous arm of the same group (Elif / Else / Never)
+  int line = 0;         // 0-based line of the directive
+  std::string expr;     // condition text, comments removed
+};
+
+// A `#define` / `#undef` of the file, in source order (the conditions evaluator replays them).
+struct MacroDef {
+  std::string name;
+  int line = 0;
+  uint32_t arm = 0;   // conditional arm the directive sits in
+  int32_t body = -1;  // index into FileSymbols::bodies: the replacement list of an object-like macro whose body is
+                      // a plain integer expression; -1 = no body worth keeping (value unknown)
+  bool undef = false;
+  bool functionLike = false;
+};
+
 struct FileSymbols {
   std::filesystem::path file;
   std::vector<Symbol> symbols;
   std::vector<std::string> includes;  // paths as written in #include directives
+  std::vector<uint8_t> angled;        // parallel to `includes`: 1 = `<x>`, 0 = `"x"` (empty: all quoted)
+  // Preprocessor conditionals (W12-FAST-PP). Empty for a file without any.
+  std::vector<CondArm> arms;
+  std::vector<std::pair<uint32_t, uint32_t>> symArm;  // (symbol index, arm id) for the symbols inside an arm, sorted
+  std::vector<MacroDef> macros;                       // #define / #undef directives
+  std::vector<std::string> bodies;
+  // The arm id of symbol `i` (0 = unconditional).
+  uint32_t armOf(size_t i) const {
+    if (symArm.empty()) return 0;
+    auto it = std::lower_bound(symArm.begin(), symArm.end(), std::make_pair(static_cast<uint32_t>(i), uint32_t{0}));
+    return it != symArm.end() && it->first == i ? it->second : 0;
+  }
   // On-disk stat of the file when it was lexed (0 = unknown, e.g. lexed from an unsaved buffer). The persisted
   // store (FastIndexStore) trusts an entry only when both still match. mtime is last_write_time in clock ticks.
   int64_t mtime = 0;
@@ -72,6 +117,9 @@ struct FileSymbols {
 // `isC`: the file is C (.c), where class, delete, new, template, this, namespace ... are plain identifiers.
 std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::string>* includes = nullptr,
                                    bool isC = false);
+// Everything extractSymbols does, plus the preprocessor conditionals: fills out.symbols, out.includes, out.arms,
+// out.symArm, out.macros and out.bodies (not file / mtime / size).
+void extractFile(std::string_view source, FileSymbols& out, bool isC = false);
 bool isCSourceFile(const std::filesystem::path& file);
 // Canonical spelling of an operator function name, given the source text that follows the `operator` keyword:
 // "+" -> "operator+", "()" -> "operator()", " new[]" -> "operator new[]", " const char*()" -> "operator const char*"
@@ -173,8 +221,20 @@ class FastIndex {
   std::shared_ptr<const Reach> reachableFrom(const std::filesystem::path& file,
                                              const std::vector<std::filesystem::path>& quoteDirs = {},
                                              const std::vector<std::filesystem::path>& angleDirs = {},
-                                             size_t maxFiles = 6000) const;
+                                             size_t maxFiles = 6000, bool* foreignUnresolved = nullptr) const;
+  // `foreignUnresolved` (optional) is set when some #include in the walk resolves to no indexed file and does not
+  // look like a standard / OS header (`<vector>`, `<stdio.h>`, `<sys/types.h>`): a project or third-party header the
+  // index never saw (a generated config.h, boost/..., windows.h).
+  // The indexed file with this path key (FastIndex::pathKey), else null.
+  std::shared_ptr<const FileSymbols> fileSymbolsByKey(const std::string& key) const;
+  // The files that may #include `target`: those with an #include whose last path component is target's file name (a
+  // superset; the caller verifies the spelling). Sorted by path key. The reverse include table is built on first use
+  // and kept until the include graph changes.
+  std::vector<std::shared_ptr<const FileSymbols>> includersOf(const std::filesystem::path& target) const;
   static std::string pathKey(const std::filesystem::path& p);
+  // `<vector>`, `<stdio.h>`, `<sys/types.h>`: the standard library and OS interface headers a system include
+  // directory holds (as opposed to a project or third-party header).
+  static bool looksLikeSystemHeader(const std::string& spelling);
 
   size_t fileCount() const;
   size_t symbolCount() const;
@@ -207,7 +267,10 @@ class FastIndex {
   struct ReachEntry {
     uint64_t gen = 0;
     std::shared_ptr<const Reach> set;
+    bool foreign = false;
   };
+  mutable uint64_t incByGen_ = 0;                                                                   // reachMu_
+  mutable std::unordered_map<std::string, std::vector<std::shared_ptr<const FileSymbols>>> incBy_;  // reachMu_
   mutable std::mutex reachMu_;
   mutable std::unordered_map<std::string, ReachEntry> reach_;
   std::atomic<uint64_t> generation_{0};

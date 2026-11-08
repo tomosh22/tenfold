@@ -18,6 +18,7 @@
 #include "core/PathUtil.h"
 #include "core/TextEncoding.h"
 #include "semantic/CppLexer.h"
+#include "semantic/PpCond.h"
 
 namespace tf {
 
@@ -121,13 +122,15 @@ namespace {
 
 class Extractor {
  public:
-  explicit Extractor(std::string_view src, std::vector<std::string>* includes, bool isC)
-      : toks_(CppLexer(src, isC).all()), includes_(includes) {}
+  explicit Extractor(std::string_view src, std::vector<std::string>* includes, bool isC,
+                     std::vector<uint8_t>* angled = nullptr)
+      : toks_(CppLexer(src, isC).all()), includes_(includes), angled_(angled) {}
 
   std::vector<Symbol> run() {
     while (!at(Tok::End)) step();
     return std::move(out_);
   }
+  const std::vector<Token>& tokens() const { return toks_; }
 
  private:
   struct Scope {
@@ -441,7 +444,10 @@ class Extractor {
       if (p < text.size() && (text[p] == '"' || text[p] == '<')) {
         char close = text[p] == '"' ? '"' : '>';
         size_t e = text.find(close, p + 1);
-        if (e != std::string_view::npos) includes_->emplace_back(text.substr(p + 1, e - p - 1));
+        if (e != std::string_view::npos) {
+          includes_->emplace_back(text.substr(p + 1, e - p - 1));
+          if (angled_) angled_->push_back(close == '>' ? 1 : 0);
+        }
       }
       return;
     }
@@ -1146,6 +1152,7 @@ class Extractor {
   bool pendingTemplate_ = false;
   bool friend_ = false;  // parseDeclaration is reading what follows `friend` inside a class
   std::vector<std::string>* includes_ = nullptr;
+  std::vector<uint8_t>* angled_ = nullptr;
 };
 
 }  // namespace
@@ -1159,6 +1166,20 @@ std::vector<Symbol> extractSymbols(std::string_view source, std::vector<std::str
   // threads): a 200 MB generated .cpp took 3.4 GB. Such a file is data, not code someone navigates; it is not indexed.
   if (source.size() > kMaxIndexedFileBytes) return {};
   return Extractor(source, includes, isC).run();
+}
+
+void extractFile(std::string_view source, FileSymbols& out, bool isC) {
+  out.symbols.clear();
+  out.includes.clear();
+  out.angled.clear();
+  out.arms.clear();
+  out.symArm.clear();
+  out.macros.clear();
+  out.bodies.clear();
+  if (source.size() > kMaxIndexedFileBytes) return;
+  Extractor ex(source, &out.includes, isC, &out.angled);
+  out.symbols = ex.run();
+  pp::scanPreprocessor(ex.tokens(), out);
 }
 
 bool isCSourceFile(const std::filesystem::path& file) {
@@ -1247,6 +1268,32 @@ inline uint32_t maskOf(std::string_view s) {
 }
 
 }  // namespace
+
+namespace {
+// `<vector>`, `<cstdio>`, `<stdio.h>`, `<sys/types.h>`, `<linux/limits.h>`: headers of the standard library and the OS
+// interface, which define the documented macros of those (isPlatformMacroName) and nothing a project tests.
+bool looksLikeSystemHeaderImpl(const std::string& spelling) {
+  static const char* const kDirs[] = {"sys/", "bits/", "linux/", "netinet/", "arpa/", "net/", "asm/", "asm-generic/"};
+  for (const char* d : kDirs)
+    if (spelling.rfind(d, 0) == 0) return true;
+  if (spelling.find('/') != std::string::npos || spelling.find('\\') != std::string::npos) return false;
+  const size_t dot = spelling.find('.');
+  if (dot == std::string::npos) return true;  // <vector>, <cstdio>
+  static const char* const kC[] = {"assert.h",    "complex.h",  "ctype.h",   "errno.h",       "fenv.h",    "float.h",
+                                   "inttypes.h",  "iso646.h",   "limits.h",  "locale.h",      "math.h",    "setjmp.h",
+                                   "signal.h",    "stdalign.h", "stdarg.h",  "stdatomic.h",   "stdbool.h", "stddef.h",
+                                   "stdint.h",    "stdio.h",    "stdlib.h",  "stdnoreturn.h", "string.h",  "tgmath.h",
+                                   "threads.h",   "time.h",     "uchar.h",   "wchar.h",       "wctype.h",  "unistd.h",
+                                   "fcntl.h",     "pthread.h",  "dirent.h",  "dlfcn.h",       "poll.h",    "regex.h",
+                                   "semaphore.h", "strings.h",  "termios.h", "malloc.h",      "memory.h",  "stdlib.h"};
+  for (const char* c : kC)
+    if (spelling == c) return true;
+  return false;
+}
+
+}  // namespace
+
+bool FastIndex::looksLikeSystemHeader(const std::string& spelling) { return looksLikeSystemHeaderImpl(spelling); }
 
 namespace {
 std::string baseKey(const std::filesystem::path& p) {
@@ -1344,7 +1391,7 @@ FastIndex::Stats FastIndex::indexFilesCached(const std::vector<std::filesystem::
               fs->file = files[i];
               fs->mtime = mtime;
               fs->size = size;
-              fs->symbols = extractSymbols(content, &fs->includes, isCSourceFile(files[i]));
+              extractFile(content, *fs, isCSourceFile(files[i]));
               results[i] = std::move(fs);
               ++relexed;
             }
@@ -1410,7 +1457,7 @@ std::vector<std::shared_ptr<const FileSymbols>> FastIndex::exportFiles() const {
 void FastIndex::updateFile(const std::filesystem::path& file, std::string_view text) {
   auto fs = std::make_shared<FileSymbols>();
   fs->file = file;
-  fs->symbols = extractSymbols(text, &fs->includes, isCSourceFile(file));
+  extractFile(text, *fs, isCSourceFile(file));
   std::unique_lock<std::shared_mutex> lk(mu_);
   addLocked(std::move(fs));
 }
@@ -1453,7 +1500,7 @@ size_t FastIndex::symbolCount() const {
 std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::filesystem::path& file,
                                                                  const std::vector<std::filesystem::path>& quoteDirs,
                                                                  const std::vector<std::filesystem::path>& angleDirs,
-                                                                 size_t maxFiles) const {
+                                                                 size_t maxFiles, bool* foreignUnresolved) const {
   std::string start = keyFor(file);
   const uint64_t gen = reachGen_.load(std::memory_order_acquire);
   std::string cacheKey = start;
@@ -1462,37 +1509,48 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
   {
     std::lock_guard<std::mutex> lk(reachMu_);
     auto it = reach_.find(cacheKey);
-    if (it != reach_.end() && it->second.gen == gen) return it->second.set;
+    if (it != reach_.end() && it->second.gen == gen) {
+      if (foreignUnresolved) *foreignUnresolved = it->second.foreign;
+      return it->second.set;
+    }
   }
   std::shared_lock<std::shared_mutex> lk(mu_);
   auto root = files_.find(start);
   auto out = std::make_shared<Reach>();
   out->insert(start);
-  bool tooBig = false;
+  bool tooBig = false, foreign = false;
   if (root != files_.end()) {
     std::vector<const FileSymbols*> work{root->second.get()};
     while (!work.empty() && !tooBig) {
       const FileSymbols* cur = work.back();
       work.pop_back();
       const std::filesystem::path dir = cur->file.parent_path();
-      for (const std::string& inc : cur->includes) {
+      for (size_t incIdx = 0; incIdx < cur->includes.size(); ++incIdx) {
+        const std::string& inc = cur->includes[incIdx];
         if (inc.empty()) continue;
+        // `<x>` skips the includer's directory and the -iquote directories; `"x"` searches them first
+        const bool ang = incIdx < cur->angled.size() && cur->angled[incIdx] != 0;
         const std::filesystem::path sp = std::filesystem::path(inc).lexically_normal();
         if (sp.empty()) continue;
+        bool resolved = false;
         auto visit = [&](const FileSymbols* f, const std::string& k) {
+          resolved = true;
           if (out->insert(k).second) {
             work.push_back(f);
             if (out->size() > maxFiles) tooBig = true;
           }
         };
-        const std::string nearKey = keyFor((dir / sp).lexically_normal());
-        if (auto nf = files_.find(nearKey); nf != files_.end()) {
-          visit(nf->second.get(), nearKey);
-          continue;
+        if (!ang) {
+          const std::string nearKey = keyFor((dir / sp).lexically_normal());
+          if (auto nf = files_.find(nearKey); nf != files_.end()) {
+            visit(nf->second.get(), nearKey);
+            continue;
+          }
         }
         // the compile command's include directories, in search order
         bool found = false;
         for (const auto* list : {&quoteDirs, &angleDirs}) {
+          if (ang && list == &quoteDirs) continue;
           for (const auto& d : *list) {
             const std::string k = keyFor((d / sp).lexically_normal());
             if (auto nf = files_.find(k); nf != files_.end()) {
@@ -1506,22 +1564,72 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
         if (found) continue;
         std::string spell = keyFor(sp);
         auto bb = byBase_.find(baseKey(sp));
-        if (bb == byBase_.end()) continue;
-        if (spell.rfind("../", 0) == 0) continue;
-        for (const FileSymbols* c : bb->second) {
-          const std::string ck = keyFor(c->file);
-          if (ck.size() > spell.size() && ck.compare(ck.size() - spell.size(), spell.size(), spell) == 0 &&
-              ck[ck.size() - spell.size() - 1] == '/')
-            visit(c, ck);
+        if (bb != byBase_.end() && spell.rfind("../", 0) != 0) {
+          for (const FileSymbols* c : bb->second) {
+            const std::string ck = keyFor(c->file);
+            if (ck.size() > spell.size() && ck.compare(ck.size() - spell.size(), spell.size(), spell) == 0 &&
+                ck[ck.size() - spell.size() - 1] == '/')
+              visit(c, ck);
+          }
         }
+        if (!resolved && !FastIndex::looksLikeSystemHeader(inc)) foreign = true;
       }
     }
   }
   std::shared_ptr<const Reach> res = tooBig || root == files_.end() ? nullptr : std::move(out);
   std::lock_guard<std::mutex> rl(reachMu_);
   if (reach_.size() >= 16) reach_.clear();
-  reach_[cacheKey] = {gen, res};
+  reach_[cacheKey] = {gen, res, foreign};
+  if (foreignUnresolved) *foreignUnresolved = foreign;
   return res;
+}
+
+std::shared_ptr<const FileSymbols> FastIndex::fileSymbolsByKey(const std::string& key) const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  auto it = files_.find(key);
+  return it == files_.end() ? nullptr : it->second;
+}
+
+namespace {
+// Lower-cased last path component of an #include spelling or a path: the key of the reverse include table.
+std::string lowerLastComponent(std::string_view s) {
+  const size_t slash = s.find_last_of("/\\");
+  if (slash != std::string_view::npos) s.remove_prefix(slash + 1);
+  std::string out(s);
+  for (char& c : out) c = lowerAscii(c);
+  return out;
+}
+}  // namespace
+
+std::vector<std::shared_ptr<const FileSymbols>> FastIndex::includersOf(const std::filesystem::path& target) const {
+  const uint64_t gen = reachGen_.load(std::memory_order_acquire);
+  const std::string base = lowerLastComponent(pathKeyUtf8(target));
+  std::vector<std::shared_ptr<const FileSymbols>> out;
+  auto answer = [&](const std::unordered_map<std::string, std::vector<std::shared_ptr<const FileSymbols>>>& t) {
+    auto it = t.find(base);
+    if (it != t.end()) out = it->second;
+    // sorted here, not when the table is built: only the answer needs an order
+    std::sort(out.begin(), out.end(), [](const auto& a, const auto& b) { return keyFor(a->file) < keyFor(b->file); });
+    return out;
+  };
+  {
+    std::lock_guard<std::mutex> lk(reachMu_);
+    if (incByGen_ == gen && !incBy_.empty()) return answer(incBy_);
+  }
+  std::unordered_map<std::string, std::vector<std::shared_ptr<const FileSymbols>>> table;
+  {
+    std::shared_lock<std::shared_mutex> lk(mu_);
+    for (const auto& [k, f] : files_)
+      for (const std::string& inc : f->includes) {
+        if (inc.empty()) continue;
+        auto& v = table[lowerLastComponent(inc)];
+        if (v.empty() || v.back() != f) v.push_back(f);
+      }
+  }
+  std::lock_guard<std::mutex> lk(reachMu_);
+  incBy_ = std::move(table);
+  incByGen_ = gen;
+  return answer(incBy_);
 }
 
 namespace {

@@ -13,6 +13,7 @@
 #include <string>
 #include <thread>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 #include "core/Document.h"
@@ -22,6 +23,7 @@
 #include "semantic/FastIndex.h"
 #include "semantic/FastScope.h"
 #include "semantic/IncludeNav.h"
+#include "semantic/PpCond.h"
 #include "semantic/TuContext.h"
 #include "workspace/Workspace.h"
 
@@ -489,6 +491,39 @@ class SemanticEngine {
   mutable std::shared_ptr<const std::vector<CompileCommand>> cmdIndexSnap_;  // the snapshot cmdIndex_ was built from
   mutable std::unordered_map<std::string, size_t> cmdIndex_;                 // path key -> index into the snapshot
   mutable ScopeCache scopeCache_;  // lexical scope maps of files (FastScope), keyed by the index entry
+  // The compile command of exactly this file in `snap` (which must stay alive while the pointer is used), or null.
+  const CompileCommand* commandOf(const std::shared_ptr<const std::vector<CompileCommand>>& snap,
+                                  const std::filesystem::path& file) const;
+  // --- preprocessor conditionals in the fast tier (PpCond.h, W12-FAST-PP) ---
+  // Drops the by-name candidates whose `#if` / `#ifdef` / `#elif` / `#else` arm is certainly inactive in the
+  // translation unit of `caretFile`; never returns fewer than all candidates when every one would be dropped.
+  std::vector<FastIndex::Match> filterByConditions(const std::filesystem::path& caretFile,
+                                                   std::vector<FastIndex::Match> matches) const;
+  // `#define` / `#undef` of the word earlier in the caret's own file decide which macro it is: the last active
+  // definition hides the earlier ones and every non-macro of that name, an `#undef` drops the earlier ones. Only
+  // when every directive involved is certainly active (or certainly not); never narrows to nothing.
+  std::vector<FastIndex::Match> narrowByMacroState(const std::filesystem::path& caretFile, int caretLine,
+                                                   const std::string& word, bool followedByParen,
+                                                   std::vector<FastIndex::Match> matches) const;
+  // The file whose compile command gives `file` its macros: itself, the root recorded for an include-only file, else
+  // the nearest includer with a compile command (breadth first through the include graph), else `file`.
+  std::filesystem::path ppRootOf(const std::filesystem::path& file) const;
+  std::shared_ptr<const pp::TuEnv> ppEnvOf(const std::filesystem::path& root) const;
+  struct PpEnvEntry {
+    std::shared_ptr<const std::vector<CompileCommand>> snap;  // keeps the snapshot alive (its address is the key)
+    uint64_t gen = 0;                                         // fast_.generation() when built
+    std::shared_ptr<const pp::TuEnv> env;
+    std::filesystem::path root;  // ppRootOf results use `root`; ppEnvOf entries ignore it
+    uint64_t tick = 0;
+  };
+  mutable std::mutex ppMu_;
+  mutable std::map<std::string, PpEnvEntry> ppEnvs_;   // root key -> environment
+  mutable std::map<std::string, PpEnvEntry> ppRoots_;  // file key -> root
+  mutable uint64_t ppTick_ = 0;
+  mutable std::shared_ptr<const std::vector<CompileCommand>> flagVocabSnap_;
+  mutable std::shared_ptr<const std::unordered_set<std::string>> flagVocab_;  // names any command -D / -U's (ppMu_)
+  std::shared_ptr<const std::unordered_set<std::string>> flagVocabulary(
+      const std::shared_ptr<const std::vector<CompileCommand>>& snap) const;
   // The scope map of `file` for the fast tier: from the open document or from disk, cached per index entry.
   std::shared_ptr<const ScopeMap> scopeMapOf(const std::filesystem::path& file, const Document* doc = nullptr) const;
   // clangd_ and compileCommands_ are replaced from other threads than the ones reading them; both are only
