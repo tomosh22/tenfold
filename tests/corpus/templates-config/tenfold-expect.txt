@@ -3,7 +3,7 @@
 config Debug|x64
 
 # ---- Debug|x64: no TC_FAST ----
-fast def use_run_int -> Policy_safe_run | Policy_fast_run | Policy_fast_int_run
+fast def use_run_int -> Policy_safe_run
 def use_run_int -> Policy_safe_run
 def use_run_dbl -> Policy_safe_run
 def use2_run_int -> Policy_safe_run

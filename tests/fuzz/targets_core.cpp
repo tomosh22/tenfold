@@ -27,6 +27,8 @@
 #include "semantic/CppLexer.h"
 #include "semantic/FastIndex.h"
 #include "semantic/FastIndexStore.h"
+#include "semantic/PpCond.h"
+#include "semantic/PpExpr.h"
 #include "semantic/ScopeScan.h"
 #include "semantic/XmlLite.h"
 #include "term/VtScreen.h"
@@ -324,6 +326,91 @@ uint64_t storeHash(const char* p, size_t n) {  // same function as FastIndexStor
   return h;
 }
 
+// ---------------------------------------------------------------------------------------------------------------------
+// preprocessor conditionals (W12-FAST-PP): the #if expression evaluator and the condition extraction
+// ---------------------------------------------------------------------------------------------------------------------
+
+pp::MacroState fuzzState(std::string_view name, unsigned salt, bool allowUnknown) {
+  const size_t h = std::hash<std::string_view>()(name) ^ (salt * 0x9E3779B97F4A7C15ull);
+  switch ((h >> 8) % (allowUnknown ? 5 : 4)) {
+    case 0: return pp::MacroState::undefined();
+    case 1: return pp::MacroState::integer(static_cast<int64_t>((h >> 16) % 9) - 4, ((h >> 24) & 1) != 0);
+    case 2: return pp::MacroState::defined();
+    case 3: return pp::MacroState::integer(0);
+    default: return pp::MacroState::unknown();
+  }
+}
+
+void runPpCond(const uint8_t* d, size_t n) {
+  const std::string_view src = view(d, n);
+  using pp::Tri;
+  // 1. the whole input as an #if expression. Three-valued soundness: a definite answer given that nothing is known
+  // is the answer whatever the macros turn out to be; the same expression twice gives the same answer.
+  const Tri none = pp::evalCondition(src, [](std::string_view) { return pp::MacroState::unknown(); });
+  FUZZ_REQUIRE(none == pp::evalCondition(src, [](std::string_view) { return pp::MacroState::unknown(); }));
+  for (unsigned salt = 1; salt <= 4; ++salt) {
+    const Tri t = pp::evalCondition(src, [&](std::string_view nm) { return fuzzState(nm, salt, salt % 2 == 0); });
+    if (none != Tri::Unknown) FUZZ_REQUIRE(t == none || t == Tri::Unknown);
+    if (t != Tri::Unknown && salt % 2 == 1) {
+      // fully known macros (no Unknown state): the answer does not depend on the order of evaluation
+      FUZZ_REQUIRE(t == pp::evalCondition(src, [&](std::string_view nm) { return fuzzState(nm, salt, false); }));
+    }
+  }
+  (void)pp::evalValue(src, [](std::string_view) { return pp::MacroState::undefined(); });
+  // 2. every line as a directive
+  for (size_t at = 0; at < src.size();) {
+    size_t e = src.find('\n', at);
+    if (e == std::string_view::npos) e = src.size();
+    const pp::Directive dir = pp::parseDirective(src.substr(at, e - at));
+    if (dir.kind == pp::Directive::Kind::Define) (void)pp::parseDefine(dir.arg);
+    at = e + 1;
+  }
+  // 3. the input as a source file: arm tables are acyclic and in range, the store keeps them, the evaluator answers
+  const size_t lines = 1 + static_cast<size_t>(TextBuffer::countBreaks(src));
+  auto f = std::make_shared<FileSymbols>();
+  f->file = "/fuzz/a.h";
+  extractFile(src, *f);
+  for (size_t i = 0; i < f->arms.size(); ++i) {
+    const CondArm& a = f->arms[i];
+    FUZZ_REQUIRE(a.parent <= i && a.prev <= i);  // ids are 1-based and point backwards
+    FUZZ_REQUIRE(a.line >= 0 && static_cast<size_t>(a.line) < lines);
+  }
+  uint32_t lastSym = 0;
+  bool first = true;
+  for (const auto& sa : f->symArm) {
+    FUZZ_REQUIRE(sa.first < f->symbols.size() && sa.second >= 1 && sa.second <= f->arms.size());
+    FUZZ_REQUIRE(first || sa.first > lastSym);
+    lastSym = sa.first;
+    first = false;
+  }
+  for (const MacroDef& m : f->macros) {
+    FUZZ_REQUIRE(!m.name.empty() && m.arm <= f->arms.size());
+    FUZZ_REQUIRE(m.body >= -1 && m.body < static_cast<int64_t>(f->bodies.size()));
+  }
+  FastIndexStore::Entries entries{f};
+  const std::string blob = FastIndexStore::serialize(entries);
+  std::string err;
+  auto back = FastIndexStore::deserialize(blob.data(), blob.size(), &err);
+  FUZZ_REQUIRE(back.has_value() && back->size() == 1);
+  FUZZ_REQUIRE((*back)[0]->arms.size() == f->arms.size() && (*back)[0]->symArm == f->symArm &&
+               (*back)[0]->macros.size() == f->macros.size() && (*back)[0]->bodies == f->bodies);
+  for (int variant = 0; variant < 2; ++variant) {
+    pp::TuEnv::Input in;
+    if (variant == 1) {
+      CompileCommand cc;
+      cc.directory = "/fuzz";
+      cc.file = "/fuzz/a.cpp";
+      cc.arguments = {"g++", "-DA", "-DB=2", "-UC", "-std=c++17"};
+      in.command = pp::macrosOfCommand(cc);
+    }
+    in.files = {f};
+    const pp::TuEnv env(std::move(in));
+    pp::Evaluator ev(env), ev2(env);
+    for (uint32_t a = 0; a <= f->arms.size(); ++a) FUZZ_REQUIRE(ev.armActive(*f, a) == ev2.armActive(*f, a));
+    for (const MacroDef& m : f->macros) (void)ev.macroAt(m.name, f.get(), m.line + 1);
+  }
+}
+
 void runIndexStore(const uint8_t* d, size_t n) {
   std::string err;
   std::string data = str(d, n);
@@ -343,6 +430,13 @@ void runIndexStore(const uint8_t* d, size_t n) {
       const std::string again = FastIndexStore::serialize(*loaded);
       auto second = FastIndexStore::deserialize(again.data(), again.size(), &err);
       FUZZ_REQUIRE(second.has_value() && second->size() == loaded->size());
+      // The condition tables of an accepted store are acyclic and in range: the evaluator terminates on them.
+      pp::TuEnv::Input in;
+      in.files.assign(loaded->begin(), loaded->end());
+      const pp::TuEnv env(std::move(in));
+      pp::Evaluator ev(env);
+      for (const auto& f : *loaded)
+        for (uint32_t a = 0; a <= f->arms.size(); ++a) (void)ev.armActive(*f, a);
     }
   }
 }
@@ -368,8 +462,16 @@ std::vector<std::string> indexStoreSeeds() {
   fs1->symbols.push_back(s);
   auto fs2 = std::make_shared<FileSymbols>();
   fs2->file = "/w/b.h";
-  FastIndexStore::Entries both{fs1, fs2}, one{fs1}, none;
-  return {FastIndexStore::serialize(both), FastIndexStore::serialize(one), FastIndexStore::serialize(none)};
+  auto fs3 = std::make_shared<FileSymbols>();
+  fs3->file = "/w/c.h";
+  extractFile(
+      "#ifndef C_H\n#define C_H\n#define LVL (1 + 2)\n#if LVL > 2 && defined(X)\nint a;\n#elif Y\nint b;\n#else\nint "
+      "c;\n"
+      "#endif\n#undef LVL\n#endif\n",
+      *fs3);
+  FastIndexStore::Entries both{fs1, fs2}, one{fs1}, none, cond{fs3, fs1};
+  return {FastIndexStore::serialize(both), FastIndexStore::serialize(one), FastIndexStore::serialize(none),
+          FastIndexStore::serialize(cond)};
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -785,6 +887,43 @@ Registrar r2b({"scopescan",
                 "using namespace std; namespace fs = std::filesystem; auto lam = [&](int z) { return z; };\n"},
                kCppDict,
                4096});
+Registrar r2c({"ppcond",
+               runPpCond,
+               {"src/semantic:.cpp,.h", "tests/corpus:.cpp,.h,.c,.hpp,.inl", "examples:.cpp,.h,.c"},
+               {"#if defined(A) && B > 1 || (C ? 2 : 0)\nint x;\n#elif !defined X\nint y;\n#else\nint z;\n#endif\n",
+                "#ifndef G_H\n#define G_H\n#define LVL (1 + 2)\n#if LVL >= 3\nint a;\n#endif\n#undef LVL\n#endif\n",
+                "#if __has_include(<a/b.h>) && __cplusplus >= 201703L\n#endif\n",
+                "defined(A) && (1 << 3) == 8 || 0x10 == 16u && -1 < 0", "'a' == 97 && 10UL > 9 && FN(1, 2) || !0",
+                "#if 1\n#if 0\n#else\n#endif\n#endif\n#endif\n#else\n"},
+               {"#if ",
+                "#ifdef ",
+                "#ifndef ",
+                "#elif ",
+                "#else",
+                "#endif",
+                "#define ",
+                "#undef ",
+                "defined",
+                "defined(",
+                "&&",
+                "||",
+                "!",
+                "?",
+                ":",
+                "<<",
+                ">>",
+                "==",
+                "!=",
+                "0x",
+                "1u",
+                "'a'",
+                "__has_include(",
+                "__cplusplus",
+                " \\\n",
+                "/*",
+                "*/",
+                "//"},
+               1024});
 Registrar r3({"indexstore",
               runIndexStore,
               {},

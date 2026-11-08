@@ -1784,30 +1784,289 @@ SymbolLocation fromFast(const FastIndex::Match& m) {
 }
 }  // namespace
 
+const CompileCommand* SemanticEngine::commandOf(const std::shared_ptr<const std::vector<CompileCommand>>& snap,
+                                                const std::filesystem::path& file) const {
+  if (!snap || snap->empty()) return nullptr;
+  std::lock_guard<std::mutex> lk(cmdIndexMu_);
+  if (cmdIndexSnap_ != snap) {
+    cmdIndex_.clear();
+    cmdIndex_.reserve(snap->size());
+    for (size_t i = 0; i < snap->size(); ++i) {
+      const CompileCommand& c = (*snap)[i];
+      const fs::path f = c.file.is_relative() ? c.directory / c.file : c.file;
+      cmdIndex_.emplace(FastIndex::pathKey(f.lexically_normal()), i);
+    }
+    cmdIndexSnap_ = snap;
+  }
+  auto it = cmdIndex_.find(FastIndex::pathKey(file.lexically_normal()));
+  return it == cmdIndex_.end() ? nullptr : &(*snap)[it->second];
+}
+
 void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vector<std::filesystem::path>& quote,
                                    std::vector<std::filesystem::path>& angle) const {
   const auto snap = compileCommands();
-  if (snap->empty()) return;
-  const CompileCommand* cc = nullptr;
-  {
-    std::lock_guard<std::mutex> lk(cmdIndexMu_);
-    if (cmdIndexSnap_ != snap) {
-      cmdIndex_.clear();
-      cmdIndex_.reserve(snap->size());
-      for (size_t i = 0; i < snap->size(); ++i) {
-        const CompileCommand& c = (*snap)[i];
-        const fs::path f = c.file.is_relative() ? c.directory / c.file : c.file;
-        cmdIndex_.emplace(FastIndex::pathKey(f.lexically_normal()), i);
-      }
-      cmdIndexSnap_ = snap;
-    }
-    auto it = cmdIndex_.find(FastIndex::pathKey(file.lexically_normal()));
-    if (it != cmdIndex_.end()) cc = &(*snap)[it->second];
-  }
+  const CompileCommand* cc = commandOf(snap, file);
   if (!cc) return;
   incnav::SearchPath sp = incnav::searchPathOf(*cc);
   quote = std::move(sp.quote);
   angle = std::move(sp.angle);
+}
+
+// ---------------------------------------------------------------------------
+// Preprocessor conditionals in the fast tier (PpCond.h)
+// ---------------------------------------------------------------------------
+
+std::shared_ptr<const std::unordered_set<std::string>> SemanticEngine::flagVocabulary(
+    const std::shared_ptr<const std::vector<CompileCommand>>& snap) const {
+  {
+    std::lock_guard<std::mutex> lk(ppMu_);
+    if (flagVocab_ && flagVocabSnap_ == snap) return flagVocab_;
+  }
+  auto names = std::make_shared<std::unordered_set<std::string>>();
+  for (const CompileCommand& c : *snap) pp::collectFlagNames(c, *names);
+  std::lock_guard<std::mutex> lk(ppMu_);
+  flagVocabSnap_ = snap;
+  flagVocab_ = names;
+  return names;
+}
+
+fs::path SemanticEngine::ppRootOf(const fs::path& file) const {
+  const auto snap = compileCommands();
+  if (commandOf(snap, file)) return file;
+  if (auto ctx = tuContext(file)) return ctx->root;
+  if (snap->empty()) return file;
+  const std::string key = FastIndex::pathKey(file);
+  const uint64_t gen = fast_.generation();
+  const std::shared_ptr<const std::vector<CompileCommand>> snapKey = snap;
+  {
+    std::lock_guard<std::mutex> lk(ppMu_);
+    auto it = ppRoots_.find(key);
+    if (it != ppRoots_.end() && it->second.snap == snapKey && it->second.gen == gen) return it->second.root;
+  }
+  // Breadth first over the files that include `file`, nearest first, in path order.
+  fs::path found = file;
+  std::vector<fs::path> frontier{file};
+  std::unordered_set<std::string> seen{key};
+  for (int depth = 0; depth < 6 && !frontier.empty() && seen.size() < 4000; ++depth) {
+    std::vector<fs::path> next;
+    for (const fs::path& target : frontier) {
+      const std::string base = pathUtf8(target.filename());
+      for (const auto& inc : fast_.includersOf(target)) {
+        bool real = false;
+        for (const std::string& sp : inc->includes)
+          if (includeBaseName(sp) == base && tu::includeSpellingResolves(sp, inc->file, target)) {
+            real = true;
+            break;
+          }
+        if (!real || !seen.insert(FastIndex::pathKey(inc->file)).second) continue;
+        if (commandOf(snap, inc->file)) {
+          found = inc->file;
+          goto done;
+        }
+        next.push_back(inc->file);
+      }
+    }
+    frontier = std::move(next);
+  }
+done:
+  std::lock_guard<std::mutex> lk(ppMu_);
+  if (ppRoots_.size() >= 64) ppRoots_.clear();
+  ppRoots_[key] = {snapKey, gen, nullptr, found, 0};
+  return found;
+}
+
+std::shared_ptr<const pp::TuEnv> SemanticEngine::ppEnvOf(const fs::path& root) const {
+  const auto snap = compileCommands();
+  const std::string key = FastIndex::pathKey(root);
+  const uint64_t gen = fast_.generation();
+  // An empty database has no stable snapshot object; one entry stands for "no commands".
+  const std::shared_ptr<const std::vector<CompileCommand>> snapKey = snap->empty() ? nullptr : snap;
+  {
+    std::lock_guard<std::mutex> lk(ppMu_);
+    auto it = ppEnvs_.find(key);
+    if (it != ppEnvs_.end() && it->second.snap == snapKey && it->second.gen == gen) {
+      it->second.tick = ++ppTick_;
+      return it->second.env;
+    }
+  }
+  pp::TuEnv::Input in;
+  std::vector<fs::path> quote, angle;
+  fs::path dir;
+  // Only a database that came from the build (an existing compile_commands.json, CMake, a Visual Studio project) says
+  // which macros the build defines; the heuristic one is a guess at the include directories and has no -D at all.
+  bool authoritative;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    authoritative = compdbSource_ == "existing" || compdbSource_ == "cmake" || compdbSource_ == "vcxproj";
+  }
+  if (const CompileCommand* cc = commandOf(snap, root)) {
+    if (authoritative) in.command = pp::macrosOfCommand(*cc);
+    incnav::SearchPath sp = incnav::searchPathOf(*cc);
+    quote = std::move(sp.quote);
+    angle = std::move(sp.angle);
+    dir = cc->directory;
+  }
+  std::unordered_set<std::string> seen;
+  bool foreign = false;
+  auto addReach = [&](const fs::path& start, std::vector<std::shared_ptr<const FileSymbols>>& into) {
+    bool f = false;
+    auto reach = fast_.reachableFrom(start, quote, angle, 6000, &f);
+    if (!reach) {  // too many files: what the TU defines is not known
+      foreign = true;
+      if (seen.insert(FastIndex::pathKey(start)).second)
+        if (auto fsyms = fast_.fileSymbols(start)) into.push_back(std::move(fsyms));
+      return;
+    }
+    foreign = foreign || f;
+    for (const std::string& k : *reach)
+      if (seen.insert(k).second)
+        if (auto fsyms = fast_.fileSymbolsByKey(k)) into.push_back(std::move(fsyms));
+  };
+  for (const std::string& forced : in.command.forcedIncludes) {
+    fs::path p = pathFromUtf8(forced);
+    if (p.is_relative()) p = dir / p;
+    p = p.lexically_normal();
+    if (fast_.fileSymbols(p)) addReach(p, in.prelude);
+    else foreign = true;  // a forced include nobody indexed (a precompiled header, a generated file)
+  }
+  addReach(root, in.files);
+  in.foreignIncludes = foreign;
+  if (const auto vocab = snap->empty() ? nullptr : flagVocabulary(snap)) {
+    in.setByFlags = [vocab](const std::string& n) { return vocab->count(n) != 0; };
+  }
+  if (in.command.known) {
+    // `__has_include`: the header exists next to the file, or in the command's include directories; a header found
+    // nowhere is absent only when its name is not one a system include directory could hold (<vector>, <stdio.h>)
+    // and the quoted form (project headers); an angle-bracket name may live in the toolchain's directories.
+    in.hasInclude = [quote, angle](const std::string& spelling, bool angled, const fs::path& includerDir) -> pp::Tri {
+      std::string sp = spelling;
+      std::replace(sp.begin(), sp.end(), '\\', '/');
+      const fs::path rel = pathFromUtf8(sp);
+      std::error_code ec;
+      auto has = [&](const fs::path& d) { return fs::is_regular_file((d / rel).lexically_normal(), ec); };
+      if (rel.is_absolute()) return fs::is_regular_file(rel, ec) ? pp::Tri::True : pp::Tri::Unknown;
+      if (!angled && has(includerDir)) return pp::Tri::True;
+      if (!angled)
+        for (const fs::path& d : quote)
+          if (has(d)) return pp::Tri::True;
+      for (const fs::path& d : angle)
+        if (has(d)) return pp::Tri::True;
+      if (angled || FastIndex::looksLikeSystemHeader(sp)) return pp::Tri::Unknown;
+      return pp::Tri::False;
+    };
+  }
+  in.definedInWorkspace = [this](const std::string& n) {
+    for (const auto& m : fast_.lookup(n))
+      if (m.sym().kind == SymbolKind::Macro) return true;
+    return false;
+  };
+  auto env = std::make_shared<const pp::TuEnv>(std::move(in));
+  std::lock_guard<std::mutex> lk(ppMu_);
+  if (ppEnvs_.size() >= 16) {
+    auto oldest = ppEnvs_.begin();
+    for (auto it = ppEnvs_.begin(); it != ppEnvs_.end(); ++it)
+      if (it->second.tick < oldest->second.tick) oldest = it;
+    ppEnvs_.erase(oldest);
+  }
+  ppEnvs_[key] = {snapKey, gen, env, {}, ++ppTick_};
+  return env;
+}
+
+std::vector<FastIndex::Match> SemanticEngine::narrowByMacroState(const fs::path& caretFile, int caretLine,
+                                                                 const std::string& word, bool followedByParen,
+                                                                 std::vector<FastIndex::Match> matches) const {
+  // Only a macro of the caret's own file can be superseded or undefined by a directive of that file.
+  bool ownMacro = false;
+  for (const auto& m : matches)
+    if (m.sym().kind == SymbolKind::Macro && m.file->file == caretFile) {
+      ownMacro = true;
+      break;
+    }
+  if (!ownMacro) return matches;
+  const auto fsyms = fast_.fileSymbols(caretFile);
+  if (!fsyms || fsyms->macros.empty()) return matches;
+  std::vector<uint32_t> events;  // indexes into fsyms->macros, in source order
+  for (uint32_t i = 0; i < fsyms->macros.size(); ++i) {
+    const MacroDef& d = fsyms->macros[i];
+    if (d.line < caretLine && d.name == word) events.push_back(i);
+  }
+  if (events.empty()) return matches;
+  pp::Evaluator ev(*ppEnvOf(ppRootOf(caretFile)));
+  int lastDefine = -1;  // ordinal among the #defines of the name
+  int defines = 0;
+  bool functionLike = false;
+  for (uint32_t i : events) {
+    const MacroDef& d = fsyms->macros[i];
+    const pp::Tri eff = ev.armActive(*fsyms, d.arm);
+    if (eff == pp::Tri::Unknown) return matches;  // it is not known whether that directive ran
+    if (!d.undef) {
+      if (eff == pp::Tri::True) {
+        lastDefine = defines;
+        functionLike = d.functionLike;
+      }
+      ++defines;
+    } else if (eff == pp::Tri::True) {
+      lastDefine = -1;
+    }
+  }
+  if (lastDefine >= 0 && functionLike && !followedByParen) return matches;  // `OP` without '(' is no macro use
+  // The Macro symbols of this file for the name, in source order; they pair with the #define directives one to one.
+  std::vector<size_t> macroSyms;
+  for (size_t i = 0; i < fsyms->symbols.size(); ++i)
+    if (fsyms->symbols[i].kind == SymbolKind::Macro && fsyms->symbols[i].name == word &&
+        fsyms->symbols[i].line < caretLine)
+      macroSyms.push_back(i);
+  if (static_cast<int>(macroSyms.size()) != defines) return matches;  // unusual spellings: leave it alone
+  std::vector<FastIndex::Match> kept;
+  for (const auto& m : matches) {
+    const bool here = m.file == fsyms;
+    if (m.sym().kind == SymbolKind::Macro) {
+      if (here && m.sym().line < caretLine) {
+        // this file's own macro: only the last active definition survives
+        const auto it = std::find(macroSyms.begin(), macroSyms.end(), m.index);
+        if (it == macroSyms.end() || static_cast<int>(it - macroSyms.begin()) != lastDefine) continue;
+      }
+      kept.push_back(m);
+    } else if (lastDefine < 0) {
+      kept.push_back(m);
+    }  // else: a macro is defined at the caret: the word is replaced before any declaration is looked at
+  }
+  return kept.empty() ? matches : kept;
+}
+
+std::vector<FastIndex::Match> SemanticEngine::filterByConditions(const fs::path& caretFile,
+                                                                 std::vector<FastIndex::Match> matches) const {
+  bool any = false;
+  for (const auto& m : matches)
+    if (m.file->armOf(m.index) != 0) {
+      any = true;
+      break;
+    }
+  if (!any) return matches;
+  const auto snap = compileCommands();
+  const auto caretEnv = ppEnvOf(ppRootOf(caretFile));
+  std::map<const pp::TuEnv*, pp::Evaluator> evals;
+  std::map<std::string, std::shared_ptr<const pp::TuEnv>> own;  // environments of candidate files that are TUs
+  auto evalFor = [&](const pp::TuEnv* e) -> pp::Evaluator& { return evals.try_emplace(e, *e).first->second; };
+  std::vector<FastIndex::Match> kept;
+  kept.reserve(matches.size());
+  for (const auto& m : matches) {
+    const uint32_t arm = m.file->armOf(m.index);
+    if (arm == 0) {
+      kept.push_back(m);
+      continue;
+    }
+    // A candidate is judged in the translation unit that compiles it: the caret's when that includes the file, else
+    // its own when it has a compile command (the definition in another .cpp), else the caret's.
+    const pp::TuEnv* env = caretEnv.get();
+    if (!caretEnv->contains(m.file.get()) && commandOf(snap, m.file->file)) {
+      auto& slot = own[FastIndex::pathKey(m.file->file)];
+      if (!slot) slot = ppEnvOf(m.file->file);
+      env = slot.get();
+    }
+    if (evalFor(env).armActive(*m.file, arm) != pp::Tri::False) kept.push_back(m);
+  }
+  return kept.empty() ? matches : kept;
 }
 
 std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem::path& file,
@@ -2002,6 +2261,13 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     }
     for (auto& m : matches)
       if (scopes.count(m.sym().scope) && passes(m)) kept.push_back(m);
+  }
+  kept = filterByConditions(doc.path(), std::move(kept));
+  {
+    size_t a = wEnd;
+    while (a < text.size() && (text[a] == ' ' || text[a] == '\t')) ++a;
+    kept = narrowByMacroState(doc.path(), word.range.start.line, word.text, a < text.size() && text[a] == '(',
+                              std::move(kept));
   }
   if (scoped) kept = narrowByScope(env, ci, std::move(kept));
   for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));

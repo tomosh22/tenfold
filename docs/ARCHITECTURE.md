@@ -301,7 +301,7 @@ answers by *word*: `approximateDefinitions` takes the identifier under the caret
 
 | construct | symbol |
 |---|---|
-| `#define NAME` / `#define NAME(a, b)` | `Macro` at the name (also behind `# define`, a `/* comment */` or a backslash-newline after `define`); `arity` is -1 for an object-like macro, the parameter count for a function-like one (which counts as a use only when a `(` follows). No `#if` evaluation: every branch is indexed. A macro defined further down the *same* file is not offered for an earlier line. |
+| `#define NAME` / `#define NAME(a, b)` | `Macro` at the name (also behind `# define`, a `/* comment */` or a backslash-newline after `define`); `arity` is -1 for an object-like macro, the parameter count for a function-like one (which counts as a use only when a `(` follows). Every branch is indexed, with the conditional arm it sits in (next section). A macro defined further down the *same* file is not offered for an earlier line. |
 | `friend T f(...) { ... }` in a class (hidden friend) | `Function` in the enclosing *namespace* scope (not the class). A plain `friend` declaration or `friend class X;` adds nothing. |
 | `operator T()`, `operator+`, `operator()`, `operator new[]`, `operator""_km` | named canonically (`operator Meters`, `operator+`, `operator()`, `operator new[]`, `operator""_km`; a space only between two word-like tokens; `operatorFunctionName()` builds the same name from text), positioned on the `operator` keyword. A caret on a written `operator` word is looked up under that name. **Operator tokens themselves (`a + b`, `x[i]`, `os << v`) and literal suffixes (`2.5_km`) have no fast answer** (a punctuator is not a word; resolving it needs the operand types); clangd answers. |
 | `typedef enum { A, B } T;` | the enumerators (scope = enclosing scope), `typedef enum Tag {` also the `Enum`; `typedef struct Tag {` the `Struct`; one `Typedef` per declarator (`} S, *SP;`). The members of a `typedef struct [Tag] { ... } Name;` body are indexed too (scope = the tag, else the first declarator name). |
@@ -336,7 +336,7 @@ remaining matches is kept):
   answers the tag. Only a typedef and a tag of the *same scope* compete.
 * Hover, type definition and implementation keep the unshaped (`Want::Any`) list apart from the three rules above.
 
-The persisted store (`FastIndexStore`, format version 2) keeps the arity in bits 2-7 of the flags byte and, in a second
+The persisted store (`FastIndexStore`, format version 2 here; 3 since W12-FAST-PP, which adds the conditional arms) keeps the arity in bits 2-7 of the flags byte and, in a second
 byte, `minArity + 1` (bits 0-5), `fileLocal` (bit 6) and `variadic` (bit 7); `kExtractorSalt` is 5 (the fingerprint also
 covers a probe of the extractor output, so any change of what it emits invalidates old stores). `Symbol` is still 80
 bytes (`SymbolKind` is a `uint8_t` enum, the new fields fill the padding).
@@ -396,21 +396,125 @@ is never emptier than the by-name one; clangd stays the authority and replaces i
    template arguments make the count unknown): candidates need `minArity <= n <= arity` (variadic: `n >= minArity`).
    Overloads of equal arity stay (no argument types).
 8. **Include graph.** Candidates in files the caret's file cannot see through `#include` are dropped when some candidate
-   is visible; a definition in an invisible file stays when its prototype (same scope, name, arity) is visible, so the
-   `.cpp` of a visible header is still offered.
+   is visible; a definition in an invisible file stays when a visible *declaration* (a prototype: same scope, name, arity) pairs
+   with it, so the `.cpp` of a visible header is still offered; a visible *definition* does not keep other definitions
+   (the `inc_Debug/cfg.h` and `inc_Release/cfg.h` of two build configurations are never both in one unit; W12-FAST-PP).
 9. **A written construction** (`Widget(2)`, `Widget w{1}`) still answers the class alone: the constructor is the
    authoritative tier's refinement (W10-CHOOSE, `refinable`), the fast tier does not add it.
 
 Not done (stays a superset of clangd's answer, the chooser shows the candidates): overloads of the same arity (types,
 cv / ref qualifiers), explicit and partial specialisations of a class template, alias chains (`using B3 = B2` answers
-`B3`, clangd also the targets), `#if` branches (every branch is indexed; the compile command's defines are not
-evaluated), names declared through macros, operator tokens, forward declarations of classes for `decl`.
+`B3`, clangd also the targets), names declared through macros, operator tokens, forward declarations of classes for `decl`.
 
 Cost (`docs/STRESS_RESULTS.md`, "W11-FAST-SCOPE"): the scope map of a file is built on the first query in it (about
 45 microseconds for a few kB, 20 to 60 ms near the 512 KiB limit) and reused until the document changes; a warm query adds
 about 2 microseconds to the 2 microsecond by-name lookup, and the tail gets shorter because thousands of candidates are
 dropped before the answer is built. Index build time is unchanged; memory grows by 1.2 % (the file-name table of the
 include resolver, one pointer per file; `Symbol` is still 80 bytes) and the persisted store by one byte per symbol.
+
+### Preprocessor conditionals in the fast tier (W12-FAST-PP)
+
+Every branch of an `#if` / `#ifdef` / `#elif` / `#else` is indexed (the lexer does not preprocess), so a name defined
+under `#ifdef LEVEL_3` and `#else` used to be answered with both. The extractor now records which arm each symbol sits
+in and the query evaluates the arm in the caret's translation unit. Only an arm that is **certainly inactive** drops a
+candidate; anything the evaluator cannot tell keeps it, and a filter that would leave no candidate is not applied (the
+answer is never emptier than before; clangd stays the authority and replaces the fast answer).
+
+*Extraction* (`PpCond.{h,cpp}` `scanPreprocessor`, run by `extractFile` over the token stream; `extractSymbols` is
+unchanged for callers that only want symbols). `FileSymbols` gains, empty for a file without conditionals:
+
+* `arms`: one `CondArm` per `#if` / `#ifdef` / `#ifndef` / `#elif` / `#elifdef` / `#elifndef` / `#else` (kind, enclosing
+  arm, previous arm of the same group, line, condition text with comments removed and line continuations joined). Ids
+  are 1-based and only point backwards. An **include guard** (`#ifndef X` or `#if !defined(X)` directly followed by
+  `#define X`) is not a condition, so a header's content stays unconditional; the `#else` / `#elif` of a guard is an arm
+  that never runs. Nesting deeper than 512, more than 65,536 arms in a file, and unbalanced `#else` / `#endif` are
+  harmless: the content is then unconditional (kept).
+* `symArm`: `(symbol index, arm id)` for the symbols inside an arm, sorted (`FileSymbols::armOf`). `Symbol` is still 80
+  bytes: the arm is not a field of it.
+* `macros`: every `#define` / `#undef` in source order (name, line, arm, function-like, `#undef`), with `bodies` holding
+  the replacement list of an object-like macro when it is a short expression of numbers, identifiers and operators
+  (`3`, `(1 + 2)`, `VAL`, `A && !B`; at most 48 bytes, no strings, braces, commas).
+* `angled`: whether each `#include` was written `<x>` or `"x"`. `FastIndex::reachableFrom` now skips the includer's
+  directory and the `-iquote` directories for `<x>`, as a compiler does (it used to treat both forms alike).
+
+The store is `FastIndexStore` format 3 (arms, symbol-arm pairs, macros and bodies are persisted, every index and
+back-reference range-checked, arm ids must point backwards so the evaluator cannot loop); `kExtractorSalt` is 6 and the
+probe behind the fingerprint contains conditionals.
+
+*Evaluation* (`PpExpr.{h,cpp}` is pure text and arithmetic; `PpCond.{h,cpp}` adds the translation unit):
+
+* `evalCondition(expr, lookup, hasInclude)` is a three-valued (`True` / `False` / `Unknown`) evaluator of `#if`
+  expressions: `defined X` / `defined(X)`, integer, character and `true` / `false` constants, identifiers (a macro with
+  an integer value; an identifier that is not a macro is 0), `! ~ + - * / % << >> < <= > >= == != & ^ | && || ?:` and
+  parentheses, the alternative spellings (`and`, `not`, `bitand` ...), with the C rules for signed / unsigned operands
+  (`-1 < 0u` is false). `&&`, `||` and `?:` are decided by one operand when that is enough (`0 && unknown` is False).
+  Function-like macro invocations, `__has_builtin(...)` and friends, division by zero, shifts out of range, floating
+  point, a malformed expression or one over 4,096 tokens or 200 levels of nesting are Unknown. The fuzz target
+  `ppcond` checks that a definite answer with nothing known is the answer whatever the macros are.
+* `macrosOfCommand` reads a compile command: `-DX`, `-DX=V`, `-D X`, `-UX`, `/DX`, `/UX`, in order (the last one wins;
+  `-DCHAIN=VAL` is expanded where it is used), `-include` / `/FI` (forced includes), and, only where the command makes
+  them certain, the predefined macros of the driver and target: `_WIN32` / `_WIN64` / `_M_X64` / `_M_IX86` /
+  `_MSC_VER` / `_DEBUG` (from `/MDd`, `/MTd`) for cl and clang-cl, `__linux__` / `__unix__` / `__x86_64__` /
+  `__GNUC__` / `__clang__` for gcc and clang (the OS from `--target` or the driver's triple prefix, else the host the
+  command runs on), `__APPLE__`, `__cplusplus` (from `-std=` / `/std:`, undefined for C), `__has_include`. A response
+  file (`@x.rsp`) makes the command incomplete: absence then proves nothing.
+* `TuEnv` + `Evaluator` decide whether an arm is active in a translation unit: the unit's files are the compile
+  command's file and everything `reachableFrom` finds through `#include` (with the command's include directories),
+  the forced-include files (processed first) and what they include. A macro's state at a point is: the state
+  after the command line, then the unit's directives for it. Inside **one file** the directives before the asked
+  line are replayed in order (an active `#define` replaces the state, a possibly active one merges); when directives
+  of the name sit in **other files** their order is unknown and their states are merged with the starting one
+  (`undefined` merged with `defined` is Unknown). Macro bodies are expanded at the `#if` that uses them, with the
+  macros known there (`#define A B`, `#define B 2`, `#if A == 2`). `__has_include("x")` / `<x>` looks at the file
+  system: next to the includer (quoted only), in the command's `-iquote` / `-I` directories; a quoted project header
+  found nowhere is absent, anything else not found (it could be in a system directory) is Unknown. Cycles
+  (`#if B` defines `A`, `#if A` defines `B`) end at a depth of 8 as Unknown.
+
+*Where absence is treated as false* (a macro nothing defines is "not defined", which is also what the standard says, but
+it holds with certainty only if every place that could define it was read). `initialState` returns Undefined for a name
+that is not in the command line's defines and not a predefined macro of the driver only when all of these hold:
+
+1. there is a compile command from the build (`existing` compile_commands.json, CMake, a Visual Studio project): the
+   heuristic database that tenfold generates for a bare folder has no `-D` at all, so with it everything is Unknown,
+   except what the file's own `#define`s decide;
+2. the command is complete (no response file);
+3. the name is not reserved (`_X`, `__x`: the compiler or a system header may define it) and not a macro of the
+   platform or the standard library (`isPlatformMacroName`: names with a lower-case letter such as `linux`, `unix`,
+   `assert`; `NULL`, `EOF`, `INT_MAX`, `PATH_MAX`, `WIN32`, `EINVAL` ...) unless the project itself sets it (some
+   compile command of the workspace passes it as `-D` / `-U`, or some indexed file `#define`s it): `NDEBUG`,
+   `FEATURE_X`, `LEVEL_9`, `PROPS_DEBUG` are the project's, `_WIN32` outside a Windows target, `__cpp_lib_optional`,
+   `linux`, `INT_MAX` are not;
+4. no `#include` of the unit's files resolves to a header that was not indexed and is not a standard / OS header
+   (`<vector>`, `<stdio.h>`, `<sys/types.h>`): a generated `config.h`, `<windows.h>` or a third-party header may define
+   anything. A name the project controls (3) stays Undefined even then; every other name becomes Unknown. A forced
+   include that was not indexed (a precompiled header) counts the same way.
+
+So "absent" is certain for the configuration macros of a build (`PROPS_DEBUG`, `CORE_DEBUG`, `TC_FAST`, `LEVEL_n`) in a
+unit whose headers were all read, and nothing else is ever dropped on the strength of absence.
+
+*Which translation unit.* `ppRootOf(file)`: the file itself when it has a compile command; for an include-only file
+the root recorded by the translation-unit context (W9-FIX-B, `tuContext`); else the nearest includer that has a
+command (breadth first through the reverse include table, `FastIndex::includersOf`, path order, at most 6 levels);
+else the file itself with no command (flags unknown). `ppEnvOf(root)` builds the `TuEnv` once per (compile database
+snapshot, index generation): a Visual Studio configuration switch or a reloaded `compile_commands.json` is a new
+snapshot and a re-index a new generation, so nothing stale survives (`vs-configs` switches four times). A candidate is
+judged in the caret's unit when that unit contains its file; a candidate in a file the unit does not contain but that
+has a compile command of its own (the definition of `platform_name` in `api_win.cpp`, compiled with other flags) is
+judged in its own unit. At most 16 environments are kept.
+
+*Order in the answer.* `filterByConditions` runs right after the by-name candidates and the `A::B::` filter, before
+`narrowByScope` and `shapeAnswer`, so the pairing of prototypes with definitions sees only the active ones.
+`narrowByMacroState` then lets the caret's own file decide which macro a word is: the last certainly active `#define`
+before the caret hides the earlier ones of that file and every non-macro of the name (the preprocessor replaces the
+word), an `#undef` drops the earlier macros, and when a directive's own arm is not known nothing is changed.
+
+*Not done:* a macro defined in an included header does not hide a non-macro of the same name (the order of the
+includes is not kept); `#include` inside a conditional arm still counts as included (the reachability graph is a
+superset); `__has_cpp_attribute`, `__has_builtin`, `__has_feature` and `__cpp_lib_*` feature-test macros are Unknown;
+`#pragma once` / include-guard re-inclusion is not modelled; the symbol search (`sym`) and `hover` are not filtered
+(they have no caret unit); the scope maps (`ScopeScan`) still see the locals of inactive code.
+
+Cost and agreement: `docs/STRESS_RESULTS.md`, "W12-FAST-PP".
 
 ## clangd-only features (A9)
 

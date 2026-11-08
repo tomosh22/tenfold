@@ -6,13 +6,12 @@
 # $(ProjectName). Standard-library free.
 
 # ---- fast tier ----
-fast def use_level_value -> level_nine | level_three | level_one | level_none
-fast def use_sheet_kind -> sheet_debug | sheet_release | sheet_none
+fast def use_level_value -> level_three
+fast def use_sheet_kind -> sheet_debug
 fast sym "release_only" ∋ release_only_fn
 fast sym "gen_a" ∋ gen_a_fn
 fast sym "special_only" ∋ special_only_fn
 fast sym "feature_impl" ∋ feature_debug feature_release
-xfail fast def use_level_value -> level_three  # fast index cannot know which LEVEL_n the configuration defines (returns all four)
 
 
 # ================= Debug|x64 =================

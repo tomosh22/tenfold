@@ -16,10 +16,10 @@ fast sym "guarded_fn" -> guarded_fn
 fast sym "Widget" ∋ Widget
 fast sym "FastOnly" -> FastOnly
 fast def use_dup_angle -> dup_value_src | dup_value_inc1 | dup_value_inc2
-xfail fast def use_dup_angle -> dup_value_inc1  # fast index returns every dup_value() definition
-xfail fast def use_dup_quoted -> dup_value_src  # same
-xfail fast def use_dup_reversed -> dup_value_inc2  # same
-xfail fast def use_branch_forced -> branch_forced  # fast index does not evaluate #ifdef/-include
+fast def use_dup_angle -> dup_value_inc1
+fast def use_dup_quoted -> dup_value_src
+fast def use_dup_reversed -> dup_value_inc2
+fast def use_branch_forced -> branch_forced
 
 # ---- rename ----
 # (a non-fast query must precede the first rename: right after a fast line the runner renames at the previous cursor)

@@ -17,7 +17,7 @@ xfail fast sym "Gadget" ∋ Gadget  # same: not declared as a class in the lexer
 # the lexer index does not know that this spelling is the function and not the macro
 fast def use_clamp01_paren -> clamp01_fn
 # #undef / #define order is invisible to the lexer index
-xfail fast def use_level2 -> LEVEL_second  # fast index cannot order redefinitions
+fast def use_level2 -> LEVEL_second
 fast def use_late_before -> var_late
 
 # ---- object-like and function-like macros ----
@@ -220,6 +220,6 @@ sym "ver_fn" -> ver_ge3
 sym "live_fn" -> live_fn
 sym "present_fn" -> present_fn
 fast def use_ver_fn -> ver_ge5 | ver_ge3 | ver_modeb | ver_else
-xfail fast def use_ver_fn -> ver_ge3  # fast index does not evaluate #if/#elif: returns every branch
-xfail fast def use_nested_fn -> nested_yes  # same: nested #if
-xfail fast def use_fx -> fx_two  # same: the -D from the compile command is not applied by the lexer index
+fast def use_ver_fn -> ver_ge3
+fast def use_nested_fn -> nested_yes
+fast def use_fx -> fx_two

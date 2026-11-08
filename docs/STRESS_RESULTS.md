@@ -2,6 +2,163 @@
 
 Each W9 corpus agent adds its own self-contained section below. Format and rules of the corpora: `docs/TESTING.md`.
 
+## W12-FAST-PP: the fast tier follows preprocessor conditionals (branch `task/W12-FAST-PP`)
+
+Design and rules: `docs/ARCHITECTURE.md`, "Preprocessor conditionals in the fast tier". Every `#if` / `#ifdef` / `#elif` /
+`#else` arm used to be indexed and offered equally; the extractor now records the arm of each symbol and the query
+evaluates it in the caret's translation unit with the compile command's `-D` / `-U` and certain predefined macros, the
+forced includes, the unit's `#define` / `#undef` and `__has_include`. A candidate is dropped only when its arm is
+certainly inactive, and a filter that would leave nothing is not applied. Only the fast tier changed; clangd's answers
+and every `final` expectation are untouched (all of them still pass).
+
+**Method.** As in W11-FAST-SCOPE: `tenfold-cli corpus tests/corpus/<name> --json` for each of the 36 corpora, Release,
+`-j3` box (shared with other builds), clangd 22.1.1, `--timeout 900` for `vs-configs` (300 s for the others); the JSON's
+`fastAgreement` (`def` and `decl` lines, `file:line` sets equal, `xfail`, `-> none` and failing lines included).
+*Before* = the binary built from `main` at `8e4d83d` (2014/2689 = 74.9 %, the W11 figure, reproduced), *after* = this
+branch. The query count after is one lower: `vs-props` had the same `fast def use_level_value` twice (see Expectations).
+
+| corpus | before | after |
+|---|---|---|
+| `c-basic` | 93/109 (85 %) | 93/109 (85 %) |
+| `c-heuristic` | 11/18 (61 %) | 11/18 (61 %) |
+| `c-mixed-cpp` | 36/39 (92 %) | 36/39 (92 %) |
+| `c-vcxproj` | 11/18 (61 %) | 15/18 (83 %) |
+| `encodings` | 123/123 (100 %) | 123/123 (100 %) |
+| `gen-game` | 236/255 (93 %) | 236/255 (93 %) |
+| `gen-mixed` | 228/243 (94 %) | 228/243 (94 %) |
+| `gen-service` | 234/258 (91 %) | 234/258 (91 %) |
+| `harness` | 7/8 (88 %) | 7/8 (88 %) |
+| `lambdas-bindings` | 87/98 (89 %) | 87/98 (89 %) |
+| `layout-dupnames` | 36/38 (95 %) | 38/38 (100 %) |
+| `layout-exts` | 46/50 (92 %) | 46/50 (92 %) |
+| `layout-unity` | 26/26 (100 %) | 26/26 (100 %) |
+| `lookup-adl` | 35/59 (59 %) | 35/59 (59 %) |
+| `lookup-namespaces` | 48/66 (73 %) | 48/66 (73 %) |
+| `name-collisions` | 106/114 (93 %) | 108/114 (95 %) |
+| `oop-ctors` | 108/136 (79 %) | 108/136 (79 %) |
+| `oop-virtual` | 76/82 (93 %) | 76/82 (93 %) |
+| `operators` | 9/58 (16 %) | 9/58 (16 %) |
+| `overloads` | 26/76 (34 %) | 26/76 (34 %) |
+| `paths-unicode` | 70/70 (100 %) | 70/70 (100 %) |
+| `pp-includes` | 54/74 (73 %) | 71/74 (96 %) |
+| `pp-macros` | 53/104 (51 %) | 68/104 (65 %) |
+| `pp-macros-std` | 6/21 (29 %) | 12/21 (57 %) |
+| `pp-xmacros` | 15/38 (39 %) | 15/38 (39 %) |
+| `seed` | 13/24 (54 %) | 16/24 (67 %) |
+| `symlinks` | 4/6 (67 %) | 4/6 (67 %) |
+| `templates-basic` | 67/96 (70 %) | 67/96 (70 %) |
+| `templates-config` | 1/21 (5 %) | 11/21 (52 %) |
+| `templates-cxx20` | 41/58 (71 %) | 41/58 (71 %) |
+| `templates-specialisation` | 39/70 (56 %) | 39/70 (56 %) |
+| `unicode-separators` | 16/16 (100 %) | 16/16 (100 %) |
+| `vs-configs` | 21/91 (23 %) | 91/91 (100 %) |
+| `vs-nav` | 15/15 (100 %) | 15/15 (100 %) |
+| `vs-props` | 4/95 (4 %) | 94/94 (100 %) |
+| `vs-std` | 13/16 (81 %) | 16/16 (100 %) |
+| **all 36** | **2014/2689 (74.9 %)** | **2236/2688 (83.2 %)** |
+
+The gain came in three steps (the same corpora run after each): the conditional arms with the command line's defines,
+predefined macros and the unit's own directives 2014 -> 2194 (`vs-props`, `vs-configs`, `templates-config`, `pp-macros`,
+`c-vcxproj`, `seed`, `vs-std`); forced includes (`-include` / `/FI`), `-DX=Y` chains, `/MDd` -> `_DEBUG`,
+`__has_include` against the file system, a macro redefined in the caret's own file, and the include-visibility fix
+below 2194 -> 2234; angle-bracket includes that skip the includer's directory 2234 -> 2236. Two of the changes are
+not about `#if` at all but showed up in the same lines: `FastIndex::reachableFrom` now treats `<x>` and `"x"`
+differently (the index records which was written), and a *visible definition* no longer keeps other, invisible
+definitions of the same function alive (`inc_Debug/cfg.h` and `inc_Release/cfg.h`, `plat_x64/arch.h` and
+`plat_Win32/arch.h`: they used to pair with each other); this moved `layout-dupnames` 36 -> 38, `name-collisions`
+106 -> 108 and the `dup.h` lines of `pp-includes`.
+
+**No fast answer lost.** For every one of the 2,688 lines: no line that agreed before disagrees now (0), and no line
+where clangd's answer was inside the fast answer before is missing from it now (0); both checked by comparing the
+`file:line` sets of the before and after reports (`fastAgreement.disagreements`).
+
+Where the rest is (452 of 2,688 lines disagree; by shape, before in brackets: 186 "fast is a superset of clangd's
+answer" [409], 167 "fast has no answer" [167], 53 disjoint [53], 39 subset [39], 4 overlap [4], 3 "final has none"
+[3]; every other shape is unchanged, so the gain is all removed over-inclusion):
+
+| cause | lines (about) | why it stays |
+|---|---|---|
+| `#if` / configuration branches | 3 | `__cpp_lib_optional` (a library feature-test macro: unknown without the standard library's headers, `pp-macros-std` 2), `#include_next` (`pp-includes` 1). Was about 190 |
+| operator tokens, macros, names declared through macro arguments (`operators` 49, `pp-macros` 36, `pp-xmacros` 23, generated `macros_*.h`) | 170 | by design: a punctuator is not a word, a macro-declared name needs the macro body |
+| overloads of equal arity (parameter types, cv / ref qualifiers) | about 100 | the index keeps counts, not types |
+| explicit and partial specialisations, alias chains, using-declarations, forward declarations for `decl` | about 80 | no data in the index |
+| a class used as a construction (`Widget w{1}`): clangd answers class and constructor | about 30 | kept class-only on purpose (W10 `refinable`) |
+
+**Expectations.** 13 `xfail` lines (fast `def`) that now pass became normal expectations (the runner reported them as
+`XPASS`): `name-collisions` 1, `pp-includes` 4, `pp-macros` 4, `pp-macros-std` 1, `vs-configs` 2, `vs-props` 1. Four
+`fast` lines that listed every branch as alternatives now name the one branch the configuration selects
+(`vs-props` `use_level_value` -> `level_three` and `use_sheet_kind` -> `sheet_debug`, `templates-config` `use_run_int` ->
+`Policy_safe_run`, `vs-configs` `use_log_core` -> `log_fancy`); the `vs-props` duplicate of `use_level_value` that the
+promotion created was removed. None was weakened; `final` lines are unchanged. The final binary ran all 36 corpora twice with no `FAIL` or `XPASS`:
+once through the CLI (the table above) and once through `tenfold-corpus-tests` (`TENFOLD_CORPUS_TIMEOUT=300`: 3 tests,
+5,160 `PASS` and 145 `XFAIL` lines); the five-runs-in-a-row stability bar of docs/TESTING.md was not repeated.
+
+**Latency** (`approximateDefinitions` with `Want::Definition`, 25 sampled identifier uses that the index knows in each of
+250 random files after the file was opened, a small driver around the engine with the clangd client off, Release,
+`.tenfold` removed before each run; generated `game` and `mixed` at `--size medium` (3,068 / 3,082 files, 26,043 /
+23,003 symbols) and `service` at `--size large` (20,437 files, 178,816 symbols), each with a `compile_commands.json`
+(so the conditions are evaluated); `cond` is a synthetic worst case, 40 translation units over 400 headers that hold 30
+`#if` / `#elif` / `#else` chains of the same function each (440 files, 48,000 symbols, one symbol in two sits in an
+arm). The ranges are 3 runs each on a machine shared with other builds; the driver samples differently from W11's, so
+compare only before with after. The before column is `main` at `8e4d83d`):
+
+| | p50 | p90 | p99 | max | first query in a file (p50 / p90) |
+|---|---|---|---|---|---|
+| `game` medium, before | 21.0 - 22.9 us | 72 - 75 us | 301 - 362 us | 8.2 - 8.4 ms | 54 - 63 us / 255 - 296 us |
+| `game` medium, after | 21.3 - 23.1 us | 75 - 78 us | 339 - 511 us | 8.1 - 14.5 ms | 57 - 68 us / 265 - 318 us |
+| `mixed` medium, before | 13.1 - 16.8 us | 65 - 83 us | 210 - 294 us | 4.4 - 8.2 ms | 41 - 62 us / 207 - 266 us |
+| `mixed` medium, after | 14.2 - 15.6 us | 69 - 75 us | 279 - 301 us | 10.5 - 12.2 ms | 50 - 61 us / 234 - 259 us |
+| `service` large, before | 91 - 98 us | 11.3 - 11.7 ms | 15.4 - 17.1 ms | 27.0 - 30.1 ms | 225 - 311 us / 10.8 - 12.3 ms |
+| `service` large, after | 92 - 98 us | 10.8 - 12.5 ms | 16.0 - 17.2 ms | 34.3 - 42.8 ms | 246 - 327 us / 10.8 - 12.7 ms |
+| `cond`, before | 2.4 - 2.5 us | 3.0 - 4.2 us | 132 - 147 us | 1.9 - 6.0 ms | 117 - 125 us / 318 - 341 us |
+| `cond`, after | 5.2 us | 6.4 - 7.0 us | 199 - 235 us | 0.7 - 4.5 ms | 184 - 188 us / 353 - 422 us |
+
+A query whose candidates sit in no arm (the generated workspaces have include guards only) costs nothing extra: the
+check is one binary search per candidate in an empty table. A query with conditional candidates reads the translation
+unit's environment: its first use after the index changed (a saved or edited file, a new compile database) builds it
+(the files of the unit and their `#define` / `#undef` records: 4 ms for a unit of a few thousand files; the reverse
+include table that finds the unit of a header with no compile command, built once per change of the include graph:
+about 20 ms on the 20,000-file workspace), which is the `max` column of `game`, `mixed` and `service`; later queries
+evaluate an arm in about a microsecond (`cond`: +2.8 us at p50, 1,000 queries, most of them conditional). The corpus
+runner's own `latencyMs` (small projects, every first query included): `def.fast` mean of medians 0.033 ms -> 0.035 ms,
+mean p95 0.48 ms -> 0.34 ms, max 19 ms -> 64 ms (one cold build of a 3,000-file unit in `gen-service` on a loaded
+machine); `decl.fast` 0.044 -> 0.032 ms. clangd's `final` latencies are unchanged within noise.
+
+**Index build time, memory, store** (same workspaces; build time: `FastIndex::indexFiles` over every source file with one
+thread, 2 - 3 runs, loaded machine; RSS: Editor start including the fast index; store: `.tenfold/fastindex.bin`):
+
+| workspace | build before | build after | RSS before | RSS after | store before | store after |
+|---|---|---|---|---|---|---|
+| `game` medium | 93 - 118 ms | 102 - 140 ms | 25.5 - 25.6 MiB | 26.3 - 26.5 MiB | 1.04 MB | 1.07 MB |
+| `mixed` medium | 87 - 91 ms | 87 - 91 ms | 24.5 - 24.6 MiB | 25.3 - 25.7 MiB | 1.00 MB | 1.06 MB |
+| `service` large | 640 - 794 ms | 686 - 857 ms | 145.8 MiB | 149.4 - 149.8 MiB | 7.34 MB | 7.59 MB |
+| `cond` (worst case) | | | 17.6 - 17.8 MiB | 20.8 - 21.1 MiB | 1.26 MB | 2.17 MB |
+
+The extraction pass over the directive tokens costs about 5 - 10 % of the single-threaded index time (a string copy per
+`#define` / `#if`; the multi-threaded build of the large workspace stays under a second); memory grows by 2.6 - 3.5 %
+for ordinary code (a few vectors per file and one record per `#define` / `#if` arm; `sizeof(Symbol)` is still 80 bytes)
+and by 18 % in the synthetic case where every second symbol sits in an arm; the store grows by 3.4 - 6.1 % (one `u32` per
+file, the arms, the symbol-arm pairs and the macro records) and by 72 % in that case. The corpus runner's peak RSS (largest
+of the 36 projects) is 16.4 -> 16.7 MiB.
+
+**Tests.** `tests/test_pp_cond.cpp` (35 tests: evaluator truth tables for literals, operators, signed / unsigned rules,
+`defined`, macros; three-valued cases; malformed, deeply nested and very long expressions; directive parsing; the
+extractor's arms, include guards, unbalanced and 100,000-deep input, a 20,000-arm `#elif` chain; the store round trip and
+rejection of inconsistent arm tables with every byte flipped; compile-command macros (`-D` / `-U` forms and order,
+`/D` spellings, response files, forced includes, predefined macros per driver / target, `_DEBUG`, `-DCHAIN=VAL`); the
+translation-unit evaluator (flags decide branches, value comparisons and `#elif` chains, the absence rules, `#define` /
+`#undef` in the same file and in other files, include-guard `#else`, macro bodies expanded where used, cycles, forced
+includes, `__has_include`); angle / quoted reachability and foreign includes; engine-level narrowing with the compile
+command's defines (two translation units, one header), a caret in a header with no command, a definition judged in its
+own translation unit, no compile command (every branch stays), a macro redefined in the caret's file, forced includes
+and `-DX=Y` values, and a Visual Studio configuration switch Debug -> Release -> Debug), the 13 promoted corpus lines,
+fuzz target `ppcond` (and `indexstore` now also runs the evaluator on accepted stores). 60 s runs of `lexer`, `extract`,
+`indexstore`, `scopescan` and `ppcond` under ASan + UBSan with coverage feedback found nothing (`ppcond` also with
+seeds 2 and 3: 67,000 - 69,000 executions each, 7,400 edges); all 20 regression inputs replay.
+Suites on the final tree: `tenfold-tests` 718 (683 before + 35) in Release, in a gcc ASan + UBSan Debug build with leak
+detection, and in Release with `PATH=/bin` (no clangd); `tenfold-ui-tests` 640 (`xvfb-run -a`); `tenfold-text-tests` 30;
+`tenfold-corpus-tests` 3 (all corpora); no failures.
+
 ## W11-FAST-SCOPE: scope-aware fast tier (branch `task/W11-FAST-SCOPE`)
 
 Design and rules: `docs/ARCHITECTURE.md`, "Scope-aware lookup in the fast tier". The fast tier used to answer by word;

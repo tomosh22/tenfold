@@ -22,7 +22,7 @@ fast def use_g_get -> g_get | g_get_def
 fast def use_g_log -> g_log | g_log_def
 fast def use_log_ns_log -> log_ns_log | log_ns_log_def
 fast def use_c_get -> c_get | c_get_def
-xfail fast def use_c_static_get -> c_static_get  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+fast def use_c_static_get -> c_static_get
 fast def use_c_anon_Impl_get -> c_anon_Impl_get
 fast def use_a_Widget_node -> a_Widget_node | a_Widget_node_def
 fast def use_i_a1 -> i_a

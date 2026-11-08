@@ -28,13 +28,18 @@ namespace tf {
 //     per file: u32 path, i64 mtime, u64 size, u32 nSymbols, u32 nIncludes,
 //               nSymbols * { u32 name, u32 scope, i32 line, i32 col, u8 kind, u8 flags(bit0 definition, bit1 template,
 //               bits2..7 arity+1), u8 extra(bits0..5 minArity+1, bit6 fileLocal, bit7 variadic) }, nIncludes * u32
+//               (string id; bit 31 set: written <x>),
+//               u32 hasPp (0/1); with 1: u32 nArms, nSymArm, nMacros, nBodies, then nArms * { u32 parent, u32 prev,
+//               i32 line, u8 kind, u32 expr }, nSymArm * { u32 symbol, u32 arm }, nMacros * { u32 name, i32 line,
+//               u32 arm, i32 body, u8 flags(bit0 undef, bit1 function-like) }, nBodies * u32   (preprocessor
+//               conditionals, W12-FAST-PP; arm ids are 1-based and only point backwards)
 //
 // Every read is bounds-checked; any inconsistency (bad magic/version, size or hash mismatch, index out of range,
 // trailing bytes) makes load() fail so the caller falls back to a full re-index. Paths are stored as given
 // (absolute generic paths), so moving a workspace simply invalidates the entries.
 class FastIndexStore {
  public:
-  static constexpr uint32_t kFormatVersion = 2;
+  static constexpr uint32_t kFormatVersion = 3;
   using Entries = std::vector<std::shared_ptr<const FileSymbols>>;
 
   // Hash of a built-in probe run through extractSymbols() combined with a manual salt, so any change to the

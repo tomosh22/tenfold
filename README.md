@@ -44,7 +44,7 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # engine tests, including clangd integration (683 on Linux)
+./build/tenfold-tests            # engine tests, including clangd integration (718 on Linux)
 ```
 
 CI / presets: `CMakePresets.json` mirrors the CI matrix, so
@@ -153,7 +153,8 @@ src/core        TextBuffer (UTF-8 lines; CRLF, LF, CR, NEL, LS, PS like Visual S
 src/nav         NavigationHistory: back/forward with coalescing and edit tracking
 src/lsp         Process (POSIX and Windows), JSON-RPC framing, typed LspClient for clangd
 src/semantic    CppLexer, FastIndex (heuristic symbols + fuzzy search) and its on-disk store, ScopeScan + FastScope
-                (the scope-aware narrowing of the fast tier's answer),
+                (the scope-aware narrowing of the fast tier's answer), PpExpr + PpCond (`#if` evaluation: the fast
+                tier follows preprocessor conditionals by the compile command's defines),
                 CompileCommands (compile_commands.json discovery; CMake, .sln/.vcxproj,
                 heuristic generators; MSBuild property/condition evaluation),
                 SemanticEngine (two-tier query policy), TuContext, IncludeNav, DefChoice
