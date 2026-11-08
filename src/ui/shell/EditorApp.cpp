@@ -1974,6 +1974,20 @@ void EditorApp::bindParserCommands() {
       "Editor.CompletionPageDown",
       [this](const CommandContext&, std::string_view) { return completion_->moveSelection(1, true); }, listOpen);
   registry_.bind(
+      "Editor.InsertNextCompletion",
+      [this](const CommandContext&, std::string_view) {
+        hover_->dismiss();
+        return completion_->insertCandidate(1);
+      },
+      hasDoc);
+  registry_.bind(
+      "Editor.InsertPrevCompletion",
+      [this](const CommandContext&, std::string_view) {
+        hover_->dismiss();
+        return completion_->insertCandidate(-1);
+      },
+      hasDoc);
+  registry_.bind(
       "Editor.ShowFunctionArgs", [this](const CommandContext&, std::string_view) { return sigHelp_->trigger(); },
       hasDoc);
   registry_.bind(
