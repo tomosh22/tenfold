@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cctype>
+#include <utility>
 
 #include "ui/widgets/TextView.h"
 
@@ -132,6 +133,7 @@ bool CompletionPopup::trigger() {
 
 void CompletionPopup::request(Position anchor, bool asked) {
   explicit_ = asked;
+  pendingInsert_ = 0;
   anchor_ = anchor;
   inFlight_ = true;
   const uint64_t seq = ++seq_;
@@ -146,6 +148,39 @@ void CompletionPopup::request(Position anchor, bool asked) {
 void CompletionPopup::onItems(uint64_t seq, const std::vector<LspCompletionItem>& items, const std::string& err) {
   if (seq != seq_) return;  // a newer request, or the popup was closed meanwhile
   inFlight_ = false;
+  if (const int ins = std::exchange(pendingInsert_, 0)) {
+    const Document* d = env_.editor.currentDocument();
+    if (!err.empty() || items.empty() || !valid() || !d || d->version() != insertVersion_ ||
+        env_.editor.selections()[0].head != insertCaret_) {
+      if (valid() && d && d->version() == insertVersion_ && env_.editor.selections()[0].head == insertCaret_)
+        env_.say(err.empty() ? "No completions here" : "Autocomplete: " + err);
+      return;
+    }
+    items_ = items;
+    approximate_ = approx_ ? approx_() : !env_.editor.semantic().status().clangdInitialized;
+    refilter();
+    if (shown_.empty()) {
+      env_.say("No completions match");
+      return;
+    }
+    cycle_ = Cycle{};
+    cycle_.doc = d;
+    cycle_.anchor = anchor_;
+    cycle_.original = prefix();
+    cycle_.shownLen = cycle_.original.size();
+    for (const Row& r : shown_) {
+      const LspCompletionItem& it = items_[r.item];
+      std::string t = it.insertText;
+      if (t.empty()) {
+        t = it.label;
+        t.erase(0, t.find_first_not_of(' '));
+      }
+      cycle_.texts.push_back(std::move(t));
+    }
+    cycle_.active = true;
+    stepCycle(ins);
+    return;
+  }
   const bool asked = explicit_;
   explicit_ = false;
   if (!err.empty() || items.empty() || !valid()) {
@@ -284,6 +319,60 @@ bool CompletionPopup::moveSelection(int delta, bool page) {
   sel_ = std::clamp(sel_ + (page ? delta * kRows : delta), 0, std::max(n - 1, 0));
   render();
   return true;
+}
+
+bool CompletionPopup::insertCandidate(int dir) {
+  if (open_) return dir > 0 ? accept() : true;
+  Document* d = env_.editor.currentDocument();
+  if (!d || env_.editor.selections().size() != 1 || !env_.editor.selections()[0].empty()) return false;
+  const Position c = env_.editor.selections()[0].head;
+  if (cycle_.active && cycle_.doc == d && d->version() == cycle_.version && c == cycle_.caret) {
+    close();  // drops an as-you-type answer still in flight
+    stepCycle(dir);
+    return true;
+  }
+  cycle_ = Cycle{};
+  startInsert(dir);
+  return true;
+}
+
+void CompletionPopup::startInsert(int dir) {
+  Document* d = env_.editor.currentDocument();
+  const Position c = env_.editor.selections()[0].head;
+  close();  // also invalidates an as-you-type request in flight: its answer must not open the list afterwards
+  doc_ = d;
+  const Position a{c.line, wordStart(d->buffer().line(c.line), c.column)};
+  suppressed_ = a;  // the insertion itself must not make the as-you-type list pop up
+  insertVersion_ = d->version();
+  insertCaret_ = c;
+  request(a);
+  pendingInsert_ = dir;
+}
+
+void CompletionPopup::stepCycle(int dir) {
+  const int n = static_cast<int>(cycle_.texts.size());
+  int i = cycle_.index;
+  if (dir > 0) i = (i + 1) % n;
+  else i = i < 0 ? n - 1 : (i + n - 1) % n;
+  cycle_.index = i;
+  applyCycleText(cycle_.texts[static_cast<size_t>(i)]);
+}
+
+void CompletionPopup::applyCycleText(const std::string& text) {
+  Editor& ed = env_.editor;
+  Document* d = ed.currentDocument();
+  if (cycle_.applied) {
+    // Fold the cycle into one undo step: take the previous insertion back first (the text is then the typed prefix).
+    if (d->canUndo() && ed.undo()) cycle_.shownLen = cycle_.original.size();
+  }
+  const Position end{cycle_.anchor.line, cycle_.anchor.column + static_cast<int>(cycle_.shownLen)};
+  ed.replaceRange({cycle_.anchor, end}, text);
+  cycle_.shownLen = text.size();
+  cycle_.applied = true;
+  cycle_.caret = {cycle_.anchor.line, cycle_.anchor.column + static_cast<int>(text.size())};
+  ed.setSelections({caretAt(cycle_.caret)});
+  cycle_.version = d->version();
+  suppressed_ = cycle_.anchor;
 }
 
 bool CompletionPopup::accept() {

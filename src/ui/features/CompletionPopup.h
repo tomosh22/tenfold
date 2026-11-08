@@ -49,6 +49,13 @@ class CompletionPopup {
   // AutocompleteUp / Down / PageUp / PageDown: moves the selection by `delta` rows (pages when `page`), clamped.
   // False when the list is closed (the key then does its normal job).
   bool moveSelection(int delta, bool page = false);
+  // InsertNextAutocomplete (dir > 0) / InsertPrevAutocomplete (dir < 0), 10x versions.htm 1.0.182: "insert the next
+  // autocomplete without the dropdown". With the list visible, Next accepts the selected item (10x: "now submits
+  // autocomplete dropdown if it's visible"); Prev then does nothing (10x is silent: unverified). Otherwise the word
+  // before the caret is replaced in place by the next / previous candidate of the list the dropdown would show, asked
+  // for asynchronously; further presses cycle (wrapping) and each replaces the previous insertion, folded into ONE
+  // undo step. Typing, a caret move or any edit ends the cycle. Single empty caret only.
+  bool insertCandidate(int dir);
   bool accept();  // the selected item; false when closed
 
  private:
@@ -65,7 +72,24 @@ class CompletionPopup {
   void render();
   void place();
 
+  struct Cycle {
+    bool active = false, applied = false;
+    const Document* doc = nullptr;
+    Position anchor{0, 0}, caret{0, 0};
+    int version = -1, index = -1;
+    std::string original;
+    std::vector<std::string> texts;  // insert texts in dropdown order
+    size_t shownLen = 0;             // length of what currently stands between anchor and caret
+  };
+  void startInsert(int dir);
+  void stepCycle(int dir);
+  void applyCycleText(const std::string& text);
+
   PickerEnv& env_;
+  Cycle cycle_;
+  int pendingInsert_ = 0;  // +-1 while an InsertNext/Prev answer is awaited
+  int insertVersion_ = -1;
+  Position insertCaret_{0, 0};
   CompleteFn complete_;
   std::function<bool()> approx_;
   PopupBox* box_ = nullptr;

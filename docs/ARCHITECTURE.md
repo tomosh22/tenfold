@@ -1907,8 +1907,13 @@ Eight 10x commands wire the existing engine features to 10x's default keys; none
   is the first non-empty selection (the primary one first); without a selection it is `formatScopeRange`: the innermost
   `{ }` block around the caret as whole lines from the line of the `{` to the line of the `}` (comments, string and
   character literals and preprocessor lines skipped), else the caret line. clangd only (no approximate formatting).
-* **InsertPrevAutocomplete / InsertNextAutocomplete** are not implemented: their description does not say what is inserted.
-  See FEATURE_PARITY.md and OPEN_QUESTIONS #20.
+* **InsertPrevAutocomplete / InsertNextAutocomplete** (W12-CMD, `Editor.InsertPrevCompletion` / `InsertNextCompletion`,
+  context `editor`) call `CompletionPopup::insertCandidate(dir)`. List open: Next accepts, Prev does nothing. Else the
+  first press `close()`s (invalidating any as-you-type request in flight), sets `suppressed_` to the word start and asks
+  `complete_` like the dropdown; the answer is dropped unless the sequence number, the document version and the caret
+  still match the request. The ranked rows (`refilter`) become `Cycle::texts`; each press undoes the previous insertion
+  (`Editor::undo`) and calls `replaceRange`, so the cycle is one undo step. The cycle continues only while document,
+  version and caret are exactly as the last insertion left them. See FEATURE_PARITY.md.
 * **AutocompleteUp / Down / PageUp / PageDown** (W12-CMD) are `Editor.CompletionUp/Down/PageUp/PageDown`, registered with an
   `enabled` predicate "list open" and filed in the `popup` key context. `EditorApp::handleEventImpl` checks, before
   `KeyMap::feed`, whether the completion list is open, the active context is `editor` and no chord is pending; if so a

@@ -310,11 +310,11 @@ TEST(app_panel_focus_and_save_commands) {
 }
 
 TEST(app_unimplemented_10x_commands_say_so_and_python_bindings_are_unsupported) {
-  Env env("Alt H: HelloWorld()\nAlt J: SomethingUnknown\n");
+  Env env("Alt H: HelloWorld()\nAlt J: SomethingUnknown\nAlt K: ReparseFile\n");
   env.bench->openFile("a.cpp");
-  // A 10x default binding whose command tenfold lacks.
-  CHECK(env.key(Key::F14, 0));  // InsertNextAutocomplete
-  CHECK_EQ(env.app->message(), std::string("not implemented yet: InsertNextAutocomplete"));
+  // A binding of a 10x command that tenfold lacks (every default binding is implemented since W12-CMD).
+  CHECK(env.key(Key('K'), ModAlt));
+  CHECK_EQ(env.app->message(), std::string("not implemented yet: ReparseFile"));
   // The binding with a Python statement: a load warning, and the key says it is unsupported.
   bool warned = false;
   for (const auto& d : env.app->diagnostics())

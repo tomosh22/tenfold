@@ -434,6 +434,8 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.RenameSymbol", "Rename Symbol...");
   addUi(r, "Editor.SubmitRenameSymbol", "Submit Rename Symbol");
   addUi(r, "Editor.Autocomplete", "Show Autocomplete");
+  addUi(r, "Editor.InsertPrevCompletion", "Insert Previous Autocomplete");
+  addUi(r, "Editor.InsertNextCompletion", "Insert Next Autocomplete");
   addUi(r, "Editor.CompletionUp", "Autocomplete: Previous Item");
   addUi(r, "Editor.CompletionDown", "Autocomplete: Next Item");
   addUi(r, "Editor.CompletionPageUp", "Autocomplete: Page Up");

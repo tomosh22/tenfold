@@ -73,7 +73,7 @@ yet · ⬜ not started · — excluded by the user
 | Feature | Status | Notes |
 |---|---|---|
 | GPU-rendered text, tabs, split panels | ✅ | `-DTENFOLD_BUILD_UI=ON`: SDL3 window/input, batched GL 3.3 renderer (Direct3D 11 on Windows, see below), FreeType glyph atlas + monospace layout, headless PNG screenshots with golden tests. Retained widget layer (`src/ui/widgets`): TabStrip (pinned, MRU, drag reorder, preview tab), Splitter, Panel, StatusBar, TextView with gutter, selections, multi-caret, soft wrap and folding; the Workbench persists tabs and panel layout in `<workspace>/.tenfold/layout.json`. Frame-time budgets are in BENCHMARKS.md. |
-| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. 2 of the 183 default bindings (2 commands) are not implemented yet (table below). |
+| Key bindings as a text file | ✅ | 10x's `.10x_settings` format (`Control Shift F: Search`, `Control S, Control S: SaveAll`), 10x command names with tenfold ids as aliases, 10x's complete default key map (B4b), an optional import of an installed 10x's `KeyMappings.10x_settings` (`keys.import10x`), layering with `<user dir>/KeyMappings.10x_settings` and `<workspace>/.tenfold/KeyMappings.10x_settings`, diagnostics in the status bar. Python statements as commands are reported as unsupported. All 183 default bindings run a tenfold command (W12-CMD); only 10x commands without a default key stay open (section below). |
 | Colour schemes as text files | ✅ | Theme files with lexical + semantic token colours and fallbacks, hot reload (B7). Default is `vs-dark`, a Visual Studio 2022 Dark look (B7b, W10-THEME: values from Microsoft's colour reference, a control-flow keyword colour; the few values without a source are marked `[?]` in the theme header; no string escape-sequence colour). |
 | Settings as text file | ✅ | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
@@ -99,9 +99,9 @@ yet · ⬜ not started · — excluded by the user
 ## 10x commands not yet implemented
 
 Source: the 10x documentation (Commands, KeyMappings), the only reference for 10x commands (OPEN_QUESTIONS #1). Every
-binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; 181 of the 183 run a tenfold command
-today (the table in the user guide, "Key bindings"). The other 2 bindings (2 distinct commands, below) stay bound, so the file matches 10x;
-pressing their keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
+binding of 10x's default key map is in `assets/KeyMappings.default.10x_settings`; all 183 run a tenfold command
+(W12-CMD; the table in the user guide, "Key bindings"). A binding of a command tenfold lacks stays bound, so a user's
+file matches 10x; pressing its keys shows `not implemented yet: <Command>` in the status bar. Descriptions are 10x's one-liners. The
 mapping from 10x names to tenfold commands is `src/ui/commands/CommandNames.cpp` (every one of 10x's 307 commands is in it,
 those without a tenfold command have an empty target).
 
@@ -113,16 +113,21 @@ find-in-files picker (`NewSearchPanel` keeps up to three earlier result lists in
 the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
 
 
-**Parser**
+**Parser** (no default-bound command is left; W12-CMD)
 
-| Command | Default keys | 10x description |
-| --- | --- | --- |
-| `InsertPrevAutocomplete` | `Shift F14` | Insert prev autocomplete |
-| `InsertNextAutocomplete` | `F14` | Insert next autocomplete |
-
-`InsertPrev/NextAutocomplete` stay unimplemented on purpose (W8c, confirmed W12-CMD): the one-line description does not say
-which list is walked (the completion list, previously typed words?), whether the typed word is replaced in place or
-whether F14 first needs an open dropdown, and no source establishes it (see OPEN_QUESTIONS #20). Candidates are listed there.
+`InsertPrevAutocomplete` (`Shift F14`) and `InsertNextAutocomplete` (`F14`) were left open in W8c because the key map's
+one-liner ("Insert prev/next autocomplete") says nothing. The 10x changelog (https://10xeditor.com/versions.htm) does:
+version 1.0.182 (03/07/2024) "added InsertPrevAutocomplete and InsertNextAutocomplete commands to insert the next
+autocomplete without the dropdown (F14, shift+F14)"; later "InsertNextAutocomplete now submits autocomplete dropdown if
+it's visible" and "fixed InsertNextAutocomplete getting into weird state if used with Autocomplete enabled". tenfold:
+with no list visible, F14 / Shift+F14 replace the word before the caret in place with the next / previous candidate of the
+list the dropdown would show (same source and order: clangd, else the fast tier), asked for asynchronously, without
+showing the dropdown and without the as-you-type list popping up afterwards. Further presses cycle (wrapping at both
+ends), each replacing the previous insertion; the whole cycle is one undo step (the typed prefix comes back). Typing, a
+caret move or any edit ends the cycle. With the list visible F14 accepts the selected item (as Tab / Enter);
+Shift+F14 then does nothing. No candidates: the status bar says "No completions here". Only a single empty caret.
+**Unverified (the changelog is silent):** Shift+F14 with the list visible, wrap versus clamp at the ends, the undo
+grouping, multiple carets, and whether 10x's list for these commands is the dropdown's ranked list (assumed).
 
 `AutocompleteUp` / `Down` / `PageUp` / `PageDown` (W12-CMD) are real commands (`Editor.CompletionUp` ...). They share
 their keys with `MoveCursorUp` / `Down` / `PageUp` / `PageDown`: while the completion list is open in the focused

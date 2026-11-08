@@ -807,8 +807,9 @@ TEST(w12_completion_keys_move_the_list_when_open_and_the_caret_when_closed) {
   CHECK(env.msg().find("not implemented") == std::string::npos);
   // Shift+Down is its own chord (SelectDown): it extends the selection and the list keeps its row.
   env.key(Key::Down, ModShift);
-  CHECK(env.app->completion().selected() == 19 || !env.app->completion().isOpen());
-  CHECK(env.ed->cursor().pos != at);
+  CHECK(!env.ed->selections()[0].empty());  // SelectDown extended the selection from the caret
+  CHECK(env.ed->selections()[0].anchor == at);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
 }
 
 TEST(w12_remapping_autocomplete_down_moves_the_list_on_the_new_key_only) {
@@ -848,19 +849,180 @@ TEST(w12_completion_keys_in_the_rename_box_and_a_picker_stay_with_their_widgets)
   CHECK(env.ed->cursor().pos == (Position{0, 5}));
   env.key(Key::Escape);
   CHECK(!env.app->renameInput().isOpen());
-  env.key(Key('P'), ModCtrl);  // Control P: the file picker (modal)
-  if (env.popup() || env.bench->modal()) {
-    env.key(Key::Down);
-    CHECK(env.msg().find("not implemented") == std::string::npos);
-    CHECK(!env.app->completion().isOpen());
-  }
+  // A picker (Alt M, FindFunction: a modal list) keeps Up / Down for its own selection, even with a list open before.
+  env.caret(1, 0);
+  openList(env, 5);
+  REQUIRE(env.app->completion().isOpen());
+  env.key(Key('M'), ModAlt);
+  REQUIRE(env.bench->modal() != nullptr);
+  const Position before = env.ed->cursor().pos;
+  env.key(Key::Down);
+  CHECK(!env.app->completion().isOpen());  // a picker closes the completion list
+  CHECK(env.ed->cursor().pos == before);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+  env.key(Key::Escape);
+  CHECK(env.bench->modal() == nullptr);
 }
 
-TEST(w12_insert_next_prev_autocomplete_stay_unimplemented_without_a_source) {
-  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "abc\n"); });
+TEST(w12_completion_list_cannot_stay_open_when_focus_leaves_the_editor) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "int f() { return 0; }\nxy\n"); });
+  env.fakeUi();
   env.open("a.cpp");
+  env.caret(1, 0);
+  openList(env, 5);
+  REQUIRE(env.app->completion().isOpen());
+  env.app->runCommand("View.CallHierarchy");  // focuses the hierarchy tree in the bottom panel
+  env.frame();
+  CHECK(env.view() == nullptr);            // focus is not in a text view
+  env.key(Key::Down);                      // so Down goes to the tree, never to the list ...
+  CHECK(!env.app->completion().isOpen());  // ... which is closed by the first event after the focus change
+  env.key(Key::PageUp);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+  CHECK(!env.app->completion().isOpen());
+  // A terminal is the same: the list is closed when the editor loses focus.
+  env.open("a.cpp");
+  env.caret(1, 0);
+  openList(env, 5);
+  REQUIRE(env.app->completion().isOpen());
+  env.app->runCommand("Terminal.New");
+  env.frame();
+  env.key(Key::Down);
+  CHECK(env.msg().find("not implemented") == std::string::npos);
+  CHECK(!env.app->completion().isOpen());
+}
+
+namespace {
+LspCompletionItem mkItem(const char* name) {
+  LspCompletionItem it;
+  it.label = it.insertText = name;
+  return it;
+}
+void answer(Env& env, std::vector<LspCompletionItem> items) {
+  env.completions.back()(items, "");
+  env.frame();
+}
+}  // namespace
+
+// 10x versions.htm 1.0.182: "added InsertPrevAutocomplete and InsertNextAutocomplete commands to insert the next
+// autocomplete without the dropdown (F14, shift+F14)".
+TEST(w12_f14_inserts_the_next_candidate_in_place_and_cycles_without_the_dropdown) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "int x = alp\nzz\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(0, 11);
+  CHECK(env.key(Key::F14));
+  REQUIRE_EQ(env.completions.size(), 1u);
+  CHECK_EQ(env.line(0), std::string("int x = alp"));  // nothing until the answer
+  answer(env, {mkItem("alpha"), mkItem("alpine"), mkItem("alpaca"), mkItem("other")});
+  CHECK_EQ(env.line(0), std::string("int x = alpha"));
+  CHECK(!env.app->completion().isOpen());
+  CHECK(env.ed->cursor().pos == (Position{0, 13}));
+  env.key(Key::F14);  // cycles with no new request; replaces the previous insertion
+  CHECK_EQ(env.completions.size(), 1u);
+  CHECK_EQ(env.line(0), std::string("int x = alpine"));
   env.key(Key::F14);
-  CHECK_EQ(env.msg(), std::string("not implemented yet: InsertNextAutocomplete"));
+  CHECK_EQ(env.line(0), std::string("int x = alpaca"));
+  env.key(Key::F14);  // wraps (the unrelated item does not match the prefix and is not offered)
+  CHECK_EQ(env.line(0), std::string("int x = alpha"));
+  env.key(Key::F14, ModShift);  // back, wrapping the other way
+  CHECK_EQ(env.line(0), std::string("int x = alpaca"));
   env.key(Key::F14, ModShift);
-  CHECK_EQ(env.msg(), std::string("not implemented yet: InsertPrevAutocomplete"));
+  CHECK_EQ(env.line(0), std::string("int x = alpine"));
+  CHECK(!env.app->completion().isOpen());
+  // One undo step for the whole cycle: the typed prefix is back.
+  env.key(Key('Z'), ModCtrl);
+  CHECK_EQ(env.line(0), std::string("int x = alp"));
+  CHECK_EQ(env.line(1), std::string("zz"));
+}
+
+TEST(w12_shift_f14_starts_from_the_last_candidate) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "alp\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(0, 3);
+  env.key(Key::F14, ModShift);
+  answer(env, {mkItem("alpha"), mkItem("alpine")});
+  CHECK_EQ(env.line(0), std::string("alpine"));
+  env.key(Key::F14, ModShift);
+  CHECK_EQ(env.line(0), std::string("alpha"));
+}
+
+TEST(w12_f14_cycle_ends_on_typing_caret_move_and_edits) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "alp\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(0, 3);
+  env.key(Key::F14);
+  answer(env, {mkItem("alpha"), mkItem("alpine")});
+  env.type("s");  // typing ends the cycle ...
+  CHECK_EQ(env.line(0), std::string("alphas"));
+  env.completions.clear();
+  env.key(Key::F14);  // ... so the next press asks again, for the new prefix
+  CHECK_EQ(env.completions.size(), 1u);
+  answer(env, {mkItem("alphas_t"), mkItem("alphabet")});
+  CHECK_EQ(env.line(0), std::string("alphas_t"));
+  // A caret move ends it too.
+  env.key(Key::Left);
+  env.completions.clear();
+  env.key(Key::F14);
+  CHECK_EQ(env.completions.size(), 1u);
+  env.completions.back()({}, "");
+  env.frame();
+  CHECK_EQ(env.msg(), std::string("No completions here"));  // no candidates: nothing changes
+  CHECK_EQ(env.line(0), std::string("alphas_t"));
+}
+
+TEST(w12_f14_with_the_dropdown_visible_submits_it_and_shift_f14_does_nothing) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "x\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(0, 1);
+  env.key(Key::Space, ModCtrl);
+  answer(env, {mkItem("xa"), mkItem("xb")});
+  REQUIRE(env.app->completion().isOpen());
+  env.key(Key::Down);
+  env.key(Key::F14, ModShift);  // 10x is silent about Prev with the dropdown shown: nothing happens (unverified)
+  CHECK(env.app->completion().isOpen());
+  CHECK_EQ(env.line(0), std::string("x"));
+  env.key(Key::F14);  // "InsertNextAutocomplete now submits autocomplete dropdown if it's visible"
+  CHECK(!env.app->completion().isOpen());
+  CHECK_EQ(env.line(0), std::string("xb"));
+}
+
+TEST(w12_f14_late_answers_are_dropped_and_as_you_type_stays_quiet) {
+  Env env([](const fs::path& d) { writeFile(d / "a.cpp", "alp\n"); });
+  env.fakeUi();
+  env.open("a.cpp");
+  env.caret(0, 3);
+  env.type("h");  // as-you-type request #1 (word "alph" has 4 characters)
+  REQUIRE_EQ(env.completions.size(), 1u);
+  env.key(Key::F14);  // request #2 supersedes #1
+  REQUIRE_EQ(env.completions.size(), 2u);
+  env.completions[0]({mkItem("alpha")}, "");  // the stale as-you-type answer must not open the list
+  env.frame();
+  CHECK(!env.app->completion().isOpen());
+  CHECK_EQ(env.line(0), std::string("alph"));
+  // The caret moves before the F14 answer arrives: dropped.
+  env.key(Key::Home);
+  env.completions[1]({mkItem("alpha")}, "");
+  env.frame();
+  CHECK_EQ(env.line(0), std::string("alph"));
+  CHECK(!env.app->completion().isOpen());
+  // Text changes before the answer: dropped too.
+  env.caret(0, 4);
+  env.key(Key::F14);
+  env.type("a");
+  const size_t n = env.completions.size();
+  env.completions[n - 2]({mkItem("alphabet")}, "");  // the F14 request's answer (the typed "a" asked another)
+  env.frame();
+  CHECK_EQ(env.line(0), std::string("alpha"));
+  // The inserted text itself never opens the as-you-type list.
+  env.caret(0, 5);
+  env.completions.clear();
+  env.key(Key::F14);
+  answer(env, {mkItem("alphabet"), mkItem("alphanumeric")});
+  CHECK_EQ(env.line(0), std::string("alphabet"));
+  CHECK(!env.app->completion().isOpen());
+  env.key(Key::F14);
+  CHECK(!env.app->completion().isOpen());
 }
