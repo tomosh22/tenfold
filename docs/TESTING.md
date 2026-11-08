@@ -20,7 +20,7 @@ for end-to-end answers on awkward code.
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
 | `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 683 | clangd for the integration tests (they skip with a message without it) |
-| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 644 | a display (`xvfb-run -a`); golden-image tests skip without one |
+| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 649 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout | 30 | nothing |
 | `tenfold-corpus-tests` | the corpus projects of this file (over about 35 under `tests/corpus`) | 3 | clangd; not part of `ctest` |
 | `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | targets, not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
