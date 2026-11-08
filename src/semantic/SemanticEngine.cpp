@@ -363,6 +363,10 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     sharedFlags_ = std::move(sharedFlags);
     compileCommands_ = std::make_shared<const std::vector<CompileCommand>>(std::move(cmds));
   }
+  if (reconfigure) {  // an explicit refresh also re-reads the .props files the cached names came from
+    std::lock_guard<std::mutex> lk(ppMu_);
+    allConfigNames_.reset();
+  }
   return locationChanged;
 }
 
@@ -1818,15 +1822,62 @@ void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vecto
 
 std::shared_ptr<const std::unordered_set<std::string>> SemanticEngine::flagVocabulary(
     const std::shared_ptr<const std::vector<CompileCommand>>& snap) const {
+  // The names the project mentions as -D / -U: the active database, and for a Visual Studio workspace every
+  // configuration / platform of its solutions (derived from the projects without switching the active one; the
+  // result is kept until a solution or project file changes or the databases are regenerated).
+  std::string fingerprint;
+  std::vector<fs::path> slns;
+  bool vs;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    vs = compdbSource_ == "vcxproj";
+  }
+  if (vs) {
+    slns = ws_.solutionFiles();
+    std::error_code ec;
+    auto stamp = [&](const fs::path& f) {
+      const auto t = fs::last_write_time(f, ec);
+      fingerprint += pathUtf8(f) + "@" + (ec ? "?" : std::to_string(t.time_since_epoch().count())) + "\n";
+    };
+    for (const fs::path& sln : slns) {
+      stamp(sln);
+      for (const auto& pr : compdb::readSolution(sln).projects) stamp(pr.path);
+    }
+  }
   {
     std::lock_guard<std::mutex> lk(ppMu_);
-    if (flagVocab_ && flagVocabSnap_ == snap) return flagVocab_;
+    if (flagVocab_ && flagVocabSnap_ == snap && flagVocabPrint_ == fingerprint) return flagVocab_;
   }
   auto names = std::make_shared<std::unordered_set<std::string>>();
   for (const CompileCommand& c : *snap) pp::collectFlagNames(c, *names);
+  if (vs) {
+    std::lock_guard<std::mutex> lk(ppMu_);
+    if (allConfigNames_ && allConfigPrint_ == fingerprint) {
+      names->insert(allConfigNames_->begin(), allConfigNames_->end());
+      flagVocabSnap_ = snap;
+      flagVocab_ = names;
+      flagVocabPrint_ = fingerprint;
+      return names;
+    }
+  }
+  if (vs) {
+    auto all = std::make_shared<std::unordered_set<std::string>>();
+    for (const fs::path& sln : slns)
+      for (const auto& cfg : compdb::solutionConfigurations(sln)) {
+        compdb::VcxprojOptions vo;
+        vo.configuration = cfg.configuration;
+        vo.platform = cfg.platform;
+        for (const CompileCommand& c : compdb::fromSolution(sln, vo)) pp::collectFlagNames(c, *all);
+      }
+    names->insert(all->begin(), all->end());
+    std::lock_guard<std::mutex> lk(ppMu_);
+    allConfigNames_ = all;
+    allConfigPrint_ = fingerprint;
+  }
   std::lock_guard<std::mutex> lk(ppMu_);
   flagVocabSnap_ = snap;
   flagVocab_ = names;
+  flagVocabPrint_ = fingerprint;
   return names;
 }
 

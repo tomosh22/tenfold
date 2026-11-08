@@ -1114,12 +1114,12 @@ TEST(engine_fast_conditions_follow_the_visual_studio_configuration) {
     return ed.waitFor([&] { return applied; }, 60000);
   };
   REQUIRE(switchTo("Debug|x64"));
-  // Debug has no TURBO anywhere in its database: nobody in this snapshot mentions the name, so it is Unknown
-  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:2,speed.h:4");
+  // Release passes TURBO, so the project mentions it: Debug has it Undefined
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
   REQUIRE(switchTo("Release|x64"));
   CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:2");
   REQUIRE(switchTo("Debug|x64"));
-  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:2,speed.h:4");
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
 }
 
 TEST(engine_fast_answers_follow_macro_definitions_of_the_caret_file) {
@@ -1215,4 +1215,62 @@ TEST(engine_fast_answers_keep_both_branches_of_a_system_header_macro) {
   CHECK(ed.semantic().waitForFastIndex(10000));
   CHECK_EQ(fastDef(ed, p, "net.cpp", 6, "= |sendFlags()"), "net.cpp:2,net.cpp:4");
   CHECK_EQ(fastDef(ed, p, "net.cpp", 12, "= |prof()"), "net.cpp:10");
+}
+
+TEST(engine_fast_conditions_know_the_flags_of_every_visual_studio_configuration) {
+  Project p("tenfold_pp_allcfg");
+  p.write("app.sln",
+          "\nMicrosoft Visual Studio Solution File, Format Version 12.00\n"
+          "Project(\"{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}\") = \"app\", \"app.vcxproj\", "
+          "\"{CCCCCCCC-0000-0000-0000-000000000001}\"\nEndProject\nGlobal\n"
+          "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n"
+          "\t\tDebug|x64 = Debug|x64\n\t\tRelease|x64 = Release|x64\n\tEndGlobalSection\n"
+          "\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Debug|x64.ActiveCfg = Debug|x64\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Debug|x64.Build.0 = Debug|x64\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Release|x64.ActiveCfg = Release|x64\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Release|x64.Build.0 = Release|x64\n"
+          "\tEndGlobalSection\nEndGlobal\n");
+  p.write("turbo.props",
+          "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+          "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
+          "  <ItemDefinitionGroup Condition=\"'$(Configuration)'=='Release'\"><ClCompile>\n"
+          "    <PreprocessorDefinitions>TURBO;%(PreprocessorDefinitions)</PreprocessorDefinitions>\n"
+          "  </ClCompile></ItemDefinitionGroup>\n</Project>\n");
+  p.write("app.vcxproj",
+          "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+          "<Project DefaultTargets=\"Build\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
+          "  <ItemGroup Label=\"ProjectConfigurations\">\n"
+          "    <ProjectConfiguration Include=\"Debug|x64\"><Configuration>Debug</Configuration>"
+          "<Platform>x64</Platform></ProjectConfiguration>\n"
+          "    <ProjectConfiguration Include=\"Release|x64\"><Configuration>Release</Configuration>"
+          "<Platform>x64</Platform></ProjectConfiguration>\n"
+          "  </ItemGroup>\n"
+          "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.Default.props\" />\n"
+          "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.props\" />\n"
+          "  <Import Project=\"turbo.props\" />\n"
+          "  <ItemGroup><ClCompile Include=\"main.cpp\" /></ItemGroup>\n"
+          "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.targets\" />\n"
+          "</Project>\n");
+  p.write("speed.h",
+          "#pragma once\n#ifdef TURBO\ninline int speed() { return 2; }\n#else\ninline int speed() { return 1; "
+          "}\n#endif\n");
+  p.write("main.cpp", "#include \"speed.h\"\nint main() { return speed(); }\n");
+  Editor ed(p.root, noClangd());
+  std::string err;
+  REQUIRE(ed.start(&err));
+  CHECK(ed.semantic().waitForFastIndex(10000));
+  auto switchTo = [&](const char* name) {
+    bool applied = false;
+    std::string e;
+    if (!ed.selectVsConfiguration(name, &e, [&] { applied = true; })) return false;
+    return ed.waitFor([&] { return applied; }, 60000);
+  };
+  // TURBO is passed in Release only, but the project mentions it: in Debug it is Undefined (one branch)
+  REQUIRE(switchTo("Debug|x64"));
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
+  REQUIRE(switchTo("Release|x64"));
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:2");
+  REQUIRE(switchTo("Debug|x64"));
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
 }

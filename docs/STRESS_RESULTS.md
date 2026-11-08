@@ -4,40 +4,40 @@ Each W9 corpus agent adds its own self-contained section below. Format and rules
 
 ## W12-FAST-PP-STRICT: absent macros are unknown unless the project mentions them (branch `task/W12-FAST-PP-STRICT`)
 
-User decision of 2026-11-08 (`docs/OPEN_QUESTIONS.md`): an absent macro is "not defined" only when some compile command
-of the workspace passes it as `-D` / `-U` or some indexed file `#define`s it; every other absent name is Unknown (the
-list of platform / standard-library names and the unindexed-include flag of the first version are removed;
-`TuEnv::initialState`, `docs/ARCHITECTURE.md`). Same method as W12-FAST-PP, same corpus files (the main column was
-re-run with the merged binary; it is 2 lines above the table of the first section because the two `fast` lines added
-below are in both columns).
+User decision of 2026-11-08 (`docs/OPEN_QUESTIONS.md`): an absent macro is "not defined" only when the project itself
+mentions it: a `-D` / `-U` in **any** configuration's compile commands (every configuration and platform of the Visual
+Studio solutions, derived from the projects without switching the active one) or a `#define` in an indexed file; every
+other absent name is Unknown. The list of platform / standard-library names and the unindexed-include flag of the first
+version are removed (`TuEnv::initialState`, `SemanticEngine::flagVocabulary`; `docs/ARCHITECTURE.md`). Same method as
+W12-FAST-PP; the table is over the same corpus files.
 
-| corpus | main (a08635c) | strict |
-|---|---|---|
-| `c-vcxproj` | 15/18 (83 %) | 13/18 (72 %) |
-| `seed` | 16/24 (67 %) | 14/24 (58 %) |
-| `templates-config` | 12/22 (55 %) | 4/22 (18 %) |
-| `vs-configs` | 91/91 (100 %) | 79/91 (87 %) |
-| `vs-props` | 95/95 (100 %) | 70/95 (74 %) |
-| `vs-std` | 16/16 (100 %) | 15/16 (94 %) |
-| **all 36** | **2238/2690 (83.2 %)** | **2188/2690 (81.3 %)** |
+| corpus | a08635c | strict, active configuration only | strict, all configurations |
+|---|---|---|---|
+| `c-vcxproj` | 15/18 | 13/18 | 15/18 |
+| `seed` | 16/24 | 14/24 | 16/24 |
+| `templates-config` | 11/21 | 4/21 | 11/21 |
+| `vs-configs` | 91/91 | 79/91 | 91/91 |
+| `vs-props` | 94/94 | 70/94 | 94/94 |
+| `vs-std` | 16/16 | 15/16 | 16/16 |
+| **all 36** | **2236/2688 (83.2 %)** | **2186/2688 (81.3 %)** | **2236/2688 (83.2 %)** |
 
-50 `def` / `decl` lines that agreed before are "fast is a superset of clangd's answer" again (clangd's answer is still
-inside the fast one: 0 recall losses, 0 lines newly empty): `vs-props` 25, `vs-configs` 12, `templates-config` 8,
-`c-vcxproj` 2, `seed` 2, `vs-std` 1. Cause, in every one of them: a configuration switch that only another Visual Studio configuration passes
-(`LEVEL_9` in Debug|x86, `TC_FAST` in Release|x64, `TURBO` / `PROPS_DEBUG`-style per-configuration defines, `SEED_DEBUG`,
-`C_DEBUG` and `STDAPP_DEBUG` in Debug only) is not mentioned by the active configuration's database, so when the active
-configuration lacks it the name is Unknown and both branches stay (the database holds one configuration at a time).
+(The strict-active-only column was measured with two extra `fast` lines in `vs-props` and `templates-config`, 2188/2690.)
+With the names of every configuration all 50 lines that the active-only rule lost are back, and the result equals
+a08635c line for line: the corpora's switches (`LEVEL_9`, `TC_FAST`, `PROPS_DEBUG`, `SEED_DEBUG`, `C_DEBUG`,
+`STDAPP_DEBUG`) are all passed by some configuration. What the strict rule costs is therefore not corpus lines but
+guesses: `#ifdef MSG_NOSIGNAL` after `#include <sys/socket.h>` keeps both definitions, because no command or project
+file mentions the name. The two `xfail` lines of the active-only step are gone (the `vs-props` and `templates-config`
+expectation files are as on main); 0 `FAIL`, 0 `XPASS`.
 
-**Expectations.** Two `fast` lines I had narrowed in W12-FAST-PP fail with the stricter rule and are `xfail` with the
-reason "absent macro not mentioned by the project is unknown (user decision 2026-11-08)": `vs-props` `fast def
-use_level_value -> level_three` and `templates-config` `fast def use_run_int -> Policy_safe_run`. Their pre-narrowing
-forms (every branch as an alternative, as before W12) are back as passing `fast` lines, so the two cases stay covered.
-No line was deleted; no `final` line changed; 0 `FAIL`, 0 `XPASS` after.
+Cost: deriving the names of every configuration is one `fromSolution` per configuration and platform, once per solution
+state: about 3 ms each for `vs-configs` and `vs-props` (4 configurations: 15 ms including process start), kept until a
+`.sln` / `.vcxproj` changes or an explicit refresh. Workspaces from CMake or a `compile_commands.json` take the
+single-database path of the first version (the large generated workspace is unchanged).
 
-The unit tests keep both directions: the `MSG_NOSIGNAL` case (`<sys/socket.h>`: both definitions offered, at unit and
-engine level), `ENABLE_PROFILER` passed by another unit's command is Undefined in a unit that lacks it, and a name
-`#define`d only in an indexed project header is a project macro. The cached Visual Studio test now expects both
-branches in Debug (nothing in that database mentions `TURBO`) and the Release branch in Release.
+Tests: `MSG_NOSIGNAL` (unit and engine level); `-DENABLE_PROFILER` passed by another unit's command is Undefined where
+it is absent; a name `#define`d only in an indexed header is a project macro; a solution with Debug and Release where
+`-DTURBO` comes from a `.props` file for Release only: with Debug active `TURBO` is Undefined (one branch), after the
+switch to Release it is defined, and back.
 
 ## W12-FAST-PP: the fast tier follows preprocessor conditionals (branch `task/W12-FAST-PP`)
 

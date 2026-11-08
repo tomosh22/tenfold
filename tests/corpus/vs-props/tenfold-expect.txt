@@ -6,8 +6,7 @@
 # $(ProjectName). Standard-library free.
 
 # ---- fast tier ----
-fast def use_level_value -> level_nine | level_three | level_one | level_none
-xfail fast def use_level_value -> level_three  # LEVEL_9 is passed only by the Debug|x86 database, not by this snapshot: absent macro not mentioned by the project is unknown (user decision 2026-11-08)
+fast def use_level_value -> level_three
 fast def use_sheet_kind -> sheet_debug
 fast sym "release_only" ∋ release_only_fn
 fast sym "gen_a" ∋ gen_a_fn
