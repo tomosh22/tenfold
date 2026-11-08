@@ -1271,7 +1271,7 @@ inline uint32_t maskOf(std::string_view s) {
 
 namespace {
 // `<vector>`, `<cstdio>`, `<stdio.h>`, `<sys/types.h>`, `<linux/limits.h>`: headers of the standard library and the OS
-// interface, which define the documented macros of those (isPlatformMacroName) and nothing a project tests.
+// interface (what a system include directory holds, as opposed to a project header): used by __has_include.
 bool looksLikeSystemHeaderImpl(const std::string& spelling) {
   static const char* const kDirs[] = {"sys/", "bits/", "linux/", "netinet/", "arpa/", "net/", "asm/", "asm-generic/"};
   for (const char* d : kDirs)
@@ -1500,7 +1500,7 @@ size_t FastIndex::symbolCount() const {
 std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::filesystem::path& file,
                                                                  const std::vector<std::filesystem::path>& quoteDirs,
                                                                  const std::vector<std::filesystem::path>& angleDirs,
-                                                                 size_t maxFiles, bool* foreignUnresolved) const {
+                                                                 size_t maxFiles) const {
   std::string start = keyFor(file);
   const uint64_t gen = reachGen_.load(std::memory_order_acquire);
   std::string cacheKey = start;
@@ -1509,16 +1509,13 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
   {
     std::lock_guard<std::mutex> lk(reachMu_);
     auto it = reach_.find(cacheKey);
-    if (it != reach_.end() && it->second.gen == gen) {
-      if (foreignUnresolved) *foreignUnresolved = it->second.foreign;
-      return it->second.set;
-    }
+    if (it != reach_.end() && it->second.gen == gen) return it->second.set;
   }
   std::shared_lock<std::shared_mutex> lk(mu_);
   auto root = files_.find(start);
   auto out = std::make_shared<Reach>();
   out->insert(start);
-  bool tooBig = false, foreign = false;
+  bool tooBig = false;
   if (root != files_.end()) {
     std::vector<const FileSymbols*> work{root->second.get()};
     while (!work.empty() && !tooBig) {
@@ -1532,9 +1529,7 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
         const bool ang = incIdx < cur->angled.size() && cur->angled[incIdx] != 0;
         const std::filesystem::path sp = std::filesystem::path(inc).lexically_normal();
         if (sp.empty()) continue;
-        bool resolved = false;
         auto visit = [&](const FileSymbols* f, const std::string& k) {
-          resolved = true;
           if (out->insert(k).second) {
             work.push_back(f);
             if (out->size() > maxFiles) tooBig = true;
@@ -1572,15 +1567,13 @@ std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::file
               visit(c, ck);
           }
         }
-        if (!resolved && !FastIndex::looksLikeSystemHeader(inc)) foreign = true;
       }
     }
   }
   std::shared_ptr<const Reach> res = tooBig || root == files_.end() ? nullptr : std::move(out);
   std::lock_guard<std::mutex> rl(reachMu_);
   if (reach_.size() >= 16) reach_.clear();
-  reach_[cacheKey] = {gen, res, foreign};
-  if (foreignUnresolved) *foreignUnresolved = foreign;
+  reach_[cacheKey] = {gen, res};
   return res;
 }
 

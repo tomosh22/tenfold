@@ -521,6 +521,8 @@ class SemanticEngine {
   mutable std::map<std::string, PpEnvEntry> ppRoots_;  // file key -> root
   mutable uint64_t ppTick_ = 0;
   mutable std::shared_ptr<const std::vector<CompileCommand>> flagVocabSnap_;
+  mutable std::string flagVocabPrint_, allConfigPrint_;  // solution / project files the names were derived from (ppMu_)
+  mutable std::shared_ptr<const std::unordered_set<std::string>> allConfigNames_;  // -D / -U of every VS configuration
   mutable std::shared_ptr<const std::unordered_set<std::string>> flagVocab_;  // names any command -D / -U's (ppMu_)
   std::shared_ptr<const std::unordered_set<std::string>> flagVocabulary(
       const std::shared_ptr<const std::vector<CompileCommand>>& snap) const;

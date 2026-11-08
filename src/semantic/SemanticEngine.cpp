@@ -363,6 +363,10 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     sharedFlags_ = std::move(sharedFlags);
     compileCommands_ = std::make_shared<const std::vector<CompileCommand>>(std::move(cmds));
   }
+  if (reconfigure) {  // an explicit refresh also re-reads the .props files the cached names came from
+    std::lock_guard<std::mutex> lk(ppMu_);
+    allConfigNames_.reset();
+  }
   return locationChanged;
 }
 
@@ -1818,15 +1822,62 @@ void SemanticEngine::includeDirsOf(const std::filesystem::path& file, std::vecto
 
 std::shared_ptr<const std::unordered_set<std::string>> SemanticEngine::flagVocabulary(
     const std::shared_ptr<const std::vector<CompileCommand>>& snap) const {
+  // The names the project mentions as -D / -U: the active database, and for a Visual Studio workspace every
+  // configuration / platform of its solutions (derived from the projects without switching the active one; the
+  // result is kept until a solution or project file changes or the databases are regenerated).
+  std::string fingerprint;
+  std::vector<fs::path> slns;
+  bool vs;
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    vs = compdbSource_ == "vcxproj";
+  }
+  if (vs) {
+    slns = ws_.solutionFiles();
+    std::error_code ec;
+    auto stamp = [&](const fs::path& f) {
+      const auto t = fs::last_write_time(f, ec);
+      fingerprint += pathUtf8(f) + "@" + (ec ? "?" : std::to_string(t.time_since_epoch().count())) + "\n";
+    };
+    for (const fs::path& sln : slns) {
+      stamp(sln);
+      for (const auto& pr : compdb::readSolution(sln).projects) stamp(pr.path);
+    }
+  }
   {
     std::lock_guard<std::mutex> lk(ppMu_);
-    if (flagVocab_ && flagVocabSnap_ == snap) return flagVocab_;
+    if (flagVocab_ && flagVocabSnap_ == snap && flagVocabPrint_ == fingerprint) return flagVocab_;
   }
   auto names = std::make_shared<std::unordered_set<std::string>>();
   for (const CompileCommand& c : *snap) pp::collectFlagNames(c, *names);
+  if (vs) {
+    std::lock_guard<std::mutex> lk(ppMu_);
+    if (allConfigNames_ && allConfigPrint_ == fingerprint) {
+      names->insert(allConfigNames_->begin(), allConfigNames_->end());
+      flagVocabSnap_ = snap;
+      flagVocab_ = names;
+      flagVocabPrint_ = fingerprint;
+      return names;
+    }
+  }
+  if (vs) {
+    auto all = std::make_shared<std::unordered_set<std::string>>();
+    for (const fs::path& sln : slns)
+      for (const auto& cfg : compdb::solutionConfigurations(sln)) {
+        compdb::VcxprojOptions vo;
+        vo.configuration = cfg.configuration;
+        vo.platform = cfg.platform;
+        for (const CompileCommand& c : compdb::fromSolution(sln, vo)) pp::collectFlagNames(c, *all);
+      }
+    names->insert(all->begin(), all->end());
+    std::lock_guard<std::mutex> lk(ppMu_);
+    allConfigNames_ = all;
+    allConfigPrint_ = fingerprint;
+  }
   std::lock_guard<std::mutex> lk(ppMu_);
   flagVocabSnap_ = snap;
   flagVocab_ = names;
+  flagVocabPrint_ = fingerprint;
   return names;
 }
 
@@ -1907,17 +1958,13 @@ std::shared_ptr<const pp::TuEnv> SemanticEngine::ppEnvOf(const fs::path& root) c
     dir = cc->directory;
   }
   std::unordered_set<std::string> seen;
-  bool foreign = false;
   auto addReach = [&](const fs::path& start, std::vector<std::shared_ptr<const FileSymbols>>& into) {
-    bool f = false;
-    auto reach = fast_.reachableFrom(start, quote, angle, 6000, &f);
-    if (!reach) {  // too many files: what the TU defines is not known
-      foreign = true;
+    auto reach = fast_.reachableFrom(start, quote, angle, 6000);
+    if (!reach) {  // too many files: only the file itself is read
       if (seen.insert(FastIndex::pathKey(start)).second)
         if (auto fsyms = fast_.fileSymbols(start)) into.push_back(std::move(fsyms));
       return;
     }
-    foreign = foreign || f;
     for (const std::string& k : *reach)
       if (seen.insert(k).second)
         if (auto fsyms = fast_.fileSymbolsByKey(k)) into.push_back(std::move(fsyms));
@@ -1927,10 +1974,8 @@ std::shared_ptr<const pp::TuEnv> SemanticEngine::ppEnvOf(const fs::path& root) c
     if (p.is_relative()) p = dir / p;
     p = p.lexically_normal();
     if (fast_.fileSymbols(p)) addReach(p, in.prelude);
-    else foreign = true;  // a forced include nobody indexed (a precompiled header, a generated file)
   }
   addReach(root, in.files);
-  in.foreignIncludes = foreign;
   if (const auto vocab = snap->empty() ? nullptr : flagVocabulary(snap)) {
     in.setByFlags = [vocab](const std::string& n) { return vocab->count(n) != 0; };
   }

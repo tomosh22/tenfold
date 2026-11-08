@@ -471,26 +471,29 @@ probe behind the fingerprint contains conditionals.
   (`#if B` defines `A`, `#if A` defines `B`) end at a depth of 8 as Unknown.
 
 *Where absence is treated as false* (a macro nothing defines is "not defined", which is also what the standard says, but
-it holds with certainty only if every place that could define it was read). `initialState` returns Undefined for a name
-that is not in the command line's defines and not a predefined macro of the driver only when all of these hold:
+it holds with certainty only if every place that could define it was read; user decision of 2026-11-08, stricter than
+the first version of W12-FAST-PP, `docs/OPEN_QUESTIONS.md`). `initialState` returns, in this order:
 
-1. there is a compile command from the build (`existing` compile_commands.json, CMake, a Visual Studio project): the
-   heuristic database that tenfold generates for a bare folder has no `-D` at all, so with it everything is Unknown,
-   except what the file's own `#define`s decide;
-2. the command is complete (no response file);
-3. the name is not reserved (`_X`, `__x`: the compiler or a system header may define it) and not a macro of the
-   platform or the standard library (`isPlatformMacroName`: names with a lower-case letter such as `linux`, `unix`,
-   `assert`; `NULL`, `EOF`, `INT_MAX`, `PATH_MAX`, `WIN32`, `EINVAL` ...) unless the project itself sets it (some
-   compile command of the workspace passes it as `-D` / `-U`, or some indexed file `#define`s it): `NDEBUG`,
-   `FEATURE_X`, `LEVEL_9`, `PROPS_DEBUG` are the project's, `_WIN32` outside a Windows target, `__cpp_lib_optional`,
-   `linux`, `INT_MAX` are not;
-4. no `#include` of the unit's files resolves to a header that was not indexed and is not a standard / OS header
-   (`<vector>`, `<stdio.h>`, `<sys/types.h>`): a generated `config.h`, `<windows.h>` or a third-party header may define
-   anything. A name the project controls (3) stays Undefined even then; every other name becomes Unknown. A forced
-   include that was not indexed (a precompiled header) counts the same way.
+1. the command line's own `-D` / `-U` and the predefined macros of the driver and target, whatever the name;
+2. Unknown when there is no compile command from the build (the heuristic database tenfold generates for a bare
+   folder has no `-D` at all; only `existing`, `cmake` and `vcxproj` databases count), or the command is incomplete
+   (a response file `@x.rsp`);
+3. Unknown for a reserved name (`_X`, `__x`: the compiler or a system header may define it);
+4. **Undefined only for a name the project itself mentions**: a `-D` / `-U` in **any** configuration's compile commands
+   (`setByFlags`) or a `#define` in some indexed file (`definedInWorkspace`). The names come from the active
+   database and, for a Visual Studio workspace, from every configuration and platform of its solutions: each is
+   derived from the projects with `compdb::fromSolution` without switching the active one (`flagVocabulary`; computed
+   once, kept until a `.sln` or `.vcxproj` file changes or an explicit refresh re-reads the `.props`; the cost is
+   one parse of the solution per configuration). `-DENABLE_PROFILER` in Debug only makes `ENABLE_PROFILER` Undefined in
+   the Release unit. For CMake / `compile_commands.json` workspaces only the database discovery picked counts;
+5. Unknown for every other name, whatever its spelling and whether or not the unit includes unindexed headers:
+   `MSG_NOSIGNAL` after `#include <sys/socket.h>`, a generated `config.h`'s `HAVE_FOO`, `NDEBUG` when no command
+   mentions it, `__cpp_lib_optional`.
 
-So "absent" is certain for the configuration macros of a build (`PROPS_DEBUG`, `CORE_DEBUG`, `TC_FAST`, `LEVEL_n`) in a
-unit whose headers were all read, and nothing else is ever dropped on the strength of absence.
+So a branch is dropped on the strength of absence only for the configuration switches of the project's own build;
+`#ifdef MSG_NOSIGNAL ... #else ... #endif` keeps both definitions. (The first version also dropped other names when the
+unit had no unindexed includes and the name was not on a list of standard / OS macro names; both tests are gone.)
+A switch that only a build directory discovery did not pick mentions is Unknown.
 
 *Which translation unit.* `ppRootOf(file)`: the file itself when it has a compile command; for an include-only file
 the root recorded by the translation-unit context (W9-FIX-B, `tuContext`); else the nearest includer that has a

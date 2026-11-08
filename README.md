@@ -44,7 +44,7 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # engine tests, including clangd integration (718 on Linux)
+./build/tenfold-tests            # engine tests, including clangd integration (719 on Linux)
 ```
 
 CI / presets: `CMakePresets.json` mirrors the CI matrix, so

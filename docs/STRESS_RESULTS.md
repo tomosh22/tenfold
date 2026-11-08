@@ -2,6 +2,43 @@
 
 Each W9 corpus agent adds its own self-contained section below. Format and rules of the corpora: `docs/TESTING.md`.
 
+## W12-FAST-PP-STRICT: absent macros are unknown unless the project mentions them (branch `task/W12-FAST-PP-STRICT`)
+
+User decision of 2026-11-08 (`docs/OPEN_QUESTIONS.md`): an absent macro is "not defined" only when the project itself
+mentions it: a `-D` / `-U` in **any** configuration's compile commands (every configuration and platform of the Visual
+Studio solutions, derived from the projects without switching the active one) or a `#define` in an indexed file; every
+other absent name is Unknown. The list of platform / standard-library names and the unindexed-include flag of the first
+version are removed (`TuEnv::initialState`, `SemanticEngine::flagVocabulary`; `docs/ARCHITECTURE.md`). Same method as
+W12-FAST-PP; the table is over the same corpus files.
+
+| corpus | a08635c | strict, active configuration only | strict, all configurations |
+|---|---|---|---|
+| `c-vcxproj` | 15/18 | 13/18 | 15/18 |
+| `seed` | 16/24 | 14/24 | 16/24 |
+| `templates-config` | 11/21 | 4/21 | 11/21 |
+| `vs-configs` | 91/91 | 79/91 | 91/91 |
+| `vs-props` | 94/94 | 70/94 | 94/94 |
+| `vs-std` | 16/16 | 15/16 | 16/16 |
+| **all 36** | **2236/2688 (83.2 %)** | **2186/2688 (81.3 %)** | **2236/2688 (83.2 %)** |
+
+(The strict-active-only column was measured with two extra `fast` lines in `vs-props` and `templates-config`, 2188/2690.)
+With the names of every configuration all 50 lines that the active-only rule lost are back, and the result equals
+a08635c line for line: the corpora's switches (`LEVEL_9`, `TC_FAST`, `PROPS_DEBUG`, `SEED_DEBUG`, `C_DEBUG`,
+`STDAPP_DEBUG`) are all passed by some configuration. What the strict rule costs is therefore not corpus lines but
+guesses: `#ifdef MSG_NOSIGNAL` after `#include <sys/socket.h>` keeps both definitions, because no command or project
+file mentions the name. The two `xfail` lines of the active-only step are gone (the `vs-props` and `templates-config`
+expectation files are as on main); 0 `FAIL`, 0 `XPASS`.
+
+Cost: deriving the names of every configuration is one `fromSolution` per configuration and platform, once per solution
+state: about 3 ms each for `vs-configs` and `vs-props` (4 configurations: 15 ms including process start), kept until a
+`.sln` / `.vcxproj` changes or an explicit refresh. Workspaces from CMake or a `compile_commands.json` take the
+single-database path of the first version (the large generated workspace is unchanged).
+
+Tests: `MSG_NOSIGNAL` (unit and engine level); `-DENABLE_PROFILER` passed by another unit's command is Undefined where
+it is absent; a name `#define`d only in an indexed header is a project macro; a solution with Debug and Release where
+`-DTURBO` comes from a `.props` file for Release only: with Debug active `TURBO` is Undefined (one branch), after the
+switch to Release it is defined, and back.
+
 ## W12-FAST-PP: the fast tier follows preprocessor conditionals (branch `task/W12-FAST-PP`)
 
 Design and rules: `docs/ARCHITECTURE.md`, "Preprocessor conditionals in the fast tier". Every `#if` / `#ifdef` / `#elif` /

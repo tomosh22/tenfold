@@ -221,10 +221,7 @@ class FastIndex {
   std::shared_ptr<const Reach> reachableFrom(const std::filesystem::path& file,
                                              const std::vector<std::filesystem::path>& quoteDirs = {},
                                              const std::vector<std::filesystem::path>& angleDirs = {},
-                                             size_t maxFiles = 6000, bool* foreignUnresolved = nullptr) const;
-  // `foreignUnresolved` (optional) is set when some #include in the walk resolves to no indexed file and does not
-  // look like a standard / OS header (`<vector>`, `<stdio.h>`, `<sys/types.h>`): a project or third-party header the
-  // index never saw (a generated config.h, boost/..., windows.h).
+                                             size_t maxFiles = 6000) const;
   // The indexed file with this path key (FastIndex::pathKey), else null.
   std::shared_ptr<const FileSymbols> fileSymbolsByKey(const std::string& key) const;
   // The files that may #include `target`: those with an #include whose last path component is target's file name (a
@@ -267,7 +264,6 @@ class FastIndex {
   struct ReachEntry {
     uint64_t gen = 0;
     std::shared_ptr<const Reach> set;
-    bool foreign = false;
   };
   mutable uint64_t incByGen_ = 0;                                                                   // reachMu_
   mutable std::unordered_map<std::string, std::vector<std::shared_ptr<const FileSymbols>>> incBy_;  // reachMu_

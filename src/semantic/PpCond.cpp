@@ -564,43 +564,6 @@ CommandMacros macrosOfCommand(const CompileCommand& cc, const Host& host) {
   return r;
 }
 
-namespace {
-
-bool allUpperDigits(std::string_view s, size_t from) {
-  for (size_t i = from; i < s.size(); ++i)
-    if (!(std::isupper(static_cast<unsigned char>(s[i])) || std::isdigit(static_cast<unsigned char>(s[i]))))
-      return false;
-  return true;
-}
-
-}  // namespace
-
-bool isPlatformMacroName(std::string_view n) {
-  if (n.empty()) return false;
-  if (n[0] == '_' || n.find("__") != std::string_view::npos) return true;
-  for (char c : n)
-    if (std::islower(static_cast<unsigned char>(c))) return true;  // linux, unix, assert, errno, va_start, bool ...
-  static const char* const kPrefix[] = {"INT",   "UINT",    "LONG",     "ULONG", "LLONG",   "ULLONG", "SHRT", "USHRT",
-                                        "CHAR_", "SCHAR",   "UCHAR",    "SIZE_", "PTRDIFF", "WCHAR",  "WINT", "SIG",
-                                        "FLT_",  "DBL_",    "LDBL_",    "FP_",   "M_",      "PRI",    "SCN",  "LC_",
-                                        "SEEK_", "EXIT_",   "O_",       "S_",    "FE_",     "RLIMIT", "AF_",  "SO_",
-                                        "SOCK_", "IPPROTO", "PTHREAD_", "CLOCK_"};
-  for (const char* p : kPrefix)
-    if (n.substr(0, std::char_traits<char>::length(p)) == p) return true;
-  static const char* const kExact[] = {"NULL",           "EOF",      "BUFSIZ",     "FILENAME_MAX", "FOPEN_MAX",
-                                       "TMP_MAX",        "RAND_MAX", "HUGE_VAL",   "INFINITY",     "NAN",
-                                       "PATH_MAX",       "NAME_MAX", "MB_LEN_MAX", "MB_CUR_MAX",   "DECIMAL_DIG",
-                                       "CLOCKS_PER_SEC", "WIN32",    "WIN64",      "BYTE_ORDER",   "LITTLE_ENDIAN",
-                                       "BIG_ENDIAN",     "UNICODE",  "TRUE",       "FALSE",        "WINVER",
-                                       "NTDDI_VERSION",  "STRICT",   "POSIX",      "BSD",          "UNIX",
-                                       "MSDOS"};
-  for (const char* e : kExact)
-    if (n == e) return true;
-  // errno names: EINVAL, ENOENT ... (E plus capitals, no underscore)
-  if (n.size() >= 3 && n.size() <= 12 && n[0] == 'E' && allUpperDigits(n, 1)) return true;
-  return false;
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // Translation unit
 // ---------------------------------------------------------------------------------------------------------------------
@@ -653,18 +616,14 @@ MacroState TuEnv::initialState(const std::string& name) const {
   auto it = in_.command.macros.find(name);
   if (it != in_.command.macros.end()) return it->second;
   if (!in_.command.complete) return MacroState::unknown();
-  // Absence is "not defined" only where nothing outside what we read could have defined the name:
-  //  * not a compiler / system / standard-library macro (isPlatformMacroName), unless the project itself uses it as a
-  //    configuration macro (some compile command of the workspace sets it, or some indexed file #defines it);
-  //  * no include of the translation unit leads outside the index to a project or third-party header, unless the
-  //    name is one the project controls.
+  // Absence is "not defined" only for a name the project itself mentions: some compile command of the workspace passes
+  // it as -D / -U, or some indexed file #defines / #undefs it. Every other absent name (a system header's MSG_NOSIGNAL,
+  // a generated config.h's HAVE_FOO, a library's feature macro) may be defined by something we did not read: Unknown.
+  if (name.empty() || name[0] == '_' || name.find("__") != std::string::npos) return MacroState::unknown();
   const bool projectMacro =
       (in_.setByFlags && in_.setByFlags(name)) || (in_.definedInWorkspace && in_.definedInWorkspace(name));
-  if (name[0] == '_' || name.find("__") != std::string::npos) return MacroState::unknown();
   if (projectMacro) return MacroState::undefined();
-  if (isPlatformMacroName(name)) return MacroState::unknown();
-  if (in_.foreignIncludes) return MacroState::unknown();
-  return MacroState::undefined();
+  return MacroState::unknown();
 }
 
 MacroState Evaluator::expandBody(const std::string& body, const FileSymbols* f, int line) {

@@ -4,6 +4,7 @@
 #include <algorithm>
 #include <fstream>
 #include <map>
+#include <set>
 
 #include "app/Editor.h"
 #include "semantic/CompileCommands.h"
@@ -66,12 +67,17 @@ const Symbol* symbol(const FileSymbols& f, const std::string& name, size_t* inde
 }
 
 // Is symbol `n` of `f` active in the translation unit made of `files` compiled with `cmd`?
+// `project`: the names the project itself mentions (some command passes them as -D / -U); the default covers the
+// configuration macros the tests below use, none of the system ones.
 Tri activeIn(const CompileCommand* cmd, std::vector<std::shared_ptr<const FileSymbols>> files, const FileSymbols& f,
-             const std::string& n, bool foreign = false) {
+             const std::string& n,
+             std::set<std::string> project = {"LEVEL_9", "LEVEL_3", "LEVEL_1", "MODE_A", "MODE_B", "VERSION",
+                                              "FEATURE_Q", "FEATURE_X", "MODE", "LEVEL", "A", "B", "C", "COND",
+                                              "LATER"}) {
   TuEnv::Input in;
   if (cmd) in.command = macrosOfCommand(*cmd, Host{Host::Os::Linux, Host::Arch::X64});
   in.files = std::move(files);
-  in.foreignIncludes = foreign;
+  in.setByFlags = [project](const std::string& nm) { return project.count(nm) != 0; };
   const TuEnv env(std::move(in));
   Evaluator ev(env);
   size_t idx = 0;
@@ -417,18 +423,6 @@ TEST(fastindex_reachability_distinguishes_angle_and_quoted_includes) {
     if (f->file == fs::path("/w/src/a.cpp")) CHECK(f->angled == std::vector<uint8_t>{1});
     if (f->file == fs::path("/w/src/b.cpp")) CHECK(f->angled == std::vector<uint8_t>{0});
   }
-  // an unreachable include that is not a system header is "foreign"; <vector> is not
-  FastIndex f2;
-  f2.updateFile("/w/m.cpp", "#include <vector>\n#include <stdio.h>\n#include <sys/types.h>\n");
-  bool foreign = true;
-  f2.reachableFrom("/w/m.cpp", {}, {}, 6000, &foreign);
-  CHECK(!foreign);
-  f2.updateFile("/w/m.cpp", "#include <vector>\n#include \"config.h\"\n");
-  f2.reachableFrom("/w/m.cpp", {}, {}, 6000, &foreign);
-  CHECK(foreign);
-  f2.updateFile("/w/config.h", "#define X 1\n");
-  f2.reachableFrom("/w/m.cpp", {}, {}, 6000, &foreign);
-  CHECK(!foreign);
 }
 
 TEST(extract_without_conditionals_adds_nothing) {
@@ -643,14 +637,6 @@ TEST(pp_command_predefined_macros_only_where_certain) {
   CHECK(odd.macros.empty());
 }
 
-TEST(pp_platform_macro_names) {
-  for (const char* n : {"_WIN32", "__linux__", "__GNUC__", "linux", "unix", "assert", "NULL", "INT_MAX", "EINVAL",
-                        "PATH_MAX", "WIN32", "UINT64_MAX", "SIGINT", "M_PI", "O_RDONLY", "CHAR_BIT"})
-    if (!isPlatformMacroName(n)) tftest::fail(__FILE__, __LINE__, std::string(n) + " should be a platform macro name");
-  for (const char* n : {"FEATURE_X", "MY_DEBUG", "HAVE_FOO", "LEVEL_9", "TC_FAST", "ENABLE_LOGGING", "PROPS_DEBUG"})
-    if (isPlatformMacroName(n)) tftest::fail(__FILE__, __LINE__, std::string(n) + " should be a project macro name");
-}
-
 // ---------------------------------------------------------------------------------------------------------------------
 // the translation-unit evaluator
 // ---------------------------------------------------------------------------------------------------------------------
@@ -693,35 +679,56 @@ TEST(pp_tu_value_comparisons_and_chains) {
   CHECK_TRI(run({"-DVERSION=4", "-DMODE_B"}, "vold"), Tri::False);
 }
 
-TEST(pp_tu_absence_is_false_only_where_nothing_else_could_define_it) {
+TEST(pp_tu_absence_is_false_only_for_names_the_project_mentions) {
   auto h = extract("/w/a.h",
                    "#ifdef FEATURE_X\nint with_x();\n#endif\n#ifdef _SOME_RESERVED\nint with_reserved();\n#endif\n"
                    "#ifdef HAVE_UNSEEN\nint with_unseen();\n#endif\n#ifdef linux\nint with_linux();\n#endif\n"
-                   "#ifdef INT_MAX\nint with_intmax();\n#endif\n");
+                   "#ifdef INT_MAX\nint with_intmax();\n#endif\n#ifdef IN_HEADER\nint with_header();\n#endif\n");
   const auto cmd = command({"g++"});
-  // a project macro nothing defines: false
+  // a name the project mentions (a -D / -U of some command) and nothing defines in this unit: Undefined
   CHECK_TRI(activeIn(&cmd, {h}, *h, "with_x"), Tri::False);
-  // reserved, lower-case and standard-library names may come from the compiler or a system header
+  // every other absent name is Unknown, whatever its spelling: a system header or a generated file may define it
   CHECK_TRI(activeIn(&cmd, {h}, *h, "with_reserved"), Tri::Unknown);
+  CHECK_TRI(activeIn(&cmd, {h}, *h, "with_unseen"), Tri::Unknown);
   CHECK_TRI(activeIn(&cmd, {h}, *h, "with_linux"), Tri::Unknown);
   CHECK_TRI(activeIn(&cmd, {h}, *h, "with_intmax"), Tri::Unknown);
-  // an include nobody indexed (a generated config.h, a third-party header) may define anything
-  CHECK_TRI(activeIn(&cmd, {h}, *h, "with_x", /*foreign=*/true), Tri::Unknown);
-  // unless the project's own build sets that very name: then it is a flag-controlled switch
+  // the project's other configuration set it (-DENABLE_PROFILER in Debug only): the Release unit has it Undefined
+  auto prof = extract("/w/prof.h", "#ifdef ENABLE_PROFILER\nint profiler_on();\n#else\nint profiler_off();\n#endif\n");
+  const std::set<std::string> otherConfig{"ENABLE_PROFILER"};
+  const auto release = command({"g++", "-O2"});
+  const auto debug = command({"g++", "-DENABLE_PROFILER"});
+  CHECK_TRI(activeIn(&release, {prof}, *prof, "profiler_on", otherConfig), Tri::False);
+  CHECK_TRI(activeIn(&release, {prof}, *prof, "profiler_off", otherConfig), Tri::True);
+  CHECK_TRI(activeIn(&debug, {prof}, *prof, "profiler_on", otherConfig), Tri::True);
+  CHECK_TRI(activeIn(&release, {prof}, *prof, "profiler_on", {}), Tri::Unknown);  // nobody mentions it
+  // a name that only some indexed project header #defines is a project macro (definedInWorkspace)
   {
     TuEnv::Input in;
     in.command = macrosOfCommand(cmd, Host{Host::Os::Linux, Host::Arch::X64});
     in.files = {h};
-    in.foreignIncludes = true;
-    in.setByFlags = [](const std::string& n) { return n == "FEATURE_X"; };
+    in.definedInWorkspace = [](const std::string& n) { return n == "IN_HEADER"; };
     const TuEnv env(std::move(in));
     Evaluator ev(env);
     size_t i = 0;
-    REQUIRE(symbol(*h, "with_x", &i) != nullptr);
+    REQUIRE(symbol(*h, "with_header", &i) != nullptr);
     CHECK_TRI(ev.armActive(*h, h->armOf(i)), Tri::False);
     REQUIRE(symbol(*h, "with_unseen", &i) != nullptr);
     CHECK_TRI(ev.armActive(*h, h->armOf(i)), Tri::Unknown);
   }
+  // the motivating case: <sys/socket.h> defines MSG_NOSIGNAL, the project never mentions it
+  auto sock = extract("/w/sock.cpp",
+                      "#include <sys/socket.h>\n#ifdef MSG_NOSIGNAL\nstatic int sendFlags() { return MSG_NOSIGNAL; }\n"
+                      "#else\nstatic int sendFlags() { return 0; }\n#endif\n");
+  size_t first = 0, second = 0;
+  for (size_t k = 0; k < sock->symbols.size(); ++k)
+    if (sock->symbols[k].name == "sendFlags") (first ? second : first) = k;
+  TuEnv::Input in;
+  in.command = macrosOfCommand(cmd, Host{Host::Os::Linux, Host::Arch::X64});
+  in.files = {sock};
+  const TuEnv env(std::move(in));
+  Evaluator ev(env);
+  CHECK_TRI(ev.armActive(*sock, sock->armOf(first)), Tri::Unknown);
+  CHECK_TRI(ev.armActive(*sock, sock->armOf(second)), Tri::Unknown);
   // a response file may carry any -D
   const auto rsp = command({"g++", "@flags.rsp"});
   CHECK_TRI(activeIn(&rsp, {h}, *h, "with_x"), Tri::Unknown);
@@ -1107,6 +1114,7 @@ TEST(engine_fast_conditions_follow_the_visual_studio_configuration) {
     return ed.waitFor([&] { return applied; }, 60000);
   };
   REQUIRE(switchTo("Debug|x64"));
+  // Release passes TURBO, so the project mentions it: Debug has it Undefined
   CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
   REQUIRE(switchTo("Release|x64"));
   CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:2");
@@ -1144,7 +1152,8 @@ TEST(engine_fast_answers_follow_macro_definitions_of_the_caret_file) {
   CHECK_EQ(fastDef(ed, p, "m.cpp", 7, "= |LEVEL"), "m.cpp:6");  // the macro is gone: the variable
   CHECK_EQ(fastDef(ed, p, "m.cpp", 9, "= |late"), "m.cpp:8");
   CHECK_EQ(fastDef(ed, p, "m.cpp", 11, "= |late"), "m.cpp:10");  // after the #define the word is the macro
-  CHECK_EQ(fastDef(ed, p, "m.cpp", 16, "= |COND"), "m.cpp:15");  // the #define in the dead #ifdef never ran
+  // NEVER_SET is mentioned by nobody: whether the #define under it ran is not known, both stay
+  CHECK_EQ(fastDef(ed, p, "m.cpp", 16, "= |COND"), "m.cpp:13,m.cpp:15");
 }
 
 TEST(engine_fast_answers_see_forced_includes_and_flag_values) {
@@ -1179,4 +1188,89 @@ TEST(engine_fast_answers_see_forced_includes_and_flag_values) {
   CHECK_EQ(fastDef(ed, p, "use.cpp", 10, "= |branch()"), "use.cpp:1");
   CHECK_EQ(fastDef(ed, p, "use.cpp", 10, "+ |chain()"), "use.cpp:6");
   CHECK_EQ(fastDef(ed, p, "plain.cpp", 5, "= |other()"), "plain.cpp:3");  // no forced include in this unit
+}
+
+TEST(engine_fast_answers_keep_both_branches_of_a_system_header_macro) {
+  Project p("tenfold_pp_strict");
+  p.write("net.cpp",
+          "#include <sys/socket.h>\n"                          // 0
+          "#ifdef MSG_NOSIGNAL\n"                              // 1
+          "static int sendFlags() { return MSG_NOSIGNAL; }\n"  // 2
+          "#else\n"                                            // 3
+          "static int sendFlags() { return 0; }\n"             // 4
+          "#endif\n"                                           // 5
+          "int use = sendFlags();\n"                           // 6
+          "#ifdef ENABLE_PROFILER\n"                           // 7
+          "int prof() { return 1; }\n"                         // 8
+          "#else\n"                                            // 9
+          "int prof() { return 0; }\n"                         // 10
+          "#endif\n"                                           // 11
+          "int up = prof();\n");                               // 12
+  p.write("other.cpp", "int x;\n");
+  // the build passes -DENABLE_PROFILER for another unit only: the project mentions the name, this unit lacks it
+  p.commands({{"net.cpp", {"-O2"}}, {"other.cpp", {"-DENABLE_PROFILER"}}}, "g++");
+  Editor ed(p.root, noClangd());
+  std::string err;
+  REQUIRE(ed.start(&err));
+  CHECK(ed.semantic().waitForFastIndex(10000));
+  CHECK_EQ(fastDef(ed, p, "net.cpp", 6, "= |sendFlags()"), "net.cpp:2,net.cpp:4");
+  CHECK_EQ(fastDef(ed, p, "net.cpp", 12, "= |prof()"), "net.cpp:10");
+}
+
+TEST(engine_fast_conditions_know_the_flags_of_every_visual_studio_configuration) {
+  Project p("tenfold_pp_allcfg");
+  p.write("app.sln",
+          "\nMicrosoft Visual Studio Solution File, Format Version 12.00\n"
+          "Project(\"{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}\") = \"app\", \"app.vcxproj\", "
+          "\"{CCCCCCCC-0000-0000-0000-000000000001}\"\nEndProject\nGlobal\n"
+          "\tGlobalSection(SolutionConfigurationPlatforms) = preSolution\n"
+          "\t\tDebug|x64 = Debug|x64\n\t\tRelease|x64 = Release|x64\n\tEndGlobalSection\n"
+          "\tGlobalSection(ProjectConfigurationPlatforms) = postSolution\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Debug|x64.ActiveCfg = Debug|x64\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Debug|x64.Build.0 = Debug|x64\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Release|x64.ActiveCfg = Release|x64\n"
+          "\t\t{CCCCCCCC-0000-0000-0000-000000000001}.Release|x64.Build.0 = Release|x64\n"
+          "\tEndGlobalSection\nEndGlobal\n");
+  p.write("turbo.props",
+          "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+          "<Project xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
+          "  <ItemDefinitionGroup Condition=\"'$(Configuration)'=='Release'\"><ClCompile>\n"
+          "    <PreprocessorDefinitions>TURBO;%(PreprocessorDefinitions)</PreprocessorDefinitions>\n"
+          "  </ClCompile></ItemDefinitionGroup>\n</Project>\n");
+  p.write("app.vcxproj",
+          "<?xml version=\"1.0\" encoding=\"utf-8\"?>\n"
+          "<Project DefaultTargets=\"Build\" xmlns=\"http://schemas.microsoft.com/developer/msbuild/2003\">\n"
+          "  <ItemGroup Label=\"ProjectConfigurations\">\n"
+          "    <ProjectConfiguration Include=\"Debug|x64\"><Configuration>Debug</Configuration>"
+          "<Platform>x64</Platform></ProjectConfiguration>\n"
+          "    <ProjectConfiguration Include=\"Release|x64\"><Configuration>Release</Configuration>"
+          "<Platform>x64</Platform></ProjectConfiguration>\n"
+          "  </ItemGroup>\n"
+          "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.Default.props\" />\n"
+          "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.props\" />\n"
+          "  <Import Project=\"turbo.props\" />\n"
+          "  <ItemGroup><ClCompile Include=\"main.cpp\" /></ItemGroup>\n"
+          "  <Import Project=\"$(VCTargetsPath)\\Microsoft.Cpp.targets\" />\n"
+          "</Project>\n");
+  p.write("speed.h",
+          "#pragma once\n#ifdef TURBO\ninline int speed() { return 2; }\n#else\ninline int speed() { return 1; "
+          "}\n#endif\n");
+  p.write("main.cpp", "#include \"speed.h\"\nint main() { return speed(); }\n");
+  Editor ed(p.root, noClangd());
+  std::string err;
+  REQUIRE(ed.start(&err));
+  CHECK(ed.semantic().waitForFastIndex(10000));
+  auto switchTo = [&](const char* name) {
+    bool applied = false;
+    std::string e;
+    if (!ed.selectVsConfiguration(name, &e, [&] { applied = true; })) return false;
+    return ed.waitFor([&] { return applied; }, 60000);
+  };
+  // TURBO is passed in Release only, but the project mentions it: in Debug it is Undefined (one branch)
+  REQUIRE(switchTo("Debug|x64"));
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
+  REQUIRE(switchTo("Release|x64"));
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:2");
+  REQUIRE(switchTo("Debug|x64"));
+  CHECK_EQ(fastDef(ed, p, "main.cpp", 1, "return |speed()"), "speed.h:4");
 }

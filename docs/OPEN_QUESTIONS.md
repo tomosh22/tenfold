@@ -27,6 +27,20 @@ decided by the user). Each has a default we implement until answered.
 | 20 | What do `InsertPrevAutocomplete` (`Shift F14`) and `InsertNextAutocomplete` (`F14`) do? | **Answered, implemented (W12-CMD)** from 10x's changelog https://10xeditor.com/versions.htm: 1.0.182 "added InsertPrevAutocomplete and InsertNextAutocomplete commands to insert the next autocomplete without the dropdown (F14, shift+F14)"; later "InsertNextAutocomplete now submits autocomplete dropdown if it's visible" and "fixed InsertNextAutocomplete getting into weird state if used with Autocomplete enabled"; the same era added `AutocompletePrev/Next/PageUp/PageDown` "to allow remapping". (An earlier note here said 10xeditor.com was unreachable; it is reachable through the proxy with curl.) **Still unverified:** Shift+F14 while the list is visible (tenfold: nothing), wrap versus clamp when cycling (tenfold: wrap), undo grouping (tenfold: one step per cycle), multiple carets (tenfold: not handled), and that the candidates are the dropdown's ranked list (assumed) | W12-CMD |
 
 
+## User decisions of 2026-11-08
+
+* **Absent macros in the fast tier's `#if` evaluation (W12-FAST-PP-STRICT).** A macro name that is not in the
+  translation unit's command line and macro state is treated as **not defined** only when the project itself mentions
+  the name: a `-D` / `-U` in **any** configuration's compile commands (every configuration and platform of the Visual Studio solutions, not only the active one) or an indexed file `#define`s it (`-DENABLE_PROFILER` in Debug only makes it not defined in Release) (and the
+  database comes from the build and the command is complete). Every other absent name is **unknown**, whatever its
+  spelling and whether or not the unit has unindexed includes, so both branches stay in the fast answer. Example:
+  `#include <sys/socket.h>` then `#ifdef MSG_NOSIGNAL static int sendFlags() { return MSG_NOSIGNAL; } #else static int
+  sendFlags() { return 0; } #endif`: `MSG_NOSIGNAL` comes from the system header, which tenfold did not read, so the
+  fast answer offers both definitions and clangd decides. Rejected: the first version's list of platform / standard
+  library macro names plus an "unindexed include" flag (it guessed; a missed name hid the right definition). Cost: none in the corpora (every
+  switch they use is passed by some configuration, agreement stays 83.2 %, `docs/STRESS_RESULTS.md`,
+  "W12-FAST-PP-STRICT"); the active-configuration-only variant would have cost 50 lines. See `docs/ARCHITECTURE.md`, "Preprocessor conditionals in the fast tier".
+
 ## User decisions of 2026-11-06 (these override the defaults written further down)
 
 * **Characters the file's encoding cannot hold:** show the user the character(s) (each one, with its line and column and
