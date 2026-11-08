@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cctype>
 #include <climits>
+#include <cstdint>
 #include <vector>
 
 namespace tf::pp {
@@ -100,9 +101,8 @@ Value parseNumber(std::string_view t) {
     const int d = digitValue(s[i]);
     // a hex digit letter is never a suffix; in the other bases the first letter ends the digits
     if (d >= base) break;
-    if (__builtin_mul_overflow(v, static_cast<uint64_t>(base), &v) ||
-        __builtin_add_overflow(v, static_cast<uint64_t>(d), &v))
-      overflow = true;
+    if (v > (UINT64_MAX - static_cast<uint64_t>(d)) / static_cast<uint64_t>(base)) overflow = true;
+    else v = v * static_cast<uint64_t>(base) + static_cast<uint64_t>(d);
     ++digits;
   }
   if (digits == 0 && !(base == 8 && s == "0")) {

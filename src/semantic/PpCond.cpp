@@ -688,7 +688,8 @@ MacroState Evaluator::macroAt(const std::string& name, const FileSymbols* f, int
   const auto* evs = env_.eventsOf(name);
   const std::string* flagBody = st.kind == Kind::Defined ? env_.flagBody(name) : nullptr;
   if (!pre && !evs && !flagBody) return st;
-  if (depth_ >= 8) return MacroState::unknown();
+  budget_ -= 1 + static_cast<int>((evs ? evs->size() : 0) + (pre ? pre->size() : 0));
+  if (depth_ >= 8 || budget_ < 0) return MacroState::unknown();  // cycles, or a pathological pile of directives
   ++depth_;
   if (flagBody) st = expandBody(*flagBody, f, line);
   if (pre) {

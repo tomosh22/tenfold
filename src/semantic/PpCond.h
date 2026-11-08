@@ -125,6 +125,7 @@ class Evaluator {
   MacroState expandBody(const std::string& body, const FileSymbols* f, int line);
   const TuEnv& env_;
   int depth_ = 0;
+  int budget_ = 200000;  // directive replays per session; beyond it every macro with directives is Unknown
   struct Key {
     const FileSymbols* f;
     uint32_t arm;
