@@ -37,10 +37,10 @@ yet · ⬜ not started · — excluded by the user
 | Feature | Status | Notes |
 |---|---|---|
 | Go to definition / declaration | ✅ | VS-NAV: on an `#include` line F12 / Ctrl+F12 / the 10x middle-click open the file (Visual Studio's Go To Document): the includer's directory, then the compile command's `-iquote` / `-I` / `-isystem` directories; exact and instant. |
-| Go to type definition / implementation | ✅ | |
+| Go to type definition / implementation | 🔶 | Engine only (`Editor::gotoTypeDefinition`, `findImplementations`, used by the corpus runner). There is no GUI command and no CLI command for either; in C++ Visual Studio has no Go To Implementation either (VS_BEHAVIOUR N8). |
 | Find references | ✅ | VS-NAV: the list is grouped (Definition, then one heading per file), with Line:Col, the source line and Read / Write / Definition / Other (from the line's text). Not done: Group by menu, scope list, filter, Keep Results, incremental results. |
 | Symbol search (workspace, fuzzy, qualified `a::b`) | ✅ | Workspace symbols rank before system headers. GUI picker (B5a, Ctrl+,): approximate results greyed with "verifying...", swapped for the authoritative ones keeping the selection, target-line preview (`picker.preview`, **verify** with 10x; VS-NAV: a "Preview: on/off" switch in the header, Alt+P), Enter records a navigation jump. The fast tier runs on its own thread (A10): 1-12 ms in-process on Godot under load, and `findSymbols` returns at once (BENCHMARKS.md, A10). |
-| Document outline | ✅ | `documentSymbols` |
+| Document outline | 🔶 | `Editor::documentSymbols` (fast index first, clangd's list replaces it) feeds the `FindFunction` picker (Alt M). There is no outline panel. |
 | Autocomplete | ✅ | clangd, detailed style; approximate fallback (greyed). GUI (B5b): popup at the caret, `.` `->` `::` and 2+ identifier characters, client-side fuzzy filter, docs pane, Tab / Enter accept as one undo step. |
 | Signature help | ✅ | GUI (B5b): on `(` / `,`, active parameter highlighted, follows commas locally, Escape / `)` closes. |
 | Hover / quick info | ✅ | GUI (B5b): 400 ms dwell, diagnostics first, approximate text greyed. |
@@ -78,10 +78,10 @@ yet · ⬜ not started · — excluded by the user
 | Settings as text file | ✅ | Mechanism done (B7): layered `settings.txt` with typed keys, diagnostics, hot reload. **verify** 10x's `Settings.10x_settings` keys for an importer. |
 | Local diagnostic log (no telemetry) | ✅ | D3: `.tenfold/log.txt` (user data dir without a workspace), 5 MB x 3 files, `TENFOLD_LOG=debug`, `tenfold-cli log <root> [--tail N]`, `Editor::logFilePath()`. A log viewer / "Open log" menu entry is not built yet. See ARCHITECTURE "Local log file". |
 | Compile-command diagnostics | ✅ | D4: `Editor::compileCommandInfo(file)` (source of the compile database, active Visual Studio configuration, the file's exact argv or the fallback flags, whether clangd has the file open and parsed), `tenfold-cli why <root> <file>`, and the `Help.ShowCompileCommand` command (read-only popup; no default key). See ARCHITECTURE "Compile-command diagnostics". |
-| clangd visibility, command palette | ✅ | P2: the status bar shows the engine's clangd text ("clangd restarting (2)...", "clangd stopped: crashed 5 times") and `flags: heuristic` (click: `Help.ShowCompileCommand`); `Clangd.Restart`; `App.CommandPalette` (Ctrl+Shift+X, 10x's `ShowCommandPanel`) lists every runnable command with its key and filters fuzzily, which also reaches the commands that have no key (`Vcs.*`, `Debug.OpenInVisualStudio`, ...). |
+| clangd visibility, command palette | ✅ | P2: the status bar shows the engine's clangd text ("clangd restarting (2)...", "clangd stopped: crashed 5 times") and `flags: heuristic` (click: `Help.ShowCompileCommand`); `Clangd.Restart`; `App.CommandPalette` (Ctrl+Shift+X, 10x's `ShowCommandPanel`) lists every runnable command with its key and filters fuzzily, which also reaches the commands that have no key (`Vcs.*`, `Build.SelectConfiguration`, ...). |
 | User guide | ✅ | D4: `docs/USER_GUIDE.md`; its settings table is checked against `assets/settings.default.txt` by a test (`user_guide_settings_table_matches_the_default_settings_file`). |
 | Build integration (run command, parse errors, jump) | ✅ | W8e: `RebuildActiveWorkspace` (Control Alt F7: `msbuild /t:Rebuild`, `cmake --build --clean-first`, `make clean && make`, or the `rebuildCommand` workspace setting) and `BuildCurrentFile` (Control F7: `msbuild <project> /t:ClCompile /p:SelectedFiles=<file>`, `ninja -C <dir> <object>`, or the file's compile database command) run in the same panel with the same error navigation. Engine (C1): `Editor::build/cancelBuild/nextBuildMessage/prevBuildMessage/buildDiagnostics`, `tenfold-cli build`. UI (C1-UI): resizable bottom dock with a streaming Build panel (clickable, severity-coloured lines, Build/Cancel, status), Ctrl+Shift+B / Ctrl+Break / F4 / Shift+F4, build squiggles + scrollbar marks + hover, status bar segment. All jumps go through `gotoLocation`. See ARCHITECTURE "Build panel and bottom dock". |
-| Debugger integration | ✅ | Visual Studio debugger through EnvDTE (OPEN_QUESTIONS #9). Engine (C2a): breakpoints that follow edits (`.tenfold/breakpoints.json`), `DebugSession` worker with two-way breakpoint sync and follow-current-statement. Backend (C2b): late-bound COM EnvDTE, finds the VS instance with the solution via the ROT or launches devenv, run/step/break/run-to-cursor, breakpoint sync, current statement; verified against Visual Studio 2022 in the blocking `windows-vs-debugger` CI job (launch, breakpoint hit, step, VS-side breakpoint, stop). UI (C2c): breakpoint glyph lane (click toggles; disabled / conditional shapes), current-statement arrow and line band, `Debug.*` commands on Visual Studio keys (F5, F9, F10, F11, …), breakpoint list (Ctrl+Alt+B, `ListBreakpoints`), debugger status segment and orange status bar while debugging. `Debug.OpenInVisualStudio` (no default key) opens the current file at the caret in Visual Studio. The backend exists on Windows only (elsewhere: "no debugger backend on this platform"). |
+| Debugger integration | ✅ | Visual Studio debugger through EnvDTE (OPEN_QUESTIONS #9). Engine (C2a): breakpoints that follow edits (`.tenfold/breakpoints.json`), `DebugSession` worker with two-way breakpoint sync and follow-current-statement. Backend (C2b): late-bound COM EnvDTE, finds the VS instance with the solution via the ROT or launches devenv, run/step/break/run-to-cursor, breakpoint sync, current statement; verified against Visual Studio 2022 in the blocking `windows-vs-debugger` CI job (launch, breakpoint hit, step, VS-side breakpoint, stop). UI (C2c): breakpoint glyph lane (click toggles; disabled / conditional shapes), current-statement arrow and line band, `Debug.*` commands on Visual Studio keys (F5, F9, F10, F11, …), breakpoint list (Ctrl+Alt+B, `ListBreakpoints`), debugger status segment and orange status bar while debugging. `Debug.OpenInVisualStudio` (10x's `OpenCurrentFileInDebugger`, Alt X) opens the current file at the caret in Visual Studio. The backend exists on Windows only (elsewhere: "no debugger backend on this platform"). |
 | Version control (Perforce / Git) | ✅ | OPEN_QUESTIONS #10. Engine and Git (C3a): provider interface, `git` status / base text / revert, Myers line diff, debounced off-thread hunks, revert file / hunk. Perforce (C3b, tested against a fake `p4` only): auto-checkout on first edit (`p4 edit`), fstat status, `print #have` base, revert, `vcs.provider` workspace setting, clear read-only save error. UI (C3c): change strip between line numbers and text and scrollbar change marks, inline diff block under a hunk (revert hunk, close, Escape), `Vcs.NextChange` / `PrevChange` / `ToggleInlineDiff` / `RevertHunk` / `RevertFile` (confirmation) / `DiffFileExternal` (p4merge or `vcs.diffTool`) / `RefreshStatus` / `CheckOut`, tab markers, status-bar segment ("Git: modified", "P4: checked out"), errors in the status bar, refresh on window focus. Keys: 10x's `Control P, Control E` / `Control P, Control D` / `Control P, Control R` (check out, external diff, revert file); the change commands have no key. VS-VCS (VS_BEHAVIOUR section 4): P4VS badges on explorer rows and tabs (checked out, opened for add, not in the depot, newer revision, needs resolve), `perforce.promptOnEdit` (ask "Check out?" on the first edit, off by default), a PerforceHistory action menu (Open, Diff against previous, Diff against have). Not done: verification against a real Perforce server, blame, commit / stage UI, side-by-side diff. |
 | Python scripting API | — | Excluded by the user (OPEN_QUESTIONS #11). |
 | Unreal Engine awareness | ⬜ | `.uproject` → generate compile commands; UE macros are handled by clangd automatically. |
@@ -107,7 +107,7 @@ those without a tenfold command have an empty target).
 
 Where a mapped command is only close to the 10x one, the alias table carries a note (shown in the user guide): the
 move-line keys also move every line of a selection, `DuplicateLine` duplicates a selection instead of the line,
-`ToggleComment` never switches to block comments, `OpenFile` and `FindFile` both open
+`ToggleComment` follows `editor.commentBlockUsesLineComments` for a selection (default: line comments), `OpenFile` and `FindFile` both open
 tenfold's fuzzy file picker, `ShowSwitchPanelPanel` is the recent-documents switcher, `Search` / `FindInFiles` are one
 find-in-files picker (`NewSearchPanel` keeps up to three earlier result lists in it; there are no separate result panels, so
 the `ShowFindInFilesResults1-4` commands stay open), `ListBreakpoints` opens the breakpoint picker instead of writing to the output panel.
@@ -137,8 +137,13 @@ Shift variants are separate chords (`SelectUp` ...). Remapping `AutocompleteDown
 
 ### Commands without a default key that tenfold does not implement either
 
-(10x commands that are in Commands but have no entry in the default key map; they also resolve to `not implemented yet:`
-when bound in a key file.)
+118 of the 307 10x commands (the rows of `CommandNames.cpp` with an empty target; the other 189 rows map to 186 tenfold
+commands, `Search` / `FindInFiles`, `PerforceRevert` / `GitRestore` and `FindFile` / `OpenFile` pairs sharing one). None
+of the 118 has an entry in the default key map; they resolve to `not implemented yet:` when bound in a key file.
+Thirteen implemented 10x commands have no default key either: `RemoveAllBreakpoints`, `CopyActiveFilePath`,
+`ShowInWorkspaceTreeWithToggle`, `ClaudeCodeTerminal`, `CursorTerminal`, `CollapseAllRegions`, `ExpandAllRegions`,
+`CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`, `CloseAllOtherTabs`, `CloseAllButPinnedTabs`, `PinTab`,
+`TogglePinTab` (tenfold's own commands without a key are listed in the user guide, "Key bindings").
 
 - **File**: `SaveFileAs`, `CloseAll`, `ToggleReadOnly`
 - **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
@@ -158,6 +163,7 @@ when bound in a key file.)
 - **SVN**: `SVNDiff`, `SVNAdd`, `SVNUpdateFile`, `SVNUpdateWorkspace`
 - **Git**: `GitDiff`, `GitAdd`, `GitBlame`
 - **Misc**: `ListCommands`, `Update`, `ToggleFPS`, `ListWorkspaceFiles`, `ListFileStatusMonitorFiles`, `LogMemory`, `LogMemoryStats`, `CheckParserIntegrity`
+
 ## Find in files options not supported
 
 Source: 10x's WorkspaceSearch documentation. tenfold's find-in-files is a text search of the workspace files (one query
@@ -212,8 +218,16 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `editor.confirmUnsaved` | RestoreUnsavedFiles (false) | with false 10x prompts to save |
 | `editor.wordWrap` | WordWrap (false) | tenfold true by decision (OPEN_QUESTIONS #4) |
 | `editor.smoothScroll` | SmoothScroll (true) | tenfold false by decision (#4) |
-| `font.editor`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7). ZoomIn / ZoomOut (and Control + wheel, `editor.mouseWheelZoom`) add to the size of the editor text for the session only (VS-EDIT; tabs, status bar and menus keep their size, the status bar shows "N %") UI font |
-| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile` (named `Untitled N`, or `TextFileN.txt` with `editor.textFileNames`, VS-EDIT Z14); new files take `editor.defaultEncoding` (DefaultEncoding; UTF-8 default; also `utf-8-bom`, `utf-16le`, `utf-16be`, `windows-1252`) |
+| `font.editor`, `font.fallbacks`, `font.size` | EditorFont, EditorFontSize (JetBrains Mono NL Medium, 12) | Visual Studio font by decision (#7): `font.editor` empty tries `font.fallbacks` (`Cascadia Mono, Consolas`), size 10. ZoomIn / ZoomOut (and Control + wheel, `editor.mouseWheelZoom`) add to the size of the editor text for the session only (VS-EDIT; tabs, status bar and menus keep their size, the status bar shows "N %") |
+| `editor.defaultLineEnding` | DefaultLineEnding (CRLF) | line ending of `NewTextFile` (named `Untitled N`, or `TextFileN.txt` with `editor.textFileNames`, VS-EDIT Z14) |
+| `editor.defaultEncoding` | DefaultEncoding (UTF-8) | encoding of new files: `utf-8`, `utf-8-bom`, `utf-16le`, `utf-16be`, `windows-1252` (VS-ENC); Shift_JIS and other code pages are not supported |
+| `editor.mouseWheelZoom` | MouseWheelZoom (true) | Control + wheel zooms the editor text, like `ZoomIn` / `ZoomOut` |
+| `editor.commentBlockUsesLineComments` | CommentBlockUsesLineComments (true) | `ToggleComment` with a selection: `//` per line (false: `/* */` around the selection) |
+| `explorer.trackActiveFile` | TrackActiveFileInWorkspaceTree (false) | |
+| `explorer.dragDrop` | EnableWorkspaceTreeDragDrop (true) | VS-TREE: dragging moves a file or folder after a confirmation (`explorer.promptBeforeMoving`), Ctrl copies |
+| `terminal.command`, `terminal.claudeCommand`, `terminal.cursorCommand` | TerminalCommand (`cmd.exe`), ClaudeTerminalCommand (`claude`), CursorTerminalCommand (`cmd /c agent`) | tenfold's `terminal.command` is empty by default (PowerShell on Windows, `$SHELL` elsewhere, VS-TERM); off Windows `cmd.exe` means `$SHELL` and a leading `cmd /c` is dropped |
+| `terminal.font`, `terminal.fontSize` | TerminalFont, TerminalFontSize | empty / 0 = the editor font and size |
+| `debug.visualStudioSync` (`workspace.json`) | VisualStudioSync (true) | `false`: no breakpoint or configuration sync and no attach at startup |
 | `editor.copyLineWhenEmpty`, `editor.copyBlankLines` | (none) | VS-EDIT Z4: Visual Studio's two options for Copy / Cut without a selection (both true) |
 | `editor.useEditorConfig` | (none) | VS-EDIT Z19 (default off, unverified): save honours `.editorconfig` `trim_trailing_whitespace` / `insert_final_newline` |
 | `editor.textFileNames` | (none) | VS-EDIT Z14 (default off, unverified): `NewTextFile` is named `TextFileN.txt` |
@@ -223,7 +237,7 @@ and a `.10x_user_settings` file for the user; a removed setting reads as the emp
 | `vcs.diffTool` | DiffExe (auto) | |
 | `perforce.promptOnEdit` | (none) | VS-VCS VC5 (default off): P4VS asks "Check out?" before the first edit; 10x auto-checks out |
 
-No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTrailingWhitespace` (10x documents none),
+No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTrailingWhitespace` (10x documents none), `editor.autoCloseQuotes`, `editor.copyLineWhenEmpty`, `editor.copyBlankLines`, `editor.useEditorConfig`, `editor.textFileNames`, `editor.inlayHints`, `editor.pasteHistorySize`, `editor.replicateNewLine`, `editor.pasteKeepsLineBreaks`, `editor.checkLineEndings`, `editor.autoDetectUtf8`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `outline.enabled`, `outline.pragmaRegions`, `outline.statementBlocks`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `keys.import10x`, `picker.preview`, `diagnostics.miscFiles`, `explorer.openWithSolution`, `explorer.promptBeforeMoving`, `vcs.diffToolArgs`, `vcs.p4vPath`, `terminal.scrollbackLines`, `terminal.closeOnExit`, `terminal.ctrlCCopiesSelection`; in `workspace.json`: `debug.attachAtStartup`, `rebuildCommand`, `undoGrouping`, `undoGroupPauseMs`.
 `editor.autoCloseQuotes`, `editor.copyLineWhenEmpty`, `editor.copyBlankLines`, `editor.useEditorConfig`, `editor.textFileNames`, `editor.reloadExternalChanges`, `editor.detectExternalChanges`, `editor.reloadUnlessUnsaved`, `tabs.previewTab`, `tabs.previewFromFindResults`, `nav.statusCounts`, `picker.preview`, `diagnostics.miscFiles`, `vcs.diffToolArgs`.
 
 ### Editing
@@ -257,7 +271,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | ShowLineEndings | false | Draw line endings | S |
 | ShowIndentGuideLines | true | Draw indent guides | M |
 | AllowEditingOfReadOnlyFiles | true | Edit read-only files | S. Relates to Perforce auto-checkout (C3b) |
-| DefaultEncoding | UTF-8 | Encoding of new files | Done (VS-ENC) as `editor.defaultEncoding` for UTF-8, UTF-8 with BOM, UTF-16 LE/BE and Windows-1252; Shift_JIS and other code pages are not supported |
 
 ### Navigation, find and view
 
@@ -279,7 +292,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | ShowBreakpointsInScrollBar, ShowBookmarksInScrollBar | false, false | Breakpoint and bookmark marks in the scroll bar | S |
 | SmoothScrollSpeed | 50 | Speed of smooth scrolling | S |
 | VerticalMouseWheelSensitivity, HorizontalMouseWheelSensitivity | 1.0, 1.0 | Wheel scaling | S |
-| MouseWheelZoom | true | Ctrl+wheel zooms the font | ✅ VS-EDIT: `editor.mouseWheelZoom` (default true); zooms only the editor text, like `ZoomIn` / `ZoomOut` |
 | ControlClickGotoDefinition | true | Ctrl+click goes to definition | S. Check the existing click behaviour |
 | HideHoverBoxOnKeyPress, ShowSymbolHoverBoxOnMouseOver, EnableFunctionInfoHoverBox | true, true, true | Hover box and function-argument box behaviour | S. Hover and signature help exist without switches |
 | HideMouseCursorWhileTyping | false | Hide the pointer while typing | S |
@@ -307,7 +319,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | WindowTitle, WorkspaceTextInTitleBar, RememberWindowPosition | Name, Name, true | Window title and position | S each |
 | HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt (and the secondary-menu variants) | false, true, true | Menu bar visibility | Needs a menu bar |
 | AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert | true, false, true | Floating tool windows | Skipped unless tool windows float |
-| EnableWorkspaceTreeDragDrop | true | Drag and drop in the workspace tree | Done (VS-TREE): `explorer.dragDrop`; dragging moves a file or folder after a confirmation (`explorer.promptBeforeMoving`), Ctrl copies; the tree also has New File / New Folder / Rename / Delete / Properties, type-ahead, Solution / Folder view, Show All Files and a saved expansion state (USER_GUIDE "Workspace explorer", VS_BEHAVIOUR section 11) |
 
 ### Workspace search
 
@@ -357,7 +368,6 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | OutputPanelWarningRegex, OutputPanelErrorRegex | `\[warning\]`, `\[error\]` | Regexes for output panel lines | S |
 | SyncDebugLine | true | Follow the debugger's current line | S. Behaviour exists (C2c) |
 | ToggleBreakpointsWithMouse | true | Click in the margin toggles a breakpoint | S. Behaviour exists |
-| VisualStudioSync | true | Sync breakpoints and configuration with Visual Studio | S. Breakpoints sync both ways (C2); a switch could be added |
 | VisualStudioEnvBat, VisualStudioInstallPath | auto, default | Where the VS build environment comes from | M. tenfold discovers MSVC itself (A2) |
 | DebuggerExe | (empty) | A debugger other than Visual Studio | Out of scope (OPEN_QUESTIONS #9) |
 | SourceControl | Perforce | Which provider is used | S. tenfold detects Git / Perforce |

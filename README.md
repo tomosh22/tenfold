@@ -18,7 +18,12 @@ that 10x gets wrong while keeping everything else it gets right:
    `auto`, typedef chains, explicit specialisations, `decltype`, overloads,
    overrides and macro-generated members all resolve exactly, because they
    are resolved by the compiler. Approximate answers are only ever shown
-   while clangd is still thinking, and they are labelled as such.
+   while clangd is still thinking (or is not running), and they are labelled
+   as such. The fast tier is scope-aware (namespace and class chain, receiver
+   type, argument count, include graph, locals) and follows `#if` / `#ifdef`
+   branches by the compile command's defines; its first answer equals clangd's
+   in about 83% of the `def` / `decl` lines of the 36 stress corpora
+   (`docs/STRESS_RESULTS.md`).
 
 The repository holds the UI-agnostic engine (`src/core`, `src/nav`, `src/lsp`, `src/semantic`, ...), a headless
 front end (`tenfold-cli`) and the graphical editor `tenfold-ui` (SDL3, OpenGL 3.3 or Direct3D 11 on Windows, FreeType).
@@ -45,11 +50,12 @@ still works in approximate mode.
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
 ./build/tenfold-tests            # engine tests, including clangd integration (719 on Linux)
+./build/tenfold-corpus-tests     # the stress corpora against the real engine and clangd (3 tests; not part of ctest)
 ```
 
 CI / presets: `CMakePresets.json` mirrors the CI matrix, so
 `cmake --preset release && cmake --build --preset release && ctest --preset release`
-works locally (also `debug`, `asan`, and on Windows `msvc` / `clang-cl` from a VS developer prompt).
+works locally (also `debug`, `asan`, `tsan`, and on Windows `msvc` / `clang-cl` from a VS developer prompt).
 GitHub Actions (`.github/workflows/ci.yml`) builds gcc, clang, clang ASan+UBSan, MSVC,
 clang-cl and AppleClang, and adds jobs for ThreadSanitizer, the corpora, the UI (Linux under Xvfb, Windows with Direct3D 11),
 the Visual Studio debugger, fuzzing and packages; `clang-format --dry-run --Werror` runs on changed C++ files only. The
@@ -188,15 +194,24 @@ interactive after 1.9 s cold and 0.33 s warm, the fast index takes 1.2 s cold, a
 
 Done and tested: text model, navigation history, LSP client and clangd integration (definition, declaration, type
 definition, implementation, references, hover, completion, signature help, document/workspace symbols, rename,
-diagnostics, source/header switch, quick fixes and refactorings, call and type hierarchy, inlay hints), fast index, compile-command discovery and generation (including Visual Studio
+diagnostics, source/header switch, quick fixes and refactorings, call and type hierarchy, inlay hints; type definition and
+implementation are engine-level only, there is no GUI command for them), fast index (scope-aware, `#if`-aware), compile-command discovery and generation (including Visual Studio
 solutions), workspace scanning and watching, editor model, CLI, the graphical editor (GPU text rendering, tabs, split
-panels, 10x key bindings and command palette, pickers, find and replace, settings and themes), Windows support
+panels, 10x key bindings and command palette, pickers, find and replace, code folding, workspace explorer, terminal
+panel, context menus, settings and themes), Windows support
 (process spawning, Direct3D 11, ConPTY terminal), build integration, the Visual Studio debugger, Git and Perforce
 integration, and packages with a bundled clangd.
 
-Dropped by decision: scripting (the Python API is not used). Not done yet: Unreal Engine awareness, some 10x commands and settings. See
-[`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) for the full list and
-[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) section 9 for what is next.
+Dropped by decision: scripting (the Python API is not used). Not done yet (the "next" row of
+[`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) section 9):
+
+* Unreal Engine awareness (`.uproject`).
+* 118 of 10x's 307 commands (none of them has a default key; pressing a key bound to one says `not implemented yet`),
+  and many 10x settings. [`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) has both lists.
+* Workarounds for clangd answer gaps (for example no "add `#include`" fix for `std::` names with the MSVC STL), and a
+  fast tier that resolves overloads by argument type, alias chains and names declared through macro arguments.
+* W9i, the editor-level stress run on the largest generated projects (scripted UI sessions measured against the frame
+  budget).
 
 More documentation: [`docs/USER_GUIDE.md`](docs/USER_GUIDE.md), [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md),
 [`docs/TESTING.md`](docs/TESTING.md), [`docs/OPEN_QUESTIONS.md`](docs/OPEN_QUESTIONS.md) (decisions) and
