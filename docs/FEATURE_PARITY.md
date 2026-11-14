@@ -23,6 +23,7 @@ yet · ⬜ not started · — excluded by the user
 |---|---|---|
 | Open a folder as a workspace | ✅ | `Workspace::scan`, ignore rules, extension filters. |
 | Open a solution the way Visual Studio does (SLN-OPEN) | ✅ | `tenfold-ui Game.sln` / `.slnx` (the workspace is the solution's folder, that solution is THE solution, stored as `"solution"` in `workspace.json`); File > Open > Project/Solution on **Control Shift O** (`OpenSolution`, native SDL3 dialog), `OpenFolder`, Recent Projects and Solutions (`File.RecentSolutions`, 10 entries), drag and drop, and an in-process switch with the save prompt (VS_BEHAVIOUR section 16). Not done: Close Solution / `CloseWorkspace`, `.10x` workspaces, start-up "most recent solution", files of projects outside the solution folder in the scan (OPEN_QUESTIONS). |
+| Menu bar: File, Edit, View (MENUBAR) | ✅ | Visual Studio 2022's dark look; click, hover-switch, Alt tap, Alt+F / E / V (off for a chord the key file binds), arrows; live key texts, greyed disabled items; Open Solution... under File. 10x's `HideMainMenu` / `ShowMainMenuOnMouseHover` / `ToggleMainMenuOnAlt` are `menu.*` settings. No other menus (Build, Debug, Window, Help) yet. |
 | Open a Visual Studio `.sln` / `.vcxproj` | ✅ | C5: projects enumerated; compile flags evaluated like MSBuild passes them to `cl.exe` per file and configuration (defines/undefines, implicit `_WIN32`/`_DEBUG`/`_DLL`/`_MT`/`UNICODE`/`_MBCS`, include / external include dirs, forced includes, pch, standards, `/permissive-`, `/EH`, `/GR-`, runtime library, `CompileAs`, per-file metadata, `ExcludedFromBuild`, property sheets, `Directory.Build.props/targets`). Solution -> project configuration mapping (`ProjectConfigurationPlatforms`); unbuilt projects skipped. Default Debug\|x64, else the first solution configuration (OPEN_QUESTIONS #2). `Build.SelectConfiguration` picker and a status-bar segment (click to switch) change the active configuration. |
 | Switch solution configuration / platform | ✅ | `Editor::selectVsConfiguration` / `vsConfigurations`, `tenfold-cli vsconfig`; regenerates compile commands and restarts clangd. GUI: the `Build.SelectConfiguration` picker and the status-bar configuration segment. |
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
@@ -318,7 +319,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | SaveAsUsesPrevPanelPath | true | Save As starts in the previous file's folder | S, with a Save As dialog |
 | BackslashPaths | true | Show paths with backslashes | S |
 | WindowTitle, WorkspaceTextInTitleBar, RememberWindowPosition | Name, Name, true | Window title and position | S each |
-| HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt (and the secondary-menu variants) | false, true, true | Menu bar visibility | Needs a menu bar |
+| HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt | false, true, true | Menu bar visibility | **Done (MENUBAR):** `menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt`, same defaults. The secondary-menu variants have no counterpart (one window). |
 | AutoCloseFloatingToolWindows, LocationHistoryIncludesToolPanels, CentreFloatingPanelsHorz/Vert | true, false, true | Floating tool windows | Skipped unless tool windows float |
 
 ### Workspace search

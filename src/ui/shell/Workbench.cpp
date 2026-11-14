@@ -114,6 +114,9 @@ Workbench::Workbench(gfx::TextRenderer& text, Editor& editor, const Theme& theme
   auto sb = std::make_unique<StatusBar>();
   status_ = sb.get();
   addChild(std::move(sb));
+  auto mb = std::make_unique<MenuBar>();
+  menuBar_ = mb.get();
+  addChild(std::move(mb));
   auto ov = std::make_unique<Overlay>(*this);
   overlay_ = ov.get();
   addChild(std::move(ov));
@@ -217,9 +220,15 @@ void Workbench::onLayout() {
   const RectF& b = bounds();
   applyFocusMode();  // a no-op unless the tree or the active panel changed since the last pass
   const float sh = focusMode_ ? 0 : status_->preferredHeight();
+  // Menu bar: it reserves its height, except while hidden (10x HideMainMenu), when it floats over the top edge as long
+  // as it is revealed.
+  const float mb = menuBar_ && !focusMode_ ? menuBar_->reservedHeight() : 0;
+  const bool floating = menuBar_ && !focusMode_ && menuBar_->hidden() && menuBar_->revealed();
+  menuBar_->layout({b.x, b.y, b.w, floating ? menuBar_->barHeight() : mb});
+  menuBar_->setTopLayer(floating);
   const float tb = topBar_ && !focusMode_ ? topBarH_ : 0;
-  if (topBar_) topBar_->layout({b.x, b.y, b.w, tb});
-  side_->layout({b.x, b.y + tb, b.w, b.h - sh - tb});
+  if (topBar_) topBar_->layout({b.x, b.y + mb, b.w, tb});
+  side_->layout({b.x, b.y + mb + tb, b.w, b.h - sh - mb - tb});
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
   RectF acc{0, 0, 0, 0};
   if (active_ && panels().size() > 1 && !focusMode_)

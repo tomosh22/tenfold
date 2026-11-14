@@ -153,6 +153,9 @@ class EditorApp {
   KeySequence& keySequence() { return keySeq_; }
   PerforceUi& perforceUi() { return *perforceUi_; }
   void closePickers();
+  // MENUBAR: the File / Edit / View bar (null without a Workbench). Alt alone focuses it (setting menu.toggleOnAlt),
+  // Alt+F / Alt+E / Alt+V open the menus unless a key file binds that chord.
+  MenuBar* menuBar() { return bench_ ? &bench_->menuBar() : nullptr; }
   // SLN-OPEN: File.OpenSolution (Ctrl+Shift+O), File.OpenFolder, File.RecentSolutions and the files dropped on the
   // window. The program (AppHost) installs the hooks that replace the workspace; without them the commands report
   // "not available".
@@ -255,6 +258,8 @@ class EditorApp {
   void openHierarchy(HierarchyPanel::Mode mode);
   void bindParserCommands();  // W8c: rename, autocomplete, signature help, symbol info, FindFunction, format
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
+  void buildMenus();                       // MENUBAR: File / Edit / View
+  bool menuBarEvent(const InputEvent& e);  // Alt, access keys, hover reveal; true when consumed
   bool dropFile(const std::string& path);  // InputType::DropFile: a solution / folder opens it, any other file a tab
   bool stepBuildResult(bool forward);      // next / previous build error or warning (F8; F4 after a build)
   TextView* textViewAt(float x, float y);  // the editor view under a window point, or null
@@ -317,6 +322,7 @@ class EditorApp {
   KeySequence keySeq_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
   std::unique_ptr<WorkspaceOpener> opener_;
+  bool altCandidate_ = false, menuToggleOnAlt_ = true, menuShowOnHover_ = true;  // MENUBAR
   std::unique_ptr<SwitchPanel> switch_;  // Ctrl+Tab (VS-TABS T1); null without a Workbench
   std::unique_ptr<ExternalChanges> external_;
   std::unique_ptr<LineEndingPrompt> lineEndings_;

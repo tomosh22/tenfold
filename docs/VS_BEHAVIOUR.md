@@ -423,6 +423,27 @@ Research date 2026-11-14. Sources [S60]-[S66]; nothing was observed in a running
 | O13 Projects outside the solution folder | Solution Explorer tree and compile flags include them; the workspace scan (Open File, find in files, symbol search, file watching) does not | VS shows and edits the files of every project of the solution wherever they live, and its search scopes ("Entire Solution") cover them. | memory | medium | **Reported, not changed** (not contained): design in OPEN_QUESTIONS, today's behaviour pinned by a test. |
 | O14 Window title | unchanged | VS shows "<solution> - Microsoft Visual Studio" | memory | low | not done |
 
+## 17. Menu bar: File, Edit, View (MENUBAR)
+
+User decision of 2026-11-14: "There needs to be a 'File Edit View' toolbar at the top of the window and under 'File' there
+needs to be an 'Open Solution' button." Exactly these three menus for now. Research date 2026-11-14; sources [S60]-[S70];
+nothing was observed in a running Visual Studio (checklist V23-V27). The earlier VS-MENUS rows (section 8) cover the
+context menus; the menu bar reuses their widget.
+
+| Item | tenfold | VS 2022 / 10x | Source | Conf. | Change |
+|---|---|---|---|---|---|
+| M1 Position and look | a bar across the top of the window, above the toolbar (back / forward) and the tab well; everything below shifts down; background #2D2D30, text #F1F1F1 | VS's menu bar is the top row under the title bar, above the standard toolbar; "Title bar, menu bar, and command bar backgrounds" Dark = #2D2D30; command bar / menu item text Dark #F1F1F1 | [S34] | high (colour), medium (text colour) | **Implemented**; theme keys `menuBarBackground`, `menuBarText` in vs-dark. |
+| M2 Hover / open colours | hovered title #3E3E40, the title of the open menu #1B1B1C (it joins the drop-down) | The Learn colour table lists menu hover (#333334 for menu items) and mouse-down colours but its rows could not be attributed to the menu *bar* titles; the picks are from memory of VS 2019/2022 Dark | [S34], memory | low | **Implemented**, theme keys `menuBarHover`, `menuBarPressed`. Verify (V23). |
+| M3 Drop-down | the existing context-menu look: #1B1B1C background, #3F3F46 border, #333334 hover, #656565 disabled text, key text right-aligned | "Menu" Background #1B1B1C, Border #3F3F46, MenuText #FFFFFF; menu hover #333334; separators #333337 (section 5) | [S34] | high | unchanged (section 8). |
+| M4 Mouse | click opens; moving across the bar with a menu open switches menus; Escape, an outside click or a click on the open title closes | Standard Windows / VS menu behaviour | memory | medium | **Implemented.** |
+| M5 Alt | Alt pressed and released alone focuses the bar (first title highlighted, access keys underlined); Left / Right move, Enter / Down open, Escape or Alt leaves; Alt+F / Alt+E / Alt+V open File / Edit / View | VS: Alt (or F10) activates the menu bar with the access keys shown underlined; Alt+F opens File. **10x:** its settings list `ToggleMainMenuOnAlt` (default true, "Whether to toggle the main menu on the alt key"), `HideMainMenu` (false, "Hide the main menu when not in use. Mouse Over to make visible"), `ShowMainMenuOnMouseHover` (true); 10x's default key map (assets/KeyMappings.default.10x_settings, checked) binds no Alt+F, Alt+E, Alt+V and no plain Alt chord, so the access keys are on; a chord the user's key file binds wins. F10 (VS's other way in) is not bound in the map either but is left off: tenfold's F-keys are 10x's. | [S67], [S68], key file, memory | medium (VS side), high (10x side) | **Implemented** with the three 10x settings as `menu.toggleOnAlt`, `menu.hide`, `menu.showOnMouseHover`. While the Find bar is open Alt+E / Alt+R belong to it (VS: Find options). |
+| M6 Key texts and disabled items | the live key binding of the command (the palette's text, 10x notation), greyed when the command is disabled | VS shows the shortcut right-aligned and greys unavailable commands | memory | high | **Implemented.** |
+| M7 File menu | Open Solution... (Control Shift O), Open Folder..., Open File..., Recent Projects and Solutions, New File, Close, Close All Documents, Save, Save All, Copy Full Path, Open Containing Folder, Exit | VS File menu: New >, Open >, Close, Close Solution, Save (Ctrl+S), Save As..., Save All, Recent Files, Recent Projects and Solutions, Exit (Alt+F4). Default keys from the shortcut table: File.OpenProject Ctrl+Shift+O, File.OpenFile Ctrl+O, File.NewProject Ctrl+Shift+N, File.SaveAll. "Open Solution..." is the user's wording (VS's item is "Project/Solution..." under Open). Save As and Close Solution are left out: no command exists. | [S60], user brief | medium (order and grouping from memory) | **Implemented**; only existing commands are listed (buildMenu drops the rest). |
+| M8 Edit menu | Undo, Redo; Cut, Copy, Paste, Paste from History..., Delete, Select All; Find and Replace > ...; Go To > ...; Bookmarks >; Outlining >; Advanced > (Toggle Comment, Format Selection, Join Lines, Word Wrap, View White Space) | VS Edit: Undo, Redo, Cut, Copy, Paste, Delete, Select All, Find and Replace > (Quick Find Ctrl+F, Quick Replace Ctrl+H, Find in Files Ctrl+Shift+F, Replace in Files Ctrl+Shift+H), Go To > (Go To Line Ctrl+G, Go To All Ctrl+T, ...), Insert Snippet, Bookmarks >, Outlining >, Advanced > (Toggle Block Comment, View White Space, Word Wrap ...). Edit.Find Ctrl+F, Edit.GoToAll Ctrl+T are in the shortcut table; the Go to page names Go To All. | [S60], [S69] | medium | **Implemented** (Go To Member... is 10x's FindFunction). |
+| M9 View menu | Solution Explorer, Error List, Output, Terminal, Call Hierarchy, Type Hierarchy; Command Palette...; Zoom In, Zoom Out, Full Screen | VS View: Solution Explorer (Ctrl+Alt+L, View.SolutionExplorer), Error List (View.ErrorList), Output (Ctrl+Alt+O, View.Output), Terminal, Call Hierarchy (Ctrl+K, Ctrl+T), Command Window, Full Screen (Shift+Alt+Enter), zoom is in the editor. tenfold's explorer / diagnostics / build panel are the counterparts; "Command Palette..." is tenfold's name (VS's Command Window is a different thing). | [S60] | medium | **Implemented.** |
+| M10 Hidden bar | `menu.hide`: no room reserved, the bar floats over the top edge while the pointer is there (`menu.showOnMouseHover`), after Alt, or with a menu open | 10x only ([S67]); VS has no such setting (the bar can be hidden through Tools > Customize in recent versions, not checked) | [S67] | high | **Implemented** because 10x has it. |
+| M11 Other menus | none | VS has Project, Build, Debug, Test, Analyze, Tools, Extensions, Window, Help; the user asked for File, Edit, View only | user brief | high | not added on purpose. |
+
 ## Proposed implementation tasks (grouped; one task = one area)
 
 | Task | Area | Files likely touched | Depends |
@@ -439,6 +460,7 @@ Research date 2026-11-14. Sources [S60]-[S66]; nothing was observed in a running
 | **VS-TERM** (done except the tab menu's Open in Terminal) | Terminal key bindings (Ctrl+C = SIGINT, Ctrl+Shift+C/V), default shell, Open in Terminal | `src/ui/features/Terminal*`, `src/term/*`, key map defaults | none |
 | **VS-VCS** (implemented: VC3, VC5, VC6; VC1 and VC4 need no change; skipped: VC2 low) | Marks for untracked/added in Perforce (blue ?, red plus, red check, yellow triangle), `perforce.promptOnEdit`, P4 history actions | `src/vcs/*`, `src/ui/features/VcsUi.cpp`, `src/ui/features/PerforceUi.cpp`, `src/ui/widgets/VcsBadge.h`, tab markers | V7 (Git untracked) |
 | **SLN-OPEN** (done except Close Solution, start-up "most recent solution", files of projects outside the solution folder in the scan; section 16) | Open .sln / .slnx from the command line, File > Open > Project/Solution, in-process solution switch, recent list, drag and drop | `src/workspace/Workspace.*`, `src/ui/shell/AppHost.*`, `src/ui/features/WorkspaceOpener.*`, `src/ui/settings/RecentSolutions.*`, `src/ui/platform/FileDialog.*`, `src/ui_app/main.cpp` | none |
+| **MENUBAR** (done; Build / Debug / Window / Help menus are not wanted yet; section 17) | File / Edit / View bar with Alt handling, theme keys, `menu.*` settings, goldens regenerated | `src/ui/widgets/MenuBar.*`, `src/ui/widgets/ContextMenu.*`, `src/ui/shell/Workbench.*`, `src/ui/shell/EditorApp.cpp` | SLN-OPEN |
 | **VS-EDIT** (done: Z4, Z8; built but off by default pending verification: Z1, Z14, Z19; Z7, Z11, Z20 already matched; skipped Z2, Z3, Z6, Z9, Z12, Z13, Z18 and the rows without a change) | Auto-close quotes default, copy line, zoom editor-only | `src/app/EditorEditing.cpp`, `src/ui/shell/EditorApp.*`, settings | none |
 
 ## Items where Visual Studio's behaviour could not be established
@@ -479,6 +501,11 @@ Research date 2026-11-14. Sources [S60]-[S66]; nothing was observed in a running
 * **V20** (O8) Delete a solution file that is in File > Recent Projects and Solutions; click the entry: message, and is it removed?
 * **V21** (O11) Drag a `.sln`, a folder and a `.cpp` from Explorer onto the Visual Studio window with a solution open.
 * **V22** (O9) `devenv.exe Game.sln src\main.cpp`: does the second argument open as a document?
+* **V23** (M2) Hover a menu title, open a menu: colours of the hovered title and of the open title next to the drop-down.
+* **V24** (M5) Tap Alt: which title is highlighted, are the access keys underlined, does Down open it? Does F10 do the same?
+* **V25** (M7, M8, M9) Compare item order, grouping, labels and shortcuts of File, Edit and View with section 17; note any item VS shows greyed that tenfold shows enabled.
+* **V26** (M4) With File open, move across to Edit and View; click the open title; press Left at the first item.
+* **V27** (M5) While Find (Ctrl+F) is open, does Alt+E open the Edit menu or toggle "Use Regular Expressions"?
 * **V15** (Q6) Tools > Options > Text Editor > C/C++ > IntelliSense: is there an Inlay Hints option, what is its default, does Alt+F1 show hints when the option is off, and is the hold a toggle?
 
 ## S. Sources
@@ -548,6 +575,10 @@ Research date 2026-11-14. Sources [S60]-[S66]; nothing was observed in a running
 * [S64] https://learn.microsoft.com/en-us/visualstudio/ide/reference/projects-and-solutions-options-dialog-box?view=vs-2022 ("Reopen documents on solution load", "Restore Solution Explorer project hierarchy state on solution load")
 * [S65] https://learn.microsoft.com/en-us/visualstudio/ide/reference/general-environment-options-dialog-box?view=vs-2022 ("Items shown in recently used file lists" 1 to 24, default 10; "On startup")
 * [S66] https://10xeditor.com/10xDocumentation/CommandLine.htm (10x.exe arguments, "opens a workspace")
+* [S67] https://10xeditor.com/10xDocumentation/Settings.htm and SettingsList.htm (HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt)
+* [S68] assets/KeyMappings.default.10x_settings in this repository (no Alt+F / Alt+E / Alt+V binding, no plain Alt)
+* [S69] https://learn.microsoft.com/en-us/visualstudio/ide/go-to?view=vs-2022 (Go To All) and https://learn.microsoft.com/en-us/visualstudio/ide/finding-and-replacing-text?view=vs-2022 (Quick Find, Quick Replace, Find in Files)
+* [S70] [S60] again for File.OpenProject, File.OpenFile, Edit.Find, Edit.GoToAll, View.SolutionExplorer, View.ErrorList, View.Output (the default shortcut table)
 
 **Environment note.** `learn.microsoft.com` is blocked for the WebFetch tool in this session ("has to be allowed in the
 session's network settings"); the Learn pages were fetched with `curl` through the agent proxy and converted to text.

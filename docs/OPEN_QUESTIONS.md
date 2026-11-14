@@ -29,6 +29,15 @@ decided by the user). Each has a default we implement until answered.
 
 ## User decisions of 2026-11-14
 
+* **A File / Edit / View menu bar (MENUBAR).** "There needs to be a 'File Edit View' toolbar at the top of the window and under
+  'File' there needs to be an 'Open Solution' button." Implemented as a Visual Studio-style menu bar with exactly these
+  three menus (USER_GUIDE "Menu bar", VS_BEHAVIOUR section 17); File starts with "Open Solution..." (Control Shift O).
+  Decisions: the 10x settings `HideMainMenu`, `ShowMainMenuOnMouseHover` and `ToggleMainMenuOnAlt` exist, so they are
+  settings (`menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt`), the bar can hide, and plain Alt focuses it;
+  10x's default map binds none of Alt+F / Alt+E / Alt+V, so those access keys are on (a key file that binds one wins); the
+  Find bar keeps Alt+E and Alt+R while it is open; items are only commands that exist (no Save As, no Close Solution); the
+  hover and open-title colours are picks (V23). F10 does not focus the bar. Every golden that shows the whole window was
+  regenerated (the bar is the only change).
 * **Open a solution the way Visual Studio does (SLN-OPEN).** "I want to be able to open a .sln or .slnx file the same way
   I would in Visual Studio." Implemented (VS_BEHAVIOUR section 16, USER_GUIDE "Opening a workspace"): `tenfold-ui
   Game.sln|Game.slnx|Game.vcxproj|folder [file]` roots the workspace at the solution's folder and makes that solution THE

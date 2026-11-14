@@ -299,6 +299,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/widgets/CheckBox.cpp
     src/ui/widgets/TreeView.cpp
     src/ui/widgets/ContextMenu.cpp
+    src/ui/widgets/MenuBar.cpp
     src/ui/features/ContextMenus.cpp
     src/ui/widgets/TerminalView.cpp
     src/ui/features/PickerUtil.cpp
@@ -449,6 +450,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_long_lines.cpp
     tests/ui/test_vs_tabs.cpp
     tests/ui/test_sln_open_ui.cpp
+    tests/ui/test_menubar.cpp
     tests/ui/test_vs_edit.cpp
     tests/ui/test_vs_vcs.cpp
     tests/ui/test_w11_gui.cpp

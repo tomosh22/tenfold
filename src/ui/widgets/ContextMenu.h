@@ -43,6 +43,12 @@ class ContextMenu : public Widget {
   void close();  // closes the modal and fires onClosed once; no-op when it is not shown
   void onClosed(std::function<void()> fn) { closed_ = std::move(fn); }
 
+  // Menu bar support (MENUBAR task). `outsideFilter` sees every mouse move / press that lands outside all open levels
+  // before the default (a press closes the menu) and returns true to consume it; `onSideKey(-1 / +1)` is called for
+  // Left on the top level and for Right on an item without a submenu (the bar switches to the neighbouring menu).
+  std::function<bool(const InputEvent&)> outsideFilter;
+  std::function<void(int dir)> onSideKey;
+
   const std::vector<MenuItem>& items() const { return items_; }
   size_t depth() const { return levels_.size(); }  // open menus: 1 = the top level only
   int selected(size_t level = 0) const { return level < levels_.size() ? levels_[level].sel : -1; }

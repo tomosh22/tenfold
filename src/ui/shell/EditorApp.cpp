@@ -499,6 +499,11 @@ void EditorApp::applySettings(const Settings& s) {
   for (const SettingInfo& si : settingsSchema())
     if (std::string_view(si.key) == "keys.import10x") setKeyImport10x(s.getBool("keys.import10x"));
   confirmUnsaved_ = s.getBool("editor.confirmUnsaved");
+  if (bench_) {  // MENUBAR: 10x's HideMainMenu / ShowMainMenuOnMouseHover / ToggleMainMenuOnAlt
+    bench_->menuBar().setHidden(s.getBool("menu.hide"));
+    menuShowOnHover_ = s.getBool("menu.showOnMouseHover");
+    menuToggleOnAlt_ = s.getBool("menu.toggleOnAlt");
+  }
   {
     std::string eol = s.getString("editor.defaultLineEnding");
     for (char& c : eol) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
@@ -780,6 +785,7 @@ void EditorApp::playKeySequence() {
 void EditorApp::bindUiCommands() {
   vcsUi_->bind(registry_);
   bindMiscCommands();
+  if (bench_) buildMenus();
   compileInfo_->bind(registry_, [this] { closePickers(); });
   registry_.bind("App.ShowContextMenu", [this](const CommandContext&, std::string_view) {
     if (ContextMenu* m = contextMenu()) {  // pressing the key again dismisses the menu
@@ -1628,6 +1634,142 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
   return r;
 }
 
+bool EditorApp::menuBarEvent(const InputEvent& e) {
+  MenuBar& mb = bench_->menuBar();
+  if (!mb.hasMenus()) return false;
+  // Alt pressed and released with nothing in between focuses the bar (10x ToggleMainMenuOnAlt, Visual Studio).
+  if (e.type == InputType::KeyDown) {
+    altCandidate_ =
+        menuToggleOnAlt_ && e.key == Key::Unknown && (e.mods & ModAlt) && !(e.mods & (ModCtrl | ModShift | ModSuper));
+  } else if (e.type == InputType::Text || e.type == InputType::MouseDown) {
+    altCandidate_ = false;
+  } else if (e.type == InputType::KeyUp && e.key == Key::Unknown && altCandidate_) {
+    altCandidate_ = false;
+    if (mb.active()) mb.leave();
+    else if (!root_.modal() || mb.dropdown()) {
+      closePickers();
+      mb.focus(0);
+    }
+    return true;
+  }
+  if (e.type == InputType::MouseMove && mb.hidden()) mb.reveal(menuShowOnHover_ && e.y >= 0 && e.y < mb.barHeight());
+  if (e.type == InputType::MouseDown && mb.active() && !mb.dropdown() && mb.titleAt(e.x, e.y) < 0) mb.leave();
+  if (e.type != InputType::KeyDown) return false;
+  if (mb.active() && !mb.dropdown() && mb.handleKey(e)) return true;
+  // Alt+F / Alt+E / Alt+V, unless a key file binds that very chord (10x's default map binds none of them).
+  if (e.mods == ModAlt && e.key >= static_cast<Key>('A') && e.key <= static_cast<Key>('Z') &&
+      mb.hasAccess(static_cast<char>(e.key)) && (!root_.modal() || mb.dropdown()) &&
+      !findReplace_->isOpen()) {  // the find bar owns Alt+E / Alt+R
+    const KeyChord c = chordFromKey(e.key, e.mods);
+    for (const KeyBinding& b : keys_.bindings())
+      if (!b.chords.empty() && b.chords[0] == c) return false;
+    closePickers();
+    mb.openByAccess(static_cast<char>(e.key));
+    return true;
+  }
+  return false;
+}
+
+// The three menus of the bar. Items are commands (buildMenu leaves out those that do not exist, greys out those that
+// are disabled right now, and shows the live key binding); the lists are built each time a menu opens. Order and labels
+// follow Visual Studio 2022's File / Edit / View menus where tenfold has the command (VS_BEHAVIOUR section 17).
+void EditorApp::buildMenus() {
+  auto sub = [this](const std::string& label, const std::vector<MenuEntry>& entries) {
+    MenuItem m;
+    m.label = label;
+    m.sub = buildCommandMenu(entries);
+    return m;
+  };
+  MenuBar::Menu file{"File", 'F', [this] {
+                       return buildCommandMenu({{"File.OpenSolution", "Open Solution..."},
+                                                {"File.OpenFolder", "Open Folder..."},
+                                                {"File.OpenFile", "Open File..."},
+                                                {"File.RecentSolutions", "Recent Projects and Solutions"},
+                                                {},
+                                                {"File.New", "New File"},
+                                                {},
+                                                {"Workbench.CloseTab", "Close"},
+                                                {"Workbench.CloseAllDocuments", "Close All Documents"},
+                                                {},
+                                                {"File.Save", "Save"},
+                                                {"File.SaveAll", "Save All"},
+                                                {},
+                                                {"File.CopyPath", "Copy Full Path"},
+                                                {"File.ShowInFolder", "Open Containing Folder"},
+                                                {},
+                                                {"App.Quit", "Exit"}});
+                     }};
+  MenuBar::Menu edit{"Edit", 'E', [this, sub] {
+                       std::vector<MenuItem> out;
+                       auto group = [&](const std::vector<MenuEntry>& entries) {
+                         std::vector<MenuItem> items = buildCommandMenu(entries);
+                         if (items.empty()) return;
+                         if (!out.empty()) out.push_back(MenuItem::sep());
+                         for (MenuItem& m : items) out.push_back(std::move(m));
+                       };
+                       auto submenu = [&](const std::string& label, const std::vector<MenuEntry>& entries) {
+                         MenuItem m = sub(label, entries);
+                         if (!m.sub.empty()) out.push_back(std::move(m));
+                       };
+                       group({{"Editor.Undo", "Undo"}, {"Editor.Redo", "Redo"}});
+                       group({{"Editor.Cut", "Cut"},
+                              {"Editor.Copy", "Copy"},
+                              {"Editor.Paste", "Paste"},
+                              {"Editor.PasteHistory", "Paste from History..."},
+                              {"Editor.Delete", "Delete"},
+                              {"Editor.SelectAll", "Select All"}});
+                       if (!out.empty()) out.push_back(MenuItem::sep());
+                       submenu("Find and Replace", {{"Editor.Find", "Quick Find"},
+                                                    {"Editor.Replace", "Quick Replace"},
+                                                    {"Search.FindInWorkspace", "Find in Files"},
+                                                    {"Search.ReplaceInFiles", "Replace in Files"},
+                                                    {},
+                                                    {"Editor.FindNext", "Find Next"},
+                                                    {"Editor.FindPrev", "Find Previous"}});
+                       submenu("Go To", {{"Editor.GotoLine", "Go To Line..."},
+                                         {"Search.SymbolSearch", "Go To All..."},
+                                         {"Editor.FindFunction", "Go To Member..."},
+                                         {},
+                                         {"Editor.GotoDefinition", "Go To Definition"},
+                                         {"Editor.GotoDeclaration", "Go To Declaration"},
+                                         {"Editor.FindReferences", "Find All References"},
+                                         {"Editor.SwitchHeaderSource", "Go To Header/Source"}});
+                       submenu("Bookmarks", {{"Editor.ToggleBookmark", "Toggle Bookmark"},
+                                             {"Editor.NextBookmark", "Next Bookmark"},
+                                             {"Editor.PrevBookmark", "Previous Bookmark"},
+                                             {"Editor.ListBookmarks", "Bookmark Window"}});
+                       submenu("Outlining", {{"Editor.ToggleCollapseExpandRegion", "Toggle Outlining Expansion"},
+                                             {"Editor.ToggleCollapseExpandAllRegions", "Toggle All Outlining"},
+                                             {"Editor.CollapseToDefinitions", "Collapse to Definitions"}});
+                       submenu("Advanced", {{"Editor.ToggleComment", "Toggle Comment"},
+                                            {"Editor.FormatSelection", "Format Selection"},
+                                            {"Editor.JoinLines", "Join Lines"},
+                                            {"View.ToggleWordWrap", "Word Wrap"},
+                                            {"View.ToggleWhitespace", "View White Space"}});
+                       return out;
+                     }};
+  MenuBar::Menu view{
+      "View", 'V', [this] {
+        std::vector<MenuItem> out;
+        auto group = [&](const std::vector<MenuEntry>& entries) {
+          std::vector<MenuItem> items = buildCommandMenu(entries);
+          if (items.empty()) return;
+          if (!out.empty()) out.push_back(MenuItem::sep());
+          for (MenuItem& m : items) out.push_back(std::move(m));
+        };
+        group({{"View.ToggleWorkspaceExplorer", "Solution Explorer"},
+               {"View.ShowDiagnostics", "Error List"},
+               {"View.ToggleBuildPanel", "Output"},
+               {"Terminal.Show", "Terminal"},
+               {"View.CallHierarchy", "Call Hierarchy"},
+               {"View.TypeHierarchy", "Type Hierarchy"}});
+        group({{"App.CommandPalette", "Command Palette..."}});
+        group({{"View.ZoomIn", "Zoom In"}, {"View.ZoomOut", "Zoom Out"}, {"View.ToggleFullscreen", "Full Screen"}});
+        return out;
+      }};
+  bench_->menuBar().setMenus({std::move(file), std::move(edit), std::move(view)});
+}
+
 void EditorApp::notify(const std::string& text) { setMessage(text, kDiagMs); }
 
 // A file dropped on the window (SDL sends one event per file). Like Visual Studio a solution or project opens as the
@@ -1673,6 +1815,7 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     pasteHistory_->syncFromClipboard();
   }
   if (e.type == InputType::DropFile) return dropFile(e.text);
+  if (bench_ && menuBarEvent(e)) return true;
   // Right click: the context menu of whatever is under the pointer (W8f). The widgets ignore the right button, so
   // where there is no menu the click goes on to them as before.
   if (e.type == InputType::MouseDown && e.button == MouseButton::Right && !root_.modal() && !root_.captured() &&

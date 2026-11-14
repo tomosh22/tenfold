@@ -7,6 +7,7 @@
 #include <vector>
 
 #include "app/Editor.h"
+#include "ui/widgets/MenuBar.h"
 #include "ui/widgets/Panel.h"
 #include "ui/widgets/Splitter.h"
 #include "ui/widgets/StatusBar.h"
@@ -154,6 +155,8 @@ class Workbench : public RootWidget {
   // A thin bar above the panel tree. `bar` must be a child of the workbench (addChild) and is laid out in the top
   // `height` pixels; pass nullptr to remove the reservation. Not owned here.
   void setTopBar(Widget* bar, float height);
+  // The menu bar above everything (MENUBAR task): no room until EditorApp gives it menus.
+  MenuBar& menuBar() { return *menuBar_; }
 
   // ---- bottom dock (C1-UI) ----
   // A resizable (Splitter) dock under the panel tree hosting one of several named panels; hidden until shown. The
@@ -266,6 +269,7 @@ class Workbench : public RootWidget {
   Widget* top_ = nullptr;
   StatusBar* status_ = nullptr;
   Widget* topBar_ = nullptr;
+  MenuBar* menuBar_ = nullptr;
   float topBarH_ = 0;
   Overlay* overlay_ = nullptr;
   Panel* active_ = nullptr;

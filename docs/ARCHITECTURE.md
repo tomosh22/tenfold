@@ -2644,3 +2644,22 @@ files open as tabs. `FileDialog` is a std::function backend so tests inject a fa
 result and `Window::wake()`s, and the loop runs `pumpFileDialogResults()` on the UI thread. `RecentSolutions`
 (`<user config dir>/recent.txt`: absolute paths, newest first, 1..24 entries, default 10) never throws, keeps missing
 entries until `drop` / `pruneMissing`, and writes through a temp file and a rename.
+
+## Menu bar (MENUBAR, `src/ui/widgets/MenuBar.*`, `EditorApp::buildMenus` / `menuBarEvent`)
+
+`MenuBar` is a child of the `Workbench` (above the NavigationUi top bar; `Workbench::onLayout` reserves its height and
+shifts the top bar, the side dock, the panels and the bottom dock down; it reserves nothing without menus, so widget
+tests that build a bare Workbench are unchanged, and none while hidden or in focus mode). It owns titles and, per title, a
+`build()` callback that returns the `MenuItem`s each time the menu opens; the drop-down is the existing `ContextMenu` as
+the modal widget. Two hooks were added to `ContextMenu` for it: `outsideFilter` (a mouse move or press outside every level
+goes to the bar first: hovering another title switches menus, a press on the open title closes) and `onSideKey` (Left on
+the top level, Right on an item without a submenu: the neighbouring menu). The bar is "active" while a drop-down is open
+or a title has the keyboard focus (Alt tap); `EditorApp::menuBarEvent` runs first in `handleEventImpl`: it detects an Alt
+press and release with nothing between (`menu.toggleOnAlt`), routes keys to `MenuBar::handleKey` while the bar is
+focused, opens Alt+F / Alt+E / Alt+V unless the key map binds that very chord (10x's default map binds none; the open
+Find bar keeps Alt+E), and reveals a hidden bar while the pointer is in the top strip (`menu.hide`,
+`menu.showOnMouseHover`; the revealed bar is a top-layer widget over the window, not a layout change). The three menus are
+lists of `MenuEntry` (command id, label) turned into items by the same `buildCommandMenu` the context menus use: a command
+that does not exist is left out, a disabled one is greyed, the key text is `bindingFor` (live key map). Colours:
+`menuBarBackground`, `menuBarText`, `menuBarHover`, `menuBarPressed` in `Theme` (unset: window background, text, tab hover,
+menu background).

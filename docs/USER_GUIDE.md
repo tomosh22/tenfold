@@ -84,8 +84,8 @@ Building from source is described in `README.md`.
 ## Opening a workspace
 
 A workspace is a folder, or a Visual Studio solution and its folder. There are four ways in, and they work like Visual
-Studio's where Visual Studio has the same thing (there is still no menu bar: the commands below run from keys and the
-[command palette](#command-palette)).
+Studio's where Visual Studio has the same thing (the commands are in the File menu of the [menu bar](#menu-bar), on keys and in
+the [command palette](#command-palette)).
 
 **1. The command line.**
 
@@ -1015,6 +1015,7 @@ tests.)
 | `editor.detectExternalChanges` | `true` | bool | Notice a file that changed on disk behind the editor's back (Visual Studio: "Detect when file is changed outside the environment"). `false`: nothing happens and nothing is said. |
 | `editor.reloadUnlessUnsaved` | `false` | bool | Reload a changed file without asking when it has no unsaved edits (Visual Studio: "Reload modified files unless there are unsaved changes", off by default). A file with unsaved edits always asks. |
 | `editor.reloadExternalChanges` | (empty) | string | The older single setting. Empty: unused. `auto` = detect + reloadUnlessUnsaved (the old default), `prompt` = detect, always ask, `never` = do not detect and say so in the status bar. **Migration:** the old default `auto` is gone because Visual Studio's default is to ask; a `settings.txt` that sets this key keeps its old behaviour, one that did not now gets the question for clean files too (set `editor.reloadUnlessUnsaved = true` for the old silent reload). |
+| `menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt` | `false`, `true`, `true` | bool | The [menu bar](#menu-bar): 10x's `HideMainMenu`, `ShowMainMenuOnMouseHover`, `ToggleMainMenuOnAlt`. |
 | `tabs.previewTab` | `true` | bool | A single click on a file in the explorer, and the debugger stepping into an unopened file, open it in the preview tab (Visual Studio: "Allow new files to be opened in the preview tab"). `false`: a single click only selects. |
 | `tabs.previewFromFindResults` | `true` | bool | A click on a result of Find in Files or Find All References opens the preview tab (Visual Studio: "Preview selected files in Find Results"). Needs `tabs.previewTab`. |
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. The encoding of new files is `editor.defaultEncoding`. |
@@ -1497,8 +1498,7 @@ The keys that other editors use for something else do what 10x does: `Alt Left` 
 `PlaybackKeySequence` (the command palette is `Control Shift X`), `F4` / `F8` step through search results / build
 messages, and `Control Shift M` selects the bracket scope.
 
-**Commands with no default key** (run them from the [command palette](#command-palette) or bind them yourself; there is
-no menu bar):
+**Commands with no default key** (run them from the [menu bar](#menu-bar) where it lists them, the [command palette](#command-palette), or bind them yourself):
 
 * Editor: `Editor.ToggleBlockComment`, `Editor.ListBookmarks`, `Editor.CollapseAllRegions`, `Editor.ExpandAllRegions`,
   `Editor.CollapseAllRegionsRecursive`, `Editor.ExpandAllRegionsRecursive`, `Editor.LineEndingCRLF`, `Editor.LineEndingLF`,
@@ -1529,6 +1529,41 @@ status bar. Not listed: commands that need an argument to do anything (`Workbenc
 `Alt 1` to `Alt 4`) and the palette itself. `Build.Build` is listed and runs the detected build; a custom build command
 still needs a key binding with an argument. The palette lists the commands tenfold has; 10x commands it lacks are not
 listed (see FEATURE_PARITY).
+
+## Menu bar
+
+A bar with three menus, **File**, **Edit** and **View**, sits across the top of the window, above the toolbar and the tabs,
+in Visual Studio 2022's dark colours. Every item runs a command, shows that command's *current* key binding on the right
+(it follows your key file, like the command palette) and is greyed out when the command cannot run right now (Undo
+without an open file, Save without a modified one). A command tenfold does not have is not listed.
+
+* **Mouse.** Click a title to open its menu; with a menu open, moving the pointer across the bar switches menus; a click
+  on the open title, a click anywhere else or Escape closes it. An item with `>` opens a submenu to the right.
+* **Keyboard.** Press and release **Alt** on its own: the bar takes the keyboard, the first title is highlighted and the
+  access keys are underlined. Left / Right move between titles, Enter or Down open the menu, Escape (or Alt again) leaves.
+  **Alt+F**, **Alt+E** and **Alt+V** open File, Edit and View directly (and switch menus while one is open). In an open
+  menu Up / Down / Home / End move, Left / Right switch to the neighbouring menu (or close / open a submenu), Enter runs
+  the item and a typed letter selects the next item starting with it. 10x's default key map binds none of Alt+F, Alt+E, Alt+V,
+  so they are free; if your key file binds one of them, your binding wins and that access key does nothing. While the
+  Find bar is open Alt+E (and Alt+R) belong to it, as in Visual Studio.
+* **Settings** (10x's `HideMainMenu`, `ShowMainMenuOnMouseHover`, `ToggleMainMenuOnAlt`, same defaults): `menu.hide`
+  (`false`) keeps the bar out of the layout until it is asked for; `menu.showOnMouseHover` (`true`) shows a hidden bar
+  while the pointer is at the top edge; `menu.toggleOnAlt` (`true`) is the Alt tap above (the access keys work either way).
+  Colours: the theme keys `menuBarBackground`, `menuBarText`, `menuBarHover` and `menuBarPressed` (the title of the open
+  menu); the drop-downs use the context-menu keys.
+
+**File:** Open Solution... (Control Shift O; see [Opening a workspace](#opening-a-workspace)), Open Folder..., Open File...,
+Recent Projects and Solutions, New File, Close, Close All Documents, Save, Save All, Copy Full Path, Open Containing Folder,
+Exit. (There is no Save As or Close Solution: tenfold has no such command yet.)
+
+**Edit:** Undo, Redo; Cut, Copy, Paste, Paste from History..., Delete, Select All; Find and Replace > (Quick Find, Quick
+Replace, Find in Files, Replace in Files, Find Next, Find Previous); Go To > (Go To Line..., Go To All..., Go To Member...,
+Go To Definition, Go To Declaration, Find All References, Go To Header/Source); Bookmarks >; Outlining >; Advanced >
+(Toggle Comment, Format Selection, Join Lines, Word Wrap, View White Space).
+
+**View:** Solution Explorer, Error List, Output, Terminal, Call Hierarchy, Type Hierarchy; Command Palette...; Zoom In, Zoom
+Out, Full Screen. Labels are Visual Studio's where the command is the same thing (Solution Explorer is the workspace
+explorer, Error List the diagnostics list, Output the build panel); the others are tenfold's names.
 
 ## Context menus
 
@@ -1717,8 +1752,7 @@ unverified items in the next sections; the log and the output of those two comma
 
 ## What does not exist yet
 
-* A menu bar (File > Open > Project/Solution and the recent list are commands, see [Opening a
-  workspace](#opening-a-workspace)), `.10x` workspaces (`CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`), an empty
+* Menus other than File, Edit and View (see [Menu bar](#menu-bar)), `.10x` workspaces (`CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`), an empty
   window without a workspace (`CloseWorkspace`, Visual Studio's Close Solution: opening another solution replaces the
   open one instead), more than one workspace window at a time, and the files of projects that live outside the
   solution's folder in Open File, find in files and symbol search (OPEN_QUESTIONS).

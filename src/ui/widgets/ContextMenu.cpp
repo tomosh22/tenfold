@@ -179,13 +179,14 @@ bool ContextMenu::onEvent(const InputEvent& e) {
           markDirty();
           return true;
         case Key::Right:
-          if (const MenuItem* it = itemAt(lv, L.sel); it && !it->sub.empty()) activate(lv, L.sel);
+          if (const MenuItem* it = itemAt(lv, L.sel); it && !it->sub.empty() && it->enabled) activate(lv, L.sel);
+          else if (onSideKey) onSideKey(1);
           return true;
         case Key::Left:
           if (lv > 0) {
             truncate(lv);
             markDirty();
-          }
+          } else if (onSideKey) onSideKey(-1);
           return true;
         case Key::Enter:
         case Key::KpEnter:
@@ -218,7 +219,10 @@ bool ContextMenu::onEvent(const InputEvent& e) {
     case InputType::MouseMove: {
       size_t lv = 0;
       int it = -1;
-      if (!hit(e.x, e.y, lv, it)) return true;
+      if (!hit(e.x, e.y, lv, it)) {
+        if (outsideFilter) outsideFilter(e);
+        return true;
+      }
       const MenuItem* item = itemAt(lv, it);
       const int sel = item && selectable(*item) ? it : -1;
       const bool sameSub = sel >= 0 && sel == levels_[lv].sel && levels_.size() > lv + 1;
@@ -234,6 +238,7 @@ bool ContextMenu::onEvent(const InputEvent& e) {
       size_t lv = 0;
       int it = -1;
       if (!hit(e.x, e.y, lv, it)) {
+        if (outsideFilter && outsideFilter(e)) return true;
         close();
         return true;
       }
