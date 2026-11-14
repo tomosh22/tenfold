@@ -103,8 +103,21 @@ void setWritable(const fs::path& p, bool w) {
 }
 
 void save() {
-  std::ofstream o(statePath, std::ios::binary | std::ios::trunc);
-  o << state.dump(2);
+  // Written to a temporary file and renamed over the state, so a reader (the test fixture, another fake p4) never sees
+  // a half-written file. Where the rename fails (Windows, the file open elsewhere) it is written in place as before.
+  fs::path tmp = statePath;
+  tmp += ".tmp" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+  {
+    std::ofstream o(tmp, std::ios::binary | std::ios::trunc);
+    o << state.dump(2);
+  }
+  std::error_code ec;
+  fs::rename(tmp, statePath, ec);
+  if (ec) {
+    fs::remove(tmp, ec);
+    std::ofstream o(statePath, std::ios::binary | std::ios::trunc);
+    o << state.dump(2);
+  }
 }
 
 void tag(const std::string& k, const std::string& v) { out += "... " + k + " " + v + "\n"; }

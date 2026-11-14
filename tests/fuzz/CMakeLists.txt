@@ -64,7 +64,8 @@ target_include_directories(tenfold-tests PRIVATE ${_fz} "${_fz_gen}")
 
 if(TENFOLD_FUZZ_LIBFUZZER)
   set(_libfuzz_targets lexer extract indexstore xml msbuild msbuildexpr compdb compdbcmd jsonrpc buildoutput gitstatus p4output
-                       linediff vtscreen search keybindings settings theme)
+                       linediff vtscreen search keybindings settings theme scopescan ppcond linemap statefiles)
+  # layout and explorer need the UI library (tenfold_fuzz_harness_ui) and run only in tenfold-fuzz.
   foreach(_t ${_libfuzz_targets})
     add_executable(tenfold-libfuzz-${_t} ${_fz}/libfuzzer_main.cpp $<TARGET_OBJECTS:tenfold_fuzz_harness>)
     target_link_libraries(tenfold-libfuzz-${_t} PRIVATE tenfold_fuzz_harness)
