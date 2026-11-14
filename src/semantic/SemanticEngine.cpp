@@ -233,6 +233,9 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
               "); defines, include directories and forced includes are kept. Set \"msvcToolchain\" in "
               ".tenfold/workspace.json to use MSVC's headers");
       }
+      // Which solution files fed the database is part of the stamp: choosing another solution of the same folder
+      // (Workspace::setSolution) must not be served the previous one's flags from the cache.
+      for (const fs::path& sln : slns) mode += " sln=" + pathKeyUtf8(sln.filename());
       const fs::path vsRoot = ws_.cacheDir() / "vs";
       const fs::path vsDir = vsRoot / vsConfigDirName(vsName);
       const fs::path vsDb = vsDir / "compile_commands.json";

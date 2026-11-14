@@ -72,6 +72,7 @@ void* Window::nativeHandle() const {
   return nullptr;
 #endif
 }
+void* Window::sdlHandle() const { return impl_->win; }
 void Window::show() { SDL_ShowWindow(impl_->win); }
 void Window::hide() { SDL_HideWindow(impl_->win); }
 void Window::setTitle(const std::string& t) { SDL_SetWindowTitle(impl_->win, t.c_str()); }

@@ -33,7 +33,7 @@ for what matches 10x and Visual Studio today.
 ## Getting started
 
 Unpack a package (Windows `.zip`, Linux `.tar.gz` / AppImage; clangd is bundled) and open a workspace folder:
-`bin/tenfold-ui <folder>` (a folder with a Visual Studio `.sln`, a `compile_commands.json`, a CMake project, or just
+`bin/tenfold-ui <folder>` or `bin/tenfold-ui Game.sln` / `Game.slnx` (a solution opens like in Visual Studio: its folder is the workspace; Ctrl+Shift+O opens another one) (a folder with a Visual Studio `.sln`, a `compile_commands.json`, a CMake project, or just
 sources). **`docs/USER_GUIDE.md`** is the guide for people coming from 10x and Visual Studio: installing, the two-tier
 results (instant approximate, then clangd's authoritative), navigation history, Visual Studio solution and debugger
 integration, Perforce and Git, settings, themes, key bindings, logs, and troubleshooting. If a symbol looks wrong or
@@ -49,7 +49,7 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # engine tests, including clangd integration (719 on Linux)
+./build/tenfold-tests            # engine tests, including clangd integration (726 on Linux)
 ./build/tenfold-corpus-tests     # the stress corpora against the real engine and clangd (3 tests; not part of ctest)
 ```
 
@@ -93,11 +93,11 @@ and for the packages.
 cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
 ninja -C build-ui
 xvfb-run -a ./build-ui/tenfold-ui-tests          # golden-image tests skip without a display
-./build-ui/tenfold-ui [workspace]                # or: xvfb-run -a ./build-ui/tenfold-ui --screenshot out.png [--size WxH]
+./build-ui/tenfold-ui [workspace|solution.sln]   # or: xvfb-run -a ./build-ui/tenfold-ui --screenshot out.png [--size WxH]
 ```
 
 SDL3 is fetched (static, pinned to `release-3.2.30`); FreeType is the system library or fetched; on Linux you need
-X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (649 tests on Linux) and
+X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (676 tests on Linux) and
 `tenfold-text-tests` (30; font, atlas and layout, no display needed). After an intentional rendering change, refresh the
 golden images with `tenfold-ui-tests --update-goldens`.
 

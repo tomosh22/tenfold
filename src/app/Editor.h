@@ -57,6 +57,10 @@ class Editor {
     // Fired on the pump thread whenever the clangd status text changes ("clangd restarting (2)...", "clangd stopped:
     // crashed 5 times"; empty when clangd runs normally or is disabled).
     std::function<void(const std::string&)> onClangdStatus;
+    // The solution the workspace is opened with (tenfold-ui C:\src\Game\Game.sln, File > Open > Project/Solution):
+    // chosen and stored in workspace.json ("solution") on construction, see Workspace::setSolution. Empty: keep the
+    // stored choice, if any.
+    std::filesystem::path solution;
   };
 
   enum class Direction { Left, Right, Up, Down, LineStart, LineEnd, DocStart, DocEnd, PageUp, PageDown };
@@ -492,7 +496,7 @@ class Editor {
     std::string sourceText;              // one sentence for people
     std::filesystem::path databasePath;  // the compile_commands.json clangd reads
     size_t databaseEntries = 0;
-    std::filesystem::path solution;          // the first .sln in the workspace root; empty without one
+    std::filesystem::path solution;          // the chosen solution, else the first .sln in the root; empty without one
     std::string vsConfiguration;             // the active "Debug|x64" when there is a solution, else empty
     bool vsConfigurationUsed = false;        // true when the database was generated for that configuration
     bool listed = false;                     // the database has an entry for this very file

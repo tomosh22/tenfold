@@ -38,6 +38,27 @@ bool hasExt(const fs::path& p, const std::vector<std::string>& exts) {
 }
 }  // namespace
 
+bool isSolutionFile(const fs::path& p) {
+  const std::string e = lower(pathUtf8(p.extension()));
+  return e == ".sln" || e == ".slnx";
+}
+
+WorkspaceTarget resolveWorkspaceTarget(const fs::path& arg) {
+  WorkspaceTarget t;
+  std::error_code ec;
+  fs::path abs = fs::absolute(arg, ec);
+  if (ec) abs = arg;
+  abs = abs.lexically_normal();
+  if (abs.has_filename() && fs::is_regular_file(abs, ec)) {
+    t.file = abs;
+    t.root = abs.parent_path();
+    if (isSolutionFile(abs)) t.solution = abs;
+  } else {
+    t.root = abs.has_filename() ? abs : abs.parent_path();  // "dir/" normalises to "dir/": drop the trailing slash
+  }
+  return t;
+}
+
 Workspace::Workspace(fs::path root) {
   std::error_code ec;
   root_ = fs::weakly_canonical(root, ec);
@@ -66,6 +87,7 @@ bool Workspace::loadSettings(std::string* error) {
     return j.contains(k) && j[k].is_string() ? j[k].get<std::string>() : def;
   };
   auto flag = [&](const char* k, bool def) { return j.contains(k) && j[k].is_boolean() ? j[k].get<bool>() : def; };
+  settings_.solution = str("solution", settings_.solution);
   getv("sourceExtensions", settings_.sourceExtensions);
   getv("headerExtensions", settings_.headerExtensions);
   getv("otherExtensions", settings_.otherExtensions);
@@ -147,6 +169,8 @@ bool Workspace::saveSettings(std::string* error) const {
   j["debug.visualStudioSync"] = settings_.visualStudioSync;
   j["undoGrouping"] = settings_.undoGrouping;
   j["undoGroupPauseMs"] = settings_.undoGroupPauseMs;
+  if (settings_.solution.empty()) j.erase("solution");
+  else j["solution"] = settings_.solution;
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
   // Write a temporary file next to it and rename over the target, so a crash never leaves a half-written file.
@@ -305,7 +329,40 @@ std::vector<fs::path> Workspace::codeFiles() const {
   return out;
 }
 
+fs::path Workspace::chosenSolution() const {
+  if (settings_.solution.empty()) return {};
+  std::error_code ec;
+  fs::path p = pathFromUtf8(settings_.solution);
+  if (p.is_relative()) p = root_ / p;
+  p = p.lexically_normal();
+  return fs::is_regular_file(p, ec) && isSolutionFile(p) ? p : fs::path();
+}
+
+bool Workspace::setSolution(const fs::path& slnIn, std::string* error) {
+  std::string value;
+  if (!slnIn.empty()) {
+    std::error_code ec;
+    fs::path sln = slnIn.is_absolute() ? slnIn : root_ / slnIn;
+    if (fs::path canon = fs::weakly_canonical(sln, ec); !ec) sln = canon;  // the root is canonical too
+    sln = sln.lexically_normal();
+    if (!isSolutionFile(sln) || !fs::is_regular_file(sln, ec)) {
+      if (error) *error = pathUtf8(slnIn) + " is not an existing .sln / .slnx file";
+      return false;
+    }
+    fs::path rel = sln.lexically_relative(root_);
+    const bool inside = !rel.empty() && *rel.begin() != "..";
+    value = inside ? pathKeyUtf8(rel) : pathUtf8(sln);
+    // Windows paths compare case-insensitively: the same file spelled differently is not a change.
+    if (!settings_.solution.empty() && chosenSolution() == sln) return true;
+  } else if (settings_.solution.empty()) {
+    return true;
+  }
+  settings_.solution = value;
+  return saveSettings(error);
+}
+
 std::vector<fs::path> Workspace::solutionFiles() const {
+  if (fs::path chosen = chosenSolution(); !chosen.empty()) return {chosen};
   std::vector<fs::path> out;
   std::error_code ec;
   fs::directory_iterator it(root_, fs::directory_options::skip_permission_denied, ec), end;

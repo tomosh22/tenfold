@@ -49,6 +49,7 @@
 #include "ui/features/UnsavedPrompt.h"
 #include "ui/features/VcsUi.h"
 #include "ui/features/WorkspaceExplorer.h"
+#include "ui/features/WorkspaceOpener.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/settings/Settings.h"
 #include "ui/shell/Workbench.h"
@@ -152,6 +153,10 @@ class EditorApp {
   KeySequence& keySequence() { return keySeq_; }
   PerforceUi& perforceUi() { return *perforceUi_; }
   void closePickers();
+  // SLN-OPEN: File.OpenSolution (Ctrl+Shift+O), File.OpenFolder, File.RecentSolutions and the files dropped on the
+  // window. The program (AppHost) installs the hooks that replace the workspace; without them the commands report
+  // "not available".
+  WorkspaceOpener& workspaceOpener() { return *opener_; }
 
   // W8f context menus. Right-click and ShowContextMenu (Shift F10 / AppsKey) build a menu for the widget under the
   // pointer, or for the focused widget: providers first (newest first), then the built-ins for TextView (editor menu),
@@ -208,6 +213,7 @@ class EditorApp {
   int tick(int64_t nowMs);
 
   bool quitRequested() const { return quit_; }
+  void notify(const std::string& text);  // a status-bar message for a while (the program's own, e.g. AppHost)
   const std::string& message() const { return message_; }  // what the status bar "message" segment shows
   CommandRegistry& commands() { return registry_; }
   KeyMap& keys() { return keys_; }
@@ -249,6 +255,7 @@ class EditorApp {
   void openHierarchy(HierarchyPanel::Mode mode);
   void bindParserCommands();  // W8c: rename, autocomplete, signature help, symbol info, FindFunction, format
   bool handleEventImpl(const InputEvent& e, int64_t nowMs);
+  bool dropFile(const std::string& path);  // InputType::DropFile: a solution / folder opens it, any other file a tab
   bool stepBuildResult(bool forward);      // next / previous build error or warning (F8; F4 after a build)
   TextView* textViewAt(float x, float y);  // the editor view under a window point, or null
   void runCommandId(const std::string& id, const std::string& arg, const char* context);
@@ -309,6 +316,7 @@ class EditorApp {
   std::unique_ptr<PerforceUi> perforceUi_;
   KeySequence keySeq_;
   std::unique_ptr<UnsavedPrompt> unsaved_;
+  std::unique_ptr<WorkspaceOpener> opener_;
   std::unique_ptr<SwitchPanel> switch_;  // Ctrl+Tab (VS-TABS T1); null without a Workbench
   std::unique_ptr<ExternalChanges> external_;
   std::unique_ptr<LineEndingPrompt> lineEndings_;

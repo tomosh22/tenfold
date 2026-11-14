@@ -1,4 +1,6 @@
-// tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] [--renderer=gl|d3d11]
+// tenfold-ui [workspace | solution] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] [--renderer=gl|d3d11]
+//   workspace: a folder; solution: a .sln / .slnx (or a .vcxproj), whose folder becomes the workspace and which is then
+//   THE solution of the workspace (stored in .tenfold/workspace.json); `file` is relative to the workspace folder.
 //   default: the editor (Workbench of TextView tabs, key bindings, layout.json); --shell: the B3a widget demo;
 //   --demo: the renderer scene; --renderer: graphics backend (default d3d11 on Windows when built in, else gl)
 #include <algorithm>
@@ -17,19 +19,23 @@
 #endif
 #include "core/CrashHandler.h"
 #include "core/Log.h"
+#include "core/PathUtil.h"
 #include "tenfold_version.h"
 #include "ui/gfx/D3d11Renderer.h"
 #include "ui/gfx/GlLoader.h"
 #include "ui/gfx/GlRenderer.h"
 #include "ui/gfx/PngWrite.h"
 #include "ui/gfx/TextRenderer.h"
+#include "ui/platform/FileDialog.h"
 #include "ui/platform/Window.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/settings/Settings.h"
+#include "ui/shell/AppHost.h"
 #include "ui/shell/EditorApp.h"
 #include "ui/shell/FontSetup.h"
 #include "ui/shell/Workbench.h"
 #include "ui/widgets/ShellDemo.h"
+#include "workspace/Workspace.h"
 
 using namespace tf;
 
@@ -123,7 +129,8 @@ int main(int argc, char** argv) {
       file = argv[i];
     } else {
       std::fprintf(stderr,
-                   "usage: tenfold-ui [workspace] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] "
+                   "usage: tenfold-ui [workspace|solution.sln|solution.slnx] [file] [--demo] [--shell] [--screenshot "
+                   "out.png] [--size WxH] "
                    "[--renderer=gl|d3d11] [--version]\n");
       return 2;
     }
@@ -178,83 +185,75 @@ int main(int argc, char** argv) {
 #endif
     win->swap();
   };
-  std::unique_ptr<Editor> editor;  // editor mode only; the --shell demo owns its own
   const gfx::TextureId atlas = demo ? makeSyntheticAtlas(*renderer) : 0;
 
-  std::unique_ptr<gfx::TextRenderer> text;
-  std::unique_ptr<gfx::TextRenderer> editorText;  // the zoomed editor font; null while the editor is not zoomed
-  std::unique_ptr<ui::SettingsService> settings;  // layered settings + theme, hot-reloaded (B7)
-  std::unique_ptr<ui::RootWidget> demoRoot;       // --shell: ShellDemo
-  std::unique_ptr<ui::Workbench> bench;           // default: the editor
-  bool layoutRestored = false;                    // .tenfold/layout.json was found
-  std::unique_ptr<ui::EditorApp> app;
+  // --shell: the widget demo owns its own editor and settings; the default mode (the editor) lives in the AppHost,
+  // which can replace the whole workspace in this window (File > Open > Project/Solution, Recent, drag and drop).
+  std::unique_ptr<gfx::TextRenderer> shellText;
+  std::unique_ptr<ui::SettingsService> shellSettings;
+  std::unique_ptr<ui::RootWidget> demoRoot;  // --shell: ShellDemo
+  std::unique_ptr<ui::EditorApp> shellApp;
+  std::unique_ptr<ui::AppHost> host;
   namespace fs = std::filesystem;
+  // The workspace argument: a folder, or a .sln / .slnx / project file whose folder is the workspace (the solution is
+  // the one chosen). Nothing given: the folder of the file argument, else the bundled sample project.
+  const bool defaultWorkspace = workspace.empty();
   if (shell || !demo) {
     if (workspace.empty())
       workspace =
           shell || file.empty() || !fs::exists(file) ? kDefaultWorkspace : fs::path(file).parent_path().string();
     if (workspace.empty()) workspace = ".";
+  }
+  if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
     ui::SettingsService::Options so;
-    so.workspaceRoot = fs::absolute(workspace);
+    so.workspaceRoot = resolveWorkspaceTarget(workspace).root;
     so.userDir = ui::userConfigDir();
-    so.wake = [] { ui::Window::wake(); };  // the watcher thread asks the UI thread to poll()
-    settings = std::make_unique<ui::SettingsService>(so);
-    text = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), &err);
-    if (!text) {
+    so.wake = [] { ui::Window::wake(); };
+    shellSettings = std::make_unique<ui::SettingsService>(so);
+    shellText = ui::makeEditorTextRenderer(shellSettings->settings(), win->pixelScale(), &err);
+    if (!shellText) {
+      std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
+      return 1;
+    }
+    auto sd = std::make_unique<ui::ShellDemo>(*shellText, pathUtf8(resolveWorkspaceTarget(workspace).root),
+                                              shellSettings->theme().scaled(win->pixelScale()));
+    shellApp = std::make_unique<ui::EditorApp>(*sd, sd->editor(), nullptr, ui::userConfigDir());
+    demoRoot = std::move(sd);
+  } else if (!demo) {
+    ui::AppHost::Options ho;
+    ho.userDir = ui::userConfigDir();
+    ho.pixelScale = win->pixelScale();
+    ho.wake = [] { ui::Window::wake(); };  // the watcher thread asks the UI thread to poll()
+    ho.renderer = renderer.get();
+    ho.startEngine = shot.empty();
+    ho.watchSettings = shot.empty();
+    ho.defaultFile = kDefaultFile;
+#ifdef _WIN32
+    ho.setupEditor = [](Editor& ed) { ed.setDebuggerFactory([] { return createVisualStudioDebugger(); }); };  // C2b2
+#endif
+    ho.setupApp = [&win](ui::EditorApp& a) {
+      a.setWindowHooks({[&win](bool on) { win->setFullscreen(on); }});  // View.ToggleFullscreen
+    };
+    ho.dialog = ui::sdlFileDialogBackend(*win);
+    host = std::make_unique<ui::AppHost>(std::move(ho));
+    // A default workspace (no argument) is not worth a place in the recent list.
+    if (!host->open(workspace, file, !defaultWorkspace, &err)) {
       std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
       return 1;
     }
   }
-  const ui::Theme theme = (settings ? settings->theme() : ui::Theme::darkDefault()).scaled(win->pixelScale());
-  if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
-    auto sd = std::make_unique<ui::ShellDemo>(*text, workspace, theme);
-    app = std::make_unique<ui::EditorApp>(*sd, sd->editor(), nullptr, ui::userConfigDir());
-    demoRoot = std::move(sd);
-  } else if (!demo) {  // the editor: <workspace> [file], the file relative to the workspace or to the cwd
-    editor = std::make_unique<Editor>(fs::absolute(workspace));
-#ifdef _WIN32
-    editor->setDebuggerFactory([] { return createVisualStudioDebugger(); });  // C2b: Visual Studio via EnvDTE
-#endif
-    bench = std::make_unique<ui::Workbench>(*text, *editor, theme);
-    const bool restored = bench->restoreLayout();
-    layoutRestored = restored;
-    if (!file.empty()) {
-      fs::path path = fs::absolute(fs::path(workspace) / file);
-      if (!fs::exists(path) && fs::exists(file)) path = fs::absolute(file);
-      if (bench->openFile(path) < 0) std::fprintf(stderr, "tenfold-ui: cannot open %s\n", path.string().c_str());
-    } else if (!restored) {
-      bench->openFile(kDefaultFile);  // first run: don't start blank (no-op if absent)
-    }
-    bench->sync();
-    app = std::make_unique<ui::EditorApp>(*bench, *editor, bench.get(), ui::userConfigDir());
-    if (shot.empty() && !editor->start(&err)) std::fprintf(stderr, "tenfold-ui: editor start: %s\n", err.c_str());
-  }
-  ui::RootWidget* root = bench ? static_cast<ui::RootWidget*>(bench.get()) : demoRoot.get();
-  if (app && settings) {
-    // A changed font.* setting rebuilds the TextRenderer; the old one lives until the root points at the new one.
-    app->attachSettings(*settings, win->pixelScale(), [&] {
-      // View.ZoomIn / ZoomOut scale only the editor text: a second renderer at the zoomed size (VS_BEHAVIOUR Z8).
-      auto next = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), nullptr);
-      if (!next) return false;
-      std::unique_ptr<gfx::TextRenderer> nextEditor;
-      if (app->fontZoomPt() != 0) {
-        nextEditor = ui::makeEditorTextRenderer(settings->settings(), win->pixelScale(), nullptr, app->fontZoomPt());
-        if (!nextEditor) return false;
-      }
-      root->setTextRenderer(*next);
-      root->setEditorTextRenderer(nextEditor.get());
-      text->releaseTexture(*renderer);
-      if (editorText) editorText->releaseTexture(*renderer);
-      text = std::move(next);
-      editorText = std::move(nextEditor);
-      return true;
-    });
-    app->setWindowHooks({[&](bool on) { win->setFullscreen(on); }});                           // View.ToggleFullscreen
-    if (!layoutRestored && shot.empty() && app->explorer()) app->explorer()->openByDefault();  // VS-TREE X8
-    if (shot.empty()) settings->startWatching();
+  // The pieces the loop uses; with a host they change when the workspace is replaced.
+  auto curRoot = [&]() -> ui::RootWidget* { return host ? host->root() : demoRoot.get(); };
+  auto curApp = [&]() -> ui::EditorApp* { return host ? host->app() : shellApp.get(); };
+  auto curEditor = [&]() -> Editor* { return host ? host->editor() : nullptr; };
+  auto curSettings = [&]() -> ui::SettingsService* { return host ? host->settings() : shellSettings.get(); };
+  if (shellApp && shellSettings) {
+    shellApp->attachSettings(*shellSettings, win->pixelScale(), {});
+    shellApp->setWindowHooks({[&](bool on) { win->setFullscreen(on); }});
+    if (shot.empty()) shellSettings->startWatching();
   }
   auto drawFrame = [&](int w, int h, float mx, float my) {
-    if (root) root->render(*renderer, w, h);
+    if (ui::RootWidget* root = curRoot()) root->render(*renderer, w, h);
     else drawScene(*renderer, w, h, atlas, mx, my);
   };
 
@@ -263,7 +262,7 @@ int main(int argc, char** argv) {
 #ifdef TENFOLD_HAVE_D3D11
     if (d3dRenderer) d3dRenderer->setOffscreen(true);
 #endif
-    if (app) app->tick(nowMs());
+    if (curApp()) curApp()->tick(nowMs());
     drawFrame(width, height, -100, -100);
     std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
     if (!renderer->readPixels(width, height, px.data()) || !gfx::writePngFile(shot, px.data(), width, height)) {
@@ -281,12 +280,15 @@ int main(int argc, char** argv) {
   std::vector<ui::InputEvent> events;
   while (!quit) {
     int wait = -1;
-    if (settings && settings->poll()) dirty = true;  // settings.txt / theme file changed (woken by the watcher)
-    if (editor) editor->pump();
+    ui::pumpFileDialogResults();  // a native dialog answered (on any thread): run its callback here
+    if (host && host->applyPending(&err)) dirty = true;  // File > Open / Recent / drop: the workspace was replaced
+    if (ui::SettingsService* st = curSettings(); st && st->poll()) dirty = true;  // settings.txt / theme changed
+    if (Editor* ed = curEditor()) ed->pump();
+    ui::EditorApp* app = curApp();
     if (app) {
       wait = app->tick(nowMs());
-      if (editor && (wait < 0 || wait > 100)) wait = 100;  // poll the Editor's main-thread queue
-      if (root->dirty()) dirty = true;
+      if (curEditor() && (wait < 0 || wait > 100)) wait = 100;  // poll the Editor's main-thread queue
+      if (curRoot()->dirty()) dirty = true;
     }
     if (dirty) {
       int pw, ph;
@@ -298,6 +300,7 @@ int main(int argc, char** argv) {
     events.clear();
     win->waitEvent(wait, events);
     for (const ui::InputEvent& e : events) {
+      app = curApp();  // the same one for the whole batch: a replaced workspace is only swapped at the loop top
       if (e.type == ui::InputType::Quit) {
         // Closing the window asks about unsaved changes first (editor.confirmUnsaved); the answer arrives as a later
         // event.
@@ -322,8 +325,8 @@ int main(int argc, char** argv) {
     }
   }
   // Shutdown order: the workbench saves layout.json, then the Editor shuts down.
-  if (bench) bench->saveLayout();
-  if (editor) editor->shutdown();
+  if (host) host->shutdown();
+  else if (shellApp) shellApp.reset();
   tf::Log::shutdown();
   return 0;
 }

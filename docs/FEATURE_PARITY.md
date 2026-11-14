@@ -22,6 +22,7 @@ yet · ⬜ not started · — excluded by the user
 | Feature | Status | Notes |
 |---|---|---|
 | Open a folder as a workspace | ✅ | `Workspace::scan`, ignore rules, extension filters. |
+| Open a solution the way Visual Studio does (SLN-OPEN) | ✅ | `tenfold-ui Game.sln` / `.slnx` (the workspace is the solution's folder, that solution is THE solution, stored as `"solution"` in `workspace.json`); File > Open > Project/Solution on **Control Shift O** (`OpenSolution`, native SDL3 dialog), `OpenFolder`, Recent Projects and Solutions (`File.RecentSolutions`, 10 entries), drag and drop, and an in-process switch with the save prompt (VS_BEHAVIOUR section 16). Not done: Close Solution / `CloseWorkspace`, `.10x` workspaces, start-up "most recent solution", files of projects outside the solution folder in the scan (OPEN_QUESTIONS). |
 | Open a Visual Studio `.sln` / `.vcxproj` | ✅ | C5: projects enumerated; compile flags evaluated like MSBuild passes them to `cl.exe` per file and configuration (defines/undefines, implicit `_WIN32`/`_DEBUG`/`_DLL`/`_MT`/`UNICODE`/`_MBCS`, include / external include dirs, forced includes, pch, standards, `/permissive-`, `/EH`, `/GR-`, runtime library, `CompileAs`, per-file metadata, `ExcludedFromBuild`, property sheets, `Directory.Build.props/targets`). Solution -> project configuration mapping (`ProjectConfigurationPlatforms`); unbuilt projects skipped. Default Debug\|x64, else the first solution configuration (OPEN_QUESTIONS #2). `Build.SelectConfiguration` picker and a status-bar segment (click to switch) change the active configuration. |
 | Switch solution configuration / platform | ✅ | `Editor::selectVsConfiguration` / `vsConfigurations`, `tenfold-cli vsconfig`; regenerates compile commands and restarts clangd. GUI: the `Build.SelectConfiguration` picker and the status-bar configuration segment. |
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
@@ -137,16 +138,16 @@ Shift variants are separate chords (`SelectUp` ...). Remapping `AutocompleteDown
 
 ### Commands without a default key that tenfold does not implement either
 
-118 of the 307 10x commands (the rows of `CommandNames.cpp` with an empty target; the other 189 rows map to 186 tenfold
+116 of the 307 10x commands (the rows of `CommandNames.cpp` with an empty target; the other 191 rows map to 188 tenfold
 commands, `Search` / `FindInFiles`, `PerforceRevert` / `GitRestore` and `FindFile` / `OpenFile` pairs sharing one). None
-of the 118 has an entry in the default key map; they resolve to `not implemented yet:` when bound in a key file.
-Thirteen implemented 10x commands have no default key either: `RemoveAllBreakpoints`, `CopyActiveFilePath`,
+of the 116 has an entry in the default key map; they resolve to `not implemented yet:` when bound in a key file.
+Fourteen implemented 10x commands have no default key either: `OpenFolder` (SLN-OPEN), `RemoveAllBreakpoints`, `CopyActiveFilePath`,
 `ShowInWorkspaceTreeWithToggle`, `ClaudeCodeTerminal`, `CursorTerminal`, `CollapseAllRegions`, `ExpandAllRegions`,
 `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`, `CloseAllOtherTabs`, `CloseAllButPinnedTabs`, `PinTab`,
 `TogglePinTab` (tenfold's own commands without a key are listed in the user guide, "Key bindings").
 
 - **File**: `SaveFileAs`, `CloseAll`, `ToggleReadOnly`
-- **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `OpenSolution`, `OpenFolder`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
+- **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
 - **General**: `CreateSecondaryWindow`, `Show10XOutput`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
 - **Formatting**: `ToggleIndentMode`, `FormatFile`

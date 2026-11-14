@@ -153,6 +153,7 @@ add_executable(tenfold-tests
   tests/test_compdb.cpp
   tests/test_vcxproj.cpp
   tests/test_vs_configs.cpp
+  tests/test_sln_open.cpp
   tests/test_semantic.cpp
   tests/test_process.cpp
   tests/test_paths.cpp
@@ -281,6 +282,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/platform/Window.cpp
     src/ui/platform/Input.cpp
     src/ui/platform/Clipboard.cpp
+    src/ui/platform/FileDialog.cpp
     src/ui/gfx/GlLoader.cpp
     src/ui/gfx/GlRenderer.cpp
     src/ui/gfx/PngWrite.cpp
@@ -316,6 +318,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/features/SaveRefusedDialog.cpp
     src/ui/features/OsLauncher.cpp
     src/ui/features/ConfigurationPicker.cpp
+    src/ui/features/WorkspaceOpener.cpp
     src/ui/features/BookmarkList.cpp
     src/ui/features/CompletionPopup.cpp
     src/ui/features/HoverTooltip.cpp
@@ -357,11 +360,13 @@ if(TENFOLD_BUILD_UI)
     src/ui/commands/CommandNames.cpp
     src/ui/commands/EditorCommands.cpp
     src/ui/settings/KeyBindings.cpp
+    src/ui/settings/RecentSolutions.cpp
     src/ui/settings/Settings.cpp
     src/ui/settings/Theme.cpp
     src/ui/shell/DocumentView.cpp
     src/ui/shell/Workbench.cpp
     src/ui/shell/EditorApp.cpp
+    src/ui/shell/AppHost.cpp
     src/ui/shell/FontSetup.cpp
     src/ui/features/NavigationUi.cpp
     src/ui/features/BreakpointList.cpp
@@ -443,6 +448,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_pathological_ui.cpp
     tests/ui/test_long_lines.cpp
     tests/ui/test_vs_tabs.cpp
+    tests/ui/test_sln_open_ui.cpp
     tests/ui/test_vs_edit.cpp
     tests/ui/test_vs_vcs.cpp
     tests/ui/test_w11_gui.cpp

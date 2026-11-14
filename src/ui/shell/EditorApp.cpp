@@ -163,6 +163,7 @@ EditorApp::EditorApp(RootWidget& root, Editor& editor, Workbench* bench, const s
   inlay_->setAllowedFn([this] { return clangdResultsAllowed(); });
   if (bench_) files_ = std::make_unique<FileSearch>(pickerEnv_, *bench_);
   unsaved_ = std::make_unique<UnsavedPrompt>(pickerEnv_);
+  opener_ = std::make_unique<WorkspaceOpener>(pickerEnv_, *unsaved_);
   if (bench_) switch_ = std::make_unique<SwitchPanel>(pickerEnv_, *bench_);
   saveAs_ = std::make_unique<SaveAsPrompt>(pickerEnv_);
   saveRefused_ = std::make_unique<SaveRefusedDialog>(pickerEnv_);
@@ -325,6 +326,7 @@ EditorApp::~EditorApp() {
   external_.reset();     // unhooks Editor::onExternalChange
   lineEndings_.reset();  // unhooks Editor::onInconsistentLineEndings
   encodings_.reset();
+  opener_.reset();
   unsaved_.reset();
   saveAs_.reset();
   saveRefused_.reset();
@@ -539,6 +541,7 @@ void EditorApp::closePickers() {
   functions_->close();
   palette_->close();
   unsaved_->close();
+  opener_->closePicker();
   if (switch_) switch_->close();
   saveAs_->close();
   saveRefused_->close();
@@ -912,6 +915,33 @@ void EditorApp::bindUiCommands() {
     requestQuit();  // with unsaved changes this opens the prompt; quitRequested() follows the answer
     return true;
   });
+  {  // SLN-OPEN
+    const CommandEnabled canOpen = [this](const CommandContext&) { return opener_->canOpen(); };
+    registry_.bind(
+        "File.OpenSolution",
+        [this](const CommandContext&, std::string_view) {
+          closePickers();
+          opener_->openProjectOrSolutionDialog();
+          return true;
+        },
+        canOpen);
+    registry_.bind(
+        "File.OpenFolder",
+        [this](const CommandContext&, std::string_view) {
+          closePickers();
+          opener_->openFolderDialog();
+          return true;
+        },
+        canOpen);
+    registry_.bind(
+        "File.RecentSolutions",
+        [this](const CommandContext&, std::string_view) {
+          closePickers();
+          opener_->openRecentPicker();
+          return true;
+        },
+        canOpen);
+  }
   registry_.bind("App.CommandPalette", [this](const CommandContext&, std::string_view) {
     closePickers();
     palette_->open();
@@ -1598,6 +1628,34 @@ bool EditorApp::handleEvent(const InputEvent& e, int64_t nowMs) {
   return r;
 }
 
+void EditorApp::notify(const std::string& text) { setMessage(text, kDiagMs); }
+
+// A file dropped on the window (SDL sends one event per file). Like Visual Studio a solution or project opens as the
+// new solution (the open one is closed after the save prompt) and a folder opens as a folder (10x: "drag-drop folder
+// from explorer to open folder workspace"); any other file opens as a document in a tab.
+bool EditorApp::dropFile(const std::string& text) {
+  if (text.empty()) return false;
+  const std::filesystem::path p = pathFromUtf8(text);
+  std::error_code ec;
+  std::string ext = pathUtf8(p.extension());
+  for (char& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  const bool workspace = std::filesystem::is_directory(p, ec) || isSolutionFile(p) || ext == ".vcxproj";
+  if (workspace && opener_->canOpen()) {
+    closePickers();
+    opener_->request(p);
+    return true;
+  }
+  if (!std::filesystem::is_regular_file(p, ec)) {
+    setMessage("Cannot open " + text, kDiagMs);
+    return true;
+  }
+  closePickers();
+  const bool ok = bench_ ? bench_->openFile(p) >= 0 : editor_.open(p) != nullptr;
+  if (!ok) setMessage("Cannot open " + text, kDiagMs);
+  else if (bench_) bench_->sync();
+  return true;
+}
+
 TextView* EditorApp::textViewAt(float x, float y) {
   for (Widget* w = root_.hitTest(x, y); w; w = w->parent())
     if (auto* tv = dynamic_cast<TextView*>(w)) return tv;
@@ -1614,6 +1672,7 @@ bool EditorApp::handleEventImpl(const InputEvent& e, int64_t nowMs) {
     vcsUi_->refreshOnFocus();  // the engine does not watch .git / the p4 client
     pasteHistory_->syncFromClipboard();
   }
+  if (e.type == InputType::DropFile) return dropFile(e.text);
   // Right click: the context menu of whatever is under the pointer (W8f). The widgets ignore the right button, so
   // where there is no menu the click goes on to them as before.
   if (e.type == InputType::MouseDown && e.button == MouseButton::Right && !root_.modal() && !root_.captured() &&
