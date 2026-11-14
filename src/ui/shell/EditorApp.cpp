@@ -492,7 +492,8 @@ void EditorApp::attachSettings(SettingsService& svc, float displayScale, std::fu
 void EditorApp::applySettings(const Settings& s) {
   pickerEnv_.preview = s.getBool("picker.preview");
   editor_.setMiscFileDiagnostics(s.getBool("diagnostics.miscFiles"));
-  // keys.import10x joins the settings schema in a later change; until it exists the import stays on.
+  // keys.import10x: import an installed 10x's KeyMappings.10x_settings (the loop keeps this working with a schema
+  // that lacks the key).
   for (const SettingInfo& si : settingsSchema())
     if (std::string_view(si.key) == "keys.import10x") setKeyImport10x(s.getBool("keys.import10x"));
   confirmUnsaved_ = s.getBool("editor.confirmUnsaved");
