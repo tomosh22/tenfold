@@ -72,7 +72,10 @@ on a platform or without clangd. Performance budgets are printed always and asse
 | `package-windows-x64`, `package-linux-x64`, `package-macos-arm64` | windows-2022, ubuntu-24.04, macos-14 | pushes to `main` and `v*` tags only: Release build with the UI, pinned clangd (`fetch-clangd`), `cpack` (ZIP; TGZ; TGZ + DragNDrop), smoke test of the unpacked package, upload; the AppImage step on Linux is best effort (`continue-on-error`); the macOS job is labelled best effort |
 | `linux-gcc-asan-fuzz` | ubuntu-24.04 | builds `tenfold-fuzz` (gcc, ASan + UBSan, coverage feedback, UI library on), replays `tests/fuzz/regressions`, then fuzzes every target for 30 s with seed 1; uploads `fuzz-out` on failure |
 
-Every job is blocking. `.github/workflows/stress.yml` runs the generated codebases nightly (medium and large) and on demand;
+Every job is blocking. **The macOS jobs (`macos-appleclang`, `package-macos-arm64`) do not run at present:** GitHub
+cancels them about two seconds after they are created, on every run, before any step starts (an account or billing limit
+on the repository owner's side, not the code), so each run as a whole reads "cancelled" and macOS is untested; every
+other job runs. `.github/workflows/stress.yml` runs the generated codebases nightly (medium and large) and on demand;
 its failures are results, not CI failures (see "Generated codebases").
 
 ### Test files
@@ -594,8 +597,8 @@ file-based parsers get the input through `writeScratch`. Add the new target to `
 ### libFuzzer
 
 `-DTENFOLD_FUZZ_LIBFUZZER=ON` (a compiler with `-fsanitize=fuzzer`) builds one `tenfold-libfuzz-<target>` binary per
-harness listed in `_libfuzz_targets` (`tests/fuzz/CMakeLists.txt`; `scopescan`, `ppcond`, `linemap`, `statefiles`, `layout` and
-`explorer` are not in that list yet, so they run only under `tenfold-fuzz`) around `LLVMFuzzerTestOneInput`
+harness listed in `_libfuzz_targets` (`tests/fuzz/CMakeLists.txt`: every core harness; `layout` and
+`explorer` need the UI library, so they run only under `tenfold-fuzz`) around `LLVMFuzzerTestOneInput`
 (`tests/fuzz/libfuzzer_main.cpp`):
 `build/tests/fuzz/tenfold-libfuzz-lexer tests/fuzz/regressions/lexer -max_total_time=600`.
 

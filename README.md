@@ -64,6 +64,8 @@ list of jobs and what they run is in [`docs/TESTING.md`](docs/TESTING.md).
 ### Install (packages) and build from source
 
 Packages (Windows `.zip`, Linux `.tar.gz` / AppImage, macOS `.dmg`) are built by CI on pushes to `main` and `v*` tags.
+At present GitHub cancels the macOS jobs before they start (an account limit, not the code), so there is no current macOS
+package and macOS is untested (`docs/TESTING.md`, "CI jobs").
 Unpack anywhere and run `bin/tenfold-ui` (or `bin/tenfold-cli`); clangd ships in the same `bin/` with its
 `lib/clang` headers and is preferred over any clangd on PATH, unless the `clangdPath` setting / `--clangd` is set.
 `tenfold-cli --version` prints the version and commit. Third-party licences are in `licenses/`.

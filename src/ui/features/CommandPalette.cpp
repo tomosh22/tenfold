@@ -35,8 +35,10 @@ std::tuple<int, int, size_t> scoreOf(const std::vector<int>& pos, size_t queryLe
 
 }  // namespace
 
+// Not listed: the palette itself and the commands that only make sense with an argument (a panel number, the path of
+// the explorer node "Open in Terminal" was chosen on).
 bool CommandPalette::listed(const Command& c) {
-  return c.handler && c.id != "App.CommandPalette" && c.id != "Workbench.FocusPanel";
+  return c.handler && c.id != "App.CommandPalette" && c.id != "Workbench.FocusPanel" && c.id != "Terminal.OpenAt";
 }
 
 void CommandPalette::open() {

@@ -686,6 +686,7 @@ TEST(p2_palette_lists_commands_with_names_ids_and_bindings) {
   CHECK_EQ(byId["Clangd.Restart"].detail, std::string());                        // unbound
   CHECK(!byId.count("App.CommandPalette"));
   CHECK(!byId.count("Workbench.FocusPanel"));  // needs an argument
+  CHECK(!byId.count("Terminal.OpenAt"));       // needs the path of an explorer node
   // Everything listed is runnable (bound by the front end).
   for (const auto& r : p->rows()) {
     const Command* c = env.app->commands().find(r.secondary);
