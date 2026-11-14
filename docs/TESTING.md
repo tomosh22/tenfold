@@ -14,6 +14,9 @@ for end-to-end answers on awkward code.
 * [How an expectation is judged](#how-an-expectation-is-judged)
 * [Reading the report](#reading-the-report)
 * [Spec decisions](#spec-decisions)
+* [Pathological workspaces](#pathological-workspaces)
+* [Fuzzing](#fuzzing)
+* [Generated codebases (W9g)](#generated-codebases-w9g)
 
 ## Test suites and CI
 
@@ -21,31 +24,89 @@ for end-to-end answers on awkward code.
 |---|---|---:|---|
 | `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 719 | clangd for the integration tests (they skip with a message without it) |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 649 | a display (`xvfb-run -a`); golden-image tests skip without one |
-| `tenfold-text-tests` | FreeType font, glyph atlas, text layout | 30 | nothing |
-| `tenfold-corpus-tests` | the corpus projects of this file (over about 35 under `tests/corpus`) | 3 | clangd; not part of `ctest` |
-| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | targets, not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
+| `tenfold-text-tests` | FreeType font, glyph atlas, text layout (`tests/text`, UI build) | 30 | nothing |
+| `tenfold-corpus-tests` | the 36 corpus projects under `tests/corpus` (one test runs all of them; two more cover the runner's error paths) | 3 | clangd; not part of `ctest` |
+| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | 24 targets (22 without the UI build), not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
 
-`ctest --preset release` runs `unit` (`tenfold-tests`), and with the UI also `text` and `ui-unit` (`CMakeLists.txt`,
-`add_test`). Pass a test-name prefix to any suite (`./build/tenfold-tests nav_`). The counts above are the number of
-registered tests on Linux at the time of writing; some tests skip on a platform or without clangd. Performance budgets are printed always and
-asserted only with `TENFOLD_ENFORCE_PERF=1` (`docs/BENCHMARKS.md`).
+`ctest --preset release` runs `unit` (`tenfold-tests`), and with `-DTENFOLD_BUILD_UI=ON` also `text` (`tenfold-text-tests`) and
+`ui-unit` (`tenfold-ui-tests`) (`CMakeLists.txt`, `add_test`). Pass a substring of the test name to any suite
+(`./build/tenfold-tests nav_`); `tenfold-ui-tests --update-goldens` rewrites the golden images. The counts above are the
+number of registered tests on Linux, computed by building and running each suite at the time of writing; some tests skip
+on a platform or without clangd. Performance budgets are printed always and asserted only with `TENFOLD_ENFORCE_PERF=1`
+(`docs/BENCHMARKS.md`).
 
-CI (`.github/workflows/ci.yml`, on every push and pull request):
+### Environment variables
 
-| Job | What it runs |
+| Variable | Read by | Effect |
+|---|---|---|
+| `TENFOLD_ENFORCE_PERF=1` | `tenfold-tests`, `tenfold-ui-tests` (`enforcePerf()`) | `PERF_CHECK` budgets (keystroke-to-paint, per-call costs, ratios) fail the test; without it they are only printed. Exactly `1`. |
+| `TENFOLD_PERF_SCALE=<n>` | the same tests (`perfBudget()`) | multiplies the budgets of the tests that use `perfBudget` by `n` (a number >= 1, default 1; CI uses 2 for the pathological UI step) |
+| `TENFOLD_PERF_GODOT=<dir>` | `tenfold-ui-tests` `pickers_perf_godot` | informational picker timings on a Godot checkout; skipped when unset |
+| `TENFOLD_BENCH` | `tenfold-tests` `multicaret_bench_keystroke` | any value enables that benchmark |
+| `TENFOLD_BENCH_ROOT`, `TENFOLD_BENCH_FILE` | `tenfold-tests` `lsp_bench_semantic_tokens` | workspace and file for the semantic-token latency benchmark (needs clangd) |
+| `TENFOLD_TEST_VERBOSE`, `TENFOLD_TEST_TRACE` | the clangd-backed engine tests | print the engine log lines / trace every LSP message to stderr |
+| `TENFOLD_PATHOLOGICAL_DIR=<dir>` | `tenfold-tests pathological_full` | a generated scenario directory (the stress driver sets it); the tests do nothing without it |
+| `TENFOLD_CORPUS_ONLY`, `TENFOLD_CORPUS_REPORT_DIR`, `TENFOLD_CORPUS_TIMEOUT` | `tenfold-corpus-tests` | one project, the JSON report directory, the per-project limit in seconds (default 300); see "Running a corpus" |
+| `TENFOLD_VS_DTE_TEST=1` | `tenfold-tests vsdte_integration` | runs the test against a real Visual Studio (Windows; the `windows-vs-debugger` job) |
+| `TENFOLD_D3D11_WARP=1` | `tenfold-ui` and the `*_d3d11` tests | force the WARP software adapter |
+| `TENFOLD_DEVENV=<path>` | the Visual Studio debugger backend | `devenv.exe` to launch instead of the one `vswhere` finds |
+| `TENFOLD_LOG=error\|warn\|info\|debug\|off` | every executable that logs | log level (docs/ARCHITECTURE.md "Local log file"); `tests/test_log.cpp` covers it |
+| `TENFOLD_GEN_CHECK=1` | `tools/stress/test_gen_codebase.py` | also compile every generated translation unit with `clang++ -fsyntax-only` |
+| `FAKE_P4_STATE=<file>` | `tenfold-fake-p4` | the JSON state file of the fake `p4` (the VCS tests set it) |
+
+### CI jobs
+
+`.github/workflows/ci.yml` runs on every push and pull request; clangd 22.1.1 and Ninja 1.13.0 are installed from pip:
+
+| Job | Runs on | What it runs |
+|---|---|---|
+| `linux-gcc-release`, `linux-clang-release`, `macos-appleclang` | ubuntu-24.04, ubuntu-24.04, macos-14 | `cmake --preset release`, build, `ctest --preset release` (engine suite only, timeout 300 s); `linux-gcc-release` is the one job that also sets `TENFOLD_ENFORCE_PERF=1` |
+| `linux-clang-asan-ubsan` | ubuntu-24.04 | preset `asan` (clang, Debug, AddressSanitizer + UBSan), the engine suite, `ctest` timeout 900 s |
+| `windows-msvc`, `windows-clang-cl` | windows-2022 | presets `msvc` / `clang-cl` in the MSVC developer environment, the engine suite |
+| `linux-gcc-tsan` | ubuntu-24.04 | preset `tsan`, builds `tenfold-tests` only and runs it under ThreadSanitizer (`halt_on_error=1`, `tsan.supp`) |
+| `corpus` | ubuntu-24.04 | `tenfold-corpus-tests` (release preset); uploads `corpus-reports/*.json` |
+| `format` (named "clang-format (changed files)") | ubuntu-24.04 | `git clang-format --diff` against the merge base / push base (clang-format 18.1.8): only the changed lines of changed C++ files must be formatted |
+| `linux-ui-xvfb` | ubuntu-24.04 | Release build with the UI; runs `tenfold-tests`, `tenfold-text-tests` and `tenfold-ui-tests` under Xvfb (Mesa llvmpipe); then the **enforced** pathological step (`tenfold-ui-tests pathological_ui` with `TENFOLD_ENFORCE_PERF=1`, `TENFOLD_PERF_SCALE=2`: the 8 ms keystroke-to-paint budget becomes 16 ms); then a headless screenshot checked by `tests/ui/check_png.py` |
+| `windows-ui-d3d11` | windows-2022 | installs the pinned clangd from pip (so the clangd tests do not use the Visual Studio LLVM one), builds the UI with `-DTENFOLD_D3D11=ON`, runs `tenfold-ui-tests.exe` on WARP (everything, then the `d3d11` renderer tests alone) and takes the demo and editor screenshots |
+| `windows-vs-debugger` | windows-2022 | preset `msvc`, builds `tenfold-tests`, runs `tenfold-tests.exe vsdte` with `TENFOLD_VS_DTE_TEST=1` against the preinstalled Visual Studio 2022 through EnvDTE; prints the ActivityLog tails on failure |
+| `package-windows-x64`, `package-linux-x64`, `package-macos-arm64` | windows-2022, ubuntu-24.04, macos-14 | pushes to `main` and `v*` tags only: Release build with the UI, pinned clangd (`fetch-clangd`), `cpack` (ZIP; TGZ; TGZ + DragNDrop), smoke test of the unpacked package, upload; the AppImage step on Linux is best effort (`continue-on-error`); the macOS job is labelled best effort |
+| `linux-gcc-asan-fuzz` | ubuntu-24.04 | builds `tenfold-fuzz` (gcc, ASan + UBSan, coverage feedback, UI library on), replays `tests/fuzz/regressions`, then fuzzes every target for 30 s with seed 1; uploads `fuzz-out` on failure |
+
+Every job is blocking. `.github/workflows/stress.yml` runs the generated codebases nightly (medium and large) and on demand;
+its failures are results, not CI failures (see "Generated codebases").
+
+### Test files
+
+`tenfold-tests` (`tests/*.cpp`; `test_main.cpp` is the runner, `test_helper_main.cpp` the fake clangd `tenfold-test-helper`,
+`fake_p4_main.cpp` the fake `p4`, `fixtures/` and `corpus/` the data):
+
+| Area | Files |
 |---|---|
-| `linux-gcc-release`, `linux-clang-release`, `linux-clang-asan-ubsan`, `windows-msvc`, `windows-clang-cl`, `macos-appleclang` | configure, build and `ctest` with the matching preset of `CMakePresets.json` (engine suite only; `linux-gcc-release` also enforces the performance budgets) |
-| `linux-gcc-tsan` | `tenfold-tests` under ThreadSanitizer (`tsan.supp`) |
-| `corpus` | `tenfold-corpus-tests` with clangd from pip; uploads the JSON reports |
-| `format` | `clang-format --dry-run --Werror` on the changed C++ files |
-| `linux-ui-xvfb` | builds with the UI; runs `tenfold-tests`, `tenfold-text-tests`, `tenfold-ui-tests` under Xvfb (Mesa llvmpipe) and a headless screenshot |
-| `windows-ui-d3d11` | builds the UI with the Direct3D 11 backend; runs `tenfold-ui-tests` on WARP, the `d3d11` renderer tests and a screenshot |
-| `windows-vs-debugger` | drives the preinstalled Visual Studio 2022 through EnvDTE (the `vsdte` tests) |
-| `package-windows-x64`, `package-linux-x64`, `package-macos-arm64` | pushes to `main` and `v*` tags only: Release build with the UI, pinned clangd, `cpack`, smoke test of the unpacked package (AppImage best effort; macOS best effort) |
-| `linux-gcc-asan-fuzz` | replays `tests/fuzz/regressions`, then fuzzes every target for 30 s |
+| Text model and editing | `test_textbuffer` (lines, line endings, replace), `test_unicode_separators` (NEL / LS / PS, `LspLineMap`), `test_encodings` (decode / encode, refusal of unencodable text), `test_editing` (newline, brackets, line commands, comments), `test_w8a_editing` (10x editing commands), `test_multicaret` (carets, undo groups, typing coalescer), `test_w8d_multicursor_nav` (select-next undo, align, in-file navigation), `test_untitled`, `test_editorconfig`, `test_paths` (URIs, path keys), `test_trash` |
+| Fast tier | `test_fastindex` (lexer, extractor, fuzzy search, shaping), `test_fastindexstore` (persisted index), `test_fastscope` (`ScopeScan`, `FastScope`), `test_pp_cond` (`PpExpr` / `PpCond`: arms, evaluator, absence rule), `test_symbol_search` (ranking equivalence), `test_tu_context` (translation-unit context for included files) |
+| Navigation and semantics | `test_navigation` (history), `test_semantic` and `test_lsp_features` (the real engine with and without clangd), `test_vs_nav` (`#include` jumps, reference roles), `test_w10_choose` (go to definition with a choice), `test_engine_fixes` (workspace scan and `workspace.json` regressions), `test_crash` (clangd crash recovery, request timeout, crash handler) |
+| Build and project files | `test_build` (`ErrorParser`, build commands), `test_w8e_build_search` (rebuild, single-file build), `test_compdb`, `test_vcxproj`, `test_vs_configs` (MSBuild evaluation, solution configurations, host standard-library fallback), `test_compile_info` |
+| Search | `test_textsearch` (literal / regex / globs), `test_w8e_build_search` (replace in files) |
+| Debugger | `test_debug_breakpoints`, `test_debug_session` (fake backend), `test_vs_debugger` (Visual Studio helpers; `vsdte_integration` only on Windows with `TENFOLD_VS_DTE_TEST=1`) |
+| Version control | `test_vcs_diff`, `test_vcs_git` (real `git`), `test_vcs_p4`, `test_w8f_p4` (fake `p4`), `test_vcs_manager` |
+| Terminal | `test_term_vt`, `test_term_keys`, `test_term_pty` |
+| Processes, files, logging | `test_process`, `test_filewatcher` (inotify and polling backends), `test_log`, `test_pathological` (pathological workspaces) |
+| Corpus harness | `test_corpus_parse` (anchors and expectation parser, no clangd); `test_corpus_run` is the `tenfold-corpus-tests` executable |
+| Fuzz regressions | `tests/fuzz/test_fuzz_regressions.cpp`, `test_fuzz_regressions_ui.cpp` (replay `tests/fuzz/regressions`) |
 
-`.github/workflows/stress.yml` runs the generated codebases nightly (medium and large) and on demand; its failures are
-results, not CI failures (see "Generated codebases").
+`tenfold-ui-tests` (`tests/ui/*.cpp`; `ui_test.h` has the fixtures, `check_png.py` verifies a screenshot, goldens are in
+`tests/golden`):
+
+| Area | Files |
+|---|---|
+| Widgets and rendering | `test_widgets` (hit test, focus, `TabStrip`), `test_pickers` (`InputLine`, `ListPopup`, pickers), `test_dropdown_checkbox`, `test_input` (SDL events to `InputEvent`), `test_renderer` (GL and D3D11), `test_png`, `test_text_view`, `test_view_colouring` (lexical colours, semantic tokens), `test_editor_view` (`TextView` mouse and caret geometry), `test_wrap` (`WrapLayout`), `test_long_lines` (anchors, windowed lexing) |
+| Workbench and app | `test_workbench`, `test_editor_app`, `test_commands` (`.10x_settings` parser, `KeyMap`, `CommandNames`), `test_settings` (settings and themes), `test_navigation_ui`, `test_p2_ui` (unsaved prompt, external changes, palette, tab well), `test_vs_tabs`, `test_vs_tree`, `test_vs_edit` |
+| 10x command waves | `test_w8a_commands`, `test_w8b` (tabs, panels, zoom, untitled files), `test_w8c` (parser commands, completion), `test_w8d_commands`, `test_w8e`, `test_w8f_ctx` (context menus), `test_w8f_fold` (folding), `test_w8f_misc` (paste history, key sequences), `test_w8f_term` (terminal panel), `test_w8f_tree` (workspace explorer), `test_b5b` (find in files, hover, signature help), `test_b8` (editing conveniences) |
+| Features | `test_build_ui` (build panel), `test_debugger_ui` (breakpoint lane), `test_vcs_ui` and `test_vs_vcs` (change strip, inline diff, badges), `test_config_ui`, `test_compile_info_ui`, `test_encoding_ui`, `test_line_endings_ui`, `test_w10_chooser`, `test_w11_gui` (hierarchy panel, quick actions, inlay hints) |
+| Pathological | `test_pathological_ui` (keystroke-to-paint on giant files) |
+
+`tenfold-text-tests` (`tests/text`): `test_font` (FreeType metrics), `test_atlas` (shelf packer), `test_layout`
+(`TextLayout`), `test_bench` (layout cost).
 
 ## Running a corpus
 
@@ -75,22 +136,21 @@ generated compile database, clangd logs) never touch the repository. `--keep` pr
 ## Writing a corpus
 
 1. Make `tests/corpus/<name>/` with the sources and whatever tells tenfold how to compile them:
-* a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this). Off Windows there is no MSVC toolchain, so
-tenfold parses `.sln` projects against the host's own standard library (docs/ARCHITECTURE.md "Host standard library
-fallback"): a `.sln` corpus may use `<vector>`, `<string>` ... there (`tests/corpus/vs-std` does), but then it depends on
-the host's headers and carries a `tenfold-corpus-linux-only` marker (skipped on Windows, where the MSVC STL decides).
-The older `.sln` corpora (`vs-configs`, `vs-props`, `templates-config`, `c-vcxproj`) stay standard-library free so they
-mean the same on every platform. Every configuration you `config` into gets its own compile database and clangd index
-under `.tenfold/vs/` in the scratch copy.
-* or a `compile_commands.json` (git ignores that file name by default; `.gitignore` has an exception for
-`tests/corpus/`). Use relative paths or `@CORPUS_ROOT@` in it: the runner replaces that text with the scratch copy's
-path in every `compile_commands.json` it copies. `"directory": "@CORPUS_ROOT@"`, `"file": "@CORPUS_ROOT@/src/a.cpp"`.
-* or nothing: tenfold then guesses include directories like it does for any folder.
-2. Put **anchors** in the sources, as a comment directly before the token: `/*@name*/
-                             token`.
-   `int /*@area_def*/ area() const` anchors the `a` of `area`.Anchors must
-                             not change what the code means.3. Write `tenfold
-        - expect.txt` at the project root.4. Run `tenfold - cli corpus tests / corpus / <name>`; fix the anchors until the output is what you mean, then decide for every
+   * a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this). Off Windows there is no MSVC toolchain, so
+   tenfold parses `.sln` projects against the host's own standard library (docs/ARCHITECTURE.md "Host standard library
+   fallback"): a `.sln` corpus may use `<vector>`, `<string>` ... there (`tests/corpus/vs-std` does), but then it depends on
+   the host's headers and carries a `tenfold-corpus-linux-only` marker (skipped on Windows, where the MSVC STL decides).
+   The older `.sln` corpora (`vs-configs`, `vs-props`, `templates-config`, `c-vcxproj`) stay standard-library free so they
+   mean the same on every platform. Every configuration you `config` into gets its own compile database and clangd index
+   under `.tenfold/vs/` in the scratch copy.
+   * or a `compile_commands.json` (git ignores that file name by default; `.gitignore` has an exception for
+   `tests/corpus/`). Use relative paths or `@CORPUS_ROOT@` in it: the runner replaces that text with the scratch copy's
+   path in every `compile_commands.json` it copies. `"directory": "@CORPUS_ROOT@"`, `"file": "@CORPUS_ROOT@/src/a.cpp"`.
+   * or nothing: tenfold then guesses include directories like it does for any folder.
+2. Put **anchors** in the sources, as a comment directly before the token: `/*@name*/token`.
+   `int /*@area_def*/ area() const` anchors the `a` of `area`. Anchors must not change what the code means.
+3. Write `tenfold-expect.txt` at the project root.
+4. Run `tenfold-cli corpus tests/corpus/<name>`; fix the anchors until the output is what you mean, then decide for every
    `FAIL` whether tenfold is wrong (keep it failing and file it, or mark it `xfail` with the reason) or the expectation is.
 
 Anchor rules:
@@ -175,7 +235,7 @@ not bind them yet).
   word under the caret (that is what the UI shows as approximate for all four); `hover` its "kind name (location)" text;
   `sym` its fuzzy search. `refs` and `rename` have no fast tier. Since W11-FAST-SCOPE the `def`/`decl` answer is
   scope-aware (the namespace / class chain of the caret, the receiver's declared type, `static` entities, argument
-  count, include graph, locals; `docs/ARCHITECTURE.md`), which the corpora's `fast` lines now judge; anchors written
+  count, include graph, locals; `docs/ARCHITECTURE.md`), and since W12-FAST-PP certainly inactive `#if` arms are dropped, which the corpora's `fast` lines now judge; anchors written
   as `/*@name*/` between a qualifier or an access operator and the word are skipped like blanks.
 * The **final answer** is the first *Authoritative* callback (or any error). Before it the runner waits for clangd to
   have the document's TU (`fileStatus idle`) and, once per project and after every `config`, for clangd's background
@@ -534,7 +594,9 @@ file-based parsers get the input through `writeScratch`. Add the new target to `
 ### libFuzzer
 
 `-DTENFOLD_FUZZ_LIBFUZZER=ON` (a compiler with `-fsanitize=fuzzer`) builds one `tenfold-libfuzz-<target>` binary per
-harness around `LLVMFuzzerTestOneInput` (`tests/fuzz/libfuzzer_main.cpp`):
+harness listed in `_libfuzz_targets` (`tests/fuzz/CMakeLists.txt`; `scopescan`, `ppcond`, `linemap`, `statefiles`, `layout` and
+`explorer` are not in that list yet, so they run only under `tenfold-fuzz`) around `LLVMFuzzerTestOneInput`
+(`tests/fuzz/libfuzzer_main.cpp`):
 `build/tests/fuzz/tenfold-libfuzz-lexer tests/fuzz/regressions/lexer -max_total_time=600`.
 
 ### CI
