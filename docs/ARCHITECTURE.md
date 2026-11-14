@@ -11,8 +11,9 @@ thread.
       ▼
    Editor ────────── NavigationHistory
       │ owns
-      ├── Workspace (files, settings)
-      ├── Document* (TextBuffer + undo + listeners)
+      ├── Workspace (files, settings)  ←  FileWatcher (inotify / ReadDirectoryChangesW / polling)
+      ├── Document* (TextBuffer + undo + listeners), Bookmarks, Breakpoints
+      ├── VcsManager (Git, Perforce), BuildRunner, DebugSession (Visual Studio / fake backend)
       └── SemanticEngine
              ├── FastIndex  ← CppLexer            (tier 1, approximate, instant)
              └── LspClient  ← JsonRpc ← Process   (tier 2, clangd, authoritative)
@@ -336,8 +337,8 @@ remaining matches is kept):
   answers the tag. Only a typedef and a tag of the *same scope* compete.
 * Hover, type definition and implementation keep the unshaped (`Want::Any`) list apart from the three rules above.
 
-The persisted store (`FastIndexStore`, format version 2 here; 3 since W12-FAST-PP, which adds the conditional arms) keeps the arity in bits 2-7 of the flags byte and, in a second
-byte, `minArity + 1` (bits 0-5), `fileLocal` (bit 6) and `variadic` (bit 7); `kExtractorSalt` is 5 (the fingerprint also
+The persisted store (`FastIndexStore`, `kFormatVersion` 3 since W12-FAST-PP, which added the conditional arms) keeps the arity in bits 2-7 of the flags byte and, in a second
+byte, `minArity + 1` (bits 0-5), `fileLocal` (bit 6) and `variadic` (bit 7); `kExtractorSalt` is 6 (5 added `minArity` / `variadic` / `fileLocal`; the fingerprint also
 covers a probe of the extractor output, so any change of what it emits invalidates old stores). `Symbol` is still 80
 bytes (`SymbolKind` is a `uint8_t` enum, the new fields fill the padding).
 
@@ -359,9 +360,9 @@ is never emptier than the by-name one; clangd stays the authority and replaces i
   lambda parameters are locals. Brace initializers (`int x{1}`, `S() : a{1} {}`) are not function bodies. Bounded: texts over 512 KiB are not scanned, no
   recursion (10k nested braces are fine), fuzz target `scopescan`.
 * `FastScope.{h,cpp}`: `narrowByScope(env, CaretInfo, matches)`, `findLocal`, `accessKindOf`, `callArgCount`,
-  `constructionArgCount`, and `ScopeCache`. `SemanticEngine::scopeMapOf` builds a map from the open document's buffer
-  (cache key: the document's version) or from disk (key: mtime and size of the index entry); at most 48 maps / 400k
-  regions are kept, least recently used out.
+  `classScopesOfQualifier` and `ScopeCache`. `SemanticEngine::scopeMapOf` builds a map from the open document's buffer
+  (cache key: the document's version) or from disk (key: mtime and size of the index entry); at most 48 maps and 400k
+  regions plus variables are kept, least recently used out.
 * `FastIndex::reachableFrom(file, quoteDirs, angleDirs)`: the files the caret's file can see through `#include`,
   transitively. A spelling is resolved next to the includer, then in the compile command's include directories (`-iquote`,
   `-I`, `-isystem`, ...; `SemanticEngine::includeDirsOf`, through `incnav::searchPathOf`), then by path suffix against the
@@ -810,6 +811,7 @@ here; the Visual Studio backend (C2b, `VsDebugger_win32.cpp`) and the UI (C2c) p
 * **`FakeDebugger`** (`src/debug/FakeDebugger.*`, compiled into `tenfold-tests` only) records calls with their thread,
   scripts mode transitions, injects backend-side breakpoint changes / errors / blocked calls. Tests:
   `tests/test_debug_breakpoints.cpp`, `tests/test_debug_session.cpp`.
+
 ### Visual Studio backend (C2b, Windows)
 
 `src/debug/VsDebugger_win32.cpp` (factory `createVisualStudioDebugger()`, installed by `src/ui_app/main.cpp` on
@@ -859,7 +861,7 @@ Running Object Table enumeration.
 * **Tests.** `tests/test_vs_debugger.cpp`: helpers everywhere; on Windows the wrappers against
   `Scripting.Dictionary`; `vsdte_integration` only with `TENFOLD_VS_DTE_TEST=1` (creates a tiny solution, launches
   devenv, breakpoint / start / step / VS-side breakpoint / stop, then `DTE.Quit`). The CI job `windows-vs-debugger`
-  (non-blocking) runs it on `windows-2022`.
+  (blocking, like every CI job) runs it on `windows-2022`.
 
 
 ### Debugger UI (C2c)
@@ -911,6 +913,7 @@ compiled into `tenfold-ui-tests` too).
   until `applied` fires, and nothing for a workspace without a solution configuration. The list is read from the .sln
   files on construction, on opening the picker and after a switch, not per frame (a .sln added later appears after the
   first open of the picker).
+
 ## Version control (C3a, `src/vcs`)
 
 Provider-neutral engine plus the Git provider; Perforce (C3b) and the UI (C3c) plug into it (both are done). Nothing in `src/vcs`
@@ -1210,7 +1213,7 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   Advanced Save Options list (one `ListPopup` that is reopened after each choice; Save writes through
   `Editor::saveWithEncoding`); `SaveRefusedDialog::saveWithEncoding` is its row for one refused file. `Workbench::
   refreshStatus` sets the "encoding" segment from `encodingLabel(doc.encodingChoice())`; `EditorApp` opens the menu
-  (`statusMenuEntries("encoding")`) on a click. `.editorconfig` `charset` is not read (tenfold reads no `.editorconfig`).
+  (`statusMenuEntries("encoding")`) on a click. `.editorconfig` `charset` is not read (`core/EditorConfig.*` takes only `trim_trailing_whitespace` and `insert_final_newline`, and only with `useEditorConfig`).
 * *Line endings (W10, like Visual Studio: docs/VS_BEHAVIOUR.md section 1).* A line ends at `\r\n`, `\n`, a lone `\r`,
   NEL (U+0085, `C2 85`), LS (U+2028, `E2 80 A8`) or PS (U+2029, `E2 80 A9`), exactly like Visual Studio's editor (user
   decision 2026-11-07). `LineEnding` is `{LF, CRLF, CR, NEL, LS, PS}`. One finder, `linebreak::BreakFinder`
@@ -1239,7 +1242,7 @@ the text sent to clangd, every JSON message. Files are converted at the edge.
   wrap in brackets, case change) and pasted text (`insertText(text, literal=true)`, when `pasteKeepsLineBreaks`) is
   inserted literally. Copy puts `selectedTextRaw()` (real breaks) on the clipboard. `Editor::open` reports a document
   read from disk with mixed endings to `onInconsistentLineEndings` (setting `checkLineEndings`); the UI's
-  `LineEndingPrompt` shows VS's dialog (`LineEndingDialog`, a modal widget built from the reusable `DropDown` and `CheckBox` widgets in `src/ui/widgets`; documents queued together share one dialog; the check box writes `editor.checkLineEndings = false` through `writeUserSetting`). `DropDown` paints its open list beyond its bounds, so `Widget::hitRect()` (default: the bounds) lets a widget take mouse events outside them. `.editorconfig` `end_of_line` is not read (tenfold reads no `.editorconfig`).
+  `LineEndingPrompt` shows VS's dialog (`LineEndingDialog`, a modal widget built from the reusable `DropDown` and `CheckBox` widgets in `src/ui/widgets`; documents queued together share one dialog; the check box writes `editor.checkLineEndings = false` through `writeUserSetting`). `DropDown` paints its open list beyond its bounds, so `Widget::hitRect()` (default: the bounds) lets a widget take mouse events outside them. `.editorconfig` `end_of_line` is not read (`core/EditorConfig.*` takes only `trim_trailing_whitespace` and `insert_final_newline`, and only with `useEditorConfig`).
 * *Text for clangd.* `didOpen` / full-sync / `reopenDocuments` send `TextBuffer::textForLsp()`: UTF-8 with the
   document's real line endings (CRLF lines are sent with CRLF, LF lines with LF, so for the usual files the buffer
   clangd parses is the file on disk; W9e finding 4), and incremental changes get their new text converted the same way
@@ -1565,8 +1568,7 @@ instance property functions (`$(x.Replace(...))`), numeric condition operators.
 display). Users of it: `tenfold-cli why <root> <file> [--clangd p] [--no-clangd] [--wait ms]` (starts the engine, opens
 the file, waits for clangd to parse it, prints `text(100)`), and the UI feature `CompileInfo`
 (`src/ui/features/CompileInfo.*`, command `Help.ShowCompileCommand`, bound by `EditorApp` with the other pickers): a
-modal input-less `ListPopup` with one row per line of `text(76)`; Escape closes. The command has no default key (there
-is no command palette yet, so the user binds one). Tests: `tests/test_compile_info.cpp` (the Visual Studio `Multi`
+modal input-less `ListPopup` with one row per line of `text(76)`; Escape closes. The command has no default key (run it from the command palette, click the `flags` status segment, or bind one). Tests: `tests/test_compile_info.cpp` (the Visual Studio `Multi`
 fixture in two configurations, an existing `compile_commands.json`, a heuristic workspace, an unstarted editor, and a
 real clangd; plus the check that the user guide's settings table matches `assets/settings.default.txt`) and
 `tests/ui/test_compile_info_ui.cpp`.
@@ -1683,6 +1685,54 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
 * ConPTY (Windows) has still only been compile-tested; everything above `Pty` is platform neutral and draws through the same
   `gfx::Renderer` calls as every widget, so the D3D11 path needs nothing of its own.
 
+## Workspace, search and small core pieces (`src/workspace`, `src/search`, `src/core`)
+
+* **`Workspace`** (`src/workspace/Workspace.*`) is a root directory plus its file lists; the `Editor` owns one.
+  `scan()` walks the tree once (blocking, cheap enough for about 100k files) into three lists, `sourceFiles()`,
+  `headerFiles()` and `otherFiles()`, classified by the extension lists of `Workspace::Settings` (`.cpp .cc .cxx .c .cu
+  .mm .m`; headers `.h .hpp .hh .hxx .inl .ipp .tpp .cuh .def .inc` and extensionless files; other: `.txt .md .json
+  .cmake .py .lua .natvis .rc`). Directories are skipped by `ignoreDirs` (`.git .svn .hg .vs .vscode .idea .cache .tenfold
+  node_modules __pycache__`), by exact name (`build out bin obj`, case-insensitive) and by prefix (`build-`, `cmake-build`:
+  a folder called `output` or `binding` is scanned). Symbolic links to directories are entered only with
+  `followSymlinks` (default off), and the walk stops at depth 256. `revision()` is bumped by every scan and by every
+  incremental change (`noteFileAdded`, `noteTreeAdded`, `noteFileRemoved`, `noteFileRenamed`, called on the editor thread
+  from the file watcher's posted events and from the explorer's file operations); the workspace explorer polls it.
+  Settings are the optional `<root>/.tenfold/workspace.json`: `loadSettings` ignores a value of the wrong type and
+  `saveSettings` merges into the existing object (see "Visual Studio solution settings"). Keys: the extension lists,
+  `ignoreDirs`, `ignoreDirNames`, `ignoreDirPrefixes`, `followSymlinks`, `watchFiles`, `cppStandard`, `clangdPath`,
+  `clangdExtraArgs`, `vsConfiguration` / `vsPlatform`, `buildCommand`, `rebuildCommand`, `buildDir`, `runCMake`,
+  `msvcToolchain`, `undoGrouping`, `undoGroupPauseMs`, `debug.attachAtStartup`, `debug.visualStudioSync` (and the `vcs`
+  object, see "Version control"). The same header holds executable discovery: `findExecutable`, `resolveClangd` /
+  `findClangd` ("Packaging"), `bundledBinDir`.
+* **`TextSearch`** (`src/search/TextSearch.*`) is the find-in-files engine. It knows nothing of `Editor` or `Workspace`:
+  the caller passes a `SearchInput` (root, file list, optional in-memory text for open documents) and `SearchOptions`,
+  `TextSearch::start` returns a `SearchHandle` (cancel / wait) and delivers batches (`onBatch`, 200 matches each) and one
+  `onDone(SearchSummary)` on worker threads, serialised by a mutex; `Editor::findInWorkspace` hops them to the main
+  thread. Literal search is a `memchr` first-byte scan (ASCII case folding; whole word means not adjacent to
+  `[A-Za-z0-9_]` or a non-ASCII byte); regex uses PCRE2 when built with `TENFOLD_WITH_PCRE2` (otherwise a regex query
+  reports an error), matches may span lines and are reported on their first line, empty matches are ignored. Files with a
+  NUL in the first 8 KiB are binary and skipped, files over `maxFileBytes` (64 MiB) are skipped, results stop at
+  `maxResults` (10000, `truncated`). Include / exclude globs (`globMatch`, `pathMatchesGlob`) are matched against
+  workspace-relative `/` paths. Very long lines are windowed around the match (`SearchMatch::textOffset`). Replacement
+  on disk is `src/search/ReplaceInFiles.*` ("Replace in files" under the UI pickers).
+* **`core` helpers.** `PathUtil` (`pathUtf8` / `pathFromUtf8`, `pathKey`, `file://` URIs in POSIX and Windows style,
+  `readRegularFile`, which refuses devices and FIFOs, with `*Style` overloads so Linux tests cover the Windows rules),
+  `Platform.h` (process id, a `popen` wrapper for rare short probes), `Trash` (`moveToTrash`: the Recycle Bin on Windows,
+  the freedesktop trash on other POSIX systems, unsupported on macOS where the explorer then says it deletes
+  permanently), `EditorConfig` (`.editorconfig`: only `trim_trailing_whitespace` and `insert_final_newline`), `Position`
+  and `Selection`. The text model, encodings, logging and crash handler have their own sections.
+
+## Command-line front end (`src/cli`, `tenfold-cli`)
+
+`tenfold-cli` is the reference front end of the "Front-end contract": `tenfold-cli <workspace-root>` reads commands from
+stdin (`open`, `goto`, `def`, `decl`, `refs`, `sym`, `grep`, `hover`, `complete`, `switch`, `back`, `fwd`, `history`,
+`insert`, `wait-index`, `wait-file`, `wait-fast`, `status`, `where`, `diags`, `quit`) and drives `Editor` exactly as the GUI
+does. Sub-commands that do not open an editor session: `compdb <.sln|.vcxproj>` (print or write the generated compile
+commands), `vsconfig <root> [--list | --set Debug|x64]`, `build <root>`, `why <root> <file>` ("Compile-command
+diagnostics"), `log [<root>] [--tail N]` ("Local log file"), `bench <root>` (scan, fast index, one go to definition, symbol
+searches, peak RSS; the stress driver and `docs/BENCHMARKS.md` use it), `corpus <dir>` ("Corpus harness") and `--version`.
+Options: `--clangd <path>`, `--no-clangd`, `--budget <ms>`, `--trace`, `--quiet`.
+
 ## Corpus harness (W9a, `src/corpus`, part of `tenfold_core`)
 
 The end-to-end correctness and speed check of the code intelligence: `tenfold-cli corpus <dir>` and the
@@ -1786,6 +1836,7 @@ space, R8 coverage x colour / RGBA8 modulate, scissor stack rounding outwards, `
 offscreen mode): `GlRenderer` (OpenGL 3.3 core, every platform) and `D3d11Renderer` (Direct3D 11, Windows). Both
 share the FreeType atlas: glyph rasterisation stays on FreeType, DirectWrite is not used.
 
+* **GL loading and PNG.** `GlLoader.*` is a hand-written OpenGL 3.3 core loader (only the entry points `GlRenderer` uses, resolved through `Window::glProc`). `PngWrite.*` is a dependency-free PNG encoder (8-bit RGBA, stored deflate blocks, byte-for-byte deterministic) and a decoder for exactly that format, used by `--screenshot` and the golden-image tests.
 * **Selection.** CMake option `TENFOLD_D3D11` (default ON on Windows) builds the D3D11 files and defines
   `TENFOLD_HAVE_D3D11`; `tenfold-ui --renderer=gl|d3d11` picks at run time (default `d3d11` on Windows, `gl`
   elsewhere). `ui::WindowOptions::openGl = false` creates the SDL window without `SDL_WINDOW_OPENGL`;
@@ -1876,7 +1927,7 @@ document (a message says how many were kept) instead of opening one prompt per t
 
 ### Pickers (`src/ui/features`, B5a)
 
-All pickers are owned by `EditorApp` and share a `PickerEnv` (root, editor, `LineSource` for previews, the app clock).
+All pickers are owned by `EditorApp` and share a `PickerEnv` (root, editor, `LineSource` for previews, the app clock; `PickerUtil.*` also holds the shared helpers: workspace-relative display paths, kind icons and their theme tokens, `openResult`, which opens a mouse-clicked find result in the preview tab).
 While one is open the key context is `picker`, so the `editor` bindings (arrows, Enter, Escape) do not fire and the
 keys reach the popup. *Symbol search* (`Search.SymbolSearch`, Ctrl+,): typing calls `Editor::findSymbols` on the main
 thread (it returns at once: the fast tier runs on the engine's symbol thread since A10); the first
@@ -1976,7 +2027,7 @@ Enter -> `gotoLocation`. Engine additions (additive): `Editor::hoverAt(doc, pos,
 
 ### 10x parser commands (W8c, `src/ui/features/{RenameInput,FunctionPicker,ParserCommands}.*`, `EditorApp::bindParserCommands`)
 
-Eight 10x commands wire the existing engine features to 10x's default keys; none re-implements a feature.
+These 10x commands wire the existing engine features to 10x's default keys; none re-implements a feature.
 
 * **RenameSymbol / SubmitRenameSymbol** (`Control R`, then `Enter`): `RenameInput` is a non-modal top-layer box under the
   symbol (a bordered widget holding an `InputLine`, pre-filled and selected, focused). While it is open
@@ -2058,19 +2109,18 @@ palette shows the first 10x name of a command (`displayName10x`). A later layer 
 keys in every context. Layers (`loadKeyBindings(KeyLoadOptions)`): embedded `assets/KeyMappings.default.10x_settings`
 (generated into a header at configure time: 10x's default map verbatim, then a `# ===== tenfold additions` section),
 an installed 10x's `%APPDATA%\10x\Settings\KeyMappings.10x_settings` (Windows; `EditorApp::setKeyImport10x` /
-`setKeyImportFile`, setting `keys.import10x` once it is in the settings schema; only when the user dir is the real
+`setKeyImportFile`, setting `keys.import10x`, default on; only when the user dir is the real
 user config dir), `<user config dir>/tenfold/KeyMappings.10x_settings`, `<workspace>/.tenfold/KeyMappings.10x_settings`.
 A leftover `keybindings.txt` gives a warning. When a matched binding's command is not runnable (not implemented, no
 handler) and the focus is not a text view, the focused widget gets the key first (`Alt R` in the find bar; since W8e
 `ReplaceNextInFile` / `ReplaceAllInFile` exist, `EditorApp::widgetOwnsKey` gives `Alt R` to an open picker and to the
 find-only bar, and to the commands when the bar shows its replace row), and an
-unimplemented middle-button binding never swallows the click (tab close). `tests/fixtures/KeyMappings.10x.expected.txt`
-handler) and the focus is not a text view, the focused widget gets the key first (`Alt R` in the find bar), and an
 unimplemented middle-button binding never swallows the click (tab close). `Control MouseMiddleButton`
 (`AddCursorAtMousePos`, `Editor.AddCaretAtMouse`) runs only when the pointer is over a `TextView` (`EditorApp::textViewAt`,
 the pointer position is tracked from mouse events); elsewhere the click is dispatched to the widgets. `tests/fixtures/KeyMappings.10x.expected.txt`
 is the key list generated from the 10x documentation; a test compares the defaults file against it.
 `EditorApp` (below) wires `KeyMap::feed` into the app's event loop.
+
 ## Settings and themes (`src/ui/settings/{Settings,Theme}.*`, B7)
 
 Settings are `key = value` text files with dotted keys (`editor.tabWidth = 4`; no `[sections]`), `#` comments only as
@@ -2091,8 +2141,7 @@ thread-safe `wake` callback); the UI thread calls `poll()`, which reloads, fires
 The optional colour keys (`editorBackground`, `currentLineFill`, `currentLineBorder`, `selectionActive`,
 `selectionInactive`, `findHighlight`, `findHighlightCurrent`, `editorCaret`, `tabActiveText`, `tabInactiveText`,
 `popupBackground`, `popupBorder`, and the debugger keys `debugBreakpoint`, `debugCurrentLine`, `debugCurrentArrow`,
-`statusBackgroundDebugging`, `statusTextDebugging`) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
-`popupBackground`, `popupBorder`, and the version-control keys `diffAdded`, `diffModified`, `diffDeleted`,
+`statusBackgroundDebugging`, `statusTextDebugging`, and the version-control keys `diffAdded`, `diffModified`, `diffDeleted`,
 `diffBlockBackground`, `diffBlockText`, `diffBlockHeader`, `tabVcsModified`, `tabVcsAdded`, `tabVcsCheckedOut`,
 `tabVcsReadOnly`, C3c) default to fully transparent, which means "paint the pre-B7b look" (`Theme::orElse`),
 so `dark` and `light` and their goldens are unchanged; only `vs-dark` sets them. `vs-dark.txt` lists in its header the
@@ -2101,7 +2150,6 @@ lexer kind that does not exist yet and have no key. The debugger keys fall back 
 colour for the statement arrow and band); the two status bar keys have no fallback, so the bar only changes in themes
 that set them (`vs-dark`).
 
-user's 10x key map is known (OPEN_QUESTIONS #1). `EditorApp` (below) wires it into the app.
 ### Workbench (`src/ui/shell`, B3b)
 
 `Workbench` (a `RootWidget`) owns the editor layout: a tree of `Splitter`s and `Panel`s above a `StatusBar`, and the
@@ -2211,6 +2259,7 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
   filters file, under the folders of their path relative to the project (leading `..` dropped). Folder mode: the three file
   lists of `Workspace` (so the scan's ignore rules and extension lists apply) split by directory; consecutive files of
   one directory reuse the last node. Both end with `sortAll` (containers first, case-insensitive) and `indexPaths`.
+* **File operations** (`ExplorerPrompt`, `src/ui/features/ExplorerPrompt.*`): the explorer's small modal dialogs, all `ListPopup`s: `askName` (New File / New Folder / Rename; an input row that says what Enter will do or why it cannot, e.g. "already exists"), `confirm` (a title, dim detail lines, OK / Cancel; delete goes to the OS trash through `moveToTrash`, see "Workspace, search and small core pieces") and `info` (read-only `label: value` rows for Properties).
 * **Refresh**: only while the panel is open. `EditorApp::tick` calls `WorkspaceExplorer::tick`, which looks (at most every
   300 ms; a skipped look asks for one more wake-up) at `Workspace::revision()` (a counter bumped by `scan` and by every
   incremental file-list change, i.e. the file watcher's events) and at a stamp of the size and mtime of the `.sln`, the
@@ -2372,7 +2421,7 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   status-bar message as key-binding ones. `tenfold-ui` creates the service (watcher thread posts `Window::wake`, the
   loop calls `poll()`), builds the font with `makeEditorTextRenderer` (`font.editor`, then each `font.fallbacks` name
   in order, then the platform default; no hard-coded choice, OPEN_QUESTIONS #7) and rebuilds it on any `font.*`
-  change (`RootWidget::setTextRenderer`).
+  change (`RootWidget::setTextRenderer`). `src/ui/shell/FontSetup.*` holds `resolveFontFile` (a family name or path to a `.ttf` / `.otf` / `.ttc` in the platform font directories, shortest name wins) and `makeEditorTextRenderer` (size in points x DPI scale + zoom, kept within 6..72 pt).
 * **Measured** (Release, llvmpipe, 100k lines, 1920x1080, one caret): keystroke-to-paint 0.12 ms plain vs 0.15 ms
   coloured (p99 below 0.4 ms); cold first paint 1-2 ms at the top (glyph atlas cold too), 0.5 ms when scrolled to line
   90000 (provisional), exact pass finished in the background in ~60 one-ms ticks.
@@ -2412,7 +2461,7 @@ first row only (so does the bookmark flag). Horizontal scrolling is off while wr
   spaces, default `tab`), `editor.detectIndent` (false), `editor.autoIndent` (true), `editor.autoIndentBraces` (true),
   `editor.formatBracesOnEnterSplit` (false), `editor.autoAddCloseBrace` (false), `editor.autoAddCloseBracket` (false),
   `editor.autoCloseQuotes` (false, tenfold only), `editor.bracketSelectedText` (true), `editor.trimTrailingWhitespace`
-  (false), `editor.commentBlockUsesLineComments` (true). `editor.wordWrap` is still only reserved: soft wrap is not implemented.
+  (false), `editor.commentBlockUsesLineComments` (true). (`editor.wordWrap`, soft wrap, is documented under "Soft word wrap".)
 * Plain Tab inserts the indent unit (it used to insert a tab character); Shift+Tab outdents; a selection spanning several
   lines indents them. Files are decoded to UTF-8 on load and encoded again on save (see "Encodings and line endings"
   in the text model; the status bar shows the line ending, `CR` for classic Mac files; a click on it, `Editor.LineEndingLF` /
@@ -2490,13 +2539,13 @@ here: `App.Quit` (Control Q), `Workbench.CycleMruNext/Prev` (the cycle ends when
 clipboard: copy joins the selections with a line break (no selection: the caret lines); paste with exactly as many lines
 as carets (a final line break does not count) inserts one line per caret in document order
 (`Editor::insertTextPerCaret`), otherwise the whole text at every caret. The clipboard has an injectable backend
-(`setClipboardBackend`) for tests. Escape is a binding (`[editor] Escape = Editor.CollapseCarets`), it never quits;
+(`setClipboardBackend`) for tests. Escape is a binding (`Escape: Editor.CollapseCarets` in the default key map), it never quits;
 Ctrl+Q or closing the window quits, and shutdown is: `Workbench::saveLayout`, then `Editor::shutdown`. The Workbench
 focuses the view of the active tab after every tab/panel switch or reveal, so keys always reach the visible TextView.
 
 `tenfold-ui <workspace> [file]` is this editor. The single-file `EditorShell` of B2a was dropped (a Workbench with one
-tab is the same thing); `--shell` (B3a widget demo, still key-driven through EditorApp) and `--demo` (renderer scene)
-remain.
+tab is the same thing); `--shell` (the B3a widget demo, `src/ui/widgets/ShellDemo.*`, still key-driven through EditorApp) and `--demo` (renderer scene)
+remain. The platform layer is `src/ui/platform`: `Window` (SDL3), `Input` (`InputEvent`; `InputSdl.h` is the only place SDL events become `InputEvent`s) and `Clipboard` (UTF-8 text; the default backend is the system clipboard and needs a live window, tests install a fake with `setClipboardBackend`).
 
 ### Safety and visibility (P2, `src/ui/features/{UnsavedPrompt,ExternalChanges,CommandPalette}.*`, `Workbench`, `EditorApp`)
 

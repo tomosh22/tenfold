@@ -6,8 +6,10 @@ Reproducible numbers for the performance budgets in `IMPLEMENTATION_PLAN.md` sec
 > running about six other agents at the same time (load average 6 to 12): treat them as upper bounds. The section
 > "After Wave 1" (light load) supersedes them for startup, definition latency, symbol search and memory, and the A10 and
 > B2c sections have their own measurement conditions. Later UI budgets are asserted by the test suites (list below);
-> `docs/STRESS_RESULTS.md` has the numbers for pathological workspaces and generated codebases. Re-run `tools/bench.sh`
-> on a quiet machine before quoting an absolute number.
+> `docs/STRESS_RESULTS.md` has the numbers for pathological workspaces, generated codebases and the cost of the
+> scope-aware and preprocessor-aware fast tier (W11-FAST-SCOPE, W12-FAST-PP). Re-run `tools/bench.sh` on a quiet machine
+> before quoting an absolute number. The sections below are historical measurements, in the order they were made; where a
+> later section changes a statement, the later one is current.
 
 ## How to run
 
@@ -146,6 +148,8 @@ Machine: 4 cores, Linux, GCC Release build, clangd 22.1.1. Medians of 3 runs, ea
 | `peakRssMiB` | 5.4 | 5.4 | 500 / 500 MiB | pass | pass |
 
 ### Godot (`/home/user/bench/godot`, shallow clone)
+
+(Provisional, measured under load; superseded by "After Wave 1" below: the FAIL rows here pass there, and `symFast` passes the 50 ms budget after A10.)
 
 This clone has 7772 C/C++ files by the count used in the task brief; the engine scan counts 3568 sources +
 4759 headers = 8327 indexed code files (the plan's historical table used a different, 8755-file tree).
@@ -366,6 +370,17 @@ where it differs noticeably. Budget: 8 ms.
   (`CHECK(avg < 8.0)`) only run in Release builds without sanitizers.
 * Not part of the number: `TextView::positionText()` (status bar "Ln, Col") is O(column) on the caret's line, as before
   B2c, so with the caret at the end of the 50 MB line the status bar (not in these tests) pays for it.
+
+## W11-PERF-LINES: keystroke-to-paint on very long lines
+
+Not a new measurement here: `docs/STRESS_RESULTS.md` ("Pathological workspaces (W9f)", "UI frame budget") has the table, taken
+with `tests/ui/test_pathological_ui.cpp` before (`bf14c58`) and after W11-PERF-LINES, median of 5 runs, average / p99 in ms
+(wrap off / wrap on, after): 300k-line C++ file 0.76 / 1.07 and 0.65 / 0.91; 1 MB single-line C++ expression 0.04 / 0.08 and
+0.51 / 1.19 (before: 16.9 / 19.3 and 16.3 / 20.8); 550 kB minified C++ line 0.06 / 0.09 and 0.36 / 0.43 (before: 9.6 / 14.7
+and 9.3 / 13.0); 2 MB line of wide characters 0.04 / 0.06 and 0.33 / 0.38 (before: 34.4 / 42.9 with wrap off). Every one of
+these is now a `PERF_CHECK` (8 ms, times `TENFOLD_PERF_SCALE`) and CI enforces them with a scale of 2. The over-budget rows of
+the earlier pathological runs (a long line re-lexed or re-measured per key) are fixed; how: `docs/ARCHITECTURE.md`, "Very
+long lines". The 50 MB single-line rows of B2c above are unchanged: they are the Editor's own insert into a 50 MB string.
 
 ## Historical numbers (from the plan, quiet machine, 8755-file Godot)
 

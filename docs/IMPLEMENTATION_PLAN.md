@@ -6,7 +6,7 @@ Everything an implementer needs is either in this file or in a file this
 plan points at. Read `README.md`, `docs/ARCHITECTURE.md` and
 `docs/FEATURE_PARITY.md` first; they describe what already exists.
 
-**Status (2026-11).** This file started as the plan handed to the orchestrating agent. Waves 1 to 10 are done (§9);
+**Status (2026-11).** This file started as the plan handed to the orchestrating agent. Waves 1 to 12 are done (§9);
 §0 is the current state, and the task briefs in §3 to §6 are history. The only open work is the "next" row of §9.
 
 **Product goal.** A C++ code editor with the behaviour and speed of the
@@ -23,18 +23,18 @@ against a running copy by the user; those are flagged **VERIFY WITH USER**.
 
 Location: `github.com/tomosh22/tenfold`, built with CMake (C++20; presets in `CMakePresets.json`; GCC, Clang, MSVC,
 clang-cl and AppleClang are in CI, `.github/workflows/ci.yml`). Phases A to D and the 10x commands of W8 are done and
-merged; waves 1 to 10 of §9 are done except what the last row ("next") lists. The sections of this file below §1 are the
+merged; waves 1 to 12 of §9 are done except what the last row ("next") lists. The sections of this file below §1 are the
 original task briefs and are kept as history: they say what each task was meant to do and why, not what the code looks
 like today; for the current design read `docs/ARCHITECTURE.md`, for what matches 10x and Visual Studio
 `docs/FEATURE_PARITY.md`, for decisions `docs/OPEN_QUESTIONS.md` and `docs/VS_BEHAVIOUR.md`.
 
 | Part | Where | State |
 |---|---|---|
-| Engine (text model, navigation history, LSP client, two-tier semantic engine, compile commands, workspace, search, build, debug, VCS, terminal) | `src/core`, `src/nav`, `src/lsp`, `src/semantic`, `src/workspace`, `src/search`, `src/build`, `src/debug`, `src/vcs`, `src/term`, `src/app` | done; Windows process spawning, ConPTY and the Visual Studio (EnvDTE) debugger backend are in |
+| Engine (text model, navigation history, LSP client, two-tier semantic engine, compile commands, workspace, search, build, debug, VCS, terminal) | `src/core`, `src/nav`, `src/lsp`, `src/semantic`, `src/workspace`, `src/search`, `src/build`, `src/debug`, `src/vcs`, `src/term`, `src/corpus`, `src/app` | done; Windows process spawning, ConPTY and the Visual Studio (EnvDTE) debugger backend are in |
 | Headless front end | `src/cli` (`tenfold-cli`: REPL, `compdb`, `why`, `bench`, `corpus`, ...) | done |
 | Graphical editor | `src/ui`, `src/ui_app` (`tenfold-ui`; SDL3, OpenGL 3.3 or Direct3D 11, FreeType) | done; opt-in at configure time (`-DTENFOLD_BUILD_UI=ON`), always built for packages |
 | Packages | CI job `package-*`: Windows `.zip`, Linux `.tar.gz` / AppImage, macOS (best effort), pinned clangd bundled | done |
-| Tests | `tenfold-tests` 719, `tenfold-ui-tests` 649, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over about 35 corpora in `tests/corpus`) on Linux; fuzz targets in `tests/fuzz` | see `docs/TESTING.md` |
+| Tests | `tenfold-tests` 719, `tenfold-ui-tests` 649, `tenfold-text-tests` 30, `tenfold-corpus-tests` 3 (over the 36 corpora in `tests/corpus`) on Linux; 24 fuzz targets in `tests/fuzz`; CI in `.github/workflows/ci.yml` | see `docs/TESTING.md` |
 | Scripting (C4) | not built | dropped by the user (OPEN_QUESTIONS #11) |
 
 Performance numbers: `docs/BENCHMARKS.md`; stress results: `docs/STRESS_RESULTS.md`. The table in the last section of
@@ -49,8 +49,9 @@ Known limitations (current):
   tier") and agrees with clangd's final answer in about 83% of the `def` / `decl` lines of the corpora
   (`docs/STRESS_RESULTS.md`, "W11-FAST-SCOPE" and "W12-FAST-PP"); the rest is overloads by parameter type, explicit
   specialisations, alias chains, operator tokens and macro-declared names.
-* `TextBuffer` is a vector of lines (fine to hundreds of MB, not for multi-GB logs); lines of 500 kB or more are slow to
-  highlight (see §9, "next").
+* `TextBuffer` is a vector of lines (fine to hundreds of MB, not for multi-GB logs). Lines of megabytes are handled by
+  column anchors and windowed lexing (W11-PERF-LINES: keystroke-to-paint under 8 ms for every pathological file, enforced in
+  CI); typing into a 50 MB single line still costs about 8 ms in the buffer itself (`docs/STRESS_RESULTS.md`).
 * In heuristic compile-command mode on Linux the include directories shared by every file go into a clangd user config
   under `.tenfold/clangd-config`, and clangd is pointed at it via `XDG_CONFIG_HOME`; this hides the user's own clangd user
   config for that process (`.clangd` at the workspace root still works). On macOS and Windows the flags stay in the
@@ -441,7 +442,7 @@ interface (EnvDTE over COM), so debugging happens in VS while the code stays ope
   `Solution.FullName` is the workspace solution through the Running Object Table, else launches `devenv <sln>` and
   waits for it to register; maps every `Debugger` call onto `DTE.Debugger` / `Breakpoints`; polls mode, current
   stack frame and the VS breakpoint list so breakpoints set in VS appear in tenfold; "Open in Visual Studio" at the
-  caret. Integration test behind `TENFOLD_VS_DTE_TEST=1`, run by a non-blocking `windows-vs-debugger` CI job.
+  caret. Integration test behind `TENFOLD_VS_DTE_TEST=1`, run by the `windows-vs-debugger` CI job.
 * **C2c → C2a UI.** Breakpoint glyphs in the gutter (click to toggle), current-statement arrow and line colour,
   `Debug.*` commands with Visual Studio's default keys (F5, Ctrl+F5, Shift+F5, Ctrl+Shift+F5, F9, F10, F11,
   Shift+F11, Ctrl+F10, Ctrl+Alt+Break), debugger state in the status bar, breakpoint list popup.
@@ -609,7 +610,7 @@ Anything else requires a plan amendment.
 
 ---
 
-## 9. Execution order and sizing (waves 1 to 10 done except as marked; "next" is open)
+## 9. Execution order and sizing (waves 1 to 12 done except as marked; "next" is open)
 
 | Wave | Tasks | Notes |
 |---|---|---|
@@ -623,7 +624,9 @@ Anything else requires a plan amendment.
 | 8 | B4b, B8b, C2d; then W8a, W8b, W8c (∥), W8d, W8e, then W8f | 10x documentation available (key bindings, settings, VS sync) |
 | 9 | W9a, W9f, W9h (∥); then W9b-W9e, W9g (∥, → W9a), W9i (→ W9g); then fixes | extreme stress test on varied codebases. Done: W9a-W9h and the W9-FIX tasks (fast index, encodings, translation-unit context, Visual Studio configurations, harness). **Not done: W9i** (editor-level stress) |
 | 10 | W10-ENC, W10-CHOOSE, W10-LE, vs-research; then VS-TERM, VS-TABS, W10-THEME, W10-OUTLINE, VS-ENC, VS-TREE, VS-EDIT, VS-NAV, VS-VCS (∥); CI-W3, CI-W4, CHURN-2; LE-UNICODE, LE-DIALOG | user decisions of 2026-11-06 (OPEN_QUESTIONS, "User decisions of 2026-11-06"): refuse to save characters the encoding cannot hold (W10-ENC), a chooser for go to definition on aliases, using-declarations and constructor calls (W10-CHOOSE), line endings exactly like Visual Studio (W10-LE, LE-UNICODE with NEL / LS / PS as line breaks, LE-DIALOG the inconsistent line endings dialog) and everything else like Visual Studio. `docs/VS_BEHAVIOUR.md` is the research (with sources) behind: terminal keys (VS-TERM), tab well (VS-TABS), theme colours (W10-THEME), outlining (W10-OUTLINE), encodings in the status bar (VS-ENC), Solution Explorer (VS-TREE), editing options (VS-EDIT), navigation (VS-NAV) and version-control marks (VS-VCS). CI-W3 and CI-W4 fixed the Windows, macOS and sanitizer CI failures of the W9 tests (long paths, ASan timeouts, host stdlib, crash signal, pathological names); CHURN-2 made the Linux file watcher follow directories by inode so renames during a walk lose no files |
-| next | not scheduled | a fast tier with overloads by argument type, alias chains and names declared through macro arguments (fast/final agreement is about 83%, `docs/STRESS_RESULTS.md`, "W12-FAST-PP"); workarounds for clangd answer gaps; W9i editor-level stress; Unreal Engine awareness (`.uproject`); the remaining 10x commands and settings (`docs/FEATURE_PARITY.md`). Done in W12-FAST-PP: a fast tier that follows preprocessor conditionals (per-symbol `#if` arms in the index, a three-valued `#if` evaluator, the compile command's `-D` / `-U` and certain predefined macros, forced includes, `#define` / `#undef` of the unit, `__has_include`; agreement 75% to 83% over 36 corpora; unchanged by the stricter absent-macro rule of 2026-11-08 (any-configuration project mention), no fast answer lost; `docs/ARCHITECTURE.md`). Done in W11-FAST-SCOPE: a scope-aware fast tier (locals, file-local entities, member access by receiver type, scope chain with using-directives, argument counts, include reachability; agreement 49% to 75% over 36 corpora, `docs/ARCHITECTURE.md`). Done in W11-GUI-LSP: call / type hierarchy panel, Quick Actions (Ctrl+.) with the light bulb, inlay hints (`docs/USER_GUIDE.md`). Done in W11-PERF-LINES: performance of extreme single lines (W9f "Not fixed" 1 and 2): column anchors for lines of 2 KB or more and windowed, resumable lexing, so every pathological file is under the 8 ms keystroke-to-paint budget (average and p99, wrap on and off) and the budgets are enforced in CI (`docs/STRESS_RESULTS.md`, `docs/ARCHITECTURE.md` "Very long lines") |
+| 11 | DOCS-REFRESH, W11-GUI-LSP, W11-PERF-LINES, W11-FAST-SCOPE (∥) | **W11 docs refresh** (DOCS-REFRESH): README, plan, feature parity, architecture, testing, benchmarks, user guide and open questions rewritten to describe the current code. **W11-GUI-LSP**: call / type hierarchy panel (`HierarchyPanel`), Quick Actions (Ctrl+.) with the light bulb, inlay hints (`InlayHints`, `InlayMap`) (`docs/USER_GUIDE.md`). **W11-PERF-LINES**: column anchors (`LineAnchors`) and windowed, resumable lexing (`Highlighter`) for very long lines; the keystroke-to-paint budgets of the pathological files (8 ms) are enforced in CI (`linux-ui-xvfb`, scale 2) (`docs/ARCHITECTURE.md` "Very long lines", `docs/STRESS_RESULTS.md`). **W11-FAST-SCOPE**: a scope-aware fast tier (locals, file-local entities, member access by receiver type, scope chain with using-directives, argument counts, include reachability); fast/final agreement 49% to 75% over 36 corpora (`docs/ARCHITECTURE.md`) |
+| 12 | W12-CMD, W12-FAST-PP, then W12-FAST-PP-STRICT | **W12-CMD**: the autocomplete list keys (`AutocompleteUp` / `Down` / `PageUp` / `PageDown`) are key-map commands, and `InsertPrevAutocomplete` / `InsertNextAutocomplete` (F14 / Shift+F14, from 10x's changelog) cycle through the completions: all 183 default bindings run a command. **W12-FAST-PP**: a fast tier that follows preprocessor conditionals (per-symbol `#if` arms in the index, `FastIndexStore` format 3, a three-valued `#if` evaluator, the compile command's `-D` / `-U` and certain predefined macros, forced includes, `#define` / `#undef` of the unit, `__has_include`); agreement 75% to 83% over 36 corpora, no fast answer lost. **W12-FAST-PP-STRICT**: user decision of 2026-11-08: an absent macro is "not defined" only when some configuration's `-D` / `-U` or an indexed `#define` mentions the name, every other absent name is Unknown; unchanged agreement (`docs/ARCHITECTURE.md` "Preprocessor conditionals in the fast tier", `docs/STRESS_RESULTS.md`) |
+| next | not scheduled | Unreal Engine awareness (`.uproject`); the about 120 10x commands without a default key that tenfold does not implement and the 10x settings it does not support (`docs/FEATURE_PARITY.md`); fast tier: overloads by argument type, alias chains, names declared through macro arguments and operator tokens (fast/final agreement is about 83%, `docs/STRESS_RESULTS.md`, "W12-FAST-PP"); workarounds for clangd answer gaps (`docs/STRESS_RESULTS.md` finding tables); W9i editor-level stress |
 
 A Sonnet task should be at most ~800 lines of new code plus tests; split
 anything larger (B2 and B5 will each need two or three sub-tasks; the

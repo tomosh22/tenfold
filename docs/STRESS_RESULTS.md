@@ -1,6 +1,19 @@
-# Stress test results (W9)
+# Stress test results
 
-Each W9 corpus agent adds its own self-contained section below. Format and rules of the corpora: `docs/TESTING.md`.
+Measurements and findings of the corpus, stress and fuzz work (waves 9 to 12). Each agent adds its own self-contained
+section; the sections are **historical records** (numbers measured when the work was done, on the shared machine named in
+each), and a table's "not fixed" means "not fixed by that work". Format and rules of the corpora: `docs/TESTING.md`.
+Order: the fast-tier work newest first (W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE, W9-FIX-C1), then the W9 sections.
+
+**Where things stand now** (the latest measurement of each; details in the sections named):
+
+* Fast/final agreement of the fast tier over the 36 corpora: **2236/2688 = 83.2 %** (W12-FAST-PP-STRICT; 49.2 % before
+  W11-FAST-SCOPE, 74.9 % after it, 83.2 % after W12-FAST-PP). Every `final` expectation passes; no `FAIL` or `XPASS`.
+* Very long lines: the keystroke-to-paint budget (8 ms) holds for every pathological file, wrap on and off, average and
+  p99 (W11-PERF-LINES, in "Pathological workspaces (W9f)", bugs 8 and 9; the rows that were over budget are fixed).
+* Still open: fast tier overloads by argument type, alias chains, macro-declared names, operator tokens, specialisations
+  (W11-FAST-SCOPE, "Where the rest is"; W12-FAST-PP); the design-change items 3 to 9 under "Not fixed" in the
+  pathological section; the clangd answer gaps recorded in the W9b to W9e finding tables.
 
 ## W12-FAST-PP-STRICT: absent macros are unknown unless the project mentions them (branch `task/W12-FAST-PP-STRICT`)
 
@@ -256,7 +269,7 @@ answer", 53 disjoint, 39 subset, 7 other; before: 986 / 228 / 95 / 43 / 15):
 
 | cause | lines (about) | why it stays |
 |---|---|---|
-| `#if` / configuration branches (`vs-props` 91, `vs-configs` 70, `pp-includes`, `templates-config` 20) | 190 | every branch is indexed; evaluating the compile command's defines per symbol would need a conditional tag in the persisted index |
+| `#if` / configuration branches (`vs-props` 91, `vs-configs` 70, `pp-includes`, `templates-config` 20) | 190 | every branch is indexed; evaluating the compile command's defines per symbol would need a conditional tag in the persisted index (done by W12-FAST-PP, above: about 3 lines remain) |
 | operator tokens, macros, names declared through macro arguments (`operators` 49, `pp-macros` 51, `pp-xmacros` 23, generated `macros_*.h`) | 170 | by design: a punctuator is not a word, a macro-declared name needs the macro body |
 | overloads of equal arity (parameter types, cv / ref qualifiers, `push(const T&)` / `push(T&&)`) | about 100 | the index keeps counts, not types |
 | explicit and partial specialisations, alias chains (`using B3 = B2`: clangd also answers the targets), using-declarations (not indexed), forward declarations for `decl` | about 80 | no data in the index |
@@ -317,6 +330,37 @@ overloads by argument count, members through declared types, base-class hiding, 
 the 161 promoted corpus lines, fuzz target `scopescan`; 60 s runs of `scopescan`, `lexer`, `extract` and `indexstore`
 under ASan + UBSan found nothing else.
 
+## W9-FIX-C1: fast-tier indexing gaps and answer shaping
+
+Fixes in `src/semantic/FastIndex.*` and the approximate-answer path of `SemanticEngine` (design: `docs/ARCHITECTURE.md`,
+"What the fast tier indexes, and how its answer is shaped"). `fast def`/`decl` agreement with clangd over the 29 corpora of
+the time (harness summary lines, `def` and `decl` lines): **398/1841 (21.6%) before, 809/1853 (43.7%) after** (later: 49.2 %, 74.9 %, 83.2 % over 36 corpora, see the sections above); 31 `xfail` lines
+were promoted to normal expectations (30 that `tenfold-cli` reported as `XPASS` plus `use_clamp01_paren`), and
+fast-tier lines were added for declaration pairing, the tag after `struct`, the destructor, constructors and written
+`operator` names.
+
+| finding | status | what changed |
+|---|---|---|
+| W9d 4 hidden friends (`lookup-adl:use_dot`, `fast sym "dot"`; W9b F2 `overloads` `fast sym "draw"`) | fixed | `friend T f(...) { }` inside a class is a `Function` of the enclosing namespace; plain friend declarations and `friend class X;` are not symbols |
+| W9d 5 conversion operators (`oop-ctors:use_Feet_to_Meters`) | fixed | `operator T` is named `operator T` (it was glued to `operatorT`); a caret on a written `operator` word looks that name up. Operator functions get the same canonical names (`operator+`, `operator()`, `operator new[]`, `operator""_km`) |
+| W9d 6 / W9b F3 class name vs constructors / destructor (`oop-virtual:use_Engine`, `oop-ctors:use_dtor_call`, `templates-basic:use_Stack/Pair/Wrap`, `layout-exts:use_Vec`) | fixed | a class name answers the class; `~Name` answers the destructors (an in-class destructor is now named `~Name`, as the out-of-line one was); the caret on a constructor name answers the constructors of that arity |
+| W9c P-1 / W9e 6 macros (`pp-macros`, `c-basic`, `c-mixed-cpp`, `encodings`) | fixed | the extractor already indexed `#define`, but only when the name directly followed `define`: a comment (the corpus anchors), a line continuation or `# define` hid it. Function-like macros carry their parameter count and are offered only where a `(` follows; a macro defined further down the same file is not offered for an earlier line (`pp-macros:use_late_before`) |
+| W9e 7 enumerators of `typedef enum { A, B } T;` | fixed | `typedef` bodies are parsed for `enum` (enumerators, tag) and `struct`/`union` tags; one `Typedef` per declarator |
+| W9e 9 `typedef struct node node;` | fixed | a use outside `struct`/`class`/`union`/`enum` answers the typedef, after the keyword the tag |
+| W9e 12 prototype and definition both answered | fixed | `Symbol::arity`; "go to definition" drops prototypes that have a definition of the same scope, name and arity, "go to declaration" the reverse |
+| W9c P-3 `int (clamp01)(int v)` | fixed | parenthesised declarator after a type |
+| W9c P-2 names declared through macro arguments / `.def` lists | not fixed, by design | see the ARCHITECTURE section: no safe lexical rule for which macro argument is the declared name and of what kind |
+| W9d 1-3, W9b F1/F5, W9c P-4, W9e 10 (name-only lookup, locals, scopes, overloads, `#if`) | not fixed here | scope-aware resolution was part 2: scopes, locals, receivers and argument counts by W11-FAST-SCOPE, `#if` branches by W12-FAST-PP; overloads of the same arity (by type) and explicit specialisations are still answered by name |
+| W9b F4 operator tokens (`a + b`) and literal suffixes (`2.5_km`) | by design | a punctuator is not a word; the fast tier has no answer, clangd does |
+| `typedef struct { int x; } P;` members | not fixed here, fixed later | members of a typedef'd struct body were not indexed (the tag/typedef name was); they are now (scope = the tag, else the first declarator name; `docs/ARCHITECTURE.md`) |
+
+Performance (extractor only, Release, one thread, best of 15 runs; `tools/stress/gen_pathological.py` `bigfiles`
+at `--scale asan --knob big_lines=300000`): this repository's `src` + `tests` + `third_party` (653 files, 4.9 MB) 47.4
+-> 47.0 MB/s, the pathological `million_lines.cpp` + `minified.cpp` + `minified.js.h` (10.8 MB) 58.0 -> 56.6 MB/s;
+symbols 23,787 -> 24,121 (macros behind comments, hidden friends, typedef enumerators) and 37,527 -> 37,527;
+`sizeof(Symbol)` stays 80 bytes (`arity` fits in the padding), peak RSS of the benchmark process unchanged (15 / 74
+MiB). The difference is within run-to-run noise (about 3%).
+
 ## Translation-unit context, rename safety, index readiness (W9-FIX-B, branch `task/W9-FIX-tu-context`)
 
 Design and limits: `docs/ARCHITECTURE.md`, "Translation-unit context for included files, rename safety, index readiness".
@@ -367,9 +411,9 @@ handling of a clangd answer the cause: every wrong final answer below is already
 
 | # | expectation (project) | expected | actual | tier | fault | minimal repro |
 |---|---|---|---|---|---|---|
-| 1 | every `xfail fast def` in all six projects (e.g. `lookup-namespaces:use_inner_value`, `name-collisions:use_a_Node_get`, `lookup-adl:use_draw_circle`) | the one declaration C++ lookup picks | every same-named definition in the workspace (all namespaces, classes, overloads, forward declarations) | fast | fast tier (design: name-only lexer index, no scope, receiver type, ADL or overload step) | `namespace a{int f();} namespace b{int f();} int g(){return b::f();}` : `fast def` on `f` returns both |
-| 2 | `lambdas-bindings:use_cap_base`, `use_param_n`, `use_outer_n`, `use_sb_x`, `use_init_y`, `use_e_loop`, `use_lam_x`, `use_sb_inner_y`, `edit_use_b` | the local/parameter/capture/binding | none | fast | fast tier: locals, parameters, captures, init-captures, structured bindings and range-for variables are not indexed | `auto [x,y]=p; return x;` : `fast def` on `x` is empty |
-| 3 | `name-collisions:use_i_a1`, `use_param_i` | loop variable `i` / parameter `i` | the unrelated member `Holder::i` | fast | fast tier: with no local scope a same-named member of another class is answered, which is worse than no answer | `int sum(int n){for(int i=0;i<n;++i);} struct H{int i;};` : `fast def` on the `i` in the loop gives `H::i` |
+| 1 (narrowed by W11-FAST-SCOPE) | every `xfail fast def` in all six projects (e.g. `lookup-namespaces:use_inner_value`, `name-collisions:use_a_Node_get`, `lookup-adl:use_draw_circle`) | the one declaration C++ lookup picks | every same-named definition in the workspace (all namespaces, classes, overloads, forward declarations) | fast | fast tier (design: name-only lexer index, no scope, receiver type, ADL or overload step) | `namespace a{int f();} namespace b{int f();} int g(){return b::f();}` : `fast def` on `f` returns both |
+| 2 (fixed by W11-FAST-SCOPE) | `lambdas-bindings:use_cap_base`, `use_param_n`, `use_outer_n`, `use_sb_x`, `use_init_y`, `use_e_loop`, `use_lam_x`, `use_sb_inner_y`, `edit_use_b` | the local/parameter/capture/binding | none | fast | fast tier: locals, parameters, captures, init-captures, structured bindings and range-for variables are not indexed | `auto [x,y]=p; return x;` : `fast def` on `x` is empty |
+| 3 (fixed by W11-FAST-SCOPE) | `name-collisions:use_i_a1`, `use_param_i` | loop variable `i` / parameter `i` | the unrelated member `Holder::i` | fast | fast tier: with no local scope a same-named member of another class is answered, which is worse than no answer | `int sum(int n){for(int i=0;i<n;++i);} struct H{int i;};` : `fast def` on the `i` in the loop gives `H::i` |
 | 4 (fixed) | `lookup-adl:use_dot`, `fast sym "dot"` | the hidden friend `dot` | none (no symbol, no definition) | fast | fast tier: friend functions defined inside a class are not extracted | `struct V{ friend int dot(V,V){return 0;} };` : `fast sym "dot"` is empty |
 | 5 (fixed) | `oop-ctors:use_Feet_to_Meters` | the conversion operator | none | fast | fast tier: conversion operators (`operator T`) are not indexed | `struct F{ operator int() const; }; f.operator int();` |
 | 6 (fixed) | `oop-virtual:use_Engine`, `oop-ctors:use_dtor_call` | the class `Engine`; the destructor `~Widget` | the class plus all constructors and the destructor | fast | fast tier: the word `Engine`/`Widget` is looked up, so class, ctors and dtor are conflated; `~Widget` is not distinguished from `Widget` | `class E{E(); ~E();}; E e;` : `fast def` on the type gives 3 results |
@@ -406,9 +450,9 @@ Observations that are not wrong answers but shape the expectations (all pass):
 
 ### Open questions
 
-1. What should go to definition answer for a name brought in by a using-declaration: the entity only, or both (clangd)? Accepted both.
+1. What should go to definition answer for a name brought in by a using-declaration: the entity only, or both (clangd)? Accepted both. (Answered by W10-CHOOSE: a chooser lists the using-declaration and the entity, the entity preselected.)
 2. What should go to definition answer on the type name in a constructor call: the class or the selected constructor? Accepted both;
-   VS and CLion jump to the constructor.
+   VS and CLion jump to the constructor. (Answered by W10-CHOOSE: the resolved constructor is offered with the class.)
 3. Are the implicit `begin()`/`end()` of a range-for references to those functions? Pinned only as an `xfail`.
 4. Is "references of an overriding function include the base's declaration and calls through the base" the wanted behaviour?
    Pinned loosely (`>=`).
@@ -458,7 +502,7 @@ corpus runner.
 | P-1 (fixed) | `pp-macros` `fast def use_max_items` (and every other macro: 68 of 82 fast/final disagreements) | the `#define` | no answer | fast | tenfold fast tier | any `#define X` + use of `X` before clangd is ready |
 | P-2 (not fixed, by design) | `pp-macros` `fast def use_Gadget`, `use_compute_b`, `use_warm`; `pp-xmacros` `fast def use_Red_1/use_op_add/use_Triangle`; `pp-macros-std` `fast def use_Color_names/use_Red` | the declaring macro argument / invocation | no answer | fast | tenfold fast tier | names declared through macro arguments (`DECLARE_CLASS(Gadget)`), `.def` lists (not scanned), `##` |
 | P-3 (fixed) | `pp-macros` `fast def use_clamp01_paren` | `int (clamp01)(int v)` | no answer | fast | tenfold fast tier | parenthesised declarator is not a declaration for the lexer |
-| P-4 | `pp-macros` `fast def use_ver_fn`, `use_nested_fn`, `use_fx`; `vs-configs`/`vs-props` every `fast def` into `#if` branches; `pp-includes` `use_dup_*`, `use_branch_forced` | the one active branch | every branch (3-4 candidates) | fast | tenfold fast tier (by design: no `#if`, no `-D`, no include-dir model) | `#if A int f(); #else int f(); #endif` |
+| P-4 (fixed by W12-FAST-PP, 3 lines remain) | `pp-macros` `fast def use_ver_fn`, `use_nested_fn`, `use_fx`; `vs-configs`/`vs-props` every `fast def` into `#if` branches; `pp-includes` `use_dup_*`, `use_branch_forced` | the one active branch | every branch (3-4 candidates) | fast | tenfold fast tier (by design: no `#if`, no `-D`, no include-dir model) | `#if A int f(); #else int f(); #endif` |
 | P-5 | `pp-macros` `def/hover/refs` at `(clamp01)(5)` and `= clamp01;` | the function `clamp01` | the macro `clamp01` (`macro clamp01 provided by "basic.h"`) | final | clangd | `#define f(x) x` + `int (f)(int); int (*p)(int) = f;` then def on `f` in `p = f` |
 | P-6 | `pp-macros` `refs ADD3`; `pp-xmacros` `refs DECL_FIELD` | include the use `APPLY(ADD3, ...)` / `FIELDS(DECL_FIELD)` | that use is missing | final | clangd | a macro name passed as an argument and expanded when the replacement list is rescanned |
 | P-7 | `pp-macros-std` `refs Color` at `DEFINE_ENUM(Color, ...)` (`Name` is also used in `Name##_names`) | the enum and its uses | empty, rename: "no symbol at the given location" | final | clangd | declare-by-macro where the argument is used both directly and as a `##` operand |
@@ -598,7 +642,7 @@ database, offset encoding utf-8) to tell clangd from tenfold's handling. "Tier" 
 | 7 (fixed) | `c-basic:fast def use_F_READ` | the enumerator | none | fast | **tenfold** fast index: enumerators of `typedef enum { A, B } T;` (anonymous enum) are not indexed; enumerators of a named enum are | `typedef enum { A, B } T;` |
 | 8 (fixed) | `c-heuristic:fast def use_class`, `use_delete` | the C function named `class` / `delete` | none | fast | **tenfold** fast lexer: C++ keywords are keywords even in a `.c` file. (Language choice itself is right: heuristic `.c` entries get `clang -std=c11`; the final tier passes all 26 other lines.) | `int class(int); int x = class(1);` in a `.c` file |
 | 9 (fixed) | `c-basic:fast def use_node_td_main` | typedef `node` | typedef and struct tag `node` | fast | **tenfold** fast index (word-based; cannot tell `struct node` from `node`) | `typedef struct node node;` |
-| 10 | `c-basic:fast def use_helper_a`, `use_helper_b`, `use_counter_a`; `layout-dupnames:fast def use_Engine1/2`, `use_a_helper`, `use_b_helper`, `use_a_Settings`, `use_shallow_leaf`; `c-mixed-cpp:fast def use_Codec_run` | the entity in this file / namespace / sub-project | every same-named entity in the workspace | fast | **tenfold** fast index (name only, no scope, translation unit or include path); same as finding 1 of W9d | two `static int helper(int)` in two .c files |
+| 10 (narrowed by W11-FAST-SCOPE / W12-FAST-PP) | `c-basic:fast def use_helper_a`, `use_helper_b`, `use_counter_a`; `layout-dupnames:fast def use_Engine1/2`, `use_a_helper`, `use_b_helper`, `use_a_Settings`, `use_shallow_leaf`; `c-mixed-cpp:fast def use_Codec_run` | the entity in this file / namespace / sub-project | every same-named entity in the workspace | fast | **tenfold** fast index (name only, no scope, translation unit or include path); same as finding 1 of W9d | two `static int helper(int)` in two .c files |
 | 11 (fixed, W9-FIX-B), 16 of 20 lines | `layout-unity`: 20 lines in `beta.cpp` / `gamma.cpp` (`def`, `hover`, `refs`, `rename`) | resolved as in the unity TU: `def use_bump_beta -> bump_def` etc.; rename of `scaled` / `g_counter` / `Item::weight` renames all parts | no result / not renamed in `beta.cpp`, `gamma.cpp`; references list only `alpha.cpp`; rename leaves code that no longer compiles in the unity TU | final | **clangd and tenfold**: only `build_unity.cpp` is in the database, so clangd parses the included `.cpp` files standalone (names declared by an earlier part are undeclared) and, even with `beta.cpp` closed, its index has no references from the parts (raw clangd and `tenfold-cli` agree). tenfold could map an `#include`d source that has no database entry to the includer's command (the same problem exists for any non-self-contained source) | `unity.cpp` includes `a.cpp` then `b.cpp`; `b.cpp` calls what `a.cpp` defines |
 | 12 (fixed) | every `fast def use_f` of a function with a prototype and a definition (e.g. `c-basic:fast def use_list_push`; 9 `xfail` lines in `c-basic`, 3 in `c-mixed-cpp`) | the definition | prototype and definition | fast | **tenfold** fast index lists the prototype as a definition (accepted as `def \| decl` in the other projects, listed as xfail in `c-basic` and `c-mixed-cpp` to keep the correct expectation) | `int f(); int f(){return 0;} int g(){return f();}` |
 | 13 (fixed, W9-FIX-B) | `layout-exts`: `def use_dot_in_len2`, `use_x_in_dot`, `use_y_in_dot` (in `vec.tpp`), `def use_state_in_step` (`engine.ipp`) | resolved as in the including TU | no result (`vec.tpp:4:11`, the namespace, for the first three) | final | **clangd**: `.tpp` / `.ipp` files that need the class from the header that includes them are parsed standalone when open. Tenfold passes the file with its borrowed command, which is all it can do today | `types.hh` includes `vec.tpp` at its end; open `vec.tpp`, go to definition of `x` |
@@ -661,8 +705,9 @@ driver deletes each scenario after its steps). Memory is the peak RSS of the lar
 
 ### Summary
 
-* No crash, no hang, no sanitizer report in any scenario after the fixes below: 7 problems were fixed, each with a
-  regression test; 8 more need a design change and are listed under "Not fixed" with reproducers.
+* No crash, no hang, no sanitizer report in any scenario after the fixes below: 9 problems were fixed (7 by W9f, the two
+  per-line costs by W11-PERF-LINES), each with a regression test; of the nine items listed under "Not fixed" with
+  reproducers two were fixed later and seven remain.
 * Before the fixes the stress runs found: an out-of-memory kill (12 GB, `open` of a symlink to `/dev/zero`), a hang (`open` of
   a FIFO), an exception out of `Editor::open` (invalid UTF-8 with clangd running), O(depth^2) memory for nested scopes
   (330 MB for a 180 KB file), 65 ms to 2.5 s per keystroke in large documents, a stale workspace file list after
@@ -761,7 +806,7 @@ the same lexing plus the bracket match walking every token of the line to find t
    them (60 to 80 ms per keystroke); `TextLayout::columnForByte` and `layoutLine` also walked every cell of the prefix. Fix:
    lay out only the clip, and skip a printable-ASCII prefix with a vectorisable scan (`TextRenderer.cpp`, `TextLayout.cpp`).
    Tests: the `pathological_ui_one_line_files` numbers above (80 ms to 0.3 ms for a 2 MB comment line).
-   (The remaining per-line costs are items 8 and 9.)
+   (The remaining per-line costs were fixed later: items 8 and 9.)
 
 7. **A 200 MB source file took 3.4 GB and 20 s to index.** The symbol extractor keeps every token of the file in memory
    (about 16 bytes of RSS per source byte, times the indexing threads). Fix: a source above 64 MiB is not indexed
@@ -808,6 +853,8 @@ the same lexing plus the bracket match walking every token of the line to find t
    `python3 tools/stress/gen_pathological.py --out /tmp/p --scale full --scenario bigfiles` and `tenfold-cli bench /tmp/p/bigfiles --no-clangd`.
 
 ### Sanitizer runs
+
+(At the time of W9f: the suite had 508 + 467 tests then; today's counts are in `docs/TESTING.md`.)
 
 Build: GCC 13, Debug, `-fsanitize=address,undefined`, `TENFOLD_BUILD_UI=ON`; `ASAN_OPTIONS=detect_leaks=1`.
 
@@ -865,7 +912,7 @@ talking to clangd 22.1.1 directly, `--background-index`, no tenfold in between);
 
 | # | expectation (project:anchor) | expected | actual | tier | who | minimal repro |
 |---|---|---|---|---|---|---|
-| F1 (not fixed) | `fast def use_ar1`, `use_who_r`, `use_conv_char`, `use_pick_p`, `use_b_f_dbl`, `use_c_f` (overloads); `use_kind_ptr`, `use_name_int`, `use_circle_area` (specialisation); `use_describe_num` (cxx20); `use_vmax_base` (basic) | the one overload / the one `b::f` | every function with that word (up to 9 results), qualifier and arguments ignored | fast | fast tier (by design: word lookup) | `int area(); int area(int);` ... `area(3)` |
+| F1 (not fixed: overloads by argument type, specialisations) | `fast def use_ar1`, `use_who_r`, `use_conv_char`, `use_pick_p`, `use_b_f_dbl`, `use_c_f` (overloads); `use_kind_ptr`, `use_name_int`, `use_circle_area` (specialisation); `use_describe_num` (cxx20); `use_vmax_base` (basic) | the one overload / the one `b::f` | every function with that word (up to 9 results), qualifier and arguments ignored | fast | fast tier (by design: word lookup) | `int area(); int area(int);` ... `area(3)` |
 | F2 (fixed) | `fast def use_draw_sprite`, `fast sym "draw"` (overloads) | the inline hidden friend `friend int draw(Sprite s) {...}` | not in the index: the fast tier answers with the *other* `draw` | fast | fast tier (lexer index does not record friend function definitions inside a class) | `struct S { friend int draw(S) { return 0; } };` then `sym "draw"` |
 | F3 (fixed) | `fast def use_Stack`, `use_Pair`, `use_Wrap` (basic) | the class | class **plus** its constructor/destructor declarations (same word) | fast | fast tier | `template<class T> struct Pair { Pair(T); };` click `Pair` |
 | F4 (by design) | `fast def use_plus`, `use_lit_km` (operators) | the operator function | nothing (an operator token or a literal suffix is not a word) | fast | fast tier (inherent) | `a + b` |
@@ -913,8 +960,8 @@ Behaviour that is not a bug but pinned down so it cannot regress silently (all p
    as either today.
 3. Dependent calls (`describe(v)` in a template): the corpus accepts any candidate of the overload set.
 4. `Bag(3)` landing on the class: should tenfold map a construct expression to the selected constructor? clangd never
-   does; only `refs` shows it.
-5. F6: what should tenfold do about `.tpp`/`.inl`? Options: do not `didOpen` such files into clangd without a
+   does; only `refs` shows it. (Answered by W10-CHOOSE: tenfold asks clangd for the constructor at the `(` and offers it.)
+5. F6 (done by W9-FIX-B, translation-unit context): what should tenfold do about `.tpp`/`.inl`? Options: do not `didOpen` such files into clangd without a
    containing-TU context, or give them a compile command that includes the owning header first.
 
 ### Assumptions
@@ -929,7 +976,7 @@ Behaviour that is not a bug but pinned down so it cannot regress silently (all p
 
 Mutation fuzzing of every parser that reads untrusted or user-edited input, under gcc 13.3 AddressSanitizer + UBSan
 (`-fno-sanitize-recover=undefined`, `-O1`), with edge-coverage feedback (`-fsanitize-coverage=trace-pc`). The fuzzer, the
-21 harnesses and how to run them are described in `docs/TESTING.md` ("Fuzzing"); the regression inputs are in
+21 harnesses of the time (24 today: `scopescan`, `ppcond` and `linemap` came later) and how to run them are described in `docs/TESTING.md` ("Fuzzing"); the regression inputs are in
 `tests/fuzz/regressions/`.
 
 Machine: 4 cores shared with three other agents (load average 10-15 during the runs), so the execution rates are lower
@@ -1025,7 +1072,7 @@ results of running them: three small projects are committed (`tests/corpus/gen-g
 `tenfold-cli corpus --json`, measured (`/proc` sampling of the peak RSS of tenfold and of clangd) and deleted; the nightly
 workflow `.github/workflows/stress.yml` repeats them. Machine: 4 cores shared with other jobs (load 1 to 16 during these
 runs), Linux, Release build of `a9f2396` + this branch, clangd 22.1.1, generator seed 1. **Latencies and times are from a
-loaded shared machine; compare trends, not absolutes.**
+loaded shared machine; compare trends, not absolutes.** The fast/final agreement column is the W9g-time figure (about 31 to 46 %); the fast tier has improved since (the committed `gen-*` corpora are at 91 to 94 % after W11-FAST-SCOPE, "W11-FAST-SCOPE" above).
 
 ### Results
 
@@ -1134,34 +1181,3 @@ each case checked against clang or clangd and fixed in the generator):
 * Not done: Windows / macOS runs of the stress workflow, a `lib` / `c` small project in the repo (limit of three), the
   `.sln` variant for `lib`, `c` and `mixed`, `--check` (clang syntax check) on the 20k-file output (done up to 3k files for
   game, mixed, lib; small for all profiles).
-
-## W9-FIX-C1: fast-tier indexing gaps and answer shaping
-
-Fixes in `src/semantic/FastIndex.*` and the approximate-answer path of `SemanticEngine` (design: `docs/ARCHITECTURE.md`,
-"What the fast tier indexes, and how its answer is shaped"). `fast def`/`decl` agreement with clangd over all 29 corpora
-(harness summary lines, `def` and `decl` lines): **398/1841 (21.6%) before, 809/1853 (43.7%) after**; 31 `xfail` lines
-were promoted to normal expectations (30 that `tenfold-cli` reported as `XPASS` plus `use_clamp01_paren`), and
-fast-tier lines were added for declaration pairing, the tag after `struct`, the destructor, constructors and written
-`operator` names.
-
-| finding | status | what changed |
-|---|---|---|
-| W9d 4 hidden friends (`lookup-adl:use_dot`, `fast sym "dot"`; W9b F2 `overloads` `fast sym "draw"`) | fixed | `friend T f(...) { }` inside a class is a `Function` of the enclosing namespace; plain friend declarations and `friend class X;` are not symbols |
-| W9d 5 conversion operators (`oop-ctors:use_Feet_to_Meters`) | fixed | `operator T` is named `operator T` (it was glued to `operatorT`); a caret on a written `operator` word looks that name up. Operator functions get the same canonical names (`operator+`, `operator()`, `operator new[]`, `operator""_km`) |
-| W9d 6 / W9b F3 class name vs constructors / destructor (`oop-virtual:use_Engine`, `oop-ctors:use_dtor_call`, `templates-basic:use_Stack/Pair/Wrap`, `layout-exts:use_Vec`) | fixed | a class name answers the class; `~Name` answers the destructors (an in-class destructor is now named `~Name`, as the out-of-line one was); the caret on a constructor name answers the constructors of that arity |
-| W9c P-1 / W9e 6 macros (`pp-macros`, `c-basic`, `c-mixed-cpp`, `encodings`) | fixed | the extractor already indexed `#define`, but only when the name directly followed `define`: a comment (the corpus anchors), a line continuation or `# define` hid it. Function-like macros carry their parameter count and are offered only where a `(` follows; a macro defined further down the same file is not offered for an earlier line (`pp-macros:use_late_before`) |
-| W9e 7 enumerators of `typedef enum { A, B } T;` | fixed | `typedef` bodies are parsed for `enum` (enumerators, tag) and `struct`/`union` tags; one `Typedef` per declarator |
-| W9e 9 `typedef struct node node;` | fixed | a use outside `struct`/`class`/`union`/`enum` answers the typedef, after the keyword the tag |
-| W9e 12 prototype and definition both answered | fixed | `Symbol::arity`; "go to definition" drops prototypes that have a definition of the same scope, name and arity, "go to declaration" the reverse |
-| W9c P-3 `int (clamp01)(int v)` | fixed | parenthesised declarator after a type |
-| W9c P-2 names declared through macro arguments / `.def` lists | not fixed, by design | see the ARCHITECTURE section: no safe lexical rule for which macro argument is the declared name and of what kind |
-| W9d 1-3, W9b F1/F5, W9c P-4, W9e 10 (name-only lookup, locals, scopes, overloads, `#if`) | not fixed | scope-aware resolution is part 2 of this work |
-| W9b F4 operator tokens (`a + b`) and literal suffixes (`2.5_km`) | by design | a punctuator is not a word; the fast tier has no answer, clangd does |
-| `typedef struct { int x; } P;` members | not fixed | members of a typedef'd struct body are not indexed (the tag/typedef name is) |
-
-Performance (extractor only, Release, one thread, best of 15 runs; `tools/stress/gen_pathological.py` `bigfiles`
-at `--scale asan --knob big_lines=300000`): this repository's `src` + `tests` + `third_party` (653 files, 4.9 MB) 47.4
--> 47.0 MB/s, the pathological `million_lines.cpp` + `minified.cpp` + `minified.js.h` (10.8 MB) 58.0 -> 56.6 MB/s;
-symbols 23,787 -> 24,121 (macros behind comments, hidden friends, typedef enumerators) and 37,527 -> 37,527;
-`sizeof(Symbol)` stays 80 bytes (`arity` fits in the padding), peak RSS of the benchmark process unchanged (15 / 74
-MiB). The difference is within run-to-run noise (about 3%).
