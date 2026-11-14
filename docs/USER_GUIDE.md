@@ -9,10 +9,12 @@ those items is in [Provisional and unverified](#provisional-and-unverified). Des
 Contents: [Installing](#installing) - [Opening a workspace](#opening-a-workspace) -
 [Approximate and authoritative results](#approximate-and-authoritative-results-the-two-tiers) -
 [Navigation history](#navigation-history) - [Pickers and search](#pickers-and-search) -
-[Editing](#editing) - [Word wrap](#word-wrap) - [Visual Studio solutions](#visual-studio-solutions) -
+[Editing](#editing) - [Quick actions, hierarchies and inlay hints](#quick-actions-hierarchies-and-inlay-hints) -
+[Code folding](#code-folding) - [Word wrap](#word-wrap) - [Visual Studio solutions](#visual-studio-solutions) -
 [Debugging through Visual Studio](#debugging-through-visual-studio) - [Version control](#version-control) -
-[Building](#building) - [Settings](#settings-files) - [Themes](#themes) - [Key bindings](#key-bindings) -
-[Logs and crash reports](#logs-and-crash-reports) - [Troubleshooting](#troubleshooting) -
+[Workspace explorer](#workspace-explorer) - [Building](#building) - [Settings](#settings-files) - [Themes](#themes) -
+[Key bindings](#key-bindings) - [Command palette](#command-palette) - [Context menus](#context-menus) -
+[Terminal](#terminal) - [Logs and crash reports](#logs-and-crash-reports) - [Troubleshooting](#troubleshooting) -
 [What does not exist yet](#what-does-not-exist-yet) - [Provisional and unverified](#provisional-and-unverified)
 
 ## Read this first: unsaved work
@@ -146,7 +148,8 @@ tenfold answers code questions from two sources:
   that changed) and kept up to date as files change. It needs no compile flags and answers in a millisecond or so.
   Its answers are *approximate*: it matches by name and narrows by what the file itself shows (the namespace and class
   you are in, the declared type of `x` in `x.f`, `static` functions, the number of arguments, the headers you include,
-  parameters and locals), so it cannot resolve templates, `auto` results of calls, typedef chains, overloads that
+  parameters and locals, and the `#if` / `#ifdef` branches that the file's compile command selects: a macro the project
+  never mentions is treated as unknown, so both branches stay), so it cannot resolve templates, `auto` results of calls, typedef chains, overloads that
   differ only by parameter type or macro-generated members.
 * **clangd** is the real Clang front end run with your compile flags. Its answers are *authoritative*. It needs a few
   seconds to parse a file after you open it, and until its background index finishes it can only see the translation
@@ -315,7 +318,7 @@ working, a lone answer that might become a choice waits for it (status bar: `wai
 then asking; if clangd fails, tenfold jumps to the instant answer.
 
 
-Hover: rest the mouse on an identifier for 400 ms. Diagnostics under the mouse are shown first (the last build's
+**Hover, completion and signature help.** Rest the mouse on an identifier for 400 ms. Diagnostics under the mouse are shown first (the last build's
 message for that spot follows, marked `build`), then clangd's hover text. Completion opens at the caret after `.`,
 `->`, `::` and once a word reaches two characters; Tab or Enter accepts it as one undo step. Signature help opens on
 `(` and `,` with the active parameter highlighted; Escape or `)` closes it.
@@ -378,7 +381,8 @@ Encodings are handled like Visual Studio does:
   would use `GetACP()` like Visual Studio, but its codec only knows Windows-1252, so another system code page (932 on
   Japanese Windows) is read as 1252 and the log says so once. New files (`NewTextFile`) are UTF-8 unless
   `editor.defaultEncoding` says `utf-8-bom`, `utf-16le`, `utf-16be` or `windows-1252`.
-* `.editorconfig` is not read: its `charset` has no effect.
+* `.editorconfig` `charset` is not read (only `trim_trailing_whitespace` and `insert_final_newline`, and only with
+  `editor.useEditorConfig`).
 
 Line endings are handled like Visual Studio does:
 
@@ -415,7 +419,7 @@ Line endings are handled like Visual Studio does:
   diagnostics, semantic colours and the rest land on the line the editor shows. A document that contains them is sent to
   clangd as a whole after each edit instead of as small changes. The regular expression search treats only CR and LF as
   line ends for `^`, `$` and `.`; the lines and columns it reports are the editor's.
-* Not like Visual Studio: `.editorconfig` `end_of_line` is not read.
+* Not like Visual Studio: `.editorconfig` `end_of_line` is not read (a new file takes `editor.defaultLineEnding`).
 
 **Carets.** Shift+Alt+Up / Down (`MultiCursorMoveUp` / `Down`) add a caret above / below, **Ctrl+D** (`SelectNextMultiCursor`) selects the word under the caret and then adds the
 next occurrence, **Ctrl-click** adds a caret, **Alt-click** adds a caret and **Alt-drag** makes a column selection,
@@ -460,9 +464,12 @@ step per character (`undoGroupPauseMs` changes the pause). How 10x groups typing
   closer steps over it (tenfold does not remember which closers it inserted); Backspace inside an empty pair deletes
   both. Typing `(`, `[` or `{` over a selection encloses it (`editor.bracketSelectedText`, on by default, independent of
   auto-close); quotes wrap a selection only with `editor.autoCloseQuotes`.
-* **Ctrl+/** and **Ctrl+Shift+/** (`ToggleComment`) toggle `//` comments at the lines' minimum indentation;
-  `Editor.ToggleBlockComment` (no default key) wraps each selection in `/* */`
-  (a bare caret: its line's text) and unwraps again. C and C++ comment syntax only.
+* **Ctrl+/** (`Editor.ToggleLineComment`, a tenfold key) toggles `//` comments at the lines' minimum indentation;
+  **Ctrl+Shift+/** (10x's `ToggleComment`) does the same with no selection, and with a selection follows
+  `editor.commentBlockUsesLineComments` (default `true`: `//` per line; `false`: `/* */` around the selection).
+  `Editor.ToggleBlockComment` (no default key) always wraps each selection in `/* */`
+  (a bare caret: its line's text) and unwraps again. **Control K, Control C** / **Control K, Control U**
+  (`Commentline` / `Uncommentline`) comment / uncomment the lines. C and C++ comment syntax only.
 * **Control E, Control V** (`DuplicateLine`) duplicates the line (or the selection), **Control Shift Up / Down**
   (`MoveLineUp` / `MoveLineDown`) move lines, **Ctrl+J** joins lines, **Control Shift L** (`DeleteLine`) or
   **Ctrl+Shift+K** deletes lines.
@@ -593,9 +600,8 @@ does; a project the solution does not map at all is skipped and its files get no
 
 To change it:
 
-* the command **`Build.SelectConfiguration`** (a configuration picker, being added to the window at the same time as
-  this guide; the engine side, `Editor::selectVsConfiguration`, already exists; if your build does not have the command,
-  use the CLI);
+* the command **`Build.SelectConfiguration`** (a configuration picker; it has no default key, run it from the
+  [command palette](#command-palette) or click the configuration segment of the status bar);
 * or `tenfold-cli vsconfig <folder> --list` and `tenfold-cli vsconfig <folder> --set "Release|x64"`, or edit
   `workspace.json` and restart.
 
@@ -605,8 +611,7 @@ database to stdout; `-o <file>` writes it to a file. It does not write next to t
 Write the file somewhere else, or only into a folder you want to use that way.
 
 Changing it regenerates the compile database of that configuration (under `.tenfold/vs/`) and restarts clangd
-against it. Every configuration you visit keeps its own clangd index (the four most recently used are kept, see
-`maxVsConfigIndexes`), so find-references and rename only see what the active configuration compiles, and going back to
+against it. Every configuration you visit keeps its own clangd index (the four most recently used are kept; the limit is not a setting), so find-references and rename only see what the active configuration compiles, and going back to
 a configuration you used before is quick. A header that only the previous configuration includes and that is still open
 is not given to the new clangd until you edit or reopen it. **The build uses the same
 setting**, so clangd and `msbuild` agree. (Selecting a configuration rewrites `workspace.json` with the keys tenfold
@@ -668,7 +673,9 @@ Visual Studio (a modal dialog open) is retried and then reported as `Visual Stud
 **Attach at startup.** If Visual Studio *already* has the solution open when tenfold starts, tenfold attaches by
 itself so breakpoints you set reach it; it never launches Visual Studio until you press a debug key. While nothing is
 attached and you have breakpoints, it retries every 10 s, so opening the solution in Visual Studio later picks them
-up. Switch it off with `"debug.attachAtStartup": false` in `workspace.json`.
+up. Switch it off with `"debug.attachAtStartup": false` in `workspace.json`. `"debug.visualStudioSync": false` (10x's
+`VisualStudioSync`, default `true`) turns off all syncing with Visual Studio: no breakpoint sync, no configuration sync
+and no attach at startup (the debug commands still work).
 
 **Breakpoints sync both ways.** A click in the narrow lane left of the line numbers, or F9, toggles a breakpoint; it is
 pushed to Visual Studio. Breakpoints you set in Visual Studio appear in tenfold. Disabled breakpoints draw as a ring,
@@ -682,9 +689,8 @@ Shift+F11 step out; tenfold additions: Ctrl+F9 enable / disable, Ctrl+F10 run to
 Ctrl+Alt+B list breakpoints (`RemoveAllBreakpoints`, delete all, has no key; Ctrl+Shift+F9 is 10x's
 `RemoveAllBreakpointsFromFile`: the current file's breakpoints only, pushed to Visual Studio like any other change). In the breakpoint list Enter jumps, Space enables / disables and
 Delete removes. `Debug.EditCondition` (no key) sets the condition
-of the breakpoint on the caret's line; an empty condition removes it. `Debug.OpenInVisualStudio` opens the current file at
-the caret in Visual Studio's editor (the window command is being added at the same time as this guide; the engine side,
-`Editor::openInVisualStudio`, exists).
+of the breakpoint on the caret's line; an empty condition removes it. `Debug.OpenInVisualStudio` (10x's `OpenCurrentFileInDebugger`, **Alt X**; also in the editor's context menu on
+Windows) opens the current file at the caret in Visual Studio's editor.
 
 **While debugging.** The status bar turns orange in the `vs-dark` theme and shows the session state. When execution
 stops, tenfold jumps to the current statement (through the navigation history, so Back returns) and shows an arrow and a
@@ -1031,6 +1037,7 @@ overwritten; the operation fails with a message and you fix the file by hand.
 | `buildDir` | empty | CMake build directory for `cmake --build`. |
 | `msvcToolchain` | empty | Path of the MSVC `cl.exe` for clangd's `--query-driver`. Found and saved automatically when empty. |
 | `debug.attachAtStartup` | `true` | Attach to a Visual Studio that already has the solution open. |
+| `debug.visualStudioSync` | `true` | 10x's `VisualStudioSync`: keep breakpoints and the active configuration in step with Visual Studio. `false`: no sync and no attach at startup. |
 | `undoGrouping`, `undoGroupPauseMs` | `word`, `1000` | `word` joins typed characters per word; `char` makes each its own step. |
 | `vcs.provider`, `vcs.p4Path` (or nested `vcs`) | `auto`, empty | See [Version control](#version-control). |
 
@@ -1125,9 +1132,7 @@ Key bindings work the way they do in 10x: the same file format, the same command
 
 Mistakes (unknown key or modifier, missing colon, Python statements) are reported in the status bar with the file and
 line, and the line is skipped (Python lines load as described above); a duplicate binding in one file warns and the later
-one wins. **Key bindings are read once at start**; restart tenfold after editing them. (`keys.import10x` is already
-read by the app, but its entry in the settings schema (`settings.default.txt`) is added separately; until then the
-import is always on.)
+one wins. **Key bindings are read once at start**; restart tenfold after editing them.
 
 Example `KeyMappings.10x_settings` in your user config dir:
 
@@ -1146,7 +1151,7 @@ command tenfold does not implement yet stay in the file, so it matches 10x; they
 10x binds some keys twice for different places: `Up`, `Down`, `PageUp` and `PageDown` move the cursor in the editor and
 the highlighted item in the autocomplete list (only while it is open; closed, they move the cursor), `Enter` submits a symbol rename. tenfold files each binding under a
 *context* chosen by its command: **editor** (a text view has focus), **popup** (the autocomplete list keys, live only while the list is open, and the rename
-box) and **global**. A binding in the focused context beats a global one, and while a
+box), **terminal** (a terminal tab has focus: `Terminal.Copy`, `Terminal.Paste`) and **global**. A binding in the focused context beats a global one, and while a
 picker is open the editor bindings are out of the way, so the pickers keep their own arrow keys. Where a 10x binding for a
 command tenfold lacks would take a key from the focused input line or the open picker, the widget gets the key first
 (`Alt R` toggles regex in the find-only bar and in the pickers; with the replace row shown it is 10x's
@@ -1428,6 +1433,8 @@ Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in 
 | `Control M, Control O` | `Editor.CollapseToDefinitions` (Visual Studio's Collapse to Definitions; 10x has no such command) |
 | `Control K, Control Z` | `RestoreRecentlyClosedFile` (Visual Studio's Restore Closed Tab; same command as 10x's `Control Shift T`) |
 | `Control Shift K` | `DeleteLine` |
+| `Control Shift C`, `Control Insert` (terminal) | `Terminal.Copy` (copies the terminal's selection; see [Terminal](#terminal)) |
+| `Control Shift V`, `Shift Insert` (terminal) | `Terminal.Paste` |
 | `F12`, `Control F12`, `Shift F12` | `GotoSymbolDefinition`, `Editor.GotoDeclaration`, `FindSymbolReferences` |
 | `Control Comma` | `FindSymbol` (symbol search) |
 | `Control Q` | `Exit` |
@@ -1439,13 +1446,29 @@ Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in 
 | `Control K, Control T` | `View.CallHierarchy` (Visual Studio's View Call Hierarchy) |
 | `Alt F1` | `Editor.InlayHintsHold` (shows the inlay hints while held; Visual Studio's key) |
 
-The earlier placeholder defaults that clash with 10x's map are gone, and the same keys now do what 10x does: for example
-`Alt Left` / `Alt Right` are `MovePanelFocusLeft` / `Right` (use `Control -` / `Control Shift -` or the thumb buttons to go
-back and forward), `Control Shift P` is `PlaybackKeySequence` (the command palette is `Control Shift X`), `F4` / `F8`
-step through search results / build messages, and `Control Shift M` selects the bracket scope (the diagnostics list has no
-key now). Commands with no default key: `View.ShowDiagnostics`, `Editor.ListBookmarks`, `Editor.ToggleBlockComment`,
-`Editor.Indent`, `View.TypeHierarchy`... see the palette. They are reachable from the [command palette](#command-palette) (`Control Shift X`);
-there is no menu yet. A command whose user interface is missing says `<name> is not available yet` in the status bar.
+The keys that other editors use for something else do what 10x does: `Alt Left` / `Alt Right` are `MovePanelFocusLeft` /
+`Right` (use `Control -` / `Control Shift -` or the thumb buttons to go back and forward), `Control Shift P` is
+`PlaybackKeySequence` (the command palette is `Control Shift X`), `F4` / `F8` step through search results / build
+messages, and `Control Shift M` selects the bracket scope.
+
+**Commands with no default key** (run them from the [command palette](#command-palette) or bind them yourself; there is
+no menu bar):
+
+* Editor: `Editor.ToggleBlockComment`, `Editor.ListBookmarks`, `Editor.CollapseAllRegions`, `Editor.ExpandAllRegions`,
+  `Editor.CollapseAllRegionsRecursive`, `Editor.ExpandAllRegionsRecursive`, `Editor.LineEndingCRLF`, `Editor.LineEndingLF`,
+  `Editor.LineEndingCR`, `Editor.LineEndingLS`, `Editor.LineEndingPS`, `Editor.LineEndingNEL`.
+* Files and tabs: `File.CopyPath`, `File.ReopenWithEncoding`, `File.SaveWithEncoding`, `File.SaveWithLineEndings`,
+  `Workbench.PinTab`, `Workbench.TogglePinTab`, `Workbench.CloseOtherTabs`, `Workbench.CloseAllButPinned`,
+  `Workbench.CloseAllDocuments`, `Workbench.ClosePanel`.
+* Views and the explorer: `View.ShowDiagnostics`, `View.TypeHierarchy`, `View.ShowInWorkspaceTreeWithToggle`,
+  `View.ToggleExplorerFolderView`, `View.ToggleExplorerShowAllFiles`, `Explorer.NewFile`, `Explorer.NewFolder`,
+  `Explorer.Rename`, `Explorer.Delete`, `Explorer.Properties`.
+* Build, debug and clangd: `Build.SelectConfiguration`, `Debug.EditCondition`, `Debug.DeleteAllBreakpoints`,
+  `Clangd.Restart`, `Help.ShowCompileCommand`.
+* Terminal: `Terminal.NewClaude`, `Terminal.NewCursor`, `Terminal.OpenAt`.
+* Version control: `Vcs.NextChange`, `Vcs.PrevChange`, `Vcs.ToggleInlineDiff`, `Vcs.RevertHunk`, `Vcs.RefreshStatus`.
+
+A command whose user interface is missing says `<name> is not available yet` in the status bar.
 
 ### Command palette
 
@@ -1479,8 +1502,10 @@ listed (see FEATURE_PARITY).
   projects and the solution: Expand / Collapse, Collapse All, New File..., New Folder..., (Rename and Delete for folders
   on disk), Open Containing Folder, Copy Full Path, Open in Terminal and the same last group. 10x's "Settings..." on the
   workspace and project nodes is not there (no settings dialog). See "Workspace explorer".
-* **Status bar**: the position (Go To Line), line ending (CRLF / LF), configuration, compile flags, clangd and build
-  segments each offer the commands that belong to them.
+* **Status bar**: the position (Go To Line), line ending (the six endings and Save with Line Endings...), encoding
+  (Reopen / Save with Encoding...), configuration (Select Configuration...), compile flags (Show Compile Command), clangd
+  (Restart clangd) and build (Toggle Build Panel, Build, Rebuild, Cancel Build) segments each offer the commands that
+  belong to them.
 
 Every item runs the same command as its key; the key is shown on the right in 10x's notation, and an item whose command
 cannot run right now is greyed out. Up / Down (Home / End) move, Enter runs the item, Escape closes, a typed letter jumps
@@ -1645,7 +1670,8 @@ unverified items in the next sections; the log and the output of those two comma
 
 ## What does not exist yet
 
-* Opening a folder from the window, menus, a recent-workspaces list, drag and drop.
+* Opening a folder from the window, a menu bar, a recent-workspaces list, dropping files from the file manager onto
+  the window.
 * Autosave and recovery of unsaved buffers after a crash.
 * The document outline.
 * An "open log" command.

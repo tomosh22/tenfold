@@ -41,6 +41,15 @@ decided by the user). Each has a default we implement until answered.
   switch they use is passed by some configuration, agreement stays 83.2 %, `docs/STRESS_RESULTS.md`,
   "W12-FAST-PP-STRICT"); the active-configuration-only variant would have cost 50 lines. See `docs/ARCHITECTURE.md`, "Preprocessor conditionals in the fast tier".
 
+## User decisions of 2026-11-07
+
+* **Line endings:** "Keep CRLF everywhere, line ending behaviour must be exactly the same as Visual Studio and 10x."
+  New files and break-less buffers use CRLF on every platform (`editor.defaultLineEnding`, default CRLF). Rows of the
+  line-ending detail that are low confidence or deviate from Visual Studio are defects to remove, not accepted choices.
+  *Implemented (W10-LE), see "W10 detail: line endings like Visual Studio".*
+* **NEL, LS and PS are line breaks, like Visual Studio.** *Implemented (LE-UNICODE)*, see the same detail section and
+  docs/VS_BEHAVIOUR.md section 1.3 item 8.
+
 ## User decisions of 2026-11-06 (these override the defaults written further down)
 
 * **Characters the file's encoding cannot hold:** show the user the character(s) (each one, with its line and column and
@@ -197,15 +206,17 @@ Settings are `editor.*` in `settings.txt`; key bindings are 10x's (#1) in `asset
 * Wrap selection (`editor.bracketSelectedText`, on): answered from the 10x documentation: BracketSelectedText (true,
   "Typing an open bracket/brace char ((,{,[) with selected text will enclose the selection"). The selection stays
   selected (docs silent). Quotes wrap a selection only with `editor.autoCloseQuotes`.
-* Comments: Ctrl+/ toggles `//` at the minimum indentation of the selected lines (blank lines untouched; uncomments
-  when every non-blank line has it); a selection ending at column 0 does not take that last line. Ctrl+Shift+/ wraps each
-  selection in `/* */` (a bare caret: its line's text) and unwraps when already wrapped. C / C++ comment syntax only.
-  Docs: 10x has one ToggleComment (line comment without a selection, block with one) plus Commentline / Uncommentline;
-  CommentBlockUsesLineComments (true) makes ToggleComment always use `//`, CommentBlockIncrementLine (false) = the caret
-  does not move to the next line after commenting (tenfold does not move either). tenfold's two commands stay until the
-  command layer is revisited (docs/FEATURE_PARITY.md, "10x settings not yet supported").
-* Lines: duplicate (Ctrl+Shift+D: the line below, or the selection copied right after itself and selected), move
-  (Alt+Up / Alt+Down), join (Ctrl+J: leading blanks of the next line become one space), delete (Ctrl+Shift+K), go to
+* Comments: Ctrl+/ (`Editor.ToggleLineComment`, tenfold's key) toggles `//` at the minimum indentation of the selected
+  lines (blank lines untouched; uncomments when every non-blank line has it); a selection ending at column 0 does not take
+  that last line. Ctrl+Shift+/ is 10x's `ToggleComment`: no selection, a line comment; with a selection it follows
+  `editor.commentBlockUsesLineComments` (default true, 10x's CommentBlockUsesLineComments: `//` per line; false: `/* */`
+  around the selection, unwrapped again when already wrapped). `Editor.ToggleBlockComment` (no key) always uses `/* */`.
+  C / C++ comment syntax only. Docs: 10x has one ToggleComment (line comment without a selection, block with one) plus
+  Commentline / Uncommentline (Ctrl+K Ctrl+C / Ctrl+K Ctrl+U); CommentBlockIncrementLine (false) = the caret does not move
+  to the next line after commenting (tenfold does not move either).
+* Lines: duplicate (10x's `DuplicateLine`, Control E, Control V: the line below, or the selection copied right after
+  itself and selected), move (10x's `MoveLineUp` / `MoveLineDown`, Control Shift Up / Down), join (Ctrl+J: leading blanks of
+  the next line become one space), delete (10x's `DeleteLine`, Control Shift L, and tenfold's Ctrl+Shift+K), go to
   line (Ctrl+G, `line[:column]`, column 0 of the line by default, through the navigation history). Docs silent.
 * Bookmarks: Ctrl+F2 toggles, F2 / Shift+F2 step through all bookmarks of the workspace (by path, then line; wrapping),
   `Editor.ListBookmarks` (no default key) lists them; they move with edits like history entries and persist in `.tenfold/bookmarks.json`. The 10x
@@ -278,6 +289,7 @@ against a running 10x.
 * `NewSearchPanel`: "Open new search panel". 10x has separate result panels 1-4; tenfold has one picker. Default: the
   picker keeps the last three result lists (Alt+PageUp / Alt+PageDown bring them back); `ShowFindInFilesResults1-4` and
   `ToggleFindInFilesResultsPanel1-4` stay unimplemented.
+
 ## W8d detail: multi-cursor and navigation commands (10x documents only one line each)
 
 * `MultiCursorMoveLeft` / `MultiCursorMoveRight`: the docs say "Increase" / "Decrease selection end for all multi-cursors",
@@ -315,6 +327,7 @@ against a running 10x.
   build started last (`Editor::lastResultSource`); stepping continues from where that list left off. After a build the keys
   walk the build's errors and warnings that have a source location, exactly like `GotoNextBuildWarningOrError` (F8), which
   keeps walking the build whatever came last.
+
 ## #5 detail: the workspace explorer (W8f)
 
 The 10x documentation names the tree ("workspace tree", "workspace explorer") in `ToggleWorkspaceExplorer`,
@@ -370,6 +383,7 @@ state, so these are choices, taken from Visual Studio's Solution Explorer:
   10x's `NextBookmark`. Alt Enter is 10x's `ToggleFullscreen`, so Properties has no key.
 * **Move confirmation text.** "Move 'a.cpp' to 'Lib'?" with OK / Cancel is tenfold's wording; the exact Visual Studio text of
   the "Prompt before moving files to a new location" question was not verified.
+
 ## W8f detail: code folding (CollapseRegions)
 
 The 10x documentation gives one sentence per command and one setting (ShowCollapseRegionMargin); nothing on what a
@@ -425,23 +439,27 @@ AppsKey) and mentions right-clicking the workspace node or a project in the work
 settings, the debugger tab). It lists no menu contents, so apart from those two the menus follow Visual Studio's context
 menus, the editor the user is switching from. Defaults to confirm against a running 10x:
 
-* Editor menu: Cut / Copy / Paste, the navigation and refactoring commands (Go To Definition, Go To Declaration, Find All
-  References, Rename, Quick Info, Switch Header/Source), Format Selection, Toggle Comment, Select All, Toggle Breakpoint,
-  Run To Cursor, Revert Change / Show Change on a version-control change, Open in Visual Studio, Show in Workspace Tree,
-  Open Containing Folder, Copy Full Path. Only commands that exist are listed; those that cannot run now are greyed out.
+* Editor menu: Cut / Copy / Paste, Quick Actions and Refactorings, the navigation and refactoring commands (Go To
+  Definition, Go To Declaration, Find All References, View Call Hierarchy, View Type Hierarchy, Rename, Quick Info, Switch
+  Header/Source), Format Selection, Toggle Comment, Select All, Toggle Breakpoint, Run To Cursor, Revert Change / Show
+  Change on a version-control change, Open in Visual Studio, Show in Workspace Tree, Open Containing Folder, Copy Full
+  Path. Only commands that exist are listed; those that cannot run now are greyed out.
 * Right-click in the editor moves the caret to the pointer unless the pointer is inside a selection (VS behaviour);
   Shift F10 / AppsKey open the menu at the caret and select its first item.
 * Tab menu: Close, Close All But This, Close All But Pinned, Pin / Unpin Tab, Copy Full Path, Open Containing Folder,
-  Show in Workspace Tree (the last once the tree exists). Right-clicking a tab activates it. The "close all" items leave
-  tabs with unsaved changes open instead of prompting once per tab.
-* Status bar segments (position, line ending, configuration, flags, clangd, build) get a one-to-three item menu; this is
-  tenfold's own idea, not 10x's or VS's.
+  Show in Workspace Tree. Right-clicking a tab activates it. The "close all" items ask once about the modified documents
+  they would close (the list dialog of VS-TABS T6).
+* Status bar segments (position, line ending, encoding, configuration, flags, clangd, build) get a short menu (one to
+  seven items); this is tenfold's own idea, not 10x's or VS's.
 * The workspace explorer tree's menu (`EditorApp::explorerMenu`, a context menu provider): a right click selects the
   node under the pointer first (and gives the tree the focus); Shift F10 / AppsKey with the tree focused use the selected
-  node and open at its row. File node: Open (the same as Enter), Collapse All, Open Containing Folder, Copy Full Path and,
-  for `.c` / `.cc` / `.cpp` / `.cxx`, Build Current File. Node with children (folder, project, solution, root): Expand or
-  Collapse, Collapse All, Open Containing Folder, Copy Full Path (when it has a path). The path commands take the node's
-  path as their argument (`File.ShowInFolder`, `File.CopyPath`, `Build.BuildCurrentFile`), so the file is not opened first.
+  node and open at its row. File node: Open (the same as Enter), Collapse All, then (VS-TREE) New File..., New Folder...,
+  Rename, Delete, then Open Containing Folder, Copy Full Path, Open in Terminal and, for `.c` / `.cc` / `.cpp` / `.cxx`,
+  Build Current File, then Switch to Folder / Solution View, Show All Files and Properties. Node with children (folder,
+  project, solution, root): Expand or Collapse, Collapse All, New File..., New Folder... (Rename and Delete for folders on
+  disk), Open Containing Folder, Copy Full Path and Open in Terminal (when it has a path), and the same last group.
+  The path commands take the node's
+  path as their argument (`File.ShowInFolder`, `File.CopyPath`, `Terminal.OpenAt`, `Build.BuildCurrentFile`), so the file is not opened first.
   "Build Current File" is offered for any source file of the tree, not only those in a project; a file outside every
   project is reported by the build like the command does. The docs say to right-click the workspace node (to uncheck "Sync
   Folder") or a project (Debug tab, "Sync from project") and choose **Settings...**. tenfold has no workspace or project
@@ -477,6 +495,7 @@ menus, the editor the user is switching from. Defaults to confirm against a runn
 * `PerforceShowInP4v`: "Show the current file in p4v". tenfold starts `p4v -p <port> -u <user> -c <client> -s <depot path>`
   with the connection from `p4 info` and the path from `p4 where`; p4v's `-s` option is from p4v's own command-line help,
   not from the 10x docs, and has not been tried against a real p4v (OPEN_QUESTIONS #17 applies).
+
 ## W8f detail: terminal panel
 
 The 10x documentation gives one sentence per terminal command ("Create a terminal panel", "Create or show an existing terminal.
@@ -585,8 +604,8 @@ constant, branch or setting, easy to change.
   LF`; a platform-dependent default was not chosen so that the settings file means the same everywhere. Note that a
   loaded one-line file without a trailing newline also counts as a buffer without a break. **Decided (user, 2026-11-07):**
   CRLF everywhere, on every platform.
-* **`.editorconfig` `end_of_line` (L13):** tenfold reads no `.editorconfig`, so it is skipped. When `.editorconfig` support
-  arrives it replaces `defaultLineEnding` for new lines of files under the config (not the replicated ending of a file that
+* **`.editorconfig` `end_of_line` (L13):** not read: tenfold reads only `trim_trailing_whitespace` and `insert_final_newline`
+  (`editor.useEditorConfig`, VS-EDIT Z19), so it is skipped. If `end_of_line` support is added it replaces `defaultLineEnding` for new lines of files under the config (not the replicated ending of a file that
   already has breaks, matching "VS does not convert existing styles").
 * **The dialog (L4):** a real dialog laid out like VS's (`LineEndingDialog`, widgets `DropDown` and `CheckBox` in
   `src/ui/widgets`): message, the files, the drop-down "Normalize line endings:" (Windows (CR LF), Macintosh (CR), Unix
@@ -667,7 +686,7 @@ documents nothing here except `DefaultEncoding`. Choices where VS's behaviour is
 * **Default for new files (E6).** `editor.defaultEncoding`, default `utf-8` (10x's DefaultEncoding default); `utf-8-bom`,
   `utf-16le`, `utf-16be`, `windows-1252` also accepted, anything else means `utf-8`. An untitled document with a non-UTF-8
   default refuses to Save As text it cannot hold, like any document.
-* **`.editorconfig` `charset`:** not read (tenfold reads no `.editorconfig`). Skipped.
+* **`.editorconfig` `charset`:** not read (tenfold reads only `trim_trailing_whitespace` and `insert_final_newline`). Skipped.
 
 ## W9 detail: Visual Studio configurations (W9-FIX-vs)
 

@@ -17,6 +17,10 @@ source code was changed. Date of research: 2026-11-06.
   not used for the 2022 palette.
 * "tenfold now" is taken from docs/OPEN_QUESTIONS.md, docs/STRESS_RESULTS.md, assets/themes/vs-dark.txt and a few greps of
   `src/core/TextBuffer.h`, `src/app/EditorEditing.cpp`; it was not re-verified by running tenfold.
+* **"tenfold now" columns and section 1.1 are the state at the time of the research (2026-11-06).** Rows and paragraphs
+  marked **implemented**, **done** or **not done** carry the state of the code as of the later tasks (W10-LE, VS-ENC,
+  VS-TABS, W10-THEME, W10-OUTLINE, VS-TREE, VS-TERM, VS-VCS, VS-EDIT, VS-NAV, W11-GUI-LSP); the unmarked "Change" text is
+  the original proposal. Section V lists what still has to be checked in a real Visual Studio.
 * Items where the 10x documentation answered the question, and the four user decisions of 2026-11-06 (unencodable
   characters; line endings "like Visual Studio"; alias/using and constructor choosers), are not repeated except where VS
   detail is needed to implement the decision.
@@ -25,7 +29,7 @@ source code was changed. Date of research: 2026-11-06.
 
 ## 1. Line endings (decision: "exactly like Visual Studio")
 
-### 1.1 What tenfold does now
+### 1.1 What tenfold did before W10-LE (historical)
 
 `TextBuffer` stores `\n` internally and remembers **one** ending per document (the most frequent; ties LF, CRLF) plus a
 `mixed` flag; `textForDisk()` writes that one ending for every line (a mixed file is **normalised on save**); Enter and
@@ -54,8 +58,8 @@ paste use the document ending; status bar shows LF/CRLF/CR; commands switch betw
 
 ### 1.3 Proposed tenfold change (line endings) - one task
 
-**Implemented (W10-LE).** Items 1-6 and 8 are in; item 7 (`.editorconfig`) is skipped because tenfold reads no
-`.editorconfig`. The choices where this document says "unknown" (which line supplies the ending, the mixed label, the dialog
+**Implemented (W10-LE).** Items 1-6 and 8 are in; item 7 (`.editorconfig` `end_of_line` and `charset`) is skipped: tenfold reads only the properties `trim_trailing_whitespace`
+and `insert_final_newline` of an `.editorconfig` (VS-EDIT Z19, `editor.useEditorConfig`, off by default). The choices where this document says "unknown" (which line supplies the ending, the mixed label, the dialog
 pre-selection, what a status-bar click does) are listed in docs/OPEN_QUESTIONS.md, "W10 detail: line endings like Visual
 Studio". The text below is the original proposal.
 
@@ -94,7 +98,7 @@ Studio". The text below is the original proposal.
 
 **Implemented (VS-ENC).** Rows E1, E3, E4, E5, E6 and E8 are in, E2 partly (the system code page is read, but only
 Windows-1252 can be decoded, so another page is read as 1252 and logged once), E7 stays as decided (refusal) with the
-"Save with Encoding..." row. `.editorconfig` `charset` is skipped (tenfold reads no `.editorconfig`). The choices are
+"Save with Encoding..." row. `.editorconfig` `charset` is skipped (tenfold reads only `trim_trailing_whitespace` and `insert_final_newline`). The choices are
 listed in docs/OPEN_QUESTIONS.md, "VS-ENC detail". The "Change" column below is the original proposal.
 
 | Item | tenfold now | VS 2022 | Source | Conf. | Change |
@@ -339,7 +343,7 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 | M3 Default shell | `cmd.exe` setting = $SHELL elsewhere | VS lists two built-in profiles - **Developer Command Prompt** and **Developer PowerShell** (Windows PowerShell 5) - and you can add your own shells (path/arguments) and pick the default under Tools > Options > Environment > Terminal. Default: Developer PowerShell. | [S29] | medium | Default `terminal.command` to PowerShell on Windows (`pwsh.exe` if found, else `powershell.exe`); keep the 10x setting TerminalCommand authoritative when set (10x doc'd). **Implemented (VS-TERM)**: `terminal.command` now defaults to empty = this choice (`Pty::chooseTerminalShell`). |
 | M4 Working directory | workspace root | "opens in repository root by default"; "Open in Terminal" on a project/folder node opens in that folder. | [S29] | medium | Add "Open in Terminal" to explorer/tab menus (already `Terminal` per node path). **Implemented (VS-TERM)** for the explorer menu (`Terminal.OpenAt`); the tab menu is not done. |
 | M5 Process exit | tab stays with final screen + `[process exited with code N]`; `terminal.closeOnExit` false | Not documented; from memory the terminal tab stays open showing the shell's last output, and a new instance is started by "New Terminal"; typing after exit does nothing. | memory | low | keep. |
-| M6 Keys that stay with VS | terminal, Workbench.*, quit, palette, toggles | VS terminal passes most keys to the shell but keeps VS shortcuts that are registered with the "Terminal" scope: Ctrl+Tab (IDE Navigator), Alt+... menu accelerators, Ctrl+Shift+C/V copy/paste, Ctrl+` open. | [S28], memory | low | keep. |
+| M6 Keys that stay with VS | terminal, Workbench.*, quit, palette, toggles | VS terminal passes most keys to the shell but keeps VS shortcuts that are registered with the "Terminal" scope: Ctrl+Tab (IDE Navigator), Alt+... menu accelerators, Ctrl+Shift+C/V copy/paste, Ctrl+backtick (open terminal). | [S28], memory | low | keep. |
 | M7 Palette/background | Campbell, #1E1E1E | not documented; keep. | - | - | none |
 
 ---
@@ -401,16 +405,16 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 
 | Task | Area | Files likely touched | Depends |
 |---|---|---|---|
-| **VS-LE** | Line endings per line (sec. 1.3): per-line terminators, Enter/paste/copy rules, load consistency dialog, Advanced Save Options dialog, status bar + menu, `.editorconfig` `end_of_line`, VCS text compare | `src/core/TextBuffer.*`, `src/core/Document.*`, `src/app/EditorEditing.cpp`, `src/app/Editor.*` (paste/copy, setLineEnding), `src/ui/shell/EditorApp.*` (dialog, status segment), `src/semantic/SemanticEngine.cpp` (`lspLineEnding`), `src/vcs/*`, settings, tests | none; coordinate with the encodings task (W10-refuse-unencodable) on `Document::save` |
-| **VS-ENC** (done) | Encoding widget, Reopen/Save with Encoding, auto-detect UTF-8 option, `GetACP()` fallback, `.editorconfig charset` | `src/core/Document.*`, `src/core/Encoding*`, `src/ui/shell/EditorApp.*`, `src/app/Editor.*` | shares the Save-with dialog with VS-LE |
-| **VS-UNDO** | Undo grouping: typing-run groups (no timer), multi-caret per keystroke | `src/core/UndoHistory*`/`TextBuffer`, `src/app/Editor*.cpp`, settings `undoGrouping` | verify V6 first |
-| **VS-THEME** | `vs-dark.txt` corrections (sec. 5), new keys, preview-tab purple, hover colours | `assets/themes/vs-dark.txt`, theme loader/keys, `src/ui/*` painting of tabs/menus/scrollbars | none |
+| **VS-LE** (done as W10-LE / LE-UNICODE / LE-DIALOG except the `.editorconfig` `end_of_line` part) | Line endings per line (sec. 1.3): per-line terminators, Enter/paste/copy rules, load consistency dialog, Advanced Save Options dialog, status bar + menu, `.editorconfig` `end_of_line`, VCS text compare | `src/core/TextBuffer.*`, `src/core/Document.*`, `src/app/EditorEditing.cpp`, `src/app/Editor.*` (paste/copy, setLineEnding), `src/ui/shell/EditorApp.*` (dialog, status segment), `src/semantic/SemanticEngine.cpp` (`lspLineEnding`), `src/vcs/*`, settings, tests | none; coordinate with the encodings task (W10-refuse-unencodable) on `Document::save` |
+| **VS-ENC** (done except: the `GetACP()` fallback reads only Windows-1252, and `.editorconfig charset` is not read) | Encoding widget, Reopen/Save with Encoding, auto-detect UTF-8 option, `GetACP()` fallback, `.editorconfig charset` | `src/core/Document.*`, `src/core/Encoding*`, `src/ui/shell/EditorApp.*`, `src/app/Editor.*` | shares the Save-with dialog with VS-LE |
+| **VS-UNDO** (not done; the default is still word grouping with a 1 s pause, OPEN_QUESTIONS #3) | Undo grouping: typing-run groups (no timer), multi-caret per keystroke | `src/core/UndoHistory*`/`TextBuffer`, `src/app/Editor*.cpp`, settings `undoGrouping` | verify V6 first |
+| **VS-THEME** (done as W10-THEME, section 5.3) | `vs-dark.txt` corrections (sec. 5), new keys, preview-tab purple, hover colours | `assets/themes/vs-dark.txt`, theme loader/keys, `src/ui/*` painting of tabs/menus/scrollbars | none |
 | **VS-TABS** (done: T1, T2, T6, T9, T11, T12; the rest of the row is T3/T4/T5/T7/T8/T10/T13, see section 7) | Preview tab, MRU Ctrl+Tab behaviour, tab menu items, one list save dialog for bulk close, emptied panel auto-close, external-change prompt default | `src/ui/shell/EditorApp.*`, `src/ui/widgets/Tab*`, `src/app/Editor.*`, settings | VS-TREE for single-click preview |
-| **VS-MENUS** | Editor/explorer/tab context menu contents and order, Properties item, "Compile" | `src/ui/shell/EditorApp.cpp` (explorerMenu etc.), command registry | none |
-| **VS-OUTLINE** | Fold glyphs default on, `ToggleAll` semantics, Collapse to Definitions, hover tooltip, outlining settings | `src/ui/views/*Fold*`, `src/app/Editor*Fold*`, settings, golden images | none |
+| **VS-MENUS** (partly: the Properties item, New File / Folder, Rename, Delete and Open in Terminal exist in the explorer menu; the reorder of the editor menu, "Compile" and C6-C9 are not done) | Editor/explorer/tab context menu contents and order, Properties item, "Compile" | `src/ui/shell/EditorApp.cpp` (explorerMenu etc.), command registry | none |
+| **VS-OUTLINE** (done as W10-OUTLINE; Hide Selection and Stop Outlining are not done) | Fold glyphs default on, `ToggleAll` semantics, Collapse to Definitions, hover tooltip, outlining settings | `src/ui/views/*Fold*`, `src/app/Editor*Fold*`, settings, golden images | none |
 | **VS-NAV** (done: P1, N1 Go To Document, N5 partly, I5; not done: P2 optional, N2/N3/N6/N7/N9 low, N4/N8 no change, I1 medium-low, I4 medium-low, I6 cosmetic) | Symbol search preview pane toggle, FAR grouping/columns, Go To Document on `#include`, misc-files diagnostics rule, non-self-contained header context | `src/ui/features/*`, `src/semantic/SemanticEngine.*`, `src/compdb/*` | clangd |
 | **VS-TREE** (implemented: X2, X3, X5, X6, X7, X8, X9, C10; skipped: X1 optional, X4 low, X10 optional, C6-C9 medium-low) | Solution Explorer: type-ahead, view toggle (Solution/Folder, Show All Files), default-open, state persistence, drag-drop, file operations, preview on click | `src/ui/features/Explorer*`, `src/ui/features/WorkspaceExplorer.*`, `src/ui/widgets/TreeView.*` | VS-TABS |
-| **VS-TERM** | Terminal key bindings (Ctrl+C = SIGINT, Ctrl+Shift+C/V), default shell, Open in Terminal | `src/ui/features/Terminal*`, `src/term/*`, key map defaults | none |
+| **VS-TERM** (done except the tab menu's Open in Terminal) | Terminal key bindings (Ctrl+C = SIGINT, Ctrl+Shift+C/V), default shell, Open in Terminal | `src/ui/features/Terminal*`, `src/term/*`, key map defaults | none |
 | **VS-VCS** (implemented: VC3, VC5, VC6; VC1 and VC4 need no change; skipped: VC2 low) | Marks for untracked/added in Perforce (blue ?, red plus, red check, yellow triangle), `perforce.promptOnEdit`, P4 history actions | `src/vcs/*`, `src/ui/features/VcsUi.cpp`, `src/ui/features/PerforceUi.cpp`, `src/ui/widgets/VcsBadge.h`, tab markers | V7 (Git untracked) |
 | **VS-EDIT** (done: Z4, Z8; built but off by default pending verification: Z1, Z14, Z19; Z7, Z11, Z20 already matched; skipped Z2, Z3, Z6, Z9, Z12, Z13, Z18 and the rows without a change) | Auto-close quotes default, copy line, zoom editor-only | `src/app/EditorEditing.cpp`, `src/ui/shell/EditorApp.*`, settings | none |
 
@@ -421,7 +425,7 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 3. Pre-selected entry, exact title, the "do not ask again" check box and the NEL entry of the inconsistent-line-endings dialog (L4).
 4. What clicking the line-ending indicator does in 17.x, and whether a mixed file shows a distinct label (L14).
 5. Undo grouping rules (U1, U2): no documentation; memory only.
-6. Whether VS paints an untracked file as wholly added (V1/V2): documentation and a Microsoft blog comment indicate it does not.
+6. Whether VS paints an untracked file as wholly added (VC1 / VC2, checklist V7): documentation and a Microsoft blog comment indicate it does not.
 7. Exact hex of: selection (active), current-line outline, brace match, find highlight, squiggles, Git margin colours, tooltips, VS terminal palette, debugging/no-solution status bar (sec. 5).
 8. F12 behaviour on a definition and with several candidates; FAR on virtual functions; range-for begin/end (N2, N3, N6, N7).
 9. "Close All But This" with pinned tabs; the Ctrl+Tab MRU order details (T1, T5).
@@ -440,11 +444,11 @@ squiggles, Git margin, find highlight, bracket match, whitespace, column guide, 
 * **V8** Pin two tabs, "Close All But This" on an unpinned tab: do the pinned tabs close? Dirty tab + Close All: one dialog?
 * **V9** F12 on a function definition; F12 on a name with two definitions; screenshot the result UI.
 * **V10** Find All References on `Base::f` with overrides, and on a range-for container.
+* **V11** Uncheck Build for a project in Configuration Manager; open one of its files; confirm IntelliSense still shows.
 * **V12** (Z1) C++ file: type `"` and `'` (after a space and after a letter), type the closing quote, Backspace in an empty pair, a quote over a selection: which pair, which step over?
 * **V13** (Z14) File > New > File: exact name offered for a Text File, a C++ File and a Header File (`TextFile1.txt`, `Source1.cpp`, `Header1.h`?), and the first-save dialog.
 * **V14** (Z19) `.editorconfig` with `trim_trailing_whitespace = true` and `insert_final_newline = true`: does a plain Ctrl+S change the file, or only Format Document / Code Cleanup?
 * **V15** (Q6) Tools > Options > Text Editor > C/C++ > IntelliSense: is there an Inlay Hints option, what is its default, does Alt+F1 show hints when the option is off, and is the hold a toggle?
-* **V11** Uncheck Build for a project in Configuration Manager; open one of its files; confirm IntelliSense still shows.
 
 ## S. Sources
 
