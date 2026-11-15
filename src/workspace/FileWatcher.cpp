@@ -738,6 +738,7 @@ struct FileWatcher::Impl {
     return true;
   }
 
+  void wakeOps() { wake(); }  // the loop clears the eventfd and applies the roots
   void wake() {
     if (wakeFd >= 0) {
       uint64_t one = 1;
@@ -929,6 +930,10 @@ struct FileWatcher::Impl {
     if (stopEvent) SetEvent(stopEvent);
     if (opsEvent) SetEvent(opsEvent);
   }
+  // A root was added or removed: wake the wait without asking the thread to stop.
+  void wakeOps() {
+    if (opsEvent) SetEvent(opsEvent);
+  }
 
   void closeAll() {
     for (auto& r : winRoots) closeRoot(*r);
@@ -944,13 +949,19 @@ struct FileWatcher::Impl {
   void applyRootOps() {
     for (const RootOp& op : takeRootOps()) {
       applyToActive(activeRoots, op);
-      // winRoots[0] is the main root; an extra root with the same path is replaced.
+      // winRoots[0] is the main root. A root that is open already (start() opened the ones added before it) stays.
+      bool open = false;
       for (size_t i = 1; i < winRoots.size(); ++i)
         if (winRoots[i]->path == op.root.path) {
+          if (op.add && winRoots[i]->recursive == op.root.recursive) {
+            open = true;
+            break;
+          }
           closeRoot(*winRoots[i]);
           winRoots.erase(winRoots.begin() + static_cast<std::ptrdiff_t>(i));
           break;
         }
+      if (open) continue;
       if (op.add && !openRoot(op.root.path, op.root.recursive))
         log("file watcher: cannot watch " + pathUtf8(op.root.path));
     }
@@ -1003,6 +1014,7 @@ struct FileWatcher::Impl {
     return true;
   }
   void wake() {}
+  void wakeOps() {}
   void closeAll() {}
   void addDirPlatform(const fs::path&) {}
   size_t watchesPlatform() const { return 0; }
@@ -1092,7 +1104,7 @@ void FileWatcher::addRoot(const fs::path& dir, bool recursive) {
     d.rootOps.push_back({true, {dir, recursive}});
   }
   d.cv.notify_all();
-  if (d.running) d.wake();
+  if (d.running) d.wakeOps();
 }
 
 void FileWatcher::removeRoot(const fs::path& dir) {
@@ -1105,7 +1117,7 @@ void FileWatcher::removeRoot(const fs::path& dir) {
     d.rootOps.push_back({false, {dir, true}});
   }
   d.cv.notify_all();
-  if (d.running) d.wake();
+  if (d.running) d.wakeOps();
 }
 
 size_t FileWatcher::rootCount() const {

@@ -296,7 +296,7 @@ TEST(menubar_10x_wins_where_the_key_file_binds_an_access_key) {
   bound.key(static_cast<Key>('F'), ModAlt);
   CHECK(bound.bar().dropdown() == nullptr);
   CHECK(bound.app().findReplace().isOpen());
-  bound.key(Key::Escape);  // (while the Find bar is open Alt+E belongs to it)
+  bound.key(Key::Escape);                    // (while the Find bar is open Alt+E belongs to it)
   bound.key(static_cast<Key>('E'), ModAlt);  // the others still work
   CHECK_EQ(bound.bar().openIndex(), 1);
 }
@@ -324,7 +324,7 @@ TEST(menubar_file_menu_has_open_solution_first_and_only_existing_commands) {
     if (l[i] == "-") CHECK(i > 0 && i + 1 < l.size() && l[i - 1] != "-");
   }
   for (const MenuItem& it : env.bar().dropdown()->items()) CHECK(it.separator || it.action || !it.sub.empty());
-  CHECK(std::find(l.begin(), l.end(), std::string("Save As...")) == l.end());  // tenfold has no such command
+  CHECK(std::find(l.begin(), l.end(), std::string("Save As...")) == l.end());      // tenfold has no such command
   CHECK(std::find(l.begin(), l.end(), std::string("Close Solution")) != l.end());  // CLOSE-SLN
   CHECK_EQ(env.item("Open Solution...")->shortcut, std::string("Control Shift O"));
 }
@@ -442,7 +442,7 @@ TEST(menubar_hidden_mode_floats_over_the_top_edge_and_hides_again) {
   const float top = p->bounds().y;
   Env shown;  // the same window with the bar shown: everything is one bar height lower
   CHECK(shown.bench().activePanel()->bounds().y == top + shown.bar().barHeight());  // no room reserved when hidden
-  env.move(100, 2);                    // the pointer at the top edge
+  env.move(100, 2);                                                                 // the pointer at the top edge
   CHECK(env.bar().revealed());
   CHECK(p->bounds().y == top);  // still no shift: it floats
   env.move(100, 300);

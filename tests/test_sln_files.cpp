@@ -682,3 +682,28 @@ TEST(slnfiles_file_watcher_extra_roots) {
     w.stop();
   }
 }
+
+TEST(slnfiles_paths_are_compared_whatever_their_separators) {
+  // The explorer and the watcher hand over paths spelled with '/' (pathFromUtf8 of a generic key) while the root is
+  // native ('\' on Windows): equal paths must stay equal (the Windows root-directory element "\" vs "/" once made
+  // every file look like it was outside the root).
+  Base b;
+  makeGameAndEngine(b);
+  Workspace ws(b.game());
+  ws.scan();
+  REQUIRE(ws.isSolutionWorkspace());
+  const fs::path fresh = pathFromUtf8(pathKeyUtf8(b.game()) + "/loose/fresh.cpp");
+  write(fresh, "int fresh;\n");
+  ws.noteFileAdded(fresh);
+  const auto ex = ws.explorerFiles();
+  CHECK(std::find(ex.begin(), ex.end(), fresh) != ex.end());
+  CHECK(!has(keys(ws, b.path), "Game/loose/fresh.cpp"));  // loose: not a workspace file
+  // a project directory outside the root, found through a '/' spelling, is not "below the root"
+  std::set<std::string> roots;
+  for (auto& w : ws.extraWatchRoots()) roots.insert(pathKeyUtf8(w.dir.lexically_relative(b.path)));
+  CHECK(has(roots, "Engine"));
+  CHECK(!has(roots, "Game"));
+  FolderRule r = parseFolderRule(pathKeyUtf8(b.third()) + "/inc/**/*.h", b.game());
+  CHECK(r.matches(b.third() / "inc" / "x" / "t.h", [](const std::string&) { return false; }));
+  CHECK(r.matches(pathFromUtf8(pathKeyUtf8(b.third()) + "/inc/t.h"), [](const std::string&) { return false; }));
+}

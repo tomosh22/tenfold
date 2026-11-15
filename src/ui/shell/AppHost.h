@@ -42,14 +42,14 @@ class AppHost {
   struct Options {
     std::filesystem::path userDir;  // user config dir: settings.txt, KeyMappings, theme, recent.txt (empty: none)
     float pixelScale = 1.0f;
-    std::function<void()> wake;                // the settings watcher asks the UI thread to poll()
-    gfx::Renderer* renderer = nullptr;         // where replaced text renderers release their atlas textures
-    Editor::Options editor;                    // per-workspace copy; `solution` is filled in from the target
-    bool startEngine = true;                   // Editor::start (clangd, scan, watcher); false for screenshots
-    bool watchSettings = true;                 // SettingsService::startWatching
-    std::string defaultFile = "src/main.cpp";  // opened when the workspace has no saved layout and no file was given
-    std::function<void(Editor&)> setupEditor;  // e.g. the Visual Studio debugger factory
-    std::function<void(EditorApp&)> setupApp;  // e.g. the window hooks (fullscreen)
+    std::function<void()> wake;                  // the settings watcher asks the UI thread to poll()
+    gfx::Renderer* renderer = nullptr;           // where replaced text renderers release their atlas textures
+    Editor::Options editor;                      // per-workspace copy; `solution` is filled in from the target
+    bool startEngine = true;                     // Editor::start (clangd, scan, watcher); false for screenshots
+    bool watchSettings = true;                   // SettingsService::startWatching
+    std::string defaultFile = "src/main.cpp";    // opened when the workspace has no saved layout and no file was given
+    std::function<void(Editor&)> setupEditor;    // e.g. the Visual Studio debugger factory
+    std::function<void(EditorApp&)> setupApp;    // e.g. the window hooks (fullscreen)
     std::function<void(bool on)> setFullscreen;  // the window's full screen (View.ToggleFullscreen in the empty window)
     // Builds the editor font from the settings at `zoomPt` extra points (default: makeEditorTextRenderer).
     std::function<std::unique_ptr<gfx::TextRenderer>(const Settings&, float zoomPt, std::string* err)> makeText;
