@@ -1,4 +1,5 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -29,7 +30,19 @@ struct ScanVar {
   std::string targ;  // the first identifier chain inside the type's template arguments ("unique_ptr<Foo>": "Foo")
   bool pointer = false;
   ScanPos at;  // the name token
+  // FAST-OVL: the shape of the declared type, for overload selection by argument type (FastOverload).
+  bool targExact = false;  // `targ` is the whole first template argument (no `*`, `&`, `const`, nested arguments); a
+                           // builtin type is spelled out in `targ` then ("Stack<unsigned long>": "unsigned long")
+  std::string prim;        // the builtin type's words in source order ("unsigned long", "double"); "" = not a builtin
+  uint8_t ptrDepth = 0;    // number of `*`
+  uint8_t ref = 0;         // 1 `&`, 2 `&&`
+  bool constBase = false;  // `const` applies to the type before the first `*` (`const T`, `T const`)
+  bool constTop = false;   // the variable itself is const (`const T x`, `T *const p`)
 };
+
+// The type of a literal token (`42`, `1.5f`, `'c'`, `"s"`, `u8"s"`, `true`): fills v.prim / v.ptrDepth / v.constBase
+// (a string literal is a `const char *`); false for anything else (a literal with a user-defined suffix included).
+bool literalVarType(std::string_view tokenText, bool isString, bool isChar, ScanVar& v);
 
 struct ScanUsing {
   std::string ns;    // `using namespace ns;` (name empty) or the qualifier of `using ns::name;`

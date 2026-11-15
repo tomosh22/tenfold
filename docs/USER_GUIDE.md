@@ -289,10 +289,13 @@ tenfold answers code questions from two sources:
 * **The fast index** is a lexer-based index of the whole workspace, built at start (a warm start only re-reads files
   that changed) and kept up to date as files change. It needs no compile flags and answers in a millisecond or so.
   Its answers are *approximate*: it matches by name and narrows by what the file itself shows (the namespace and class
-  you are in, the declared type of `x` in `x.f`, `static` functions, the number of arguments, the headers you include,
-  parameters and locals, and the `#if` / `#ifdef` branches that the file's compile command selects: a macro the project
-  never mentions is treated as unknown, so both branches stay), so it cannot resolve templates, `auto` results of calls, typedef chains, overloads that
-  differ only by parameter type or macro-generated members.
+  you are in, the declared type of `x` in `x.f`, `static` functions, the number of arguments and, when they are
+  written plainly (literals, variables of a declared type, `Foo(...)`, casts, `std::move`), their types and the
+  `const` / `&` / `&&` of the object, so that overloads and the `operator+` / `[]` / `()` / `<<` an operator token
+  stands for are told apart, the headers you include, parameters and locals, and the `#if` / `#ifdef` branches that the
+  file's compile command selects: a macro the project never mentions is treated as unknown, so both branches stay), so
+  it cannot resolve templates, `auto` results of calls, typedef chains, overloads whose arguments are expressions it
+  cannot type, or macro-generated members.
 * **clangd** is the real Clang front end run with your compile flags. Its answers are *authoritative*. It needs a few
   seconds to parse a file after you open it, and until its background index finishes it can only see the translation
   unit you are in (a function defined in another `.cpp` is first found by the fast index).

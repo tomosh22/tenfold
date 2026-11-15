@@ -5,6 +5,9 @@
 #include <climits>
 #include <cstdint>
 #include <set>
+#include <unordered_map>
+
+#include "semantic/FastOverload.h"
 
 namespace tf {
 
@@ -687,7 +690,22 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
       const int r = rankOf(m);
       if (r >= 0) best = std::min(best, r);
     }
-    if (best != INT32_MAX) keepIf([&](const FastIndex::Match& m) { return rankOf(m) <= best; });
+    if (best != INT32_MAX) {
+      // FAST-OVL: argument-dependent lookup adds the functions of the arguments' namespaces to what the scope chain
+      // finds (`draw(c)` with a `shape::Circle c` reaches `shape::draw` although the global `draw` hides nothing)
+      bool adlDone = false;
+      std::set<std::string> adl;
+      keepIf([&](const FastIndex::Match& m) {
+        if (rankOf(m) <= best) return true;
+        // (an out-of-line `void shape::draw(...)` is indexed as a Method of scope `shape`)
+        if (m.sym().kind != SymbolKind::Function && m.sym().kind != SymbolKind::Method) return false;
+        if (!adlDone) {
+          adlDone = true;
+          adl = adlScopesOfCall(env, ci);
+        }
+        return adl.count(m.sym().scope) > 0;
+      });
+    }
   }
 
   // 3b. what kind of name the position can mean
@@ -723,14 +741,30 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
   if (matches.size() > 1) {
     const int n = callArgCount(ci);
     if (n >= 0) {
+      // FAST-OVL: default arguments are written once, on the prototype: a definition of the same function (scope, name,
+      // arity) takes the prototype's lowest argument count
+      auto pairKey = [](const Symbol& s) {
+        return s.scope + "\x01" + s.name + "\x01" + std::to_string(static_cast<int>(s.arity));
+      };
+      std::unordered_map<std::string, int> loOf;
+      for (auto& m : matches) {
+        const Symbol& s = m.sym();
+        if (!isFunctionKind(s.kind) || s.arity < 0) continue;
+        const int lo = s.minArity >= 0 ? s.minArity : s.arity;
+        auto [it, fresh] = loOf.try_emplace(pairKey(s), lo);
+        if (!fresh) it->second = std::min(it->second, lo);
+      }
       keepIf([&](const FastIndex::Match& m) {
         const Symbol& s = m.sym();
         if (!isFunctionKind(s.kind) || s.arity < 0) return true;
-        const int lo = s.minArity >= 0 ? s.minArity : s.arity;
+        const int lo = loOf[pairKey(s)];
         return n >= lo && (s.variadic || n <= s.arity);
       });
     }
   }
+
+  // 4b. FAST-OVL: the argument types (and the receiver's cv / ref qualification) against the overloads' parameter types
+  if (matches.size() > 1) matches = narrowByOverload(env, ci, std::move(matches));
 
   // 5. the include graph: what the caret's file can see (a definition outside it stays when its prototype is inside)
   if (matches.size() > 1) {
@@ -776,6 +810,45 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
     }
   }
   return matches;
+}
+
+std::optional<ScanVar> resolveVariableAt(const ScopeEnv& env, const CaretInfo& ci, const std::string& name) {
+  if (!ci.map || !env.index || ci.map->regions.size() < 1) return std::nullopt;
+  const int region = ci.map->regionAt(ci.at);
+  VarHit h = lookupVar(*ci.map, region, ci.at, name, false);
+  if (h.v) return *h.v;
+  const std::string ctxPath = pathOf(*ci.map, region);
+  for (const Level& l : buildLevels(env, ci, region)) {
+    if (!l.isClass) continue;
+    std::vector<FastIndex::Match> own;
+    for (const std::string& s : l.scopes)
+      for (auto& c : classesNamed(*env.index, s))
+        if (c.sym().qualified() == s) own.push_back(std::move(c));
+    std::shared_ptr<const ScopeMap> keep;
+    if (const ScanVar* v = fieldOf(env, own, name, &keep, ctxPath)) return *v;
+  }
+  return std::nullopt;
+}
+
+std::optional<ScanVar> memberVarOf(const ScopeEnv& env, const CaretInfo& ci, const std::string& className,
+                                   const std::string& member) {
+  if (!env.index || className.empty()) return std::nullopt;
+  const int region = ci.map ? ci.map->regionAt(ci.at) : 0;
+  const std::string ctxPath = ci.map ? pathOf(*ci.map, region) : std::string();
+  auto cls = classesNamed(*env.index, ci.map ? expandAlias(*ci.map, region, className) : className);
+  preferNear(cls, ctxPath);
+  if (cls.empty()) return std::nullopt;
+  std::shared_ptr<const ScopeMap> keep;
+  if (const ScanVar* v = fieldOf(env, cls, member, &keep, ctxPath)) return *v;
+  return std::nullopt;
+}
+
+std::vector<std::string> visibleScopesAt(const ScopeEnv& env, const CaretInfo& ci) {
+  std::vector<std::string> out;
+  if (!ci.map || !env.index) return {""};
+  for (const Level& l : buildLevels(env, ci, ci.map->regionAt(ci.at)))
+    for (const std::string& s : l.scopes) out.push_back(s);
+  return out;
 }
 
 std::shared_ptr<const ScopeMap> ScopeCache::get(const std::string& key, uint64_t a, uint64_t b,

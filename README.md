@@ -210,7 +210,8 @@ Dropped by decision: scripting (the Python API is not used). Not done yet (the "
 * 118 of 10x's 307 commands (none of them has a default key; pressing a key bound to one says `not implemented yet`),
   and many 10x settings. [`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) has both lists.
 * Workarounds for clangd answer gaps (for example no "add `#include`" fix for `std::` names with the MSVC STL), and a
-  fast tier that resolves overloads by argument type, alias chains and names declared through macro arguments.
+  fast tier that resolves alias chains, specialisations and names declared through macro arguments (overloads by
+  argument type and operator tokens are done: FAST-OVL).
 * W9i, the editor-level stress run on the largest generated projects (scripted UI sessions measured against the frame
   budget).
 

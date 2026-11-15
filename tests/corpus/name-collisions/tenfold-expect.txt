@@ -6,7 +6,7 @@
 # ---- fast tier ----
 fast def use_a_Node_get -> a_Node_get | a_Node_get_def
 fast def use_b_Node_get -> b_Node_get | b_Node_get_def
-xfail fast def use_a_get -> a_get | a_get_def  # fast tier is name-only: returns every same-named declaration of the codebase (namespaces, classes, TUs, forward declarations, struct vs function)
+fast def use_a_get -> a_get | a_get_def  # was xfail until FAST-OVL (overloads by argument / receiver type, scope)
 fast def use_b_get -> b_get | b_get_def
 fast def use_a_get_tpl -> a_get_tpl
 fast def use_a_size -> a_size | a_size_def

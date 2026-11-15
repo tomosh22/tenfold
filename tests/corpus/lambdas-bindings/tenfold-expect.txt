@@ -23,7 +23,7 @@ fast def use_Point_x -> Point_x
 fast def use_Counter_total -> Counter_total
 fast def use_Button_size -> Button_size
 fast def use_opt_name -> Event_name
-xfail fast def use_Ring_cbegin -> Ring_cbegin  # fast tier is name-only: returns every begin()/size() of other classes and the const/non-const overloads
+fast def use_Ring_cbegin -> Ring_cbegin  # was xfail until FAST-OVL (overloads by argument / receiver type, scope)
 fast sym "Button" ∋ Button
 fast sym "overloaded" ∋ overloaded
 fast sym "find_event" ∋ find_event find_event_def

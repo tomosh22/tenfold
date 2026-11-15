@@ -14,6 +14,8 @@
 
 namespace tf {
 
+class FileSigs;  // FastOverload.h: the text of a file with its parsed function signatures
+
 // Scope-aware narrowing of the fast tier's by-name lookup (docs/ARCHITECTURE.md, "Scope-aware lookup in the fast
 // tier"). Everything here uses the lexer index and the lexical scope maps (ScopeScan) only, and every rule is
 // "narrow when the lexical evidence is clear, else leave the candidates alone": a rule that would leave nothing is
@@ -50,6 +52,9 @@ struct ScopeEnv {
   std::function<void(const std::filesystem::path& file, std::vector<std::filesystem::path>& quote,
                      std::vector<std::filesystem::path>& angle)>
       includeDirsOf;
+  // FAST-OVL: the text and parsed signatures of any indexed file (FastOverload); may be null / return null, which
+  // leaves the overload sets as they are.
+  std::function<std::shared_ptr<const FileSigs>(const std::filesystem::path&)> sigsOf;
 };
 
 // What the caret says.
@@ -90,6 +95,17 @@ std::vector<FastIndex::Match> narrowByScope(const ScopeEnv& env, const CaretInfo
 // The classes named by a qualifier written at the caret (`Derived` in `Derived::f`), and their bases, as qualified
 // scope names. Empty when the qualifier is not a class known to the index.
 std::vector<std::string> classScopesOfQualifier(const ScopeEnv& env, const CaretInfo& ci, const std::string& qualifier);
+
+// ---- FAST-OVL helpers (used by FastOverload.cpp) ----
+// The variable (parameter, local, field of an enclosing class, variable of an enclosing namespace in this file) an
+// unqualified `name` means at the caret.
+std::optional<ScanVar> resolveVariableAt(const ScopeEnv& env, const CaretInfo& ci, const std::string& name);
+// The declared type of field `member` of the class written `className` at the caret, through its base classes.
+std::optional<ScanVar> memberVarOf(const ScopeEnv& env, const CaretInfo& ci, const std::string& className,
+                                   const std::string& member);
+// The qualified names of the scopes an unqualified name is looked up in at the caret (enclosing namespaces and classes
+// with their bases, using-directives, the global scope "").
+std::vector<std::string> visibleScopesAt(const ScopeEnv& env, const CaretInfo& ci);
 
 bool isSourceFileName(const std::filesystem::path& p);
 
