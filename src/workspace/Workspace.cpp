@@ -725,6 +725,14 @@ bool Workspace::noteFileAdded(const fs::path& p) {
   return true;
 }
 
+bool Workspace::noteProjectItemAdded(const fs::path& p) {
+  if (kind_ == Kind::Solution && shared_) {
+    std::unique_lock<std::shared_mutex> lk(shared_->mu);
+    shared_->keys.insert(pathKey(p));
+  }
+  return noteFileAdded(p);
+}
+
 bool Workspace::noteFileRemoved(const fs::path& p) {
   bool changed = false;
   for (auto* list : {&sources_, &headers_, &others_}) changed = eraseSorted(*list, p) || changed;

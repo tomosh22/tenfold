@@ -223,7 +223,9 @@ There are two kinds of workspace, as in 10x (*Folder Workspace* and *Visual Stud
   build ... whatever Solution Explorer shows; wildcards, imported `.props` / `.targets` / `.vcxitems` and items that are
   excluded from the build included), the project files themselves, the solution items of the solution folders, and the
   files under the *additional workspace folders* below. A file that sits in the solution folder but that no project
-  lists is **not** part of the solution (it is still shown by the explorer's Folder view and *Show All Files*).
+  lists is **not** part of the solution (it is still shown by the explorer's Folder view and *Show All Files*). A file
+  you create from the explorer inside a project is added to that project, so it is part of the solution at once
+  ([Workspace explorer](#workspace-explorer), file operations).
   Project items are listed whatever their extension; files from additional folders follow the folder rules (ignored
   directories, the extension lists). The solution file, `.filters` files and property sheets are not listed (a change to
   any of them re-reads the list).
@@ -990,9 +992,23 @@ longer exists is skipped; a damaged file is ignored.
 `Explorer.Rename`, `Explorer.Delete`, `Explorer.Properties`, which act on the selected node) offers:
 
 * *New File...* / *New Folder...*: a box asks for the name (it says "already exists" or what is wrong with it); the
-  item is made in the node's folder (a file's own folder; a project's folder; a filter or solution folder: the nearest
-  folder above). A new file is **not added to a project** (tenfold does not write new items into `.vcxproj` files): in the
-  Solution view it shows with Show All Files, dimmed. A new folder is shown even while it is empty.
+  item is made in the node's folder (a file's own folder; a project's folder; a filter: the project's folder; a solution
+  folder: the solution's folder). A new folder is shown even while it is empty.
+  **In a solution workspace, a new file is added to its project** (Visual Studio's Add > New Item): in the Solution view,
+  on a project, a filter, a folder below a project or a file below one, the file is made and an item is added to the
+  project's `.vcxproj` - `ClCompile` for `.c .cc .cpp .cxx` sources, `ClInclude` for headers (`.h .hpp .hh .hxx .inl`),
+  `ResourceCompile` for `.rc`, `None` for everything else - with the path relative to the project folder and backslashes
+  (`src\util\x.cpp`); on a filter the matching entry with `<Filter>` goes into the `.vcxproj.filters` file too. The
+  item is inserted after the last item of its type (a new `ItemGroup` when there is none) and the file is otherwise left
+  byte for byte as it was: byte order mark, CRLF or LF, indentation and comments stay. The status bar says
+  "Created x.cpp and added it to App.vcxproj". Nothing is added in the Folder view, in a folder workspace, below a solution
+  folder or for a file outside every project; a file that a wildcard item (`gen\*.cpp`) already covers needs no item. SDK-style
+  projects (`<Project Sdk="...">`) include their files by glob, so they need no edit, and project formats other than
+  `.vcxproj` (old-style `.csproj`, `.vcxitems`) are not edited: the file is created and the status bar says so. A project
+  file that is read-only is not changed and **the file is not created** ("Cannot create x.cpp: App.vcxproj is read-only");
+  with Perforce as the version control the project file (and its filters file) is checked out with `p4 edit` first. A
+  project file with unsaved changes in an editor tab must be saved first. Names with `; % $ @ * ?` are refused in a
+  project (MSBuild would have to escape them).
 * *Rename* (F2): the same box, filled with the old name. The file or folder is renamed on disk; the `Include="..."` values
   of the projects and of their `.vcxproj.filters` files that name it (or, for a folder, anything below it) are rewritten in
   the style they were written (backslashes stay backslashes); wildcard items (`gen\*.cpp`) need no change. An open file is

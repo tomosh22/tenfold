@@ -62,6 +62,7 @@ add_library(tenfold_core STATIC
   src/semantic/XmlLite.cpp
   src/semantic/SemanticEngine.cpp
   src/workspace/Workspace.cpp
+  src/workspace/ProjectEdit.cpp
   src/search/TextSearch.cpp
   src/search/ReplaceInFiles.cpp
   src/workspace/FileWatcher.cpp
@@ -155,6 +156,7 @@ add_executable(tenfold-tests
   tests/test_vs_configs.cpp
   tests/test_slnx.cpp
   tests/test_sln_files.cpp
+  tests/test_project_edit.cpp
   tests/test_sln_open.cpp
   tests/test_semantic.cpp
   tests/test_process.cpp

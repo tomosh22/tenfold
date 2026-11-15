@@ -48,6 +48,10 @@ struct ProjectContents {
 // layout.json was restored; New File / New Folder / Rename (F2) / Delete (Delete key, "will be deleted permanently"
 // confirmation) / drag and drop (move, Ctrl copies; confirmed) work on the disk and keep the `.vcxproj` and
 // `.vcxproj.filters` Include attributes of moved, renamed and deleted files in step; Properties is a read-only page.
+// PROJ-ADD (docs/VS_BEHAVIOUR.md section 20): a New File in the Solution view of a solution workspace, below a project
+// node, also adds the file to that .vcxproj (and, in a filter, to its .filters file), as Add > New Item does; a
+// read-only project file is checked out first when Perforce is the workspace's version control, else the file is not
+// created at all. The Folder view, a folder workspace and files outside any project are unchanged.
 class WorkspaceExplorer {
  public:
   struct Hooks {
@@ -151,6 +155,15 @@ class WorkspaceExplorer {
   void closeDocsUnder(const std::filesystem::path& path, bool isDir, bool discard,
                       std::filesystem::path* reopen = nullptr);
   bool dirtyUnder(const std::filesystem::path& path, bool isDir, std::string* which) const;
+  // PROJ-ADD: the project a New File at `node` belongs to (Solution view, below a project node) and the filter the
+  // file goes into ("" = the project root / a folder on disk).
+  struct ProjectTarget {
+    std::filesystem::path project;
+    std::string filter;
+    std::string note;  // "" = the project is edited; else why it is not (SDK-style / unsupported project format)
+  };
+  bool projectTarget(int node, ProjectTarget* out) const;
+  void createFile(const std::filesystem::path& file, const ProjectTarget* target);
   void afterChange(const std::filesystem::path& select);
   void say(const std::string& m) const {
     if (hooks_.message) hooks_.message(m);
@@ -182,6 +195,7 @@ class WorkspaceExplorer {
   std::string pendingSel_;
   std::vector<std::filesystem::path> extraDirs_;
   std::unique_ptr<ExplorerPrompt> prompt_;
+  std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // asynchronous callbacks (Perforce check-out) check it
   std::vector<std::filesystem::path> inputs_;  // .sln / project / filters files watched for changes
 };
 

@@ -1,0 +1,16 @@
+<Project>
+  <ItemGroup>
+    <ClCompile Include="a.cpp" />
+  </ItemGroup>
+</Project>
+
+#--#
+<Project>
+  <ItemGroup>
+    ilter Include="Source Files" />
+  </ItemGroup>
+</Project>
+
+#--#
+new.cpp
+Source Files

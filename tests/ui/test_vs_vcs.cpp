@@ -5,11 +5,13 @@
 #include <chrono>
 #include <filesystem>
 #include <fstream>
+#include <functional>
 #include <thread>
 
 #include "../test_w8f_p4util.h"
 #include "../text/text_test_util.h"
 #include "ui/features/VcsState.h"
+#include "ui/features/WorkspaceExplorer.h"
 #include "ui/gfx/TextRenderer.h"
 #include "ui/settings/Settings.h"
 #include "ui/settings/Theme.h"
@@ -64,6 +66,12 @@ void setWritable(const fs::path& p, bool w) {
   fs::permissions(p, w ? fs::perms::owner_write : bits, w ? fs::perm_options::add : fs::perm_options::remove, ec);
 }
 
+bool isWritableFile(const fs::path& p) {
+  std::error_code ec;
+  const auto perms = fs::status(p, ec).permissions();
+  return (perms & (fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write)) != fs::perms::none;
+}
+
 #ifndef _WIN32
 void makeExecutable(const fs::path& p, const std::string& text) {
   std::ofstream(p, std::ios::binary) << text;
@@ -82,7 +90,7 @@ struct P4App {
   std::unique_ptr<EditorApp> app;
   int64_t now = 1000;
 
-  explicit P4App(bool badges = true) {
+  explicit P4App(bool badges = true, const std::function<void(w8f::P4Ws&)>& setup = {}) {
     PerforceProvider::clearDetectCache();
     ws = p4.ws;
     static int n = 0;
@@ -105,6 +113,7 @@ struct P4App {
       p4.state["files"]["res.cpp"]["unresolved"] = true;
       setWritable(ws / "res.cpp", true);
     }
+    if (setup) setup(p4);
     p4.save();
     Editor::Options o;
     o.semantic.useClangd = false;
@@ -453,3 +462,91 @@ TEST(vsvcs_history_diff_actions_run_the_diff_tool_on_the_two_revisions) {
   fs::remove_all(out, ec);
 }
 #endif
+
+// ---- PROJ-ADD: a new file in a Perforce-managed project ----------------------------------------------------------
+
+TEST(vsvcs_new_file_in_a_project_checks_the_read_only_project_file_out_first) {
+  const std::string proj =
+      "<Project>\r\n  <ItemGroup>\r\n    <ClCompile Include=\"main.cpp\" />\r\n  </ItemGroup>\r\n</Project>\r\n";
+  P4App a(false, [&](w8f::P4Ws& p) {
+    tfvcs::writeFile(p.ws / "App.sln",
+                     "Microsoft Visual Studio Solution File, Format Version 12.00\n"
+                     "Project(\"{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}\") = \"App\", \"App.vcxproj\", "
+                     "\"{AAAAAAAA-0000-0000-0000-0000000000A1}\"\nEndProject\n");
+    tfvcs::writeFile(p.ws / "main.cpp", "int main() {}\n");
+    p.depotFile("App.vcxproj", proj);  // in the depot, read-only, not checked out
+  });
+  REQUIRE(a.ed->workspace().isSolutionWorkspace());
+  REQUIRE(!isWritableFile(a.ws / "App.vcxproj"));
+  REQUIRE(a.waitUntil([&] { return a.ed->vcs().active(); }));  // the provider is detected off the UI thread
+  a.app->runCommand("View.ToggleWorkspaceExplorer");
+  a.frame();
+  WorkspaceExplorer* ex = a.app->explorer();
+  REQUIRE(ex != nullptr);
+  TreeView& tv = *ex->view();
+  tv.expandAll(true);
+  int node = -1;
+  for (size_t i = 0; i < tv.model().size(); ++i)
+    if (tv.model().node(static_cast<int>(i)).name == "App" &&
+        tv.model().node(static_cast<int>(i)).kind == TreeKind::Project)
+      node = static_cast<int>(i);
+  REQUIRE(node >= 0);
+  tv.select(node);
+  a.app->runCommand("Explorer.NewFile");
+  REQUIRE(ex->prompt() != nullptr && ex->prompt()->popup() != nullptr);
+  InputEvent t;
+  t.type = InputType::Text;
+  t.text = "fresh.cpp";
+  a.app->handleEvent(t, a.now += 10);
+  a.frame();
+  a.key(Key::Enter);
+  REQUIRE(a.waitUntil([&] { return a.app->message().find("Created fresh.cpp") != std::string::npos; }));
+  CHECK(a.app->message().find("added it to App.vcxproj") != std::string::npos);
+  CHECK(fs::exists(a.ws / "fresh.cpp"));
+  const std::string now = tfvcs::readFile(a.ws / "App.vcxproj");
+  CHECK_EQ(now,
+           "<Project>\r\n  <ItemGroup>\r\n    <ClCompile Include=\"main.cpp\" />\r\n    <ClCompile "
+           "Include=\"fresh.cpp\" />\r\n"
+           "  </ItemGroup>\r\n</Project>\r\n");
+  bool edited = false;
+  for (const std::string& l : a.p4.log()) edited = edited || l.find(" edit ") != std::string::npos;
+  CHECK(edited);  // p4 edit ran for the project file
+}
+
+TEST(vsvcs_new_file_in_a_project_whose_check_out_fails_is_not_created) {
+  const std::string proj =
+      "<Project>\r\n  <ItemGroup>\r\n    <ClCompile Include=\"main.cpp\" />\r\n  </ItemGroup>\r\n</Project>\r\n";
+  P4App a(false, [&](w8f::P4Ws& p) {
+    tfvcs::writeFile(p.ws / "App.sln",
+                     "Microsoft Visual Studio Solution File, Format Version 12.00\n"
+                     "Project(\"{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}\") = \"App\", \"App.vcxproj\", "
+                     "\"{AAAAAAAA-0000-0000-0000-0000000000A1}\"\nEndProject\n");
+    tfvcs::writeFile(p.ws / "main.cpp", "int main() {}\n");
+    tfvcs::writeFile(p.ws / "App.vcxproj", proj);  // read-only, and p4 does not know it
+    setWritable(p.ws / "App.vcxproj", false);
+  });
+  REQUIRE(a.ed->workspace().isSolutionWorkspace());
+  REQUIRE(a.waitUntil([&] { return a.ed->vcs().active(); }));
+  a.app->runCommand("View.ToggleWorkspaceExplorer");
+  a.frame();
+  WorkspaceExplorer* ex = a.app->explorer();
+  REQUIRE(ex != nullptr);
+  TreeView& tv = *ex->view();
+  tv.expandAll(true);
+  int node = -1;
+  for (size_t i = 0; i < tv.model().size(); ++i)
+    if (tv.model().node(static_cast<int>(i)).kind == TreeKind::Project) node = static_cast<int>(i);
+  REQUIRE(node >= 0);
+  tv.select(node);
+  a.app->runCommand("Explorer.NewFile");
+  REQUIRE(ex->prompt() != nullptr && ex->prompt()->popup() != nullptr);
+  InputEvent t;
+  t.type = InputType::Text;
+  t.text = "fresh.cpp";
+  a.app->handleEvent(t, a.now += 10);
+  a.frame();
+  a.key(Key::Enter);
+  REQUIRE(a.waitUntil([&] { return a.app->message().find("Cannot create fresh.cpp") != std::string::npos; }));
+  CHECK(!fs::exists(a.ws / "fresh.cpp"));
+  CHECK_EQ(tfvcs::readFile(a.ws / "App.vcxproj"), proj);
+}
