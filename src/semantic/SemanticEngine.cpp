@@ -535,6 +535,7 @@ std::shared_ptr<LspClient> SemanticEngine::launchClangd(std::string* error) {
     std::function<void(const fs::path&, std::vector<Diagnostic>)> h;
     {
       std::lock_guard<std::mutex> lk(mu_);
+      if (uri == kickUri_ && !openDocs_.count(uri)) return;  // the file kickBackgroundIndex() opened
       h = diagHandler_;
     }
     if (!h) return;
@@ -1029,6 +1030,8 @@ bool SemanticEngine::start(std::string* error) {
       runStart_ = std::chrono::steady_clock::now();
     }
     setHealth(ok ? ClangdHealth::Phase::Running : ClangdHealth::Phase::Stopped, 0, err);
+    if (ok)
+      if (auto nc = client()) kickBackgroundIndex(*nc);
     supThread_ = std::thread([this] { supervisorLoop(); });
   }
   return ok;
@@ -1084,6 +1087,7 @@ void SemanticEngine::stop() {
   cv_.notify_all();
   if (indexThread_.joinable()) indexThread_.join();
   if (auto old = takeClient()) old->stop();
+  joinRetired();  // servers replaced by restartClangd() that are still shutting down
 }
 
 SemanticEngine::Status SemanticEngine::status() const {
@@ -1294,6 +1298,35 @@ void SemanticEngine::reopenDocuments(LspClient& c) {
     if (!parked.count(d->uri()) && !unsent(d->uri())) sent.push_back(d);
   for (auto* d : sent) c.didOpen(d->uri(), languageIdFor(d->path()), d->version(), d->buffer().textForLsp());
   for (auto* d : sent) scheduleTokens(*d);
+  if (sent.empty()) kickBackgroundIndex(c);
+}
+
+void SemanticEngine::kickBackgroundIndex(LspClient& c) {
+  if (!opt_.kickBackgroundIndex) return;
+  const auto cmds = compileCommands();
+  size_t tried = 0;
+  for (const CompileCommand& cc : *cmds) {
+    if (++tried > 64) break;
+    const fs::path file = (cc.file.is_absolute() ? cc.file : cc.directory / cc.file).lexically_normal();
+    std::error_code ec;
+    if (!fs::is_regular_file(file, ec) || fs::file_size(file, ec) > (1u << 20)) continue;
+    std::ifstream in(file, std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const std::string uri = pathToUri(file);
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      if (openDocs_.count(uri)) return;  // a real document: clangd already has what it needs
+      kickUri_ = uri;
+    }
+    c.didOpen(uri, languageIdFor(file), 1, text);
+    c.didClose(uri);
+    log("clangd: background index started through " + pathUtf8(file));
+    return;
+  }
+  if (!cmds->empty())
+    log("clangd: none of the first " + std::to_string(std::min<size_t>(tried, 64)) +
+        " files of the compile database exists (first: " + pathUtf8((*cmds)[0].file) +
+        "): clangd's background index cannot start");
 }
 
 bool SemanticEngine::unparkIfParked(Document& doc) {
@@ -1311,6 +1344,38 @@ bool SemanticEngine::unparkIfParked(Document& doc) {
 
 void SemanticEngine::activateDocument(Document& doc) { unparkIfParked(doc); }
 
+// Stops a replaced server on a thread of its own: a busy clangd (indexing) takes up to 2 s to answer `shutdown` and
+// then up to 1.5 s to exit, and the caller is the UI thread (a configuration switch restarts clangd from a posted
+// task: the window froze for the whole stop, 2.7 s in the W9i stress run). stop() of the engine joins these threads.
+void SemanticEngine::retireClient(std::shared_ptr<LspClient> c) {
+  std::lock_guard<std::mutex> lk(reapMu_);
+  for (size_t i = 0; i < reapers_.size();) {  // forget the finished ones
+    if (reapers_[i].done->load()) {
+      reapers_[i].th.join();
+      reapers_.erase(reapers_.begin() + static_cast<std::ptrdiff_t>(i));
+    } else {
+      ++i;
+    }
+  }
+  Reaper r;
+  r.done = std::make_shared<std::atomic<bool>>(false);
+  r.th = std::thread([c = std::move(c), done = r.done] {
+    c->stop();
+    done->store(true);
+  });
+  reapers_.push_back(std::move(r));
+}
+
+void SemanticEngine::joinRetired() {
+  std::vector<Reaper> rs;
+  {
+    std::lock_guard<std::mutex> lk(reapMu_);
+    rs.swap(reapers_);
+  }
+  for (auto& r : rs)
+    if (r.th.joinable()) r.th.join();
+}
+
 bool SemanticEngine::restartClangd(std::string* error) {
   if (!opt_.useClangd) return false;
   std::lock_guard<std::mutex> life(lifeMu_);
@@ -1326,8 +1391,8 @@ bool SemanticEngine::restartClangd(std::string* error) {
   supCv_.notify_all();
   setHealth(ClangdHealth::Phase::Starting, 0);
   resetClientState();
-  if (auto old = takeClient()) old->stop();
-  if (orphan) orphan->stop();
+  if (auto old = takeClient()) retireClient(std::move(old));
+  if (orphan) retireClient(std::move(orphan));
   std::string err;
   if (!startClangd(&err)) {
     if (error) *error = err;
@@ -1706,7 +1771,33 @@ void SemanticEngine::didOpen(Document& doc) {
 }
 
 void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
-  if (!isCodeDocument(ws_, doc)) return;
+  // One edit per caret arrives as one event each, last edit first, all after the buffer holds the final text: the
+  // re-index, the line map and the semantic tokens are about that text, so they run once, for the last event (10k
+  // carets used to mean 10k whole-file re-lexes per keystroke), and the incremental changes go out as one message.
+  // What to do with the batch is decided at its first event; the others only collect their change.
+  const bool last = change.pending == 0;
+  if (!batch_.open) {
+    batch_ = {};
+    batch_.open = true;
+    batch_.code = isCodeDocument(ws_, doc);
+    if (batch_.code) {
+      if (unsent(doc.uri()) || unparkIfParked(doc)) {  // never sent (TU fragment), or sent whole just now
+        batch_.mode = BatchMode::None;
+      } else if (auto c = clangd()) {
+        // A change that touches NEL / LS / PS, or a document that has them, is sent whole: the range would need the
+        // server's lines of the text before the edit (LspLineMap describes the text after it).
+        batch_.mode = c->offsetEncoding() == "utf-8" && !change.separators && !doc.buffer().hasSeparators()
+                          ? BatchMode::Incremental
+                          : BatchMode::Whole;
+      }
+    }
+  }
+  if (batch_.mode == BatchMode::Incremental)
+    batch_.changes.push_back({change.removed, TextBuffer::lspText(change.newText)});
+  if (!last) return;
+  const BatchState done = std::move(batch_);
+  batch_ = {};
+  if (!done.code) return;
   noteLspText(doc);
   // Keep the fast index fresh: a single-file re-lex, immediately for ordinary files, once typing pauses for big ones.
   std::function<void(std::function<void()>)> poster;
@@ -1737,16 +1828,10 @@ void SemanticEngine::didChange(Document& doc, const Document::Change& change) {
   } else {
     fast_.updateFile(doc.path(), doc.buffer().textForIndex());
   }
-  if (unsent(doc.uri())) return;
-  if (unparkIfParked(doc)) return;  // sent whole, with this change in it
+  if (done.mode == BatchMode::None) return;
   if (auto c = clangd()) {
-    // A change that touches NEL / LS / PS, or a document that has them, is sent whole: the range would need the
-    // server's lines of the text before the edit (LspLineMap describes the text after it).
-    if (c->offsetEncoding() == "utf-8" && !change.separators && !doc.buffer().hasSeparators()) {
-      c->didChangeIncremental(doc.uri(), doc.version(), {{change.removed, TextBuffer::lspText(change.newText)}});
-    } else {
-      c->didChangeFull(doc.uri(), doc.version(), doc.buffer().textForLsp());
-    }
+    if (done.mode == BatchMode::Incremental) c->didChangeIncremental(doc.uri(), doc.version(), done.changes);
+    else c->didChangeFull(doc.uri(), doc.version(), doc.buffer().textForLsp());
   }
   scheduleTokens(doc);
 }

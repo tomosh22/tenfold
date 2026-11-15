@@ -1280,3 +1280,97 @@ TEST(multicaret_bench_keystroke) {
     std::cerr << "    undo of one keystroke on the 50 MB line: " << msSince(t0) << " ms\n";
   }
 }
+
+// W9i: an edit with one change per caret reaches the listeners as one event each, last edit first, and `pending` says
+// how many are still to come, so a listener that only needs the final text can wait for the last event.
+TEST(multicaret_batch_events_count_down_their_pending_events) {
+  Fx f("aaa\nbbb\nccc\nddd\n");
+  REQUIRE(f.doc != nullptr);
+  std::vector<size_t> pending;
+  std::vector<int> lines;
+  f.doc->addListener([&](Document&, const Document::Change& ch) {
+    pending.push_back(ch.pending);
+    lines.push_back(ch.removed.start.line);
+  });
+  f.set({C(0, 0), C(1, 0), C(2, 0), C(3, 0)});
+  f.type("x");
+  REQUIRE(pending.size() == 4);
+  CHECK((pending == std::vector<size_t>{3, 2, 1, 0}));
+  CHECK((lines == std::vector<int>{3, 2, 1, 0}));  // last edit first
+  pending.clear();
+  f.doc->replace({{0, 0}, {0, 1}}, "y");  // a single edit is its own last event
+  CHECK((pending == std::vector<size_t>{0}));
+}
+
+// W9i (finding: 10k carets typing took seconds per keystroke): the fast index re-lexes the file once per keystroke, not
+// once per caret, and ends up with the final text.
+TEST(multicaret_typing_reindexes_the_fast_index_once_per_keystroke) {
+  static int counter = 0;
+  const fs::path dir =
+      fs::temp_directory_path() / ("tenfold_mc_idx_" + std::to_string(counter++) + "_" +
+                                   std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  fs::create_directories(dir);
+  std::string text;
+  for (int i = 0; i < 300; ++i) text += "int f" + std::to_string(i) + "() { return " + std::to_string(i) + "; }\n";
+  {
+    std::ofstream out(dir / "a.cpp", std::ios::binary);
+    out << text;
+  }
+  Editor::Options o;
+  o.semantic.useClangd = false;
+  o.semantic.persistFastIndex = false;
+  {
+    Editor ed(dir, o);
+    std::string err;
+    REQUIRE(ed.start(&err));
+    REQUIRE(ed.semantic().waitForFastIndex(30000));  // the background scan is done: only edits move the generation
+    Document* d = ed.open("a.cpp");
+    REQUIRE(d != nullptr);
+    ed.gotoLocation({d->path(), {0, 0}});
+    std::vector<Selection> carets;
+    for (int i = 0; i < 300; ++i) carets.push_back(C(i, 4));  // before each `f<i>`
+    ed.setSelections(carets);
+    const uint64_t before = ed.semantic().fastIndex().generation();
+    ed.insertText("Z");
+    CHECK(ed.semantic().fastIndex().generation() - before <= 3);  // once per keystroke (it was once per caret: 300)
+    CHECK(ed.semantic().fastIndex().generation() > before);
+    CHECK(d->buffer().line(7).find("int Zf7()") == 0);
+    auto syms = ed.semantic().fastIndex().search("Zf299", 5);
+    CHECK(!syms.empty());
+  }
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+// W9i (finding: 300 open tabs cost 8 to 20 ms per frame, idle or not): Workbench::sync looks every tab's document up by
+// path on every frame and each lookup canonicalised the path with a chain of stat / readlink calls. The key of a
+// spelling is now remembered for a moment. Every spelling must still find the one document, and a closed document is
+// not found.
+TEST(editor_document_lookup_by_path_is_cheap_and_still_resolves_every_spelling) {
+  static int counter = 0;
+  const fs::path dir =
+      fs::temp_directory_path() / ("tenfold_lookup_" + std::to_string(counter++) + "_" +
+                                   std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+  fs::create_directories(dir / "sub");
+  { std::ofstream(dir / "sub" / "a.cpp", std::ios::binary) << "int a;\n"; }
+  {
+    Editor ed(dir);
+    Document* d = ed.open("sub/a.cpp");
+    REQUIRE(d != nullptr);
+    CHECK(ed.document(dir / "sub" / "a.cpp") == d);
+    CHECK(ed.document(dir / "sub" / ".." / "sub" / "a.cpp") == d);  // another spelling of the same file
+    CHECK(ed.document(d->path()) == d);
+    CHECK(ed.document(dir / "sub" / "b.cpp") == nullptr);
+    const auto t0 = std::chrono::steady_clock::now();
+    size_t found = 0;
+    for (int i = 0; i < 100000; ++i) found += ed.document(d->path()) == d;
+    const double ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+    CHECK_EQ(found, size_t(100000));
+    // 300 tabs x one lookup per frame: 100k lookups were 400 to 800 ms with the canonicalisation on every call.
+    PERF_CHECK(ms < 150.0, "100k document lookups by path took " + std::to_string(ms) + " ms");
+    CHECK(ed.close(d->path()));
+    CHECK(ed.document(dir / "sub" / "a.cpp") == nullptr);
+  }
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}

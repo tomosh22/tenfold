@@ -49,7 +49,7 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # engine tests, including clangd integration (817 on Linux)
+./build/tenfold-tests            # engine tests, including clangd integration (825 on Linux)
 ./build/tenfold-corpus-tests     # the stress corpora against the real engine and clangd (3 tests; not part of ctest)
 ```
 
@@ -97,7 +97,7 @@ xvfb-run -a ./build-ui/tenfold-ui-tests          # golden-image tests skip witho
 ```
 
 SDL3 is fetched (static, pinned to `release-3.2.30`); FreeType is the system library or fetched; on Linux you need
-X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (760 tests on Linux) and
+X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (776 tests on Linux) and
 `tenfold-text-tests` (30; font, atlas and layout, no display needed). After an intentional rendering change, refresh the
 golden images with `tenfold-ui-tests --update-goldens`.
 

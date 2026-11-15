@@ -130,6 +130,9 @@ class SemanticEngine {
  public:
   struct Options {
     bool useClangd = true;
+    // Open and close one file of the compile database when clangd starts with no document open, so that its background
+    // index starts (see kickBackgroundIndex()). Off for the tests that count the documents the fake server received.
+    bool kickBackgroundIndex = true;
     std::string clangdPath;               // empty -> resolve from settings / PATH
     std::vector<std::string> clangdArgs;  // extra args
     int clangdBudgetMs = 250;             // wait this long before showing approximate results
@@ -406,6 +409,12 @@ class SemanticEngine {
   void noteCrash(std::shared_ptr<LspClient> c);
   void adoptPending(uint64_t id);
   void reopenDocuments(LspClient& c);
+  void retireClient(std::shared_ptr<LspClient> c);  // stop() on a thread of its own (see the definition)
+  void joinRetired();
+  // clangd loads the compile database, and starts its background index, only when the first file is opened: with no
+  // document open (a workspace opened empty) the index would never start. Opens and closes one source file of the
+  // database to make it load.
+  void kickBackgroundIndex(LspClient& c);
   void resetClientState();
   // `onlyIfConsecutive` >= 0: apply only while the consecutive-crash count still has that value (a Running that was
   // decided before a later crash was counted must not overwrite the Stopped / Restarting of that crash).
@@ -693,7 +702,22 @@ class SemanticEngine {
   int indexEnds_ = 0;
   std::chrono::steady_clock::time_point indexIdleSince_{};
 
-  std::map<std::string, std::string> fileStatus_;    // uri -> clangd state
+  std::map<std::string, std::string> fileStatus_;  // uri -> clangd state
+  // didChange: what the events of one edit batch (one per caret) add up to; only used on the document thread.
+  enum class BatchMode { None, Incremental, Whole };
+  struct BatchState {
+    bool open = false, code = false;
+    BatchMode mode = BatchMode::None;
+    std::vector<LspClient::ContentChange> changes;
+  };
+  BatchState batch_;
+  struct Reaper {
+    std::thread th;
+    std::shared_ptr<std::atomic<bool>> done;
+  };
+  std::mutex reapMu_;
+  std::vector<Reaper> reapers_;  // servers being stopped in the background (retireClient)
+  std::string kickUri_;          // the file kickBackgroundIndex() opened (its diagnostics are dropped)
   std::map<std::string, const Document*> openDocs_;  // uri -> doc (for encoding conversion)
   std::function<void(const std::filesystem::path&, std::vector<Diagnostic>)> diagHandler_;
   // Miscellaneous-file rule (isMiscFile): answers cached per compile database snapshot and fast index generation, and

@@ -22,8 +22,8 @@ for end-to-end answers on awkward code.
 
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
-| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), the project-file editor behind New File in a solution workspace (`test_project_edit.cpp`: formatting, BOM, CRLF, item groups, filters, read-only refusal), the fuzz regression inputs, names declared through macros (`test_macro_decl.cpp`), overloads and operators in the fast tier (`test_fast_overload.cpp`) | 817 | clangd for the integration tests (they skip with a message without it) |
-| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 760 | a display (`xvfb-run -a`); golden-image tests skip without one |
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), the project-file editor behind New File in a solution workspace (`test_project_edit.cpp`: formatting, BOM, CRLF, item groups, filters, read-only refusal), the fuzz regression inputs, names declared through macros (`test_macro_decl.cpp`), overloads and operators in the fast tier (`test_fast_overload.cpp`) | 825 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden`, the editor stress scenarios (`test_stress_ui.cpp`, 7 smoke + 9 that need a generated project) | 776 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout (`tests/text`, UI build) | 30 | nothing |
 | `tenfold-corpus-tests` | the 37 corpus projects under `tests/corpus` (one test runs all of them; two more cover the runner's error paths) | 3 | clangd; not part of `ctest` |
 | `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | 28 targets (26 without the UI build), not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
@@ -51,6 +51,7 @@ on a platform or without clangd. Performance budgets are printed always and asse
 | `TENFOLD_D3D11_WARP=1` | `tenfold-ui` and the `*_d3d11` tests | force the WARP software adapter |
 | `TENFOLD_DEVENV=<path>` | the Visual Studio debugger backend | `devenv.exe` to launch instead of the one `vswhere` finds |
 | `TENFOLD_LOG=error\|warn\|info\|debug\|off` | every executable that logs | log level (docs/ARCHITECTURE.md "Local log file"); `tests/test_log.cpp` covers it |
+| `TENFOLD_STRESS_DIR=<dir>`, `TENFOLD_STRESS_VS_DIR=<dir>` | `tenfold-ui-tests stress_ui_*` | a generated project (`--variant cmake` / `--variant vs`) for the editor-level stress scenarios (W9i); the tests print SKIP without it. They work on a scratch copy that is deleted at exit. Also `TENFOLD_STRESS_JSON=<file>` (one JSON line per metric appended), `TENFOLD_STRESS_TABS`, `_KEYS`, `_CYCLES`, `_SWITCHES`, `_FLOOD_SECONDS`, `_CARET_KEYS`, `_NEEDLE` (sizes), `TENFOLD_STRESS_KEEP=1`, `TENFOLD_STRESS_NOCOPY=1` (work in the directory itself); see "Editor stress (W9i)" |
 | `TENFOLD_GEN_CHECK=1` | `tools/stress/test_gen_codebase.py` | also compile every generated translation unit with `clang++ -fsyntax-only` |
 | `FAKE_P4_STATE=<file>` | `tenfold-fake-p4` | the JSON state file of the fake `p4` (the VCS tests set it) |
 
@@ -106,7 +107,7 @@ its failures are results, not CI failures (see "Generated codebases").
 | Workbench and app | `test_workbench`, `test_editor_app`, `test_commands` (`.10x_settings` parser, `KeyMap`, `CommandNames`), `test_settings` (settings and themes), `test_navigation_ui`, `test_p2_ui` (unsaved prompt, external changes, palette, tab well), `test_vs_tabs`, `test_vs_tree` (including PROJ-ADD: a new file joins its project, filters, BOM / CRLF, read-only and unsaved project files, SDK-style projects), `test_vs_edit`, `test_menubar` (MENUBAR: open / close / switch by mouse and keyboard, Alt and the access keys with a key file that binds one, hidden mode, live key texts, disabled items, the Open Solution item with the fake dialog, hit-testing under the bar, a golden of the open File menu), `test_sln_open_ui` (SLN-OPEN: the real `AppHost` with a null renderer and a fake file dialog: command-line root normalisation, the chosen solution driving flags / tree / build, Ctrl+Shift+O, in-process switching with Yes / No / Cancel, layout save / restore, the recent list and picker, dropped files; the SDL dialog code is compiled but never shown in CI), `test_close_sln` (CLOSE-SLN: File.CloseSolution with no / one / several modified documents and Yes / No / Cancel, layout / bookmarks / breakpoints saved, the empty window: no Editor, menus greyed by `EmptyWindow::availableWithoutWorkspace`, nothing written into the current folder, opening from it by dialog / recent / drop, Exit, close and reopen cycles, user key file and `menu.*` settings, a subprocess run of `tenfold-ui` without arguments next to a sample project, goldens `empty_window_vs_dark.png` and `empty_window_file_menu_vs_dark.png`, a recent solution opened from the Start window through the real `AppHost`), `test_start_window` (START-WINDOW: the Start window of the empty window with a mock font and a null renderer: the recent list newest first with name and full path, missing entries flagged, the empty-list state, the search filter and Escape, Up / Down / Enter, a click, Delete and the context menu removing an entry and saving `recent.txt`, a missing entry dropped with a message instead of opening, the two Get started actions, scrolling, golden `start_window_recent_vs_dark.png` with an elided long path), `test_elide` (UI-POLISH: `TextRenderer::fit` / `fitMiddle` / `ellipsis` with a mock font: exact fit, UTF-8, widths below the mark, paths; tree labels elide; the file icon is geometry, no icon glyph) |
 | 10x command waves | `test_w8a_commands`, `test_w8b` (tabs, panels, zoom, untitled files), `test_w8c` (parser commands, completion), `test_w8d_commands`, `test_w8e`, `test_w8f_ctx` (context menus), `test_w8f_fold` (folding), `test_w8f_misc` (paste history, key sequences), `test_w8f_term` (terminal panel), `test_w8f_tree` (workspace explorer), `test_b5b` (find in files, hover, signature help), `test_b8` (editing conveniences) |
 | Features | `test_build_ui` (build panel), `test_debugger_ui` (breakpoint lane), `test_vcs_ui` and `test_vs_vcs` (change strip, inline diff, badges), `test_config_ui`, `test_compile_info_ui`, `test_encoding_ui`, `test_line_endings_ui`, `test_w10_chooser`, `test_w11_gui` (hierarchy panel, quick actions, inlay hints) |
-| Pathological | `test_pathological_ui` (keystroke-to-paint on giant files) |
+| Pathological and stress | `test_pathological_ui` (keystroke-to-paint on giant files), `test_stress_ui` (editor sessions on a generated project, "Editor stress (W9i)") |
 
 `tenfold-text-tests` (`tests/text`): `test_font` (FreeType metrics), `test_atlas` (shelf packer), `test_layout`
 (`TextLayout`), `test_bench` (layout cost).
@@ -630,6 +631,38 @@ regression inputs, then fuzzes every target for 30 s with seed 1; findings are u
 * `crash_handler_writes_report` builds under gcc with `-fsanitize=address,undefined` too: the helper crashes with a store
   to a `PROT_NONE` page (a real SIGSEGV with a fault address) because a null store is caught by UBSan's null check and
   ends the process before the SIGSEGV handler runs.
+
+## Editor stress (W9i)
+
+`tests/ui/test_stress_ui.cpp` drives the real `AppHost` / `Workbench` / `EditorApp` (mock font, null renderer: the CPU cost
+of a frame, not of the GPU; soft wrap on, the default) through scripted sessions on a generated project, and measures each
+action as the time from the event to the end of the frame (`pump` + `tick` + `render`): p50 / p99 / max in ms, and the
+peak RSS of the editor (`VmHWM`, reset per scenario through `/proc/self/clear_refs`) and of clangd (a sampler thread reads
+`/proc` for the clangd binaries below the test process). The keystroke metrics carry the 8 ms budget of
+`docs/BENCHMARKS.md` as a `PERF_CHECK` (enforced only with `TENFOLD_ENFORCE_PERF=1`, scaled by `TENFOLD_PERF_SCALE`, not in
+sanitizer or unoptimised builds); hangs, crashes, clangd processes that outlive their workspace, thread growth and wrong
+results are plain `CHECK`s.
+
+* `stress_smoke_*` (7 tests, always run, a few seconds): the same scenario bodies on a synthetic 4 to 80 file tree and
+  without clangd: tabs, find / replace in files and back (the files must be byte-identical afterwards), many carets,
+  folding, open / close of the workspace, typing while the fast index builds, a terminal flood beside an editor. They are
+  the regression tests of the W9i fixes (with the engine tests named in `docs/STRESS_RESULTS.md`, "W9i").
+* `stress_ui_*` (9 tests, `TENFOLD_STRESS_DIR` / `TENFOLD_STRESS_VS_DIR`): tabs (300 files opened, cycled with the MRU
+  switcher and the tab keys, typed into, closed), find / replace in files over the whole project and undone, 10k carets
+  typing / deleting / moving, folding a 120k-line file, a terminal flooding (`yes`) next to an editor being typed into while
+  the fast index and clangd run, typing for 600 keys while the index builds (and on until clangd's background index is
+  done), opening / closing the workspace six times while it indexes, and switching the Visual Studio configuration four
+  times while it indexes (vs variant, with typing meanwhile).
+
+```sh
+tools/stress/run_editor_stress.sh game large          # generates, runs every stress_ui_* test, summary.md, deletes the data
+UI_TESTS=build-ui/tenfold-ui-tests TENFOLD_STRESS_DIR=/tmp/p TENFOLD_STRESS_VS_DIR=/tmp/v \
+  xvfb-run -a build-ui/tenfold-ui-tests stress_ui_tabs   # one scenario on a project you generated
+```
+
+The `cmake` variant's `compile_commands.json` names `@CORPUS_ROOT@`: the harness replaces it in its copy as the corpus
+runner does. A raw generated directory handed to `tenfold-cli bench` has the placeholder in every command (clangd then
+cannot find any file); copy it and replace the text first.
 
 ## Generated codebases (W9g)
 

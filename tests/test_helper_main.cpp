@@ -191,6 +191,8 @@ int runFake(int argc, char** argv) {
         die(dieMode);
       }
     } else if (method == "shutdown") {
+      if (opt.count("hang-method") && ("," + opt["hang-method"] + ",").find(",shutdown,") != std::string::npos)
+        continue;  // a server too busy to answer (clangd indexing)
       send({{"jsonrpc", "2.0"}, {"id", msg["id"]}, {"result", nullptr}});
     } else if (method == "exit") {
       return 0;

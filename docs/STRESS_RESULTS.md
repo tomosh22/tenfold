@@ -3,8 +3,8 @@
 Measurements and findings of the corpus, stress and fuzz work (waves 9 to 12). Each agent adds its own self-contained
 section; the sections are **historical records** (numbers measured when the work was done, on the shared machine named in
 each), and a table's "not fixed" means "not fixed by that work". Format and rules of the corpora: `docs/TESTING.md`.
-Order: the fast-tier work newest first (FAST-OVL, FAST-DECL, SLN-FILES, W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE,
-W9-FIX-C1), then the W9 sections.
+Order: W9i (editor-level stress) first, then the fast-tier work newest first (FAST-OVL, FAST-DECL, SLN-FILES,
+W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE, W9-FIX-C1), then the W9 sections.
 
 **Where things stand now** (the latest measurement of each; details in the sections named):
 
@@ -17,10 +17,236 @@ W9-FIX-C1), then the W9 sections.
   W11-FAST-SCOPE, 74.9 % after it, 83.2 % after W12-FAST-PP). Every `final` expectation passes; no `FAIL` or `XPASS`.
 * Very long lines: the keystroke-to-paint budget (8 ms) holds for every pathological file, wrap on and off, average and
   p99 (W11-PERF-LINES, in "Pathological workspaces (W9f)", bugs 8 and 9; the rows that were over budget are fixed).
+* Editor-level stress on 20k-file projects (W9i): keystrokes are inside 8 ms at p50 in every scenario (10k carets, 300 tabs,
+  folding a 120k-line file, a flooding terminal, typing while clangd indexes); seven findings fixed (clangd's background
+  index never started without an open document, one whole-file re-index per caret, a crash and a 47 s UI block on a busy
+  clangd, a 2.7 s freeze on a configuration switch, 300-tab frames, memory kept after closing a workspace); open follow-ups:
+  replace in files blocks the UI for 20 s, find results freeze the list for 0.1 s, opening / closing a workspace blocks
+  the UI thread for about a second ("W9i", unfixed items A to G).
 * Still open: fast tier explicit and partial specialisations, a function's address taken (`&f`), and the alias-chain /
   using-declaration / constructor answers that the chooser keeps for clangd (the FAST-OVL and FAST-DECL sections;
-  W11-FAST-SCOPE, "Where the rest is"); the design-change items 3 to 9 under "Not fixed" in the
+  W11-FAST-SCOPE, "Where the rest is"); the W9i follow-ups ("W9i", unfixed items A to G); the design-change items 3 to 9 under "Not fixed" in the
   pathological section; the clangd answer gaps recorded in the W9b to W9e finding tables.
+
+## W9i: editor-level stress on the largest generated projects (branch `task/W9I`)
+
+Scripted editor sessions on a generated 20k-file project, through the real `AppHost` / `Workbench` / `EditorApp` with a
+mock font and a null renderer (CPU cost of a frame, not of the GPU; soft wrap on), measured against the 8 ms
+keystroke-to-paint budget (`docs/BENCHMARKS.md`) and memory. The harness, how to run it and the scenario list are in
+`docs/TESTING.md` ("Editor stress (W9i)"): `tests/ui/test_stress_ui.cpp` (7 `stress_smoke_*` tests that always run on a
+tiny tree, 9 `stress_ui_*` tests that need `TENFOLD_STRESS_DIR` / `TENFOLD_STRESS_VS_DIR`) and
+`tools/stress/run_editor_stress.sh`.
+
+**Method.** `gen_codebase.py --profile game|service --size large --seed 1 --variant cmake` (20,380 / 20,437 files, 6,981 /
+6,753 translation units, 0.96 M / 0.77 M lines) for every scenario except the configuration switch, which uses
+`--profile service --size medium --variant vs` (3,066 files, `.sln` with Debug|x64 and Release|x64). Release build
+(gcc 13.3, `-O2`), clangd 22.1.1 (the pip launcher: the figures are those of the real `clangd` binary below it), real
+clangd with its background index, a scratch copy of the generated data that is deleted afterwards (nothing is committed).
+Every action is timed from the event to the end of the frame (`pump` + `tick` + `render`). Peak RSS of the editor is
+`VmHWM` (reset per scenario; each test in its own process so the earlier scenarios do not count), of clangd a 100 ms
+sampler over `/proc`. **Machine: 4 cores shared with three other agents building and running tests; the load average was
+11 to 22 during every run (shown per scenario), so every latency is inflated by contention, p99 and max most of all.
+Compare between rows of one run, treat a budget miss as real only when it repeats or has a cause named below.**
+
+### Results
+
+Game profile, 20,380 files (before fixes 5 and 6 below; the other scenarios are unaffected by them). Latencies in ms
+(n actions; p50 / p99 / max):
+
+| scenario | action | n | p50 | p99 | max |
+|---|---|---:|---:|---:|---:|
+| 300 tabs | open a file into a new tab | 300 | 93 | 301 | 505 |
+| | switch to the next tab (Ctrl+Tab, Ctrl+PageDown) | 600 | 11.8 | 28 | 34 |
+| | type a character with 300 tabs open | 100 | 1.9 | 12.0 | 12.0 |
+| | close a tab | 300 | 1.0 | 22 | 29 |
+| find / replace in files | find "Update" (7,346 matches) to all results | 1 | 451 | | |
+| | frame while the results stream in | 8 | 53 | 125 | 125 |
+| | next result | 40 | 0.3 | 0.5 | 0.5 |
+| | **apply: 7,346 replacements, 60 open documents, 5,322 files rewritten** | 1 | **21,961** | | |
+| | undo in an open document | 60 | 0.4 | 4.7 | 4.7 |
+| 10k carets (120k-line file) | type a character | 40 | 5.2 | 67 | 67 |
+| | Backspace / move / undo | 40 / 20 / 1 | 3.9 / 0.8 / 3.9 | 4.6 / 1.0 | |
+| fold 120k lines | CollapseAll (first) / ExpandAll | 1 | 83 / 1.0 | | |
+| | PageDown / PageUp, all collapsed | 80 | 0.16 | 4.3 | 4.3 |
+| | toggle one region | 30 | 0.15 | 4.2 | 4.2 |
+| | type, all collapsed / all expanded | 100 | 1.2 / 4.0 | 7.2 / 13.2 | |
+| terminal flood (`yes`, 30 s) + indexing | type a character next to the terminal | 1,558 | 5.1 | 16.7 | 117 |
+| | every frame (terminal painting) | 1,563 | 4.7 | 12.9 | 36 |
+| type while the index builds (600 keys, then 240 s more) | type a character, clangd indexing | 14,157 | 0.69 | 5.2 | 29 |
+| open / close the workspace x 6 | File > Open (scan + fast index, UI thread) | 6 | 1,628 | 1,746 | 1,746 |
+| | Close Solution (UI thread) | 6 | 603 | 1,880 | 1,880 |
+| configuration switch x 4 (service vs medium) | Enter in the picker | 4 | 6.4 | 14 | 14 |
+| | type while the configuration reloads (97 keys) | 97 | 0.42 | 2,695 | 2,695 |
+| open / close a vs solution x 6 | File > Open / Close Solution | 6 | 514 / 102 | 609 / 921 | |
+
+Service profile, 20,437 files, after fixes 1 to 5 (fix 6, the tab lookup, is in the next table):
+
+| scenario | action | n | p50 | p99 | max |
+|---|---|---:|---:|---:|---:|
+| 300 tabs | open / switch / type / close | 300 / 600 / 100 / 300 | 63 / 8.9 / 3.1 / 1.1 | 323 / 167 / 24 / 16 | 409 / 234 / 24 / 22 |
+| find / replace | find "Update" (7,970 matches) to all results | 1 | 354 | | |
+| | frame while the results stream in | 9 | 5.6 | 139 | 139 |
+| | **apply: 7,970 replacements, 5,433 files rewritten** | 1 | **23,949** | | |
+| 10k carets | type / Backspace / move | 40 / 40 / 20 | 7.9 / 7.2 / 0.8 | 31 / 9.5 / 6.0 | |
+| fold 120k lines | type, all collapsed / expanded | 100 | 4.0 / 4.0 | 16 / 13 | |
+| terminal flood + indexing | type a character | 1,794 | 3.8 | 13 | 107 |
+| type while the index builds | type a character (14,622 keys over 240 s) | 14,622 | 0.63 | 5.0 | 84 |
+| open / close the workspace x 6 | File > Open / Close Solution | 6 | 1,111 / 530 | 1,235 / 641 | |
+| configuration switch x 4 | type while the configuration reloads (67 keys) | 67 | 0.39 | 998 | 998 |
+| open / close a vs solution x 6 | File > Open / Close Solution | 6 | 377 / 77 | 450 / 311 | |
+
+Game profile again after fixes 5 to 7 (same build as the service table, each test in its own process, load 4 to 15; ms):
+
+| scenario | action | p50 | p99 | max |
+|---|---|---:|---:|---:|
+| 300 tabs | open a file into a new tab | 7.9 (was 93) | 208 | 457 |
+| | switch to the next tab | 0.55 (was 11.8) | 102 | 180 |
+| | type with 300 tabs open | 0.39 (was 1.9) | 15.9 | 15.9 |
+| | close a tab | 0.19 (was 1.0) | 0.45 | 12 |
+| fold 120k lines | type, all collapsed / expanded | 4.0 / 4.0 | 6.5 / 8.0 | |
+| terminal flood | type a character (1,669 keys) | 4.9 | 12.4 | 292 |
+| configuration switch | type while the configuration reloads | 0.43 | 1,266 | 1,266 |
+| replace in files | apply (same 7,346 matches, 5,322 files) | 19,939 | | |
+| 10k carets | type a character, five runs at load 5 to 19 | 4.7, 4.7, 5.2, 7.9, 7.9 | 11, 21, 31, 67 | |
+
+One 10k-caret run (the first test after a 100 MiB copy, with another agent's sanitizer suite starting) measured 164 ms p50 for
+the same keystroke; the next four runs did not repeat it (select-all 186 ms against 6 to 31 ms, undo 210 ms against 4 to 7 ms
+in the same run: a machine hiccup, not the code).
+
+Tab switching (service, `TENFOLD_STRESS_TABS`; same load class), p50 of one Ctrl+Tab or Ctrl+PageDown including its
+frame: 30 tabs 0.39 ms, 300 tabs 7.65 ms before fix 6; 30 tabs 0.14 ms, 300 tabs 0.47 ms after it.
+
+Memory (editor process peak RSS, clangd peak RSS), MiB:
+
+| scenario | game editor / clangd | service editor / clangd |
+|---|---|---|
+| 300 tabs | 198 / 1,034 | 166 / 974 |
+| find / replace in files | 231 / - | 172 / - |
+| 10k carets | 364 / - (a process that had run other scenarios: see below) | 233 / - |
+| fold 120k lines | 423 / - | 179 / - |
+| terminal flood + indexing | 386 / 452 | 176 / 287 |
+| type while the index builds (4 min) | 391 / 871 | 160 / 637 |
+| open / close x 6 | 491 / 388 | 323 / 338 |
+| configuration switch, vs medium | 387 / 134 | 67 / 207 (two clangd for a moment while the old one stops) |
+
+The game figures above came from one process that ran all nine tests in turn (RSS is not returned to the system between
+scenarios, so they include the earlier ones); the service figures are one process per test. **Budgets (§1.7): the editor
+stays below 500 MiB in every scenario (the game "open / close" peak of 491 MiB is the closest: two workspaces' fast
+indexes overlap while one is replaced by the next), 160 to 230 MiB for the editing scenarios.** clangd with the background
+index of a 20k-file project reaches 0.9 to 1.0 GiB (not budgeted). No scenario leaks threads (2 threads after every
+close, 5 to 10 while a workspace is open) or clangd processes (none survives the close of its workspace; checked after
+every cycle).
+
+### Findings
+
+Fixed in this branch (each with a regression test; "before" figures are from the first runs on the same project):
+
+| # | symptom | root cause | fix | test |
+|---|---|---|---|---|
+| 1 | `tenfold-cli bench <ws> --wait-index 600000` on the 20k-file game project waited the whole 10 minutes with the machine idle: clangd never indexed ("clangdIndexPercent" never reached 100) | clangd loads the compile database, and starts its background index, only when the first document is opened; `bench` without `--file` (and the editor started with no tab) opens none, so clangd sat at 11 MiB and 0 % CPU and never sent `$/progress`. See "The clangd index investigation" below | `SemanticEngine::kickBackgroundIndex`: when clangd starts (or restarts) with no document open the engine sends `didOpen` + `didClose` of the first existing file of the compile database (its diagnostics are dropped); logs a line when no file of the database exists | `semantic_clangd_background_index_starts_without_an_open_document` (real clangd; fails without the fix: the wait times out) |
+| 2 | typing with many carets: one keystroke with 3,000 carets in a 6,000-line file did not finish in 4 minutes (killed); 10k carets in a 120k-line file 12 ms p50 after the first half of the fix, 26 ms p99 | `Document::applyBatch` sends one change event per caret (last edit first) and every listener did its whole work for each: `SemanticEngine::didChange` re-lexed the whole file into the fast index, rebuilt the line map, signalled the token thread and sent one LSP message, `Editor` ran three position trackers and the version control hook. N carets = N whole-file re-lexes per keystroke | `Document::Change::pending` (events still to come in the batch); the engine decides at the first event, collects the incremental changes into one `didChange` and re-indexes / maps / schedules tokens once, at the last event; the trackers skip an edit that stays on one line; the version-control hook runs once | `multicaret_batch_events_count_down_their_pending_events`, `multicaret_typing_reindexes_the_fast_index_once_per_keystroke`, `stress_smoke_many_carets_typing` (3,000 carets: 0.5 s for the whole scenario) |
+| 3 | **crash** (`std::system_error: Invalid argument`, `terminate`) when the editor closed while clangd was busy, reproduced every time with 60 tabs open and clangd indexing | `LspClient::stop()` sent `shutdown` with a handler that captured a mutex, condition variable and flag **on the stack**, waited 2 s and returned; clangd busy indexing had not answered, the handler stayed pending and the connection ran it (while failing the pending requests) on a destroyed mutex | the wait state is a `shared_ptr` shared with the handler | `stop_with_a_server_that_never_answers_shutdown_is_safe_and_bounded` (fake server that never answers `shutdown`; ASan reports the old code as stack-use-after-scope) |
+| 4 | **the UI thread blocked for 33 to 47 s** closing a tab (3 of 3 runs of 300 tabs while clangd indexed; the harness's "slow step" lines) | `JsonRpcConnection::send` wrote to clangd's stdin pipe synchronously from the thread that edits (the UI thread) and from the reader thread (answers to the server's requests). A clangd that does not read for a while (a busy main thread while it indexes 7k files) fills the 64 KiB pipe; `didClose` sat in `write()` (gdb: `Process::write` under `LspClient::didClose` under `Workbench::closeTab`) until clangd read again. It could also deadlock the reader thread against clangd's own output | `JsonRpcConnection` queues outgoing frames and a writer thread writes them (order kept; `stop()` drains the queue, then closes the pipe, or terminates the server when its stdin is stuck; a warning at 64 MiB queued) | `jsonrpc_send_does_not_block_on_a_server_that_does_not_read` (12 MiB to a process that never reads: 0.55 s), `jsonrpc_queued_messages_reach_a_reading_server_in_order_before_stop_closes_the_pipe` |
+| 5 | switching the Visual Studio configuration froze the window for 2.7 s while clangd was indexing (one keystroke took 2,695 ms of a 97-key run) | `SemanticEngine::restartClangd` (called from the posted continuation of the configuration refresh, on the UI thread) stopped the old server in place: up to 2 s for its `shutdown` answer plus up to 1.5 s for it to exit | the old server is stopped on a thread of its own (`retireClient`; the engine's `stop()` joins them); the new server starts at once | `manual_restart_does_not_wait_for_the_old_server_to_shut_down`; the same scenario after the fix: 998 ms worst key (the remaining second is the new server's `initialize` handshake, see below) |
+| 6 | 300 tabs: switching tabs 7.65 ms p50 (0.39 ms with 30 tabs), 12 ms with 300 tabs on the game project, over the frame budget, and the same cost on every idle frame | `Workbench::sync` (every frame) asks `Editor::document(path)` for each tab, and each lookup canonicalised the path with `weakly_canonical` (stat / readlink chains: gdb samples show `fstatat64` / `realpath` under `Editor::document` under `Workbench::sync`). 300 tabs = about 300 x 25 us per frame | the key of a spelling is remembered for 2 s (`docKey`) | `editor_document_lookup_by_path_is_cheap_and_still_resolves_every_spelling`; after: 0.47 ms p50 with 300 tabs |
+| 7 | closing the workspace did not give the memory back: RSS after each of 14 open / close cycles of the service project 164, 231, 276, 285, 308, 340, 346, 351, 351, 355, 377, 382, 441, 403 MiB in one run, 169 to 198 (flat) in the next; game 386 to 467 | allocator retention, not a leak: the same process after `malloc_trim(0)` was at 18 to 50 MiB. The fast index and the documents of the closed workspace are freed, but glibc keeps the pages in the arenas of the indexing threads | `AppHost::teardown` calls `malloc_trim(0)` (glibc) after the workspace is gone; after: 19, 19, 31, 36, 35, 27, 26, 29 MiB over 8 cycles | the growth check of `scenarioOpenClose` (RSS after the last close below 1.5 x the second + 64 MiB, thread count flat, no clangd left) in `stress_ui_open_close_*`; `stress_smoke_open_close_workspace_cycles` runs the same bookkeeping on a small tree |
+
+Not fixed (each is larger than a contained change or needs a design decision; root cause, evidence and proposed fix so that
+follow-ups can be scheduled):
+
+| # | symptom and evidence | root cause | proposed fix |
+|---|---|---|---|
+| A | **replace in files blocks the UI thread for 22 to 24 s**: 7,346 / 7,970 replacements in 5,322 / 5,433 closed files plus 60 open documents (game / service, load 20; the frame after Enter took that long) | `ReplaceInFiles::apply` calls `Editor::replaceInFiles` synchronously; each closed file is read, decoded, edited and rewritten atomically one after the other (about 4 ms a file here, mostly the temp file + rename) | run the closed-file rewrites on the engine's worker with a progress message in the status bar and one result callback (the open documents stay on the UI thread: they are one undo group each); write 4 files at a time. The result must still report `stale` / `refused` (`Editor::ReplaceInFilesResult`) |
+| B | find in files over 20k files: 7.3k to 8k matches in 0.35 to 0.45 s, but **the frames while the results stream in took 53 ms p50 / 125 ms max (game, 8 frames) and 5.6 / 139 ms (service, 9 frames)**: the list freezes for about 0.1 s, far over the 8 ms frame budget | `FindInFiles::onBatch` marks the list dirty and `rebuild()` re-sorts and rebuilds every popup row from scratch (`rebuildMs_` spaces them but each one is O(all matches)) | append the rows of a batch (matches arrive sorted per file) instead of rebuilding, and cap a rebuild at the visible rows (the popup is a virtual list of 22 rows) |
+| C | opening a workspace blocks the UI thread: 1.1 to 1.6 s at 20k files, 0.4 to 0.5 s at 3k (File > Open of the same project in the same window, 6 times); closing it 0.5 to 1.9 s at 20k files (`Close Solution`) | `Editor::start()` runs the workspace scan, the compile database and the fast index synchronously (the "interactive in 3 s" budget of §1.7 holds, 1.0 to 1.6 s); closing stops clangd synchronously (the `shutdown` wait is the 0.5 to 1.9 s) | open: move the scan / fast index behind the first frame (the status bar already shows indexing); close: `AppHost::teardown` can hand clangd to the retire thread of fix 5 as long as the process is reaped before the next open (the leak check of the harness asserts that) |
+| D | the configuration switch still froze the UI for 1.0 s (worst key of 67; load 14) after fix 5 | `restartClangd` starts the new clangd synchronously: `LspClient::start` waits for the `initialize` answer (about 0.3 s unloaded) and `reopenDocuments` sends the open documents | start the new server on the retire/worker thread and swap it in with `adoptPending` (the crash-recovery path already does exactly that, `adoptPending`) |
+| E | undoing a very long typing run takes 1.9 to 2.2 s (14,000 keystrokes typed at 15 ms intervals are one undo group; the "slow step" at the end of "type while indexing") | `Document::undo` applies the group's batches one by one and every batch is its own event batch: one whole-file re-lex and one `didChange` per keystroke of the run (the same shape as fix 2, across batches instead of across carets) | give `Document::Change::pending` a group scope in `undo` / `redo` (count the events of all batches of the group), so the engine re-indexes once |
+| F | 120k-line file: typing p99 13 to 16 ms (p50 4 ms with everything expanded, 1.2 to 4.0 ms collapsed) at load 19 | not isolated under that load; samples show the lazy fast re-index of a file over 1 MiB (`kLazyReindexBytes`) running on the UI thread 300 ms after the last key (`Editor::pump` -> `FastIndex::updateFile` -> the lexer) and `FastIndex::search` (thread create + join) under `SemanticEngine::completion` on the keystroke path | repeat on a quiet machine; move the lazy re-index of big files to a worker (the lexer works on a copy of the text); the completion request belongs to the completion popup work (`CompletionPopup*`, not touched here) |
+| G | opening a file into a tab p50 63 to 93 ms at 300 tabs (30 to 39 ms at 30 tabs, 14 files of the 300 over 200 ms) | not isolated: file read + decode, `didOpen`, the tab strip layout and the first paint of a 40 KB file under load 15 to 20 | measure on a quiet machine; the p50 does not grow with the tab count after fix 6 |
+
+### The clangd index investigation ("`--wait-index 600000` waited 10 minutes at load 0")
+
+Project: `gen_codebase.py <dir> --profile game --size large --seed 1 --variant cmake --jobs 4` (20,380 files, 6,981 translation
+units). What was checked, in order:
+
+1. **Is clangd started with `--background-index`?** Yes: `SemanticEngine::launchClangd` passes `--background-index`
+   (and the generated `config.yaml` has `Index: Background: Build`), `--compile-commands-dir=<dir of the database>` and
+   `-j=max(2, cores)`. The launcher on this machine (`/usr/local/bin/clangd`) is the pip package's Python script; the
+   real binary is `.../dist-packages/clangd/data/bin/clangd` (the first thing to know when reading `ps`).
+2. **Does tenfold see the progress?** Yes: `LspClient` advertises `window.workDoneProgress`, answers
+   `window/workDoneProgress/create`, and turns the `backgroundIndexProgress` notifications `begin` / `report` / `end` into
+   `IndexProgress{active, percentage}`; `waitForClangdIndex` returns once an `end` arrived (percentage 100, not active). A
+   raw LSP session (a 60-line Python client, not committed) shows clangd sending `begin`, then `report` with growing
+   percentages (5 %, 13 %, 18 %, 25 % within 20 s on this machine) as soon as one file is opened.
+3. **Does the index run on such a project?** Yes, once a file is opened. `tenfold-cli bench <ws> --file app/app_0.cpp:1:1
+   --wait-index 280000` (load 20 to 26 from other jobs): clangd RSS 0.75 GiB after 90 s, `clangdIndexPercent` 100 after
+   275 s (`clangdIndexWaitMs` 275,100), `defFirstMs` 1.4.
+4. **Without a file it never starts.** The same run without `--file`: clangd at 11 MiB RSS and 0 % CPU for as long as it was
+   watched (70 s, then 10 minutes in the original report); no `$/progress` at all, so `waitForClangdIndex` never saw an
+   `end` and ran into its timeout. A raw LSP session confirms it and shows what does start it: `didChangeWatchedFiles` for
+   `compile_commands.json` does nothing; `didOpen` of any file does (and `didOpen` + `didClose` is enough). The reason is
+   clangd's: it reads the compile database lazily, for the first file it is asked about, and the background indexer is
+   fed from that load.
+5. **The generated `compile_commands.json` is not usable as it stands.** The `cmake` variant writes `@CORPUS_ROOT@` into
+   `directory`, `file` and every `-I`; only `tenfold-cli corpus` (and this harness) replaces it with the real path. With the
+   raw directory every command names a directory that does not exist; clangd cannot find any file: with a file open its
+   progress `begin` / `end` come within seconds having indexed nothing (RSS 64 MiB), so the symptom there is a fast, empty index. (This is data hygiene, not a product bug; the engine now logs it, see below.)
+
+**Verdict: a tenfold bug (item 1 of the findings), plus a test-data pitfall.** tenfold passed the right flags and
+tracked progress correctly; what was missing is anything that makes clangd load the database in a workspace with no
+open document: the editor opened empty, a workspace restored without tabs, and `tenfold-cli bench` / `wait-index` without
+`--file` all left the background index unstarted for ever, the symptom being a status bar without "indexing" and
+`--wait-index` time-outs. Fixed by `kickBackgroundIndex`. After the fix, the same command without `--file`
+(`tenfold-cli bench <ws copy with the placeholder replaced> --wait-index 100000`) shows clangd indexing (92 % after
+100 s on the loaded machine; `clangdIndexPercent` 92). When none of the first 64 files of the database exists (the
+placeholder case) the engine logs `clangd: none of the first 64 files of the compile database exists (first: ...):
+clangd's background index cannot start` instead of waiting silently.
+
+**How long the index really takes.** 20k files, 7k translation units, `-j4`, load 12 to 26: 275 s (game, with `--file`), over
+240 s without finishing in two "type while indexing" runs (game: 14,157 keystrokes; service: 14,622 keystrokes, index not done
+after 4 min), clangd RSS 0.87 to 1.03 GiB. W9g measured the same project at more than 120 s on a quieter machine (G-5): a first
+index of a 20k-file project takes minutes on four cores, and `--wait-index` needs a timeout of that order, plus a file.
+
+Other observations (no change made):
+
+* **Budget status.** At p50 every keystroke scenario is inside 8 ms (10k carets 4.7 to 7.9, fold 1.2 to 4.0, terminal
+  flood 3.8 to 5.1, tabs 0.4 to 3.1, typing while indexing 0.45 to 0.7). At p99 the ones inside 8 ms in the loaded runs are
+  typing while clangd indexes (5.0 to 6.5 ms, 29,000 keystrokes) and typing in the collapsed 120k-line file (6.5 ms); the others
+  were over (10k carets 11 to 67, terminal flood 12 to 17, 300 tabs 12 to 24, fold expanded 8 to 16) on a machine at load
+  11 to 22 and 4 cores: those are p99s of 40 to 1,700 keystrokes under contention and the p50s sit at or below the budget, so
+  they are reported, not claimed as code misses. The ones with a cause named above are the fixed ones (fix 2, 6) and rows
+  A, B, C, D, E of the table of unfixed items (the actions that took 0.1 s to 24 s: none of them is a keystroke).
+* **The terminal flood has a recurring hitch**: the worst frame of the 30 s flood was 117, 107 and 292 ms in three runs
+  (p99 12 to 17 ms), at load 5 to 20. Not isolated (candidates: the scrollback growing, or a burst of engine results in
+  `Editor::pump` while indexing); the flood alone (`term_perf_50mb_burst_keeps_frames_short`) holds 100 ms.
+* **Typing calls `FastIndex::search` on the UI thread**: gdb samples of the 10k-caret run show `SemanticEngine::completion`
+  -> `FastIndex::search` creating and joining its scan threads on every keystroke. That is the completion popup's
+  approximate tier (`complperf` area: `CompletionPopup*`); not touched here.
+* **The fast index finished before the first keystroke** in every "type while the index builds" run: `Editor::start`
+  returns when the lexer index is built (1.0 to 1.6 s at 20k files, on the UI thread, row C), so the only background
+  indexing left to type against is clangd's, which is what the 14,000-keystroke series covers (p99 5.0 to 5.2 ms, max 29 to 84 ms).
+* clangd's background index of a 20k-file project did not finish within 4 minutes of typing in either run (load 14 to 22);
+  its RSS was 0.87 and 0.64 GiB then. The harness records `clangd index finished = 0` rather than waiting longer.
+
+### Sanitizer and release runs of this branch
+
+Release (gcc 13.3): `tenfold-tests` 795 tests, `tenfold-ui-tests` 776 tests under `xvfb-run -a`, all pass. Debug +
+AddressSanitizer + UBSan (gcc; `-fsanitize=address,undefined`, leak detection off): the same two suites, 795 and 776 tests, no
+sanitizer report; the stress smoke tests (7) and the new engine tests run in both. A suite started with `nohup` from a
+non-interactive shell has SIGINT ignored in every child, which makes the two `term_ctrl_c_*` tests (a `trap` waiting for
+Ctrl+C in the terminal's shell) fail with a time-out; they pass when SIGINT has its default action (`xvfb-run` from a normal
+shell, or `signal.signal(SIGINT, SIG_DFL)` before `exec`): an environment property, not a W9i change.
+
+### Reproducing
+
+```sh
+tools/stress/run_editor_stress.sh game large      # about 30 minutes on 4 cores; service: `... service large`
+UI_TESTS=build-ui/tenfold-ui-tests TENFOLD_STRESS_DIR=<generated cmake dir> TENFOLD_STRESS_VS_DIR=<generated vs dir> \
+  TENFOLD_STRESS_NOCOPY=1 xvfb-run -a build-ui/tenfold-ui-tests stress_ui_tabs
+```
+
+`TENFOLD_ENFORCE_PERF=1` turns the 8 ms p99 checks into failures; do that on a quiet machine only (the p99 of 40 keystrokes
+is its slowest key).
 
 ## FAST-OVL: overloads by argument type and operator tokens in the fast tier (branch `task/FAST-OVL`)
 

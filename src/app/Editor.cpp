@@ -7,9 +7,11 @@
 #include <cstdlib>
 #include <fstream>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <set>
 #include <sstream>
+#include <unordered_map>
 #include <utility>
 
 #include <nlohmann/json.hpp>
@@ -31,9 +33,32 @@ Position remapAfter(Position p, Position endPre, Position endPost) {
 }
 
 // Key of an open document in docs_ / diskHash_: canonical and, on Windows, case/separator-insensitive.
+//
+// The workbench looks every tab's document up on every frame (Workbench::sync), and weakly_canonical is a chain of
+// stat / readlink calls: 300 tabs cost 8 to 20 ms per frame, idle or not (W9i). The answer for a spelling is kept for
+// a short while; a rename or a new symlink is seen after at most kKeyTtl.
 std::string docKey(const fs::path& p) {
+  using Clock = std::chrono::steady_clock;
+  constexpr auto kKeyTtl = std::chrono::seconds(2);
+  struct Entry {
+    std::string key;
+    Clock::time_point at;
+  };
+  static std::mutex mu;
+  static std::unordered_map<std::string, Entry> cache;
+  const std::string spelling = pathUtf8(p);
+  const auto now = Clock::now();
+  {
+    std::lock_guard<std::mutex> lk(mu);
+    auto it = cache.find(spelling);
+    if (it != cache.end() && now - it->second.at < kKeyTtl) return it->second.key;
+  }
   std::error_code ec;
-  return pathKey(fs::weakly_canonical(p, ec));
+  std::string key = pathKey(fs::weakly_canonical(p, ec));
+  std::lock_guard<std::mutex> lk(mu);
+  if (cache.size() > 8192) cache.clear();
+  cache[spelling] = {key, now};
+  return key;
 }
 
 // Hash of a file's raw bytes; 0 when it cannot be read.
@@ -275,21 +300,25 @@ void Editor::watchDocument(Document& doc) {
       --lastLine;
       --newLines;
     }
-    nav_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
-    bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
-    breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
-    if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
-      int& ln = lastEdit_.pos.line;
-      if (ln > lastLine) {
-        ln += newLines - (lastLine - ch.removed.start.line + 1);
-      } else if (ln > ch.removed.start.line) {
-        ln = ch.removed.start.line;
-        lastEdit_.pos.column = 0;
+    // A one-line edit that adds no line moves nothing below it: skip the three position trackers (with a caret per
+    // line, a keystroke is thousands of these events).
+    if (lastLine != ch.removed.start.line || newLines != 1) {
+      nav_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
+      bookmarks_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
+      breakpoints_.onLinesReplaced(d.path(), ch.removed.start.line, lastLine, newLines);
+      if (lastEdit_.file == d.path()) {  // same shifting rule as NavigationHistory::onLinesReplaced
+        int& ln = lastEdit_.pos.line;
+        if (ln > lastLine) {
+          ln += newLines - (lastLine - ch.removed.start.line + 1);
+        } else if (ln > ch.removed.start.line) {
+          ln = ch.removed.start.line;
+          lastEdit_.pos.column = 0;
+        }
       }
     }
     if (!d.isUntitled()) {  // an untitled document has no file yet: clangd and version control know nothing about it
       if (semantic_) semantic_->didChange(d, ch);
-      if (!reloading_) vcs_->documentChanged(d);
+      if (!reloading_ && ch.pending == 0) vcs_->documentChanged(d);  // once per batch: it is about the final text
     }
     if (current_ == &d && !inEdit_) clampCarets();
   });

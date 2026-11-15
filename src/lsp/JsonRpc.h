@@ -1,5 +1,7 @@
 #pragma once
 #include <atomic>
+#include <condition_variable>
+#include <deque>
 #include <functional>
 #include <map>
 #include <memory>
@@ -59,12 +61,22 @@ class JsonRpcConnection {
   void readerLoop();
   void dispatch(Json msg);
   void send(const Json& msg);
+  void writerLoop();
+  void stopWriter();  // drops what is still queued and joins the writer thread
   void failPending(const char* why);
 
   Process proc_;
   std::thread reader_;
   std::atomic<bool> running_{false};
+  // Outgoing frames. send() only queues; the writer thread does the (blocking) pipe write, so a server that is busy
+  // and not reading its stdin (clangd indexing 7k files) never blocks the UI thread, nor the reader thread when it
+  // answers the server's requests. Order is the order of send().
+  std::thread writer_;
   std::mutex writeMu_;
+  std::condition_variable writeCv_;
+  std::deque<std::string> out_;
+  size_t outBytes_ = 0;
+  bool writing_ = false, writerStop_ = false, warnedBacklog_ = false;
   std::mutex mu_;
   std::atomic<int> nextId_{1};
   std::map<int, ResponseHandler> pending_;

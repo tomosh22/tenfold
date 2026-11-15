@@ -216,10 +216,11 @@ Document::BatchResult Document::applyBatch(const std::vector<BatchEdit>& edits, 
   dirty_ = true;
   auto copy = listeners_;  // listeners may add/remove listeners
   int v = version_;
+  size_t left = real;
   for (size_t k = n; k-- > 0;) {  // one event per edit, last to first, so each range is valid when it is handled
     if (skipped(k)) continue;
     version_ = ++v;
-    Change ch{rs[k], edits[k].text, out.edits[k].lineDelta, separators};
+    Change ch{rs[k], edits[k].text, out.edits[k].lineDelta, separators, --left};
     for (auto& [id, l] : copy) l(*this, ch);
   }
   version_ = v;
