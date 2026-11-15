@@ -2531,11 +2531,86 @@ std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem
   });
 }
 
+std::shared_ptr<const FileSigs> SemanticEngine::fileSigsOf(const std::filesystem::path& file,
+                                                           const Document* doc) const {
+  constexpr size_t kMaxBytes = 1u << 20;  // larger files keep the by-name answer
+  if (!doc) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(pathToUri(file));
+    if (it != openDocs_.end()) doc = it->second;
+  }
+  uint64_t a = 0, b = 0;
+  if (doc) {
+    a = static_cast<uint64_t>(doc->version());
+    b = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(doc));
+  } else if (auto fsyms = fast_.fileSymbols(file)) {
+    a = static_cast<uint64_t>(fsyms->mtime);
+    b = fsyms->size;
+  }
+  return sigCache_.get(FastIndex::pathKey(file), a, b, [&]() -> std::shared_ptr<const FileSigs> {
+    std::string text;
+    if (doc) {
+      text = doc->buffer().textForIndex();
+    } else {
+      std::error_code ec;
+      const auto sz = std::filesystem::file_size(file, ec);
+      if (ec || sz > kMaxBytes) return nullptr;
+      std::string raw;
+      if (!readRegularFile(file, raw)) return nullptr;
+      text = isValidUtf8(raw) ? std::move(raw) : decodeFileBytes(raw).text;
+    }
+    if (text.size() > kMaxBytes) return nullptr;
+    return std::make_shared<const FileSigs>(std::move(text), isCSourceFile(file));
+  });
+}
+
+// An operator token (`a + b`, `x[i]`, `os << v`, `p->m`, a literal with a user-defined suffix): the user-declared
+// operator functions the operands' types select (FastOverload). Nothing when the caret is on no such token.
+std::vector<SymbolLocation> SemanticEngine::approximateOperator(const Document& doc, Position pos,
+                                                                FastIndex::Want want) const {
+  std::vector<SymbolLocation> out;
+  const Position cp = doc.buffer().clamp(pos);
+  const std::string& text = doc.buffer().line(cp.line);
+  if (cp.column < 0 || static_cast<size_t>(cp.column) >= text.size()) return out;
+  // only a character that can start an operator token or a literal is worth the scope map and the lexing
+  const char c0 = text[static_cast<size_t>(cp.column)];
+  if (!std::isdigit(static_cast<unsigned char>(c0)) &&
+      std::string_view("+-*/%^&|~!=<>[(\"'").find(c0) == std::string_view::npos)
+    return out;
+  CaretInfo ci;
+  ScopeEnv env;
+  ci.file = doc.path();
+  ci.map = scopeMapOf(doc.path(), &doc);
+  ci.at = {cp.line, cp.column};
+  ci.text = text;
+  ci.wordStart = ci.wordEnd = static_cast<size_t>(cp.column);
+  ci.lineAt = [&doc](int l) -> const std::string& { return doc.buffer().line(l); };
+  ci.lineCount = doc.buffer().lineCount();
+  env.index = &fast_;
+  env.includeDirsOf = [this](const std::filesystem::path& f, std::vector<std::filesystem::path>& q,
+                             std::vector<std::filesystem::path>& a) { includeDirsOf(f, q, a); };
+  env.mapOf = [this, &doc](const std::filesystem::path& f) { return scopeMapOf(f, f == doc.path() ? &doc : nullptr); };
+  env.sigsOf = [this, &doc](const std::filesystem::path& f) { return fileSigsOf(f, f == doc.path() ? &doc : nullptr); };
+  std::vector<FastIndex::Match> kept = operatorTokenMatches(env, ci);
+  if (kept.empty()) return out;
+  kept = filterByConditions(doc.path(), std::move(kept));
+  FastIndex::Shape shape;
+  shape.want = want;
+  for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
+  std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {
+    const bool af = a.loc.file == doc.path(), bf = b.loc.file == doc.path();
+    if (af != bf) return af;
+    return a.definition > b.definition;
+  });
+  return out;
+}
+
 std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Document& doc, Position pos,
                                                                    FastIndex::Want want) const {
   auto word = doc.buffer().wordAt(pos);
   std::vector<SymbolLocation> out;
-  if (word.text.empty()) return out;
+  if (word.text.empty() || std::isdigit(static_cast<unsigned char>(word.text[0])))
+    return approximateOperator(doc, pos, want);  // an operator token, or a number (a literal with a suffix)
   // Qualified context: "A::B::name" to the left of the word narrows the scope.
   std::string qualifier;
   {
@@ -2646,6 +2721,9 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     env.mapOf = [this, &doc](const std::filesystem::path& f) {
       return scopeMapOf(f, f == doc.path() ? &doc : nullptr);
     };
+    env.sigsOf = [this, &doc](const std::filesystem::path& f) {
+      return fileSigsOf(f, f == doc.path() ? &doc : nullptr);
+    };
     // A parameter or local variable of the enclosing function is what an unqualified, unaccessed name means.
     if (qualifier.empty() && !ci.globalQualifier && accessKindOf(ci) == AccessKind::None) {
       if (auto v = findLocal(ci)) {
@@ -2749,7 +2827,28 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     kept = narrowByMacroState(doc.path(), word.range.start.line, word.text, a < text.size() && text[a] == '(',
                               std::move(kept));
   }
-  if (scoped) kept = narrowByScope(env, ci, std::move(kept));
+  if (scoped) {
+    kept = narrowByScope(env, ci, std::move(kept));
+  } else if (word.text == "operator" && kept.size() > 1) {
+    // `a.operator()(1.0)`: the overloads of the written operator-function-id by the call's arguments (FastOverload)
+    ci.file = doc.path();
+    ci.map = scopeMapOf(doc.path(), &doc);
+    ci.at = {word.range.start.line, word.range.start.column};
+    ci.text = text;
+    ci.wordStart = wStart;
+    ci.wordEnd = wEnd;
+    ci.word = word.text;
+    ci.lineAt = [&doc](int l) -> const std::string& { return doc.buffer().line(l); };
+    ci.lineCount = doc.buffer().lineCount();
+    env.index = &fast_;
+    env.mapOf = [this, &doc](const std::filesystem::path& f) {
+      return scopeMapOf(f, f == doc.path() ? &doc : nullptr);
+    };
+    env.sigsOf = [this, &doc](const std::filesystem::path& f) {
+      return fileSigsOf(f, f == doc.path() ? &doc : nullptr);
+    };
+    kept = narrowByOverload(env, ci, std::move(kept));
+  }
   for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
   // Same-file first, definitions first.
   std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {

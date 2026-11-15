@@ -30,6 +30,8 @@
 #include "semantic/CppLexer.h"
 #include "semantic/FastIndex.h"
 #include "semantic/FastIndexStore.h"
+#include "semantic/FastOverload.h"
+#include "semantic/FastScope.h"
 #include "semantic/MacroExpand.h"
 #include "semantic/PpCond.h"
 #include "semantic/PpExpr.h"
@@ -307,6 +309,62 @@ void runScopeScan(const uint8_t* d, size_t n) {
   }
   // deterministic
   FUZZ_REQUIRE(scanScopes(src).regions.size() == m.regions.size());
+}
+
+// FAST-OVL: parameter lists read from declarations, argument types, overload selection and operator tokens over any
+// text: every caret position sampled from the text is answered (or not) without a crash, and a narrowed candidate set
+// is never larger than, nor empty when given, the by-name one.
+void runOverload(const uint8_t* d, size_t n) {
+  const std::string src(view(d, n));
+  FastIndex idx;
+  const std::filesystem::path file = "/fuzz/f.cpp";
+  idx.updateFile(file, src);
+  auto sigs = std::make_shared<const FileSigs>(src, false);
+  auto map = std::make_shared<const ScopeMap>(scanScopes(src));
+  ScopeEnv env;
+  env.index = &idx;
+  env.mapOf = [&](const std::filesystem::path&) { return map; };
+  env.sigsOf = [&](const std::filesystem::path&) { return sigs; };
+  std::vector<std::string> lines;
+  {
+    size_t b = 0;
+    while (b <= src.size() && lines.size() < 400) {
+      size_t e = src.find('\n', b);
+      if (e == std::string::npos) e = src.size();
+      lines.push_back(src.substr(b, e - b));
+      b = e + 1;
+    }
+  }
+  for (const Symbol& s : extractSymbols(src)) {
+    const OvSignature sg = parseSignature(src, s.line, s.col, s.name);
+    FUZZ_REQUIRE(sg.params.size() <= 4096);
+  }
+  size_t asked = 0;
+  for (int line = 0; line < static_cast<int>(lines.size()) && asked < 96; ++line) {
+    const std::string& text = lines[static_cast<size_t>(line)];
+    for (size_t col = 0; col < text.size() && asked < 96; col += 1 + col / 8) {
+      ++asked;
+      CaretInfo ci;
+      ci.file = file;
+      ci.map = map;
+      ci.at = {line, static_cast<int>(col)};
+      ci.text = text;
+      ci.wordStart = col;
+      size_t e = col;
+      while (e < text.size() && (std::isalnum(static_cast<unsigned char>(text[e])) || text[e] == '_')) ++e;
+      ci.wordEnd = e;
+      ci.word = text.substr(col, e - col);
+      ci.lineAt = [&](int l) -> const std::string& { return lines[static_cast<size_t>(l)]; };
+      ci.lineCount = static_cast<int>(lines.size());
+      operatorTokenMatches(env, ci);
+      if (!ci.word.empty()) {
+        auto by = idx.lookup(ci.word);
+        const size_t before = by.size();
+        auto kept = narrowByScope(env, ci, std::move(by));
+        FUZZ_REQUIRE(kept.size() <= before && (before == 0 || !kept.empty()));
+      }
+    }
+  }
 }
 
 // The store checks a size and a hash of the payload before it looks at anything else, so a mutated file would be
@@ -1026,6 +1084,19 @@ Registrar r2b({"scopescan",
                 "using namespace std; namespace fs = std::filesystem; auto lam = [&](int z) { return z; };\n"},
                kCppDict,
                4096});
+Registrar r2d({"overload",
+               runOverload,
+               {"src/semantic:.cpp,.h", "tests/corpus:.cpp,.h,.c,.hpp,.inl", "examples:.cpp,.h,.c,.hpp"},
+               {"struct V { int operator[](int i) const; V& operator+=(const V&); bool operator==(const V&) const; };\n"
+                "V operator+(const V& a, const V& b); int f(int); int f(double); int f(const char*);\n"
+                "int g(V a, V b) { V c = a + b; c += a; f(1); f(1.5); f(\"s\"); return c[0] + (a == b); }\n",
+                "template <class T> int pick(T); template <class T> int pick(T*); int pick(int);\n"
+                "struct B { void put(const B&); void put(B&&); int who() &; int who() &&; int who() const&; };\n"
+                "void h(B b) { b.put(B()); b.who(); std::move(b).who(); pick<int>(&b); pick(3u); }\n",
+                "Len operator\"\"_km(long double); void u() { auto x = 2.5_km; auto y = \"a\"_s; x++; --x; x->y; x[1]; "
+                "x(2); }\n"},
+               kCppDict,
+               4096});
 Registrar r2c({"ppcond",
                runPpCond,
                {"src/semantic:.cpp,.h", "tests/corpus:.cpp,.h,.c,.hpp,.inl", "examples:.cpp,.h,.c"},
@@ -1063,7 +1134,7 @@ Registrar r2c({"ppcond",
                 "*/",
                 "//"},
                1024});
-Registrar r2d({"macroexp",
+Registrar r2e({"macroexp",
                runMacroExpand,
                {"tests/corpus/pp-macros:.cpp,.h", "tests/corpus/pp-xmacros:.cpp,.h,.def", "src/semantic:.cpp,.h"},
                {"#define DECL(Name, ...) struct Name { int v; };\nDECL(Gadget, 1)\n",

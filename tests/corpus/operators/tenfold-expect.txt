@@ -2,13 +2,42 @@
 # enum operators, user-defined literals. Operator uses are queried on the operator token itself (the position anchors
 # the first character of `+`, `<<`, `[`, `(`, `->`, or the first character of a literal).
 
-# ---- fast tier: the lexer index only knows words, so operator tokens have no answer ----
-xfail fast def use_plus -> vec_plus | vec_plus_def  # fast tier: an operator token is not a word, so there is no approximate answer
-xfail fast def use_lit_km -> lit_km  # fast tier: a literal's suffix is not looked up
+# ---- fast tier: operator tokens are resolved by the operands' types (FAST-OVL); `a + b` is no word ----
+fast def use_plus -> vec_plus | vec_plus_def
+fast def use_lit_km -> lit_km
 fast def use_arrow_sum -> Point3_sum
 fast sym "operator" ∋ vec_minus
+fast def use_pluseq -> vec_pluseq | vec_pluseq_def
+fast def use_neg -> vec_neg | vec_neg_def
+fast def use_minus -> vec_minus_def | vec_minus
+fast def use_mul_vs -> vec_mul_vs_def | vec_mul_vs
+fast def use_mul_sv -> vec_mul_sv_def | vec_mul_sv
+fast def use_index -> vec_index | vec_index_def
+fast def use_index_c -> vec_index_c | vec_index_c_def
+fast def use_call1 -> vec_call1 | vec_call1_def
+fast def use_call2 -> vec_call2 | vec_call2_def
+fast def use_call_explicit -> vec_call1 | vec_call1_def
+fast def use_shl_vec -> vec_shl | vec_shl_def
+fast def use_pre_inc -> pre_inc
+fast def use_post_inc -> post_inc
+fast def use_id_ne -> id_eq
+fast def use_id_rev -> id_eq
+fast def use_flags_or -> flags_or
+fast def use_flags_not -> flags_not
+fast def use_flags_or_eq -> flags_or_eq
+fast def use_arrow -> ptr_arrow
+fast def use_deref -> ptr_deref
+fast def use_ptr_index -> ptr_index
+fast def use_add_int -> add_int
+fast def use_add_dbl -> add_dbl
+fast def use_add_str -> add_str
+fast def use_lit_m -> lit_m
+fast def use_lit_m_int -> lit_m_int
+fast def use_lit_name -> lit_name
+fast def use_lt -> vec_cmp
+fast def use_eqeq -> vec_cmp
 # a written `operator bool` / `operator double` (the operator-function-id with a name) is a word the fast tier resolves;
-# operator TOKENS (`a + b`, `x[i]`, `os << v`) and literal suffixes stay out of scope for the fast tier (no word).
+# operator TOKENS (`a + b`, `x[i]`, `os << v`) and literal suffixes by the types of their operands.
 fast def use_to_bool -> vec_to_bool_def
 fast def use_to_double -> vec_to_pair_def
 fast decl use_to_double -> vec_to_pair

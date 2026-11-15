@@ -3,19 +3,160 @@
 Measurements and findings of the corpus, stress and fuzz work (waves 9 to 12). Each agent adds its own self-contained
 section; the sections are **historical records** (numbers measured when the work was done, on the shared machine named in
 each), and a table's "not fixed" means "not fixed by that work". Format and rules of the corpora: `docs/TESTING.md`.
-Order: the fast-tier work newest first (FAST-DECL, SLN-FILES, W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE, W9-FIX-C1), then the W9 sections.
+Order: the fast-tier work newest first (FAST-OVL, FAST-DECL, SLN-FILES, W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE,
+W9-FIX-C1), then the W9 sections.
 
 **Where things stand now** (the latest measurement of each; details in the sections named):
 
-* Fast/final agreement over the 36 corpora plus `vs-slnx`: **2439/2794 = 87.29 %** after FAST-DECL (2329/2781 = 83.75 %
-  before it, after SLN-FILES; 2327/2779 before that; the first row below is the 36 corpora alone, 2236/2688).
-* Fast/final agreement of the fast tier over the 36 corpora: **2236/2688 = 83.2 %** (W12-FAST-PP-STRICT; 49.2 % before
+* Fast/final agreement over the 36 corpora plus `vs-slnx`, with both FAST-DECL and FAST-OVL merged: **2625/2848 =
+  92.17 %**, 0 `FAIL`, 0 `XPASS` (`tenfold-cli corpus --json`, Release, clangd 22.1.1, measured on the merge). The 67 lines
+  more than the 2,781 before are the `fast` lines the two tasks added (FAST-DECL 13, FAST-OVL 54). Before both:
+  2329/2781 = 83.75 % (after SLN-FILES; 2327/2779 before that). Each task alone: FAST-DECL 2439/2794 = 87.29 %, FAST-OVL
+  2515/2835 = 88.71 % (sections below).
+* Earlier, the 36 corpora alone: 2236/2688 = 83.2 % (W12-FAST-PP-STRICT; 49.2 % before
   W11-FAST-SCOPE, 74.9 % after it, 83.2 % after W12-FAST-PP). Every `final` expectation passes; no `FAIL` or `XPASS`.
 * Very long lines: the keystroke-to-paint budget (8 ms) holds for every pathological file, wrap on and off, average and
   p99 (W11-PERF-LINES, in "Pathological workspaces (W9f)", bugs 8 and 9; the rows that were over budget are fixed).
-* Still open: fast tier overloads by argument type, operator tokens, specialisations, and the alias-chain /
-  using-declaration answers that the chooser keeps for clangd (FAST-DECL; W11-FAST-SCOPE, "Where the rest is"); the design-change items 3 to 9 under "Not fixed" in the
+* Still open: fast tier explicit and partial specialisations, a function's address taken (`&f`), and the alias-chain /
+  using-declaration / constructor answers that the chooser keeps for clangd (the FAST-OVL and FAST-DECL sections;
+  W11-FAST-SCOPE, "Where the rest is"); the design-change items 3 to 9 under "Not fixed" in the
   pathological section; the clangd answer gaps recorded in the W9b to W9e finding tables.
+
+## FAST-OVL: overloads by argument type and operator tokens in the fast tier (branch `task/FAST-OVL`)
+
+User request: "the fast-index gaps need closing". This work closes two of the gap classes recorded under W11-FAST-SCOPE
+and W12-FAST-PP: (a) overloads of equal arity that differ in parameter types or in `const` / `&` / `&&` qualification,
+(b) operator tokens (`+`, `==`, `<<`, `[]`, `()`, `->`, `++`, a unary `-`, user-defined literals). Design and rules:
+`docs/ARCHITECTURE.md`, "Overloads and operators in the fast tier". Only the fast tier changed: clangd's answers and every
+`final` expectation are untouched (all of them still pass). **No on-disk format changed** (the persisted index stays at
+format 3 / salt 6): a function's parameter types are read from the declaration in the file's text when a call with
+several candidates is asked about, not stored per symbol, so index build time, memory and the store are exactly as before.
+
+**Method.** `tenfold-cli corpus tests/corpus/<name> --json` for each of the 37 corpora, Release, a 4-core box shared with
+three other agents and their builds (load average 11 to 15), clangd 22.1.1, `--timeout 900` for `vs-configs` /
+`vs-slnx` (300 s for the others); the JSON's `fastAgreement` (`def` and `decl` lines, `file:line` sets equal, `xfail`,
+`-> none` and failing lines included). *Before* = the binary built from `main` at `75d7eec`. FAST-OVL promoted 14
+expectation lines (`xfail` lines that now pass: `overloads` 4, `operators` 2, `lookup-adl` 2, `gen-service` 2, `templates-basic`,
+`gen-mixed`, `lambdas-bindings`, `name-collisions` 1 each) and added 54 `fast def` lines to `overloads` (22), `operators` (29)
+and `templates-basic` (3); each duplicates a `def` line of the same anchor and so counts as one more agreement query. So that
+the two columns count the same lines, *before* is the `main` binary run over the final expectation files of those
+corpora (2330/2835) and, in the sentence after the table, the new binary is also run over the original files.
+
+| corpus | before | after |
+|---|---|---|
+| `c-basic` | 93/109 (85 %) | 93/109 (85 %) |
+| `c-heuristic` | 11/18 (61 %) | 11/18 (61 %) |
+| `c-mixed-cpp` | 36/39 (92 %) | 36/39 (92 %) |
+| `c-vcxproj` | 15/18 (83 %) | 15/18 (83 %) |
+| `encodings` | 123/123 (100 %) | 123/123 (100 %) |
+| `gen-game` | 236/255 (93 %) | 236/255 (93 %) |
+| `gen-mixed` | 228/243 (94 %) | 231/243 (95 %) |
+| `gen-service` | 234/258 (91 %) | 239/258 (93 %) |
+| `harness` | 7/8 (88 %) | 8/8 (100 %) |
+| `lambdas-bindings` | 87/98 (89 %) | 92/98 (94 %) |
+| `layout-dupnames` | 38/38 (100 %) | 38/38 (100 %) |
+| `layout-exts` | 46/50 (92 %) | 46/50 (92 %) |
+| `layout-unity` | 26/26 (100 %) | 26/26 (100 %) |
+| `lookup-adl` | 35/59 (59 %) | 50/59 (85 %) |
+| `lookup-namespaces` | 48/66 (73 %) | 48/66 (73 %) |
+| `name-collisions` | 108/114 (95 %) | 110/114 (96 %) |
+| `oop-ctors` | 108/136 (79 %) | 108/136 (79 %) |
+| `oop-virtual` | 76/82 (93 %) | 76/82 (93 %) |
+| `operators` | 9/87 (10 %) | 86/87 (99 %) |
+| `overloads` | 27/98 (28 %) | 85/98 (87 %) |
+| `paths-unicode` | 70/70 (100 %) | 70/70 (100 %) |
+| `pp-includes` | 71/74 (96 %) | 71/74 (96 %) |
+| `pp-macros-std` | 12/21 (57 %) | 12/21 (57 %) |
+| `pp-macros` | 68/104 (65 %) | 68/104 (65 %) |
+| `pp-xmacros` | 15/38 (39 %) | 15/38 (39 %) |
+| `seed` | 16/24 (67 %) | 16/24 (67 %) |
+| `symlinks` | 4/6 (67 %) | 4/6 (67 %) |
+| `templates-basic` | 67/99 (68 %) | 84/99 (85 %) |
+| `templates-config` | 11/21 (52 %) | 11/21 (52 %) |
+| `templates-cxx20` | 41/58 (71 %) | 41/58 (71 %) |
+| `templates-specialisation` | 39/70 (56 %) | 41/70 (59 %) |
+| `unicode-separators` | 16/16 (100 %) | 16/16 (100 %) |
+| `vs-configs` | 91/91 (100 %) | 91/91 (100 %) |
+| `vs-nav` | 15/15 (100 %) | 15/15 (100 %) |
+| `vs-props` | 96/96 (100 %) | 96/96 (100 %) |
+| `vs-slnx` | 91/91 (100 %) | 91/91 (100 %) |
+| `vs-std` | 16/16 (100 %) | 16/16 (100 %) |
+| **all 37** | **2330/2835 (82.19 %)** | **2515/2835 (88.71 %)** |
+
+Over the original 2,781 lines (the new binary on the original expectation files of the four corpora: `overloads` 63/76,
+`operators` 57/58, `templates-basic` 81/96, `lookup-adl` 50/59): **2329/2781 (83.75 %) -> 2461/2781 (88.49 %)**, 132 of the
+452 disagreeing lines closed by this work; 320 remain (by shape: 117 "fast is a superset of clangd's answer", 112 "fast has
+no answer", 48 disjoint, 39 subset, 4 overlap; the per-corpus tables above).
+
+**No fast answer lost.** For every one of the 2,835 lines: no line that agreed before disagrees now (0), and no line where
+clangd's answer was inside the fast answer before is missing from it now (0), both checked by comparing the `file:line`
+sets of the before and after reports (`fastAgreement.disagreements`). Two earlier versions of the work did lose lines
+and were fixed before the final runs: a prototype and its definition (`template <class T> T Vec2<T>::length_sq() const`
+against the in-class declaration) were taken for overloads and the "non-template beats template" tie-break dropped the
+definition (the two are now compared only when their parameter types differ); and `T&&` in an out-of-line member of a class
+template was read as a forwarding reference (it is bound to the class's `T`, which the receiver's `Stack<int>` supplies).
+0 `FAIL`, 0 `XPASS` in the final runs; no expectation was weakened (the 14 promoted lines became normal `fast` lines).
+
+**What closed, by cause.**
+
+| cause | lines | corpora |
+|---|---|---|
+| literal / declared / constructed argument types (`conv(1)` / `conv(1.5)` / `conv("s")`, `pick(&x)`, `log("x")`) | about 40 | `overloads`, `gen-*`, `templates-basic` |
+| cv / ref qualified members (`buf.who()` against `Buf().who()`, `cbuf.at(0)`, `put(std::move(b))`) | about 20 | `overloads`, `lambdas-bindings`, `name-collisions` |
+| `push(const T&)` / `push(T&&)` of a class template through `Stack<int> s` | 10 | `templates-basic` |
+| operator tokens (binary / unary / `[]` / `()` / `->` / `++` / rewritten comparisons / literal suffixes) | 48 | `operators`, `lookup-adl` |
+| argument-dependent lookup (`draw(c)` with `shape::Circle c`) | 15 | `lookup-adl` |
+| a definition keeps its prototype's default-argument count (`log("x")`) | 1 | `overloads` |
+
+Still open in `overloads` (13 lines): a function's address taken (`&area` takes the target type's overload), a constructor
+call (`Bag(3)`: kept class-only by design, W10 `refinable`), a using-declaration that brings base overloads into a derived
+class (`b::f(1)`, `d.f(1)`: FAST-DECL's area); in `operators`: `decl` of a friend operator declared inside its class (the
+index holds friend *definitions* only).
+
+**Latency** (`SemanticEngine::approximateDefinitions`, `Want::Definition`, a small driver around the engine with the
+clangd client off, Release, `.tenfold` removed before each run; the driver samples up to 25 call sites (identifiers followed
+by `(`) in each of 250 random files of the generated `game` profile at `--size large`, 20,380 files, 253,387 symbols; 2,194
+queries, 3 runs of each binary alternated on a loaded box, so read the ranges as noise-limited; the new binary answers 2,289
+locations where the old one answered 2,373):
+
+| | p50 | p90 | p99 | first query in a file (p50 / p90) |
+|---|---|---|---|---|
+| `game` large, before | 17 - 25 us | 239 - 323 us | 606 - 1,103 us | 154 - 214 us / 620 - 864 us |
+| `game` large, after | 22 - 28 us | 250 - 320 us | 705 - 4,262 us | 181 - 211 us / 647 - 870 us |
+| overload-heavy synthetic, before | 58 - 84 us | 66 - 104 us | 96 - 223 us | 166 - 263 us / 203 - 290 us |
+| overload-heavy synthetic, after | 156 - 202 us | 203 - 341 us | 4.3 - 5.2 ms | 280 - 463 us / 437 us - 9.3 ms |
+
+The overload-heavy case is the worst one: 82 overloads of one name with the same arity (`f(T0, int)` ... `f(T39*, int)`,
+`f(int, int)`, `f(double, int)`, `f(const char*, int)`, `f(const std::string&, int)`), 1,456 sampled calls in 20 files with
+class-typed arguments: the answer shrinks from 74 locations to about 6 per query and the median costs about 100 us more
+(lexing the call, typing the arguments, scoring 82 candidates against them; the p99 is the first query of each file
+reading and parsing the 82 declarations, which are then cached). A call with a unique name, or a function declared in a
+header and defined in a source file (two candidates that are not overloads of each other), skips the new step with
+one pass over the candidates, which is why the ordinary workload moves by a few microseconds only.
+
+**Index build time, memory, store, symbol search** (same generated `game` large workspace, `tenfold-cli bench --no-clangd
+--runs 5`, `.tenfold` removed before each run, 3 runs of each binary alternated; the box was loaded, 4 cores shared with
+the three other agents): `fastIndexMs` 1.2 - 2.5 s before, 1.8 - 2.3 s after (the ranges overlap; the extractor, the
+persisted store and `FastIndex` are not touched), peak RSS 160 - 170 MiB before and 160 - 165 MiB after, symbol search
+(`Shape`, `area`) 3 - 20 ms before and 1 - 6 ms after (the budget is 50 ms). The per-file state added by the new code is
+the text of the files a query with overloads has asked about (`SigCache`: at most 24 files and 6 MiB, least recently used
+out) and the parsed declarations of the candidates; the scope maps (`ScopeScan`) keep two more bytes per variable and a few
+flags.
+
+**Tests.** `tests/test_fast_overload.cpp`, 8 tests: the shape of declared types (`const`, `*` depth, `&` / `&&`, builtin
+words, `auto` from a literal / `new`), literal types by the standard's rules, parameter lists read from declarations
+(qualifiers, defaults, `static`, templates, operators, wrong or past-the-end positions, garbage and a 100,000-parenthesis
+input), and three engine-level tests that ask the real engine with clangd off: overload selections by literals, declared
+types, fields, casts, `nullptr`, enumerators, receivers, `std::move`, templates and explicit template arguments (and
+that missing evidence keeps the whole set; 46 questions), 26 operator-token questions (binary / unary / subscript / call by arity / increment /
+`->` / `<<` / enumerations / literal suffixes / rewritten and reversed comparisons, and that builtin operators, comments,
+strings and chained results get no answer), and argument-dependent lookup (4 questions). Fuzz target `overload` (the parser paths:
+parameter lists, expressions, operator tokens, over any text: 96 sampled carets each; `tests/fuzz/regressions/overload`
+with four inputs). The first 20-second run under ASan + UBSan found a heap-buffer-overflow (an operator after a postfix
+expression the reader cannot start, `"x" [0] + 1`: the left operand's start was `npos`), fixed with its input kept; three
+seeds of 40 s each after the fix: 10,070 executions, no crash, hang or slow input (the slowest 432 ms in a sanitizer build,
+96 carets per input). Suites on the final tree: `tenfold-tests` 795 (787 before + 8) in Release and in a gcc ASan + UBSan
+Debug build; `tenfold-ui-tests` 760 (`xvfb-run -a`, unchanged: 759 pass in a full run on the loaded box, the one timing-dependent test that fails, `vsvcs_prompt_on_edit_do_not_ask_again_row_stops_the_questions`, passes on its own; a run started from a background shell fails the two terminal Ctrl-C tests because the shell leaves SIGINT ignored in its children, so that run restored it) and `tenfold-text-tests` 30; `tenfold-corpus-tests` 3 (all corpora, `TENFOLD_CORPUS_TIMEOUT=300`: 5,381 `PASS` and 131 `XFAIL` lines, 0 `FAIL`, 0 `XPASS`).
 
 ## FAST-DECL: names declared through macros, X-macro lists, forward declarations, inline namespaces (branch `task/FAST-DECL`)
 

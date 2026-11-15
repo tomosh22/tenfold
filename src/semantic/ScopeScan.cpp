@@ -1,6 +1,7 @@
 #include "semantic/ScopeScan.h"
 
 #include <algorithm>
+#include <cctype>
 #include <climits>
 #include <cstdint>
 #include <unordered_set>
@@ -77,8 +78,9 @@ const std::unordered_set<std::string_view>& builtinTypes() {
 }
 
 struct QName {
-  std::string name;  // "a::b::C" (template arguments dropped, leading "::" dropped)
-  std::string targ;  // first identifier chain in the template arguments of the last template-id
+  std::string name;        // "a::b::C" (template arguments dropped, leading "::" dropped)
+  std::string targ;        // first identifier chain in the template arguments of the last template-id
+  bool targExact = false;  // the chain is the whole first argument
   size_t next = 0;
   bool templated = false;
 };
@@ -100,9 +102,12 @@ bool readQName(const Toks& T, size_t i, size_t e, QName& q) {
       // first identifier chain inside the arguments
       std::string chain;
       size_t k = i + 1;
+      bool exact = true;  // FAST-OVL: nothing but the chain in the first argument
       while (k + 1 < after &&
-             (isK(T[k], "const") || isK(T[k], "typename") || isK(T[k], "struct") || isK(T[k], "class")))
+             (isK(T[k], "const") || isK(T[k], "typename") || isK(T[k], "struct") || isK(T[k], "class"))) {
+        exact = false;
         ++k;
+      }
       if (k + 1 < after && isP(T[k], "::")) ++k;
       while (k + 1 < after && isId(T[k])) {
         if (!chain.empty()) chain += "::";
@@ -111,11 +116,24 @@ bool readQName(const Toks& T, size_t i, size_t e, QName& q) {
         if (k + 1 < after && isP(T[k], "<")) {
           const size_t inner = skipAngle(T, k, after);
           if (inner == std::string::npos) break;
+          exact = false;
           k = inner;
         }
         if (k + 1 < after && isP(T[k], "::")) ++k;
         else break;
       }
+      if (chain.empty() && exact) {  // a builtin type: `Stack<int>`, `Stack<unsigned long>`
+        std::string words;
+        while (k + 1 < after && T[k].kind == Tok::Keyword &&
+               (builtinTypes().count(T[k].text) || T[k].text == "signed" || T[k].text == "unsigned")) {
+          if (!words.empty()) words += ' ';
+          words += T[k].text;
+          ++k;
+        }
+        chain = words;
+      }
+      // the argument must end here (at `,` or the closing `>`)
+      q.targExact = exact && !chain.empty() && k < after && (isP(T[k], ",") || isP(T[k], ">"));
       q.targ = chain;
       q.templated = true;
       i = after;
@@ -148,11 +166,16 @@ bool parseDecl(const Toks& T, size_t b, size_t e, Decl& d) {
   d = Decl{};
   size_t i = b;
   while (i + 1 < e && isP(T[i], "[") && isP(T[i + 1], "[")) i = matchClose(T, i, e) + 1;
+  // FAST-OVL: `const` before / after the first `*`, the signed / unsigned words, the reference marks.
+  bool constBase = false, constPtr = false;
+  std::string sign;
+  uint8_t refMark = 0;
   struct Item {
     enum K { Type, Builtin, Ptr } k;
     std::string name, targ;
     bool qualified = false, templated = false;
     size_t idx = 0;
+    bool targExact = false;
   };
   std::vector<Item> items;
   bool stars = false;
@@ -160,6 +183,8 @@ bool parseDecl(const Toks& T, size_t b, size_t e, Decl& d) {
     const Token& t = T[i];
     if (t.kind == Tok::Keyword) {
       if (skippedKeywords().count(t.text)) {
+        if (t.text == "const") (stars ? constPtr : constBase) = true;
+        if (t.text == "signed" || t.text == "unsigned") sign = std::string(t.text);
         ++i;
         continue;
       }
@@ -187,6 +212,7 @@ bool parseDecl(const Toks& T, size_t b, size_t e, Decl& d) {
       if (!readQName(T, i, e, q)) return false;
       items.push_back(
           {Item::Type, q.name, q.targ, q.name.find("::") != std::string::npos || isP(t, "::"), q.templated, i});
+      items.back().targExact = q.targExact;
       i = q.next;
       continue;
     }
@@ -198,6 +224,7 @@ bool parseDecl(const Toks& T, size_t b, size_t e, Decl& d) {
         continue;
       }
       if (t.text == "&" || t.text == "&&" || t.text == "...") {
+        if (t.text != "...") refMark = t.text == "&" ? 1 : 2;
         ++i;
         continue;
       }
@@ -226,8 +253,41 @@ bool parseDecl(const Toks& T, size_t b, size_t e, Decl& d) {
   if (ty->k == Item::Type) {
     d.v.type = ty->name;
     d.v.targ = ty->targ;
+    d.v.targExact = ty->targExact;
   }
   d.v.pointer = stars;
+  // FAST-OVL shape of the type
+  {
+    const size_t nameIdx = items.size() - 1;
+    std::string prim;
+    int words = 0;
+    uint8_t ptrs = 0;
+    bool named = false;
+    for (size_t k = 0; k < nameIdx; ++k) {
+      if (items[k].k == Item::Ptr) {
+        ptrs = static_cast<uint8_t>(std::min(255, ptrs + 1));
+      } else if (items[k].k == Item::Builtin) {
+        if (items[k].name == "auto" || items[k].name == "decltype") {
+          prim.clear();
+          words = -1000;
+        } else {
+          if (!prim.empty()) prim += ' ';
+          prim += items[k].name;
+          ++words;
+        }
+      } else {
+        named = true;
+      }
+    }
+    if (words > 0 && !named) {
+      if (!sign.empty()) prim = sign + " " + prim;
+      d.v.prim = prim;
+    }
+    d.v.ptrDepth = ptrs;
+    d.v.ref = refMark;
+    d.v.constBase = constBase;
+    d.v.constTop = ptrs == 0 ? constBase : constPtr;
+  }
   return true;
 }
 
@@ -250,6 +310,16 @@ void deduceAuto(const Toks& T, size_t term, size_t e, ScanVar& v) {
   size_t i = term + 1;
   bool isNew = false;
   if (isP(T[term], "{")) i = term;  // `auto x{Foo(...)}` is not handled
+  // FAST-OVL: `auto x = 3;` / `= 1.5` / `= 'c'` / `= "s"` / `= true` (a single literal token, nothing after it)
+  if (isP(T[term], "=") && i < e && (i + 1 == e || isP(T[i + 1], ";") || isP(T[i + 1], ","))) {
+    const Token& lt = T[i];
+    if ((lt.kind == Tok::Number || lt.kind == Tok::Char || lt.kind == Tok::String ||
+         (lt.kind == Tok::Keyword && (lt.text == "true" || lt.text == "false"))) &&
+        literalVarType(lt.text, lt.kind == Tok::String, lt.kind == Tok::Char, v)) {
+      v.constTop = false;
+      return;
+    }
+  }
   if (i < e && isK(T[i], "new")) {
     isNew = true;
     ++i;
@@ -269,6 +339,7 @@ void deduceAuto(const Toks& T, size_t term, size_t e, ScanVar& v) {
   if (q.templated) return;
   v.type = n;
   v.pointer = isNew;
+  if (isNew) v.ptrDepth = 1;
 }
 
 struct Scanner {
@@ -851,6 +922,124 @@ ScopeMap scanScopes(std::string_view text, bool isC, size_t maxBytes) {
   Scanner s(T, m);
   s.run();
   return m;
+}
+
+bool literalVarType(std::string_view t, bool isString, bool isChar, ScanVar& v) {
+  v.type.clear();
+  v.targ.clear();
+  v.prim.clear();
+  v.ptrDepth = 0;
+  v.constBase = false;
+  v.ref = 0;
+  if (t == "true" || t == "false") {
+    v.prim = "bool";
+    return true;
+  }
+  if (isString || isChar) {
+    // [prefix] quote ... quote [suffix]; a suffix is a user-defined literal
+    size_t p = 0;
+    std::string_view prefix;
+    while (p < t.size() && t[p] != '"' && t[p] != '\'') ++p;
+    if (p >= t.size() || p > 2) return false;
+    prefix = t.substr(0, p);
+    const char q = t[p];
+    const size_t close = t.rfind(q);
+    if (close == p || close == std::string_view::npos) return false;
+    if (close + 1 != t.size()) return false;  // suffix (or a raw string's delimiter: R"x(...)x" ends with a quote too)
+    if (!prefix.empty() && prefix.find('R') != std::string_view::npos) {
+      prefix.remove_suffix(1);  // R"(...)" is a plain string
+    }
+    if (prefix.empty()) v.prim = "char";
+    else if (prefix == "L") v.prim = "wchar_t";
+    else if (prefix == "u") v.prim = "char16_t";
+    else if (prefix == "U") v.prim = "char32_t";
+    else if (prefix == "u8") v.prim = "char8_t";
+    else return false;
+    if (isString) {
+      v.ptrDepth = 1;
+      v.constBase = true;
+    }
+    return true;
+  }
+  // numbers
+  std::string n;
+  for (char c : t)
+    if (c != '\'') n += c;
+  if (n.empty() || (!std::isdigit(static_cast<unsigned char>(n[0])) && n[0] != '.')) return false;
+  const bool hex = n.size() > 1 && n[0] == '0' && (n[1] == 'x' || n[1] == 'X');
+  const bool bin = n.size() > 1 && n[0] == '0' && (n[1] == 'b' || n[1] == 'B');
+  const bool floating =
+      !hex && !bin &&
+      (n.find('.') != std::string::npos || n.find('e') != std::string::npos || n.find('E') != std::string::npos);
+  if (hex && (n.find('p') != std::string::npos || n.find('P') != std::string::npos || n.find('.') != std::string::npos))
+    return false;
+  if (floating) {
+    size_t k = n.size();
+    char suffix = 0;
+    if (k > 0 && std::isalpha(static_cast<unsigned char>(n[k - 1])) && n[k - 1] != 'e' && n[k - 1] != 'E') {
+      suffix = static_cast<char>(std::tolower(static_cast<unsigned char>(n[k - 1])));
+      --k;
+    }
+    for (size_t j = 0; j < k; ++j) {
+      const char c = n[j];
+      const bool ok = std::isdigit(static_cast<unsigned char>(c)) || c == '.' || c == 'e' || c == 'E' ||
+                      ((c == '+' || c == '-') && j > 0 && (n[j - 1] == 'e' || n[j - 1] == 'E'));
+      if (!ok) return false;
+    }
+    if (suffix == 'f') v.prim = "float";
+    else if (suffix == 'l') v.prim = "long double";
+    else if (suffix == 0) v.prim = "double";
+    else return false;
+    return true;
+  }
+  // integers: digits, then the suffix letters u / l / ll (any case, any order of u)
+  size_t k = hex || bin ? 2 : 0;
+  unsigned long long value = 0;
+  bool overflow = false;
+  const int base = hex ? 16 : bin ? 2 : (n.size() > 1 && n[0] == '0' ? 8 : 10);
+  for (; k < n.size(); ++k) {
+    const char c = n[k];
+    int dgt = -1;
+    if (std::isdigit(static_cast<unsigned char>(c))) dgt = c - '0';
+    else if (hex && std::isxdigit(static_cast<unsigned char>(c)))
+      dgt = std::tolower(static_cast<unsigned char>(c)) - 'a' + 10;
+    if (dgt < 0 || dgt >= base) break;
+    if (value > (ULLONG_MAX - static_cast<unsigned>(dgt)) / static_cast<unsigned>(base)) overflow = true;
+    value = value * static_cast<unsigned>(base) + static_cast<unsigned>(dgt);
+  }
+  if (overflow || k == (hex || bin ? 2u : 0u)) return false;
+  int longs = 0;
+  bool uns = false;
+  for (; k < n.size(); ++k) {
+    const char c = static_cast<char>(std::tolower(static_cast<unsigned char>(n[k])));
+    if (c == 'u' && !uns) uns = true;
+    else if (c == 'l' && longs < 2) ++longs;
+    else return false;
+  }
+  const bool decimal = base == 10;
+  auto fits = [&](int bits, bool isUnsigned) {
+    return isUnsigned ? (bits == 64 || value < (1ull << bits)) : value < (1ull << (bits - 1));
+  };
+  // candidate types in order (C++ [lex.icon]): int, unsigned (not for decimal), long, unsigned long (not decimal)...
+  struct Cand {
+    const char* name;
+    int bits;
+    bool u;
+    int l;
+  };
+  static const Cand cands[] = {{"int", 32, false, 0},       {"unsigned int", 32, true, 0},
+                               {"long", 64, false, 1},      {"unsigned long", 64, true, 1},
+                               {"long long", 64, false, 2}, {"unsigned long long", 64, true, 2}};
+  for (const Cand& c : cands) {
+    if (c.l < longs) continue;
+    if (uns && !c.u) continue;
+    if (!uns && c.u && decimal) continue;
+    if (fits(c.bits, c.u)) {
+      v.prim = c.name;
+      return true;
+    }
+  }
+  return false;
 }
 
 }  // namespace tf

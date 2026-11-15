@@ -394,8 +394,10 @@ is never emptier than the by-name one; clangd stays the authority and replaces i
 6. **Kinds.** After `struct` / `class` / `union` / `enum` only tags; `Name(` with a *function* of that name in the same
    scope as the class drops the class (C `stat`); explicit template arguments (`get<int>(x)`) keep the templates.
 7. **Overloads by argument count.** The call's `(...)` is counted (`f(a, g(b, c))` = 2; angle brackets that may be
-   template arguments make the count unknown): candidates need `minArity <= n <= arity` (variadic: `n >= minArity`).
-   Overloads of equal arity stay (no argument types).
+   template arguments make the count unknown): candidates need `minArity <= n <= arity` (variadic: `n >= minArity`). A
+   definition of the same function (scope, name, arity) takes its prototype's lowest count (default arguments are written
+   on the prototype only). Overloads of equal arity are told apart by argument types ("Overloads and operators in the
+   fast tier", FAST-OVL, below).
 8. **Include graph.** Candidates in files the caret's file cannot see through `#include` are dropped when some candidate
    is visible; a definition in an invisible file stays when a visible *declaration* (a prototype: same scope, name, arity) pairs
    with it, so the `.cpp` of a visible header is still offered; a visible *definition* does not keep other definitions
@@ -403,16 +405,78 @@ is never emptier than the by-name one; clangd stays the authority and replaces i
 9. **A written construction** (`Widget(2)`, `Widget w{1}`) still answers the class alone: the constructor is the
    authoritative tier's refinement (W10-CHOOSE, `refinable`), the fast tier does not add it.
 
-Not done (stays a superset of clangd's answer, the chooser shows the candidates): overloads of the same arity (types,
-cv / ref qualifiers), explicit and partial specialisations of a class template, alias chains (`using B3 = B2` answers
-`B3`, clangd also the targets), operator tokens. (Names declared through macros, forward declarations of classes for `decl`
-and inline namespaces are done by FAST-DECL, below.)
+Not done (stays a superset of clangd's answer, the chooser shows the candidates): explicit and partial specialisations of
+a class template, alias chains (`using B3 = B2` answers `B3`, clangd also the targets). (Overloads of the same arity and
+operator tokens: FAST-OVL; names declared through macros, forward declarations of classes for `decl` and inline
+namespaces: FAST-DECL; both below.)
 
 Cost (`docs/STRESS_RESULTS.md`, "W11-FAST-SCOPE"): the scope map of a file is built on the first query in it (about
 45 microseconds for a few kB, 20 to 60 ms near the 512 KiB limit) and reused until the document changes; a warm query adds
 about 2 microseconds to the 2 microsecond by-name lookup, and the tail gets shorter because thousands of candidates are
 dropped before the answer is built. Index build time is unchanged; memory grows by 1.2 % (the file-name table of the
 include resolver, one pointer per file; `Symbol` is still 80 bytes) and the persisted store by one byte per symbol.
+
+### Overloads and operators in the fast tier (FAST-OVL, `src/semantic/FastOverload.*`)
+
+The index keeps the number of parameters of a function, not their types, so `conv(int)` and `conv(double)` used to be
+answered together. The types are not added to the index (no change of the persisted format, no memory per symbol): they
+are read **on demand, from the declaration in the file's text**, for the few candidates of the one call being asked
+about. `FileSigs` (the text of a file plus a map from a symbol's `(line, col)` to its parsed `OvSignature`, kept per file
+by `SigCache` until the document or the file changes, 24 files / 6 MiB at most) lexes the parameter list at the
+symbol's name token: types as written (builtin words canonicalised, `const`, `*`, `&`, `&&`, a class template's `T`),
+default arguments, `= default`, the `const` / `&` / `&&` after the list, `static`, and the `template <...>` header before
+it (an out-of-line member of a class template is declared under the class's header: its `T&&` is no forwarding
+reference). A position that does not start with the symbol's name, an unterminated list or a shape the reader does not
+know (function-pointer parameter, a pack) is "not parsed": that candidate is never dropped and never beats another.
+
+**Argument types** are inferred from what is written, never from clangd: literals (`42` int, `42u`, `3000000000` long,
+`1.5` double, `1.5f`, `'c'`, `"s"` a `const char*`, `true`, `nullptr`, the literal `0` as a null pointer constant), the
+declared type of a parameter / local / field (`ScopeScan` now keeps `const`, `*` depth, `&` / `&&` and the builtin words
+of every declared type, and `auto x = <literal>` / `new T`), `Foo(...)` / `Foo{...}` for a class the index knows,
+`static_cast<T>(x)` and `T(x)`, `std::move(x)` (an xvalue), `&x`, `*p`, `p[i]`, `a.b` / `p->b` through the declared
+field type, a scoped enumerator `Color::Red`. Anything else (a call's result, an expression with an operator, a lambda,
+an `auto` of something else) is **Unknown** and rules nothing out.
+
+**Selection** follows the standard's ranking with intervals instead of certainties: each (argument, parameter) pair
+gets a rank (0 exact, 1 exact with a qualification added or a worse reference binding, 2 promotion, 3 conversion, 4
+user-defined conversion) as a `[lo, hi]` range, and "certainly viable" / "certainly not viable" flags. A literal `0`
+converts to a pointer, `nullptr` only to pointers, an unscoped enum promotes, a scoped one does not, `char` promotes to
+`int` and `float` to `double`, `T&` takes only a non-const lvalue, `T&&` only an rvalue (not under a forwarding
+reference), `const T&` binds everything convertible, the implicit object of a member is judged by its `const` / `&` /
+`&&` against the receiver (`buf.who()`, `Buf().who()`, `cbuf.who()`, `std::move(buf).who()`). A class converts to another
+class when the target is a base (the index's class closure), or unrelated and the target has a constructor callable with
+one argument or the source declares a conversion function (found by lexing the class body); a class the index does not
+know (`std::string`) is "maybe". A candidate goes when it is certainly not viable (unless all are), or when another one
+is **certainly viable and at least as good at every argument and strictly better at one** (a position where both declare
+the same type counts as equal whatever the argument is; two candidates that ask for the same uncertain conversion differ
+only by their reference rank). On an exact tie a non-template function beats a template and `T*` beats `T`; a template
+whose declaration mentions SFINAE or constraints (`enable_if`, `requires`, `decltype`, `is_...`) never beats anything.
+Explicit template arguments (`pick<int>(x)`) are substituted into the template's parameters; a call through
+`Stack<int> s` substitutes `int` for the class's first template parameter (`ScanVar::targExact`). Constructors stay
+class-only (item 9 above), `&f` takes the whole set (the target type is not read). **Argument-dependent lookup** is
+part of the rule for an unqualified name (the innermost scope that has the name hides the outer ones): when the scope chain has found a name, a function of the same name in the namespace
+of a class (or base class, or enumeration) that an argument is known to have is not hidden by it (`draw(c)` with a
+`shape::Circle c` keeps `shape::draw` next to the global `draw(int)`), and the argument types then pick among them.
+
+**Operator tokens.** A caret on an operator (`+`, `==`, `<<`, `[`, `(`, `->`, `++`, a unary `-`, `~`, `*`, a literal with a
+`_suffix`) has no word: `approximateOperator` lexes the line, finds the token, reads the operands (a postfix expression
+before it, a unary expression after it, with a precedence check: an operand that is itself the result of a tighter
+operator is Unknown, and the `=` / `*` / `&` of a declaration is no operator) and collects the `operator@` functions of
+that name: members of the left operand's class (and bases), free functions in the scopes the caret sees or the operand
+classes' namespaces (argument-dependent lookup), `<=>` for the relational operators and for `==` / `!=` when defaulted,
+`==` for `!=`, with the operands swapped for the rewritten comparisons; a literal with a suffix finds the `operator""_x`
+overloads by the literal's kind (`unsigned long long`, `long double`, `const char *` + length). The same ranking picks
+among them. At least one operand must be of class or enumeration type, and when every candidate is certainly not viable
+(`os << "x"` against a user `operator<<(Out&, const Vec&)`) there is no answer. A caret directly after an identifier
+(`a[0]`, `a(1)`, `a++`) still names the identifier (the word under the caret wins, as it always did); a comment, a string
+or a number does not start an operator.
+
+Cost: nothing at index time and nothing in the store (this section changes no on-disk format); a query pays when two or
+more function candidates reach the new step and some name among them has two prototypes or two definitions (a function
+declared in a header and defined in a source file is a pair, not an overload set, and skips it): lexing the call (the
+caret's line and the next few), reading the candidates' parameter lists (once per file and position, then cached) and
+typing the arguments. Measured in `docs/STRESS_RESULTS.md`
+("FAST-OVL").
 
 ### Preprocessor conditionals in the fast tier (W12-FAST-PP)
 

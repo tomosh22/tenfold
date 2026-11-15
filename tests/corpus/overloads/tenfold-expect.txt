@@ -2,17 +2,40 @@
 # fast tier (lexer index) cannot resolve overloads and answers with every same-named function.
 # Cross-TU answers (definitions in src/*.cpp, uses in src/main.cpp) need clangd's background index; the runner waits.
 
-# ---- fast tier: unique names are exact, overloaded names return the whole set ----
+# ---- fast tier: unique names are exact; overloads of equal arity are told apart by the argument types (FAST-OVL) ----
 fast def use_b_f_dbl -> b_f_dbl | b_f_dbl_def
 fast def use_c_f -> c_f_str | c_f_str_def
-xfail fast def use_draw_sprite -> draw_sprite_friend  # fast index has no entry for the inline hidden friend draw(Sprite): it answers with the other draw()
+fast def use_draw_sprite -> draw_sprite_friend
 fast sym "draw" ∋ draw_sprite_friend
 fast sym "draw" ∋ draw_point draw_point_def
 fast def use_ar1 -> ar1_decl | ar1_def
-xfail fast def use_who_r -> who_r  # fast tier returns every who() overload
-xfail fast def use_conv_char -> conv_int_def | conv_int  # fast tier returns all conv() overloads
-xfail fast def use_pick_p -> pick_p  # fast tier returns all pick() overloads
+fast def use_who_r -> who_r
+fast def use_conv_char -> conv_int_def | conv_int
+fast def use_pick_p -> pick_p
 fast sym "area" ∋ ar0_decl
+# FAST-OVL: literal, declared and constructed argument types; cv / ref qualified members; templates vs plain functions
+fast def use_who_l -> who_l
+fast def use_who_c -> who_c
+fast def use_who_mv -> who_r
+fast def use_at_nc -> at_nc
+fast def use_at_c -> at_c
+fast def use_put_l -> put_l
+fast def use_put_r -> put_r
+fast def use_put_mv -> put_r
+fast def use_conv_int -> conv_int_def | conv_int
+fast def use_conv_float -> conv_dbl_def | conv_dbl
+fast def use_conv_str -> conv_cstr_def | conv_cstr
+fast def use_conv_null -> conv_cstr_def | conv_cstr
+fast def use_ptrq_zero -> ptrq_int_def | ptrq_int
+fast def use_ptrq_null -> ptrq_ptr_def | ptrq_ptr
+fast def use_temp_k -> temp_k_def | temp_k
+fast def use_temp_s -> temp_s_def | temp_s
+fast def use_pick_i -> pick_i
+fast def use_pick_t -> pick_t
+fast def use_pick_expl -> pick_t
+fast def use_pick_expl_p -> pick_p
+fast def use_log_s -> log_s_def | log_s_decl
+fast def use_c_f -> c_f_str | c_f_str_def
 fast hover use_ar2 ~ "area"
 
 # ---- overloads by arity: definition vs declaration ----

@@ -51,6 +51,7 @@ add_library(tenfold_core STATIC
   src/semantic/CppLexer.cpp
   src/semantic/FastIndex.cpp
   src/semantic/FastScope.cpp
+  src/semantic/FastOverload.cpp
   src/semantic/MacroExpand.cpp
   src/semantic/PpExpr.cpp
   src/semantic/PpCond.cpp
@@ -151,6 +152,7 @@ add_executable(tenfold-tests
   tests/test_fastindex.cpp
   tests/test_fastindexstore.cpp
   tests/test_fastscope.cpp
+  tests/test_fast_overload.cpp
   tests/test_pp_cond.cpp
   tests/test_macro_decl.cpp
   tests/test_compdb.cpp

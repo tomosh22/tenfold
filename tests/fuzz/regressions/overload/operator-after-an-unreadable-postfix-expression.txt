@@ -1,0 +1,2 @@
+int g() { return "x" [0] + f("y"); }
+int h() { return 1 [0] + (2)[1] - {3}; }
