@@ -152,17 +152,22 @@ void LspClient::stop() {
     return;
   }
   if (initialized_) {
-    std::mutex m;
-    std::condition_variable cv;
-    bool done = false;
-    conn_.request("shutdown", Json(), [&](const Json*, const RpcError*) {
-      std::lock_guard<std::mutex> lk(m);
-      done = true;
-      cv.notify_all();
+    // The state outlives this frame: a server that is slow to answer (busy indexing) leaves the request pending after
+    // the wait below, and its handler runs later (the connection failing it while it stops).
+    struct Wait {
+      std::mutex m;
+      std::condition_variable cv;
+      bool done = false;
+    };
+    auto w = std::make_shared<Wait>();
+    conn_.request("shutdown", Json(), [w](const Json*, const RpcError*) {
+      std::lock_guard<std::mutex> lk(w->m);
+      w->done = true;
+      w->cv.notify_all();
     });
     {
-      std::unique_lock<std::mutex> lk(m);
-      cv.wait_for(lk, std::chrono::milliseconds(2000), [&] { return done; });
+      std::unique_lock<std::mutex> lk(w->m);
+      w->cv.wait_for(lk, std::chrono::milliseconds(2000), [&] { return w->done; });
     }
     conn_.notify("exit", Json());
     initialized_ = false;

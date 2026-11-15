@@ -65,6 +65,7 @@ Enforced budgets (Release):
 | wrap keystroke-to-paint, incl. the 50 MB single line (`ui/test_wrap.cpp`) | < 8 ms |
 | wrap of a 3 MB single line (`ui/test_wrap.cpp`) | first rows < 1 ms, re-scan after typing < 2 ms |
 | pathological files, keystroke-to-paint (`ui/test_pathological_ui.cpp`: 300k-line C++, 100k-line text, 1 MB expression, 2 MB comment, 1 MB string, minified C++ and wide characters on one line; wrap on and off) | average < 8 ms and p99 < 8 ms of 60 keys, times `TENFOLD_PERF_SCALE` |
+| editor stress keystrokes (`ui/test_stress_ui.cpp`, W9i: typing with 10k carets, in a 120k-line file with everything folded or open, beside a flooding terminal, while clangd indexes, with 300 tabs open, while a configuration reloads) | p99 < 8 ms, reported by `stress_ui_*` with a generated project (`docs/TESTING.md`, "Editor stress (W9i)"); they run only with `TENFOLD_STRESS_DIR`, so CI does not enforce them; the numbers are in `docs/STRESS_RESULTS.md`, "W9i" |
 | completion with 5000 items (`ui/test_b5b.cpp`) | keystroke-to-paint worst < 8 ms |
 | B8 smart typing in a 100k-line file (`ui/test_b8.cpp`) | < 8 ms per keystroke |
 | log call cost (`test_log.cpp`) | filtered-out `Log::debug` < 1 us, buffered `Log::info` < 20 us |

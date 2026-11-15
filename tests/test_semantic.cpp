@@ -215,6 +215,22 @@ TEST(semantic_fast_only_navigation_and_back) {
   CHECK_EQ(syms[0].name, "Vec2");
 }
 
+// W9i: clangd loads the compile database, and starts its background index, only when the first file is opened. A
+// workspace opened with no document (the empty editor, `tenfold-cli bench` without --file) used to leave clangd idle
+// for ever ("clangdIndexPercent" never reached 100): the engine now opens and closes one file of the database itself.
+TEST(semantic_clangd_background_index_starts_without_an_open_document) {
+  if (!clangdAvailable()) {
+    std::cerr << "    (clangd not found: skipping)\n";
+    return;
+  }
+  Fixture f(true);
+  REQUIRE(f.ok);
+  CHECK(f.ed.documents().empty());
+  CHECK(f.ed.semantic().waitForClangdIndex(90000));
+  CHECK_EQ(f.ed.semantic().status().clangdIndex.percentage, 100);
+  CHECK(f.ed.documents().empty());  // the helper file is not a document of the editor
+}
+
 TEST(semantic_clangd_resolves_what_the_fast_parser_cannot) {
   if (!clangdAvailable()) {
     std::cerr << "    (clangd not found: skipping)\n";

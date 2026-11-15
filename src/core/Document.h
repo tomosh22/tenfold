@@ -22,6 +22,9 @@ class Document {
     // The edit (or, in a batch, one of its edits) removed or inserted a NEL / LS / PS line break: the language
     // server's lines are not the editor's there (LspLineMap), so the change is not sent incrementally.
     bool separators = false;
+    // Events of the same batch (one edit per caret) still to come after this one: they are delivered last edit first,
+    // so a listener that only needs the final text (re-indexing, line maps) can wait for the event with 0.
+    size_t pending = 0;
   };
   using Listener = std::function<void(Document&, const Change&)>;
 

@@ -453,6 +453,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_w8f_misc.cpp
     tests/ui/test_w8f_term.cpp
     tests/ui/test_pathological_ui.cpp
+    tests/ui/test_stress_ui.cpp
     tests/ui/test_long_lines.cpp
     tests/ui/test_vs_tabs.cpp
     tests/ui/test_sln_open_ui.cpp

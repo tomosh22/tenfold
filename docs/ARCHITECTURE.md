@@ -30,6 +30,13 @@ thread.
 * `JsonRpcConnection` runs one **reader thread** per language server. Every
   LSP response/notification handler runs there. `SemanticEngine` wraps these
   so the `Editor` only ever sees `post()`ed callbacks.
+* `JsonRpcConnection` also runs one **writer thread** per server (W9i): `send()` only queues the frame, so a server that is
+  busy and not reading its stdin (clangd indexing 7k files fills the 64 KiB pipe) never blocks the editor thread or the
+  reader thread; `stop()` drains the queue (the `exit` notification), then closes the pipe, or ends a server whose stdin is
+  stuck. `restartClangd()` stops the replaced server on a short-lived **retire thread** (`SemanticEngine::retireClient`,
+  joined by `stop()`) instead of waiting for its `shutdown`. clangd loads the compile database, and starts its background
+  index, only when a document is first opened: with none open the engine opens and closes one file of the database itself
+  (`kickBackgroundIndex`).
 * `FastIndex::indexFiles` uses a **thread pool** (hardware concurrency) and
   is launched by `SemanticEngine::start()` on a background thread. Lookups
   take a shared lock, so the index is queryable while it is still filling.

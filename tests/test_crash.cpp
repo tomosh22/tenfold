@@ -79,6 +79,7 @@ struct Fx {
     std::ofstream(file, std::ios::binary) << "int a;\nint b;\nint c;\n";
     Editor::Options o;
     o.semantic.clangdPath = TENFOLD_TEST_HELPER;
+    o.semantic.kickBackgroundIndex = false;  // these tests count the documents the fake server was sent
     o.semantic.clangdArgs = {"--fake-clangd", "--log=" + log.string(), "--launch-file=" + launches.string(),
                              "--pid-file=" + pidFile.string()};
     for (auto& a : c.fakeArgs) o.semantic.clangdArgs.push_back(a);
@@ -245,6 +246,40 @@ TEST(request_timeout_cancels_a_request_clangd_never_answers) {
   CHECK_EQ(ren->load(), 2);
   CHECK(defErr->find("did not answer") != std::string::npos);
   // The server is still there for requests it does answer.
+  auto r = f.hover(1);
+  CHECK(r.done);
+  CHECK(r.error.empty());
+}
+
+// W9i: stopping the editor while clangd does not answer `shutdown` in time (it is busy indexing) left the pending
+// request's handler pointing at the stack of LspClient::stop(); the connection ran it when it failed the pending
+// requests, on a destroyed mutex: std::system_error, terminate (a 300-tab session under load). The wait state is now
+// shared with the handler (ASan reports the old code as stack-use-after-scope).
+TEST(stop_with_a_server_that_never_answers_shutdown_is_safe_and_bounded) {
+  Fx::Config c;
+  c.fakeArgs = {"--hang-method=shutdown"};
+  auto fx = std::make_unique<Fx>(c);
+  REQUIRE(fx->ok);
+  REQUIRE(fx->openAndEdit());
+  const auto t0 = Clock::now();
+  fx->ed.reset();  // Editor::shutdown -> SemanticEngine::stop -> LspClient::stop: 2 s wait, then the grace period
+  CHECK(Clock::now() - t0 < std::chrono::seconds(12));
+}
+
+// W9i: restarting clangd (a configuration switch does) stopped the old server on the calling (UI) thread: a busy clangd
+// takes 2 s to answer `shutdown` and up to 1.5 s more to exit, a 2.7 s freeze in the stress run. The old server is now
+// stopped on a thread of its own; the new one is up and answers while the old one is still shutting down.
+TEST(manual_restart_does_not_wait_for_the_old_server_to_shut_down) {
+  Fx::Config c;
+  c.fakeArgs = {"--hang-method=shutdown"};
+  Fx f(c);
+  REQUIRE(f.ok);
+  REQUIRE(f.openAndEdit());
+  std::string err;
+  const auto t0 = Clock::now();
+  CHECK(f.ed->restartClangd(&err));
+  CHECK(Clock::now() - t0 < std::chrono::milliseconds(1500));  // stopping the old one alone takes 2 s
+  CHECK(f.waitRestarted(1));
   auto r = f.hover(1);
   CHECK(r.done);
   CHECK(r.error.empty());

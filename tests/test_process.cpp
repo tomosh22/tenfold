@@ -6,6 +6,7 @@
 #include <thread>
 #include <vector>
 
+#include "lsp/JsonRpc.h"
 #include "lsp/Process.h"
 #include "test_main.h"
 
@@ -199,3 +200,49 @@ TEST(process_concurrent_spawn_does_not_leak_pipes) {
   std::lock_guard<std::mutex> lk(mu);
   longLived.clear();
 }
+
+#ifndef _WIN32
+// W9i: a language server that does not read its input (clangd busy indexing 7k files) must not block whoever sends:
+// the pipe holds 64 KiB and a write past that used to block the UI thread inside `didClose` for 30 to 47 s (300 tabs
+// closing while clangd indexed). Messages are queued and written by a thread; stop() still ends the process.
+TEST(jsonrpc_send_does_not_block_on_a_server_that_does_not_read) {
+  JsonRpcConnection c;
+  std::string err;
+  REQUIRE(c.start("/bin/sleep", {"60"}, {}, {}, &err));
+  const std::string big(1 << 20, 'x');
+  const auto t0 = std::chrono::steady_clock::now();
+  for (int i = 0; i < 12; ++i) c.notify("textDocument/didOpen", Json{{"text", big}});  // 12 MiB, far past the pipe
+  const auto ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t0).count();
+  CHECK(ms < 5000);  // the sends only queued (they took 0 to 60 ms of encoding here; a blocked write takes for ever)
+  const auto t1 = std::chrono::steady_clock::now();
+  c.stop(200);  // the writer is stuck in the pipe write: the process is terminated, the write fails, the thread ends
+  CHECK(std::chrono::steady_clock::now() - t1 < std::chrono::seconds(10));
+  CHECK(!c.alive());
+}
+
+TEST(jsonrpc_queued_messages_reach_a_reading_server_in_order_before_stop_closes_the_pipe) {
+  JsonRpcConnection c;
+  std::string err;
+  std::string got;
+  REQUIRE(c.start("/bin/cat", {}, {}, {}, &err));  // echoes the frames back: they arrive as messages from the "server"
+  std::mutex mu;
+  std::vector<int> seen;
+  for (const char* m : {"a", "b", "c"})
+    c.onNotification(m, [&](const Json& p) {
+      std::lock_guard<std::mutex> lk(mu);
+      seen.push_back(p.value("n", -1));
+    });
+  for (int i = 0; i < 300; ++i) c.notify(std::string(1, "abc"[i % 3]), Json{{"n", i}});
+  for (int i = 0; i < 400; ++i) {
+    {
+      std::lock_guard<std::mutex> lk(mu);
+      if (seen.size() == 300) break;
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(10));
+  }
+  std::lock_guard<std::mutex> lk(mu);
+  REQUIRE(seen.size() == 300);
+  for (int i = 0; i < 300; ++i) CHECK_EQ(seen[static_cast<size_t>(i)], i);
+  c.stop(500);
+}
+#endif

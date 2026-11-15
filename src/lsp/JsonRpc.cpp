@@ -2,6 +2,7 @@
 
 #include <atomic>
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
 #include <vector>
@@ -26,23 +27,78 @@ bool JsonRpcConnection::start(const std::string& exe, const std::vector<std::str
   opts.processTree = true;
   if (!proc_.start(exe, args, cwd, stderrLog, error, env, opts)) return false;
   running_ = true;
+  {
+    std::lock_guard<std::mutex> lk(writeMu_);
+    writerStop_ = false;
+  }
+  writer_ = std::thread([this] { writerLoop(); });
   reader_ = std::thread([this] { readerLoop(); });
   return true;
 }
 
 void JsonRpcConnection::stop(int graceMs) {
   if (!running_.exchange(false)) {
+    stopWriter();
     if (reader_.joinable()) reader_.join();
     return;
   }
-  proc_.closeStdin();
+  {  // let what was queued (the `exit` notification) out before the pipe closes
+    std::unique_lock<std::mutex> lk(writeMu_);
+    writeCv_.wait_for(lk, std::chrono::milliseconds(graceMs < 0 ? 0 : graceMs),
+                      [&] { return out_.empty() && !writing_; });
+  }
+  bool stuck;
+  {
+    std::lock_guard<std::mutex> lk(writeMu_);
+    stuck = writing_;  // the server does not read: the writer sits in the pipe write until the process is gone
+  }
+  if (!stuck) {
+    stopWriter();
+    proc_.closeStdin();
+  }
   if (proc_.wait(graceMs) < 0) {
     proc_.terminate();
     if (proc_.wait(300) < 0) proc_.kill();
     proc_.wait(300);
   }
+  if (stuck) {
+    stopWriter();
+    proc_.closeStdin();
+  }
   if (reader_.joinable()) reader_.join();
   failPending("connection closed");
+}
+
+void JsonRpcConnection::stopWriter() {
+  {
+    std::lock_guard<std::mutex> lk(writeMu_);
+    writerStop_ = true;
+    out_.clear();
+    outBytes_ = 0;
+  }
+  writeCv_.notify_all();
+  if (writer_.joinable()) writer_.join();
+}
+
+void JsonRpcConnection::writerLoop() {
+  std::unique_lock<std::mutex> lk(writeMu_);
+  while (true) {
+    writeCv_.wait(lk, [&] { return writerStop_ || !out_.empty(); });
+    if (writerStop_) return;
+    std::string frame = std::move(out_.front());
+    out_.pop_front();
+    outBytes_ -= frame.size();
+    writing_ = true;
+    lk.unlock();
+    const bool ok = proc_.write(frame.data(), frame.size());
+    lk.lock();
+    writing_ = false;
+    if (!ok) {  // the pipe is gone: nothing more can be delivered
+      out_.clear();
+      outBytes_ = 0;
+    }
+    writeCv_.notify_all();  // stop() waits for the queue to drain
+  }
 }
 
 void JsonRpcConnection::failPending(const char* why) {
@@ -72,8 +128,18 @@ void JsonRpcConnection::send(const Json& msg) {
   }
   std::string frame = "Content-Length: " + std::to_string(body.size()) + "\r\n\r\n" + body;
   if (trace_) trace_("->", msg);
-  std::lock_guard<std::mutex> lk(writeMu_);
-  proc_.write(frame.data(), frame.size());
+  {
+    std::lock_guard<std::mutex> lk(writeMu_);
+    if (writerStop_) return;
+    outBytes_ += frame.size();
+    if (outBytes_ > (64u << 20) && !warnedBacklog_) {
+      warnedBacklog_ = true;
+      Log::warn("lsp", "the language server is not reading its input: " + std::to_string(outBytes_ >> 20) +
+                           " MiB of messages are queued");
+    }
+    out_.push_back(std::move(frame));
+  }
+  writeCv_.notify_all();
 }
 
 int JsonRpcConnection::request(const std::string& method, Json params, ResponseHandler handler) {

@@ -3,6 +3,10 @@
 #include <cstdio>
 #include <set>
 
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
+
 #include "core/PathUtil.h"
 #include "ui/shell/FontSetup.h"
 #include "workspace/Workspace.h"
@@ -83,6 +87,12 @@ void AppHost::teardown() {
   editorText_.reset();
   text_.reset();
   settings_.reset();
+#ifdef __GLIBC__
+  // The closed workspace's fast index, documents and caches are freed, but glibc keeps the freed pages in the thread
+  // arenas of the indexing threads: after a 20k-file workspace the process held 170 to 200 MiB it did not use (W9i,
+  // 18 to 50 MiB after this call). Give them back before the next workspace is built.
+  ::malloc_trim(0);
+#endif
 }
 
 void AppHost::shutdown() {
