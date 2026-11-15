@@ -67,8 +67,15 @@ class TextRenderer {
   void drawSpans(float x, float y, std::string_view utf8, const std::vector<ColorSpan>& spans,
                  const std::vector<Color>& palette, uint32_t defaultColor, const RectF& clip, Anchor from = {});
   void setTabWidth(int w) { layout_.setTabWidth(w); }
-  // `utf8` shortened with a trailing "..." (U+2026) so that it fits in maxWidth; unchanged if it already fits.
+  // The elision mark: "\xE2\x80\xA6" (U+2026) when a font of the stack has it, else "..." (never a missing-glyph box).
+  std::string_view ellipsis() const;
+  // `utf8` shortened with a trailing ellipsis() so that it fits in maxWidth (end elision); unchanged if it already
+  // fits. A width below the mark gives as many dots as fit (or nothing).
   std::string fit(std::string_view utf8, float maxWidth) const;
+  // As fit, but the ellipsis goes in the middle so that the start and the end survive: for paths, where the file name
+  // matters most. The tail is kept from a '/' or '\\' when it can be ("C:\\Users\\me\\...\\Game\\Game.sln"), the head
+  // is cut after a separator when it has one. The visual behaviour is Visual Studio's (docs/VS_BEHAVIOUR.md 22).
+  std::string fitMiddle(std::string_view utf8, float maxWidth) const;
   // Atlas upload + glyph draws for everything recorded since the last flush. Returns false when the atlas grew while
   // recording (earlier UVs are stale): nothing was drawn, the pending text is dropped and the caller must repaint the
   // frame (the second attempt cannot grow again for the same text).

@@ -760,11 +760,22 @@ void TreeView::paint(PaintContext& ctx) {
         break;
       }
       case TreeKind::File: {
-        const RectF f{ix + is * 0.1f, cy - is * 0.55f, is * 0.8f, is * 1.1f};
-        ctx.fill(intersect({f.x, f.y, f.w, 1}, rr), dim);
+        // A page with a folded corner and two text lines, all geometry: a plain outline looked like a missing-glyph
+        // box next to the names (VS 2022 draws a page glyph here too).
+        const RectF f{std::round(ix + is * 0.1f), std::round(cy - is * 0.55f), std::round(is * 0.8f),
+                      std::round(is * 1.1f)};
+        const float c = std::max(2.0f, std::round(f.w * 0.4f));
+        Color tint = dim;
+        tint.a *= 0.3f;
+        ctx.fill(intersect({f.x, f.y, f.w - c, c}, rr), tint);
+        ctx.fill(intersect({f.x, f.y + c, f.w, f.h - c}, rr), tint);
+        ctx.fill(intersect({f.x, f.y, f.w - c, 1}, rr), dim);
         ctx.fill(intersect({f.x, f.y + f.h - 1, f.w, 1}, rr), dim);
         ctx.fill(intersect({f.x, f.y, 1, f.h}, rr), dim);
-        ctx.fill(intersect({f.x + f.w - 1, f.y, 1, f.h}, rr), dim);
+        ctx.fill(intersect({f.x + f.w - 1, f.y + c, 1, f.h - c}, rr), dim);
+        ctx.line(f.x + f.w - c, f.y, f.x + f.w - 1, f.y + c, 1.0f, dim);
+        for (float ly = f.y + c + 2; ly < f.y + f.h - 2; ly += 2)
+          ctx.fill(intersect({f.x + 2, ly, f.w - 4, 1}, rr), dim);
         break;
       }
     }
@@ -780,7 +791,9 @@ void TreeView::paint(PaintContext& ctx) {
     const float tx = ix + is * 1.2f + cell;
     const float markW = mark != Mark::None ? 2 * cell : 0;
     const RectF clip{tx, rr.y, std::max(0.0f, rr.x + rr.w - tx - markW - 6), rr.h};
-    ctx.text(tx, full.y + (full.h - ctx.lineHeight()) / 2, nd.name, nameColor, clip);
+    // A label that does not fit ends in an ellipsis: the tree has no horizontal scrolling, and a word cut at the
+    // panel edge ("Solution 'Explor") looks complete. The full name is the tooltip / the selection's text elsewhere.
+    ctx.text(tx, full.y + (full.h - ctx.lineHeight()) / 2, ctx.textRenderer.fit(nd.name, clip.w), nameColor, clip);
     if (mark != Mark::None) {
       const float ms = std::max(5.0f, rh * 0.3f), mx = rr.x + rr.w - 10 - ms, my = cy - ms / 2;
       if (vcsMarkHasGlyph(mark)) {

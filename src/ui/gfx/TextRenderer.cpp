@@ -81,11 +81,58 @@ float TextRenderer::measure(std::string_view utf8) const {
   return static_cast<float>(layout_.columnCount(utf8)) * cellWidth();
 }
 
+std::string_view TextRenderer::ellipsis() const {
+  return fonts_.lookup(0x2026).glyph != kNotdefGlyph ? std::string_view("\xE2\x80\xA6") : std::string_view("...");
+}
+
 std::string TextRenderer::fit(std::string_view utf8, float maxWidth) const {
   const int cols = static_cast<int>(maxWidth / cellWidth());
   if (layout_.columnCount(utf8) <= cols) return std::string(utf8);
+  const std::string_view ell = ellipsis();
+  const int ec = static_cast<int>(layout_.columnCount(ell));
   if (cols < 1) return std::string();
-  return std::string(utf8.substr(0, layout_.byteForColumn(utf8, cols - 1))) + "\xE2\x80\xA6";
+  if (cols < ec) return std::string(static_cast<size_t>(cols), '.');
+  return std::string(utf8.substr(0, layout_.byteForColumn(utf8, cols - ec))) + std::string(ell);
+}
+
+std::string TextRenderer::fitMiddle(std::string_view utf8, float maxWidth) const {
+  const int cols = static_cast<int>(maxWidth / cellWidth());
+  const int total = layout_.columnCount(utf8);
+  if (total <= cols) return std::string(utf8);
+  const std::string_view ell = ellipsis();
+  const int ec = static_cast<int>(layout_.columnCount(ell));
+  if (cols < 1) return std::string();
+  if (cols < ec) return std::string(static_cast<size_t>(cols), '.');
+  const int budget = cols - ec;
+  const auto isSep = [](char c) { return c == '/' || c == '\\'; };
+  const size_t lastSep = utf8.find_last_of("/\\");
+  const int nameCols = lastSep == std::string_view::npos
+                           ? 0
+                           : layout_.columnCount(utf8.substr(lastSep));  // "\\Game.sln" with its separator
+  // The tail gets the file name (with its separator) or half of the budget, whichever is more; the head the rest.
+  int tailCols = std::min(budget, std::max(nameCols, budget / 2));
+  size_t tail = layout_.byteForColumn(utf8, total - tailCols);
+  // Start the tail at a separator when one lies inside it: "...\\Game\\Game.sln" rather than "...ame\\Game.sln".
+  for (size_t k = tail; k < utf8.size(); ++k)
+    if (isSep(utf8[k])) {
+      tail = k;
+      break;
+    }
+  tailCols = layout_.columnCount(utf8.substr(tail));
+  int headCols = budget - tailCols;
+  for (;; --headCols) {
+    size_t head = headCols > 0 ? layout_.byteForColumn(utf8, headCols) : 0;
+    if (head > tail) head = tail;
+    std::string_view h = utf8.substr(0, head);
+    // Cut the head after its last separator when that keeps at least a third of it ("C:\\Users\\me\\").
+    const size_t hs = h.find_last_of("/\\");
+    if (hs != std::string_view::npos && hs + 1 >= h.size() / 3 && hs + 1 < h.size()) h = h.substr(0, hs + 1);
+    std::string out(h);
+    out += ell;
+    out += utf8.substr(tail);
+    if (layout_.columnCount(out) <= cols) return out;
+    if (headCols <= 0) return fit(utf8, maxWidth);
+  }
 }
 
 void TextRenderer::drawText(float x, float y, std::string_view utf8, Color color, const RectF& clip) {
