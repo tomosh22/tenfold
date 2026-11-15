@@ -243,6 +243,8 @@ class FastIndex {
   size_t expandedSymbolCount() const;
 
   void updateFile(const std::filesystem::path& file, std::string_view text);
+  // Bytes of text updateFile() has lexed so far (tests: how much re-lexing an edit costs on the calling thread).
+  uint64_t updatedBytes() const { return updatedBytes_.load(std::memory_order_relaxed); }
   void removeFile(const std::filesystem::path& file);
   void clear();
 
@@ -347,6 +349,7 @@ class FastIndex {
   std::shared_ptr<const ScanTable> prepare() const;
   void ensureFileMasks() const;  // caller holds mu_ (shared or unique)
 
+  std::atomic<uint64_t> updatedBytes_{0};
   mutable std::shared_mutex mu_;
   std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> files_;  // key: generic path string
   NameMap byName_;                                                             // key: exact name

@@ -1747,9 +1747,10 @@ static bool isCodeDocument(const Workspace& ws, const Document& doc) {
 }
 
 namespace {
-// Above this size a keystroke does not re-lex the file on the typing thread (about 75 MB/s: 5 MB = 65 ms, 40 MB =
-// half a second per key); the fast index of the file is refreshed once typing pauses.
-constexpr size_t kLazyReindexBytes = 1u << 20;
+// Above this size a keystroke does not re-lex the file on the typing thread (about 75 MB/s: 128 KiB = 1.7 ms, a
+// 560 KB file of 20k lines = 7 ms, which alone spent the 8 ms keystroke budget; 5 MB = 65 ms); the fast index of the
+// file is refreshed once typing pauses.
+constexpr size_t kLazyReindexBytes = 128u << 10;
 constexpr int kLazyReindexMs = 300;
 }  // namespace
 
