@@ -1,7 +1,9 @@
 // tenfold-ui [workspace | solution] [file] [--demo] [--shell] [--screenshot out.png] [--size WxH] [--renderer=gl|d3d11]
 //   workspace: a folder; solution: a .sln / .slnx (or a .vcxproj), whose folder becomes the workspace and which is then
 //   THE solution of the workspace (stored in .tenfold/workspace.json); `file` is relative to the workspace folder.
-//   default: the editor (Workbench of TextView tabs, key bindings, layout.json); --shell: the B3a widget demo;
+//   no workspace argument: the empty window (File > Open Solution..., Open Folder..., Recent Projects and Solutions;
+//   CLOSE-SLN, docs/VS_BEHAVIOUR.md section 18); File > Close Solution returns to it.
+//   with a workspace: the editor (Workbench of TextView tabs, key bindings, layout.json); --shell: the B3a widget demo;
 //   --demo: the renderer scene; --renderer: graphics backend (default d3d11 on Windows when built in, else gl)
 #include <algorithm>
 #include <chrono>
@@ -73,7 +75,9 @@ void drawScene(gfx::Renderer& r, int w, int h, gfx::TextureId atlas, float mx, f
   r.endFrame();
 }
 
-constexpr const char *kDefaultWorkspace = "examples/sample_project", *kDefaultFile = "src/main.cpp";
+// The --shell widget demo needs a project to show; it only exists in a source checkout. The editor itself never falls
+// back to it: without a workspace argument the window is empty.
+constexpr const char *kShellDemoWorkspace = "examples/sample_project", *kDefaultFile = "src/main.cpp";
 
 int64_t nowMs() {
   return std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now().time_since_epoch())
@@ -196,14 +200,8 @@ int main(int argc, char** argv) {
   std::unique_ptr<ui::AppHost> host;
   namespace fs = std::filesystem;
   // The workspace argument: a folder, or a .sln / .slnx / project file whose folder is the workspace (the solution is
-  // the one chosen). Nothing given: the folder of the file argument, else the bundled sample project.
-  const bool defaultWorkspace = workspace.empty();
-  if (shell || !demo) {
-    if (workspace.empty())
-      workspace =
-          shell || file.empty() || !fs::exists(file) ? kDefaultWorkspace : fs::path(file).parent_path().string();
-    if (workspace.empty()) workspace = ".";
-  }
+  // the one chosen). Nothing given: the empty window (the --shell demo uses the sample project).
+  if (shell && workspace.empty()) workspace = kShellDemoWorkspace;
   if (shell) {  // B3a widget shell demo; the sample project directory is the workspace argument or a default
     ui::SettingsService::Options so;
     so.workspaceRoot = resolveWorkspaceTarget(workspace).root;
@@ -234,10 +232,12 @@ int main(int argc, char** argv) {
     ho.setupApp = [&win](ui::EditorApp& a) {
       a.setWindowHooks({[&win](bool on) { win->setFullscreen(on); }});  // View.ToggleFullscreen
     };
+    ho.setFullscreen = [&win](bool on) { win->setFullscreen(on); };  // the empty window's View.ToggleFullscreen
     ho.dialog = ui::sdlFileDialogBackend(*win);
     host = std::make_unique<ui::AppHost>(std::move(ho));
-    // A default workspace (no argument) is not worth a place in the recent list.
-    if (!host->open(workspace, file, !defaultWorkspace, &err)) {
+    // No argument: the empty window. Starting up never reopens the last solution (Visual Studio's default is its start
+    // window, 10x's OpenLastWorkspaceOnStartup is false).
+    if (!(workspace.empty() ? host->openEmpty(&err) : host->open(workspace, file, true, &err))) {
       std::fprintf(stderr, "tenfold-ui: %s\n", err.c_str());
       return 1;
     }
@@ -246,6 +246,7 @@ int main(int argc, char** argv) {
   auto curRoot = [&]() -> ui::RootWidget* { return host ? host->root() : demoRoot.get(); };
   auto curApp = [&]() -> ui::EditorApp* { return host ? host->app() : shellApp.get(); };
   auto curEditor = [&]() -> Editor* { return host ? host->editor() : nullptr; };
+  auto curEmpty = [&]() -> ui::EmptyWindow* { return host ? host->empty() : nullptr; };  // no workspace open
   auto curSettings = [&]() -> ui::SettingsService* { return host ? host->settings() : shellSettings.get(); };
   if (shellApp && shellSettings) {
     shellApp->attachSettings(*shellSettings, win->pixelScale(), {});
@@ -263,6 +264,7 @@ int main(int argc, char** argv) {
     if (d3dRenderer) d3dRenderer->setOffscreen(true);
 #endif
     if (curApp()) curApp()->tick(nowMs());
+    else if (curEmpty()) curEmpty()->tick(nowMs());
     drawFrame(width, height, -100, -100);
     std::vector<uint8_t> px(static_cast<size_t>(width) * height * 4);
     if (!renderer->readPixels(width, height, px.data()) || !gfx::writePngFile(shot, px.data(), width, height)) {
@@ -285,10 +287,14 @@ int main(int argc, char** argv) {
     if (ui::SettingsService* st = curSettings(); st && st->poll()) dirty = true;  // settings.txt / theme changed
     if (Editor* ed = curEditor()) ed->pump();
     ui::EditorApp* app = curApp();
+    ui::EmptyWindow* ew = curEmpty();
     if (app) {
       wait = app->tick(nowMs());
       if (curEditor() && (wait < 0 || wait > 100)) wait = 100;  // poll the Editor's main-thread queue
       if (curRoot()->dirty()) dirty = true;
+    } else if (ew) {
+      wait = ew->tick(nowMs());
+      if (ew->dirty()) dirty = true;
     }
     if (dirty) {
       int pw, ph;
@@ -301,11 +307,12 @@ int main(int argc, char** argv) {
     win->waitEvent(wait, events);
     for (const ui::InputEvent& e : events) {
       app = curApp();  // the same one for the whole batch: a replaced workspace is only swapped at the loop top
+      ew = curEmpty();
       if (e.type == ui::InputType::Quit) {
         // Closing the window asks about unsaved changes first (editor.confirmUnsaved); the answer arrives as a later
         // event.
         if (app) app->requestQuit();
-        if (!app || app->quitRequested()) quit = true;
+        if (!app || app->quitRequested()) quit = true;  // the empty window has nothing to save
       } else if (e.type == ui::InputType::Resize || e.type == ui::InputType::Expose ||
                  e.type == ui::InputType::ScaleChanged) {
         dirty = true;
@@ -315,6 +322,9 @@ int main(int argc, char** argv) {
         if (!app->handleEvent(e, nowMs()) && shell && e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape)
           quit = true;
         if (app->quitRequested()) quit = true;
+      } else if (ew) {
+        ew->handleEvent(e, nowMs());
+        if (ew->quitRequested()) quit = true;
       } else if (e.type == ui::InputType::KeyDown && e.key == ui::Key::Escape) {
         quit = true;
       } else if (e.type == ui::InputType::MouseMove) {

@@ -303,7 +303,10 @@ jobs:
 
       - name: Headless screenshot
         run: |
-          xvfb-run -a ./build-ui/tenfold-ui --screenshot b1.png
+          # No argument: the empty window (CLOSE-SLN); the editor needs a workspace, so name the sample project.
+          xvfb-run -a ./build-ui/tenfold-ui --screenshot b1_empty.png
+          python tests/ui/check_png.py b1_empty.png 1024 640
+          xvfb-run -a ./build-ui/tenfold-ui examples/sample_project --screenshot b1.png
           python tests/ui/check_png.py b1.png 1024 640
 
   # B9: native Windows build of the SDL3 UI with the Direct3D 11 backend, tested on WARP (the runner has no GPU).
@@ -358,7 +361,8 @@ jobs:
         run: |
           ./build-ui/tenfold-ui.exe --renderer=d3d11 --demo --screenshot b9_demo.png
           python tests/ui/check_png.py b9_demo.png 1024 640
-          ./build-ui/tenfold-ui.exe --renderer=d3d11 --screenshot b9_editor.png || echo "editor screenshot failed (font discovery on the runner?)"
+          ./build-ui/tenfold-ui.exe --renderer=d3d11 --screenshot b9_empty.png || echo "empty-window screenshot failed (font discovery on the runner?)"
+          ./build-ui/tenfold-ui.exe --renderer=d3d11 examples/sample_project --screenshot b9_editor.png || echo "editor screenshot failed (font discovery on the runner?)"
 
       - uses: actions/upload-artifact@v4
         if: always()

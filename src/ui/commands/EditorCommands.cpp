@@ -332,6 +332,7 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "File.OpenSolution", "Open Project/Solution...");
   addUi(r, "File.OpenFolder", "Open Folder...");
   addUi(r, "File.RecentSolutions", "Recent Projects and Solutions...");
+  addUi(r, "File.CloseSolution", "Close Solution");
   addUi(r, "Search.SymbolSearch", "Go to Symbol in Workspace...");
   addUi(r, "Search.FindInWorkspace", "Find in Workspace...");
   addUi(r, "Search.NewFindInFiles", "New Find in Files Results...");

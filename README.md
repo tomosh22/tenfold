@@ -93,11 +93,11 @@ and for the packages.
 cmake -S . -B build-ui -G Ninja -DCMAKE_BUILD_TYPE=Release -DTENFOLD_BUILD_UI=ON
 ninja -C build-ui
 xvfb-run -a ./build-ui/tenfold-ui-tests          # golden-image tests skip without a display
-./build-ui/tenfold-ui [workspace|solution.sln]   # or: xvfb-run -a ./build-ui/tenfold-ui --screenshot out.png [--size WxH]
+./build-ui/tenfold-ui [workspace|solution.sln]   # no argument: the empty window; or: xvfb-run -a ./build-ui/tenfold-ui --screenshot out.png [--size WxH]
 ```
 
 SDL3 is fetched (static, pinned to `release-3.2.30`); FreeType is the system library or fetched; on Linux you need
-X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (699 tests on Linux) and
+X11/GL dev packages. Besides `tenfold-ui` the UI build makes `tenfold-ui-tests` (723 tests on Linux) and
 `tenfold-text-tests` (30; font, atlas and layout, no display needed). After an intentional rendering change, refresh the
 golden images with `tenfold-ui-tests --update-goldens`.
 

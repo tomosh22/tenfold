@@ -325,7 +325,7 @@ TEST(menubar_file_menu_has_open_solution_first_and_only_existing_commands) {
   }
   for (const MenuItem& it : env.bar().dropdown()->items()) CHECK(it.separator || it.action || !it.sub.empty());
   CHECK(std::find(l.begin(), l.end(), std::string("Save As...")) == l.end());  // tenfold has no such command
-  CHECK(std::find(l.begin(), l.end(), std::string("Close Solution")) == l.end());
+  CHECK(std::find(l.begin(), l.end(), std::string("Close Solution")) != l.end());  // CLOSE-SLN
   CHECK_EQ(env.item("Open Solution...")->shortcut, std::string("Control Shift O"));
 }
 
@@ -527,6 +527,7 @@ TEST(menubar_golden_vs_dark_file_menu_open) {
     {
       WorkspaceOpener::Hooks hooks;  // as the program installs them: the open commands are available
       hooks.open = [](const fs::path&) {};
+      hooks.close = [] {};
       hooks.dialog = [](const FileDialogRequest&, FileDialogDone) {};
       app.workspaceOpener().setHooks(std::move(hooks));
     }

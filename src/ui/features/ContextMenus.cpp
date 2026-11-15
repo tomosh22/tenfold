@@ -28,6 +28,108 @@ std::vector<MenuItem> buildMenu(const std::vector<MenuEntry>& entries, const Men
   return out;
 }
 
+std::vector<MenuItem> buildMenuSections(const std::vector<MenuSection>& sections, const MenuHooks& hooks) {
+  std::vector<MenuItem> out;
+  for (const MenuSection& s : sections) {
+    std::vector<MenuItem> items = buildMenu(s.entries, hooks);
+    if (items.empty()) continue;
+    if (s.separated && !out.empty()) out.push_back(MenuItem::sep());
+    if (s.submenu.empty()) {
+      for (MenuItem& m : items) out.push_back(std::move(m));
+    } else {
+      MenuItem m;
+      m.label = s.submenu;
+      m.sub = std::move(items);
+      out.push_back(std::move(m));
+    }
+  }
+  return out;
+}
+
+// The order and labels follow Visual Studio 2022's File / Edit / View menus where tenfold has the command
+// (VS_BEHAVIOUR section 17); "Close Solution" follows "Close" like VS (section 18).
+std::vector<MenuSection> fileMenuSections() {
+  return {{"",
+           {{"File.OpenSolution", "Open Solution..."},
+            {"File.OpenFolder", "Open Folder..."},
+            {"File.OpenFile", "Open File..."},
+            {"File.RecentSolutions", "Recent Projects and Solutions"},
+            {},
+            {"File.New", "New File"},
+            {},
+            {"Workbench.CloseTab", "Close"},
+            {"Workbench.CloseAllDocuments", "Close All Documents"},
+            {"File.CloseSolution", "Close Solution"},
+            {},
+            {"File.Save", "Save"},
+            {"File.SaveAll", "Save All"},
+            {},
+            {"File.CopyPath", "Copy Full Path"},
+            {"File.ShowInFolder", "Open Containing Folder"},
+            {},
+            {"App.Quit", "Exit"}},
+           false}};
+}
+
+std::vector<MenuSection> editMenuSections() {
+  return {{"", {{"Editor.Undo", "Undo"}, {"Editor.Redo", "Redo"}}},
+          {"",
+           {{"Editor.Cut", "Cut"},
+            {"Editor.Copy", "Copy"},
+            {"Editor.Paste", "Paste"},
+            {"Editor.PasteHistory", "Paste from History..."},
+            {"Editor.Delete", "Delete"},
+            {"Editor.SelectAll", "Select All"}}},
+          {"Find and Replace",
+           {{"Editor.Find", "Quick Find"},
+            {"Editor.Replace", "Quick Replace"},
+            {"Search.FindInWorkspace", "Find in Files"},
+            {"Search.ReplaceInFiles", "Replace in Files"},
+            {},
+            {"Editor.FindNext", "Find Next"},
+            {"Editor.FindPrev", "Find Previous"}}},
+          {"Go To",
+           {{"Editor.GotoLine", "Go To Line..."},
+            {"Search.SymbolSearch", "Go To All..."},
+            {"Editor.FindFunction", "Go To Member..."},
+            {},
+            {"Editor.GotoDefinition", "Go To Definition"},
+            {"Editor.GotoDeclaration", "Go To Declaration"},
+            {"Editor.FindReferences", "Find All References"},
+            {"Editor.SwitchHeaderSource", "Go To Header/Source"}},
+           false},
+          {"Bookmarks",
+           {{"Editor.ToggleBookmark", "Toggle Bookmark"},
+            {"Editor.NextBookmark", "Next Bookmark"},
+            {"Editor.PrevBookmark", "Previous Bookmark"},
+            {"Editor.ListBookmarks", "Bookmark Window"}},
+           false},
+          {"Outlining",
+           {{"Editor.ToggleCollapseExpandRegion", "Toggle Outlining Expansion"},
+            {"Editor.ToggleCollapseExpandAllRegions", "Toggle All Outlining"},
+            {"Editor.CollapseToDefinitions", "Collapse to Definitions"}},
+           false},
+          {"Advanced",
+           {{"Editor.ToggleComment", "Toggle Comment"},
+            {"Editor.FormatSelection", "Format Selection"},
+            {"Editor.JoinLines", "Join Lines"},
+            {"View.ToggleWordWrap", "Word Wrap"},
+            {"View.ToggleWhitespace", "View White Space"}},
+           false}};
+}
+
+std::vector<MenuSection> viewMenuSections() {
+  return {{"",
+           {{"View.ToggleWorkspaceExplorer", "Solution Explorer"},
+            {"View.ShowDiagnostics", "Error List"},
+            {"View.ToggleBuildPanel", "Output"},
+            {"Terminal.Show", "Terminal"},
+            {"View.CallHierarchy", "Call Hierarchy"},
+            {"View.TypeHierarchy", "Type Hierarchy"}}},
+          {"", {{"App.CommandPalette", "Command Palette..."}}},
+          {"", {{"View.ZoomIn", "Zoom In"}, {"View.ZoomOut", "Zoom Out"}, {"View.ToggleFullscreen", "Full Screen"}}}};
+}
+
 std::vector<MenuEntry> editorMenuEntries() {
   return {
       {"Editor.Cut", "Cut"},
