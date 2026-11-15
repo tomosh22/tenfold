@@ -4,6 +4,7 @@
 // parser, the git / p4 output parsers, the line diff engine, the terminal parser, the find-in-files query / glob /
 // regex search.
 #include <algorithm>
+#include <cctype>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -19,6 +20,7 @@
 #include "build/AnsiStrip.h"
 #include "build/ErrorParser.h"
 #include "core/LspLineMap.h"
+#include "core/PathUtil.h"
 #include "core/TextBuffer.h"
 #include "debug/Breakpoints.h"
 #include "glob_reference.h"
@@ -36,6 +38,7 @@
 #include "vcs/GitProvider.h"
 #include "vcs/LineDiff.h"
 #include "vcs/PerforceProvider.h"
+#include "workspace/ProjectEdit.h"
 #include "workspace/Workspace.h"
 
 using namespace std::string_literals;
@@ -582,6 +585,45 @@ void runSlnx(const uint8_t* d, size_t n) {
     opt.platform = cfg[0] == 'D' ? "x64" : "x86";
     compdb::fromSolution(root / "App.slnx", opt, &err);
   }
+}
+
+// PROJ-ADD: the project-file editor. Parts: 0 = the .vcxproj, 1 = its .vcxproj.filters, 2 = the new file's name,
+// then a newline and the filter. Invariants: an edit only inserts (the old text is the new one minus one contiguous
+// chunk; filling a self-closing `<ItemGroup />` also drops its `/` and blanks), and planning the same file against the
+// new text finds the item already there.
+bool onlyInserted(const std::string& oldText, const std::string& newText) {
+  if (newText == oldText) return false;
+  size_t p = 0;
+  while (p < oldText.size() && oldText[p] == newText[p]) ++p;
+  size_t s = 0;
+  while (s < oldText.size() - p && oldText[oldText.size() - 1 - s] == newText[newText.size() - 1 - s]) ++s;
+  // what the new text does not keep of the old one is at most the white space and `/` of a self-closing `<ItemGroup />`
+  for (size_t i = p; i + s < oldText.size(); ++i)
+    if (oldText[i] != '/' && !std::isspace(static_cast<unsigned char>(oldText[i]))) return false;
+  return true;
+}
+
+void runProjEdit(const uint8_t* d, size_t n) {
+  const std::vector<std::string> parts = splitParts(d, n, 3);
+  writeScratch("projedit/App.vcxproj", parts[0]);
+  writeScratch("projedit/App.vcxproj.filters", parts.size() > 1 ? parts[1] : "");
+  const std::string spec = parts.size() > 2 ? parts[2] : "";
+  const size_t nl = spec.find('\n');
+  const std::string name = spec.substr(0, nl);
+  const std::string filter = nl == std::string::npos ? std::string() : spec.substr(nl + 1);
+  const fs::path root = fs::path(scratchDir()) / "projedit";
+  const fs::path file = root / pathFromUtf8(name.empty() ? "x.cpp" : name);
+  projedit::AddPlan plan;
+  std::string err;
+  if (!projedit::planAdd({root / "App.vcxproj", file, filter}, plan, &err)) return;
+  if (plan.editProject) {
+    FUZZ_REQUIRE(onlyInserted(plan.projectOld, plan.projectText));
+    writeScratch("projedit/Again.vcxproj", plan.projectText);
+    projedit::AddPlan again;
+    FUZZ_REQUIRE(projedit::planAdd({root / "Again.vcxproj", file, {}}, again, &err));
+    FUZZ_REQUIRE(!again.editProject);
+  }
+  if (plan.editFilters) FUZZ_REQUIRE(onlyInserted(plan.filtersOld, plan.filtersText));
 }
 
 // Parts: 0 = the condition, 1 = the expression to expand, 2 = properties ("name=value" per line).
@@ -1650,6 +1692,41 @@ Registrar r16(
       "<Property Name=\"",
       "\n#--#\n",
       "\xEF\xBB\xBF"},
+     1024});
+
+Registrar r17(
+    {"projedit",
+     runProjEdit,
+     {"tests/fixtures/vs/Explorer/App:.vcxproj,.filters"},
+     {"<Project>\r\n  <ItemGroup>\r\n    <ClCompile Include=\"a.cpp\" />\r\n  </ItemGroup>\r\n</Project>\r\n"
+      "\n#--#\n<Project>\n  <ItemGroup>\n    <Filter Include=\"Source Files\" />\n  </ItemGroup>\n</Project>\n"
+      "\n#--#\nnew.cpp\nSource Files",
+      "<Project />\n#--#\n#--#\nx.h", "<Project><ItemGroup /></Project>\n#--#\n#--#\nx.rc",
+      "<Project>\n<ItemGroup Label=\"a\"><ClInclude Include=\"x.h\"/></ItemGroup>\n<!-- <ItemGroup> "
+      "--></Project>\n#--#\n#--#\nx.h"},
+     {"<Project>",
+      "</Project>",
+      "<ItemGroup>",
+      "<ItemGroup />",
+      "</ItemGroup>",
+      "<ClCompile Include=\"",
+      "<ClInclude Include=\"",
+      "<None Include=\"",
+      "<Filter>",
+      "</Filter>",
+      "<Filter Include=\"",
+      " Label=\"",
+      " Condition=\"",
+      "<!--",
+      "-->",
+      "<![CDATA[",
+      "]]>",
+      "<?xml version=\"1.0\"?>",
+      "\r\n",
+      "\xEF\xBB\xBF",
+      "\xFF\xFE",
+      "/>",
+      "\n#--#\n"},
      1024});
 
 }  // namespace

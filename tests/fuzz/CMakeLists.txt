@@ -63,7 +63,7 @@ target_sources(tenfold-tests PRIVATE ${_fz}/test_fuzz_regressions.cpp $<TARGET_O
 target_include_directories(tenfold-tests PRIVATE ${_fz} "${_fz_gen}")
 
 if(TENFOLD_FUZZ_LIBFUZZER)
-  set(_libfuzz_targets lexer extract indexstore xml msbuild slnx msbuildexpr compdb compdbcmd jsonrpc buildoutput gitstatus p4output
+  set(_libfuzz_targets lexer extract indexstore xml msbuild slnx projedit msbuildexpr compdb compdbcmd jsonrpc buildoutput gitstatus p4output
                        linediff vtscreen search keybindings settings theme scopescan ppcond linemap statefiles)
   # layout and explorer need the UI library (tenfold_fuzz_harness_ui) and run only in tenfold-fuzz.
   foreach(_t ${_libfuzz_targets})

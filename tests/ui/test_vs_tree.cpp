@@ -462,11 +462,245 @@ TEST(vstree_new_file_asks_for_a_name_and_creates_it_in_the_folder) {
   env.answer("fresh.cpp");
   CHECK(env.popup() == nullptr);
   CHECK(fs::exists(env.dir / "Lib" / "detail" / "fresh.cpp"));
-  CHECK(contains(env.status(), "Created fresh.cpp"));
-  CHECK(contains(env.status(), "Show All Files"));  // in the Solution view an unlisted file is hidden
+  CHECK(contains(env.status(), "Created fresh.cpp and added it to Lib.vcxproj"));  // PROJ-ADD: a project item now
+  env.revealAll();
+  CHECK(env.shows("fresh.cpp"));  // listed in the Solution view without Show All Files
+  CHECK(contains(slurp(env.dir / "Lib" / "Lib.vcxproj"), "<ClCompile Include=\"detail\\fresh.cpp\" />"));
+}
+
+TEST(vstree_new_file_in_a_folder_workspace_is_not_in_any_project) {
+  Env env("");
+  env.open_();
+  env.revealAll();
+  env.tree().select(env.nodeNamed("docs"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("extra.cpp");
+  CHECK(fs::exists(env.dir / "docs" / "extra.cpp"));
+  CHECK(contains(env.status(), "Created extra.cpp"));
+  CHECK(!contains(env.status(), "added it to"));
+}
+
+TEST(vstree_new_file_in_the_folder_view_or_outside_a_project_leaves_the_projects_alone) {
+  Env env;
+  env.open_();
+  const std::string app = slurp(env.dir / "App" / "App.vcxproj"), lib = slurp(env.dir / "Lib" / "Lib.vcxproj");
+  env.revealAll();
+  env.tree().select(env.nodeNamed("Solution Items"));  // a solution folder: not a project
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("loose1.cpp");
+  CHECK(!contains(env.status(), "added it to"));
+  env.app->runCommand("View.ToggleExplorerFolderView");  // Folder view: files on disk, no project
+  env.revealAll();
+  env.tree().select(env.nodeNamed("src"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("loose2.cpp");
+  CHECK(fs::exists(env.dir / "App" / "src" / "loose2.cpp"));
+  CHECK(!contains(env.status(), "added it to"));
+  CHECK_EQ(slurp(env.dir / "App" / "App.vcxproj"), app);
+  CHECK_EQ(slurp(env.dir / "Lib" / "Lib.vcxproj"), lib);
+}
+
+// What Visual Studio writes: UTF-8 with a byte order mark and CRLF.
+static void makeVsFormatted(Env& env) {
+  env.close();
+  for (const char* f : {"App/App.vcxproj", "App/App.vcxproj.filters"}) {
+    std::string t = slurp(env.dir / f), o = "\xEF\xBB\xBF";
+    for (char c : t) {
+      if (c == '\n') o += '\r';
+      o += c;
+    }
+    spit(env.dir / f, o);
+  }
+  env.open();
+}
+
+TEST(vstree_new_file_in_a_filter_adds_the_item_and_the_filter_entry_keeping_bom_and_crlf) {
+  Env env;
+  makeVsFormatted(env);
+  env.open_();
+  env.revealAll();
+  const std::string proj0 = slurp(env.dir / "App" / "App.vcxproj"),
+                    filt0 = slurp(env.dir / "App" / "App.vcxproj.filters");
+  env.tree().select(env.nodeNamed("Util"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("fresh.cpp");
+  CHECK(contains(env.status(), "Created fresh.cpp and added it to App.vcxproj in the filter Source Files\\Util"));
+  CHECK(fs::exists(env.dir / "App" / "fresh.cpp"));  // a filter is virtual: the file goes to the project folder
+  const std::string proj = slurp(env.dir / "App" / "App.vcxproj"),
+                    filt = slurp(env.dir / "App" / "App.vcxproj.filters");
+  const size_t at = proj0.find("    <ClCompile Include=\"gen\\*.cpp\" />") +
+                    std::string("    <ClCompile Include=\"gen\\*.cpp\" />").size();
+  CHECK_EQ(proj, proj0.substr(0, at) + "\r\n    <ClCompile Include=\"fresh.cpp\" />" + proj0.substr(at));
+  const size_t fa = filt0.find("      <Filter>Generated</Filter>\r\n    </ClCompile>") +
+                    std::string("      <Filter>Generated</Filter>\r\n    </ClCompile>").size();
+  CHECK_EQ(
+      filt,
+      filt0.substr(0, fa) +
+          "\r\n    <ClCompile Include=\"fresh.cpp\">\r\n      <Filter>Source Files\\Util</Filter>\r\n    </ClCompile>" +
+          filt0.substr(fa));
+  CHECK(proj.compare(0, 3, "\xEF\xBB\xBF") == 0 && filt.compare(0, 3, "\xEF\xBB\xBF") == 0);
+  // the explorer and the workspace follow, with one node
+  env.revealAll();
+  const int id = env.nodeOf(env.dir / "App" / "fresh.cpp");
+  REQUIRE(id >= 0);
+  CHECK_EQ(env.tree().model().node(env.tree().model().node(id).parent).name, "Util");
+  size_t n = 0;
+  for (const auto& name : env.shownNames()) n += name == "fresh.cpp";
+  CHECK_EQ(n, size_t(1));
+  CHECK(env.ed->workspace().isMember(env.dir / "App" / "fresh.cpp"));
+  env.settle();  // the debounced rebuild finds the same single node
+  env.revealAll();
+  n = 0;
+  for (const auto& name : env.shownNames()) n += name == "fresh.cpp";
+  CHECK_EQ(n, size_t(1));
+}
+
+TEST(vstree_new_header_and_other_files_get_their_item_types) {
+  Env env;
+  env.open_();
+  env.revealAll();
+  env.tree().select(env.nodeNamed("Header Files"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("more.h");
+  env.tree().select(env.nodeNamed("App"));  // the project node: the project root, no filter
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("todo.txt");
+  const std::string proj = slurp(env.dir / "App" / "App.vcxproj");
+  CHECK(contains(
+      proj,
+      "    <ClInclude Include=\"..\\shared\\common.h\" />\n    <ClInclude Include=\"more.h\" />\n  </ItemGroup>"));
+  CHECK(contains(proj, "  <ItemGroup>\n    <None Include=\"todo.txt\" />\n  </ItemGroup>"));
+  const std::string filt = slurp(env.dir / "App" / "App.vcxproj.filters");
+  CHECK(contains(filt, "<ClInclude Include=\"more.h\">\n      <Filter>Header Files</Filter>"));
+  CHECK(!contains(filt, "todo.txt"));  // at the project root: no filter
+  CHECK(fs::exists(env.dir / "App" / "more.h") && fs::exists(env.dir / "App" / "todo.txt"));
+}
+
+TEST(vstree_new_file_in_a_disk_folder_of_a_project_without_filters_is_added_with_its_path) {
+  Env env;
+  env.open_();
+  env.revealAll();
+  env.tree().select(env.nodeNamed("Lib"));  // the project; Lib has no filters file
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("added.cpp");
+  CHECK(contains(slurp(env.dir / "Lib" / "Lib.vcxproj"),
+                 "    <ClCompile Include=\"detail\\impl.cpp\" />\n    <ClCompile Include=\"added.cpp\" />\n"));
+  CHECK(!fs::exists(env.dir / "Lib" / "Lib.vcxproj.filters"));
+}
+
+TEST(vstree_a_file_a_wildcard_item_already_covers_is_not_added) {
+  Env env;
+  env.open_();
   env.app->runCommand("View.ToggleExplorerShowAllFiles");
   env.revealAll();
-  CHECK(env.shows("fresh.cpp"));
+  const std::string proj = slurp(env.dir / "App" / "App.vcxproj");
+  const std::string filt = slurp(env.dir / "App" / "App.vcxproj.filters");
+  const int gen = env.nodeNamed("gen");  // the disk folder (skip.txt is not listed)
+  REQUIRE(gen >= 0);
+  REQUIRE(!env.tree().model().node(gen).path.empty());
+  env.tree().select(gen);
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("c.cpp");
+  CHECK(fs::exists(env.dir / "App" / "gen" / "c.cpp"));
+  CHECK(contains(env.status(), "App.vcxproj lists it"));
+  CHECK_EQ(slurp(env.dir / "App" / "App.vcxproj"), proj);
+  CHECK_EQ(slurp(env.dir / "App" / "App.vcxproj.filters"), filt);
+}
+
+TEST(vstree_a_read_only_project_file_refuses_the_new_file_and_changes_nothing) {
+  Env env;
+  env.open_();
+  env.revealAll();
+  const fs::path proj = env.dir / "Lib" / "Lib.vcxproj";
+  const std::string before = slurp(proj);
+  std::error_code ec;
+  fs::permissions(proj, fs::perms::owner_write | fs::perms::group_write | fs::perms::others_write,
+                  fs::perm_options::remove, ec);
+  env.tree().select(env.nodeNamed("detail"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("nope.cpp");
+  CHECK(contains(env.status(), "Cannot create nope.cpp"));
+  CHECK(contains(env.status(), "Lib.vcxproj is read-only"));
+  CHECK(!fs::exists(env.dir / "Lib" / "detail" / "nope.cpp"));
+  CHECK_EQ(slurp(proj), before);
+  CHECK(!env.ed->workspace().isMember(env.dir / "Lib" / "detail" / "nope.cpp"));
+  fs::permissions(proj, fs::perms::owner_write, fs::perm_options::add, ec);
+}
+
+TEST(vstree_a_project_file_with_unsaved_changes_refuses_the_new_file) {
+  Env env;
+  env.open_();
+  env.revealAll();
+  const fs::path proj = env.dir / "Lib" / "Lib.vcxproj";
+  REQUIRE(env.ed->gotoLocation({proj, Position{}}, nullptr));
+  env.bench->sync();
+  env.ed->insertText(" ");
+  REQUIRE(env.ed->currentDocument()->dirty());
+  env.tree().select(env.nodeNamed("detail"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("held.cpp");
+  CHECK(contains(env.status(), "Save Lib.vcxproj first"));
+  CHECK(!fs::exists(env.dir / "Lib" / "detail" / "held.cpp"));
+}
+
+TEST(vstree_new_file_names_that_msbuild_must_escape_are_refused_in_a_project) {
+  Env env;
+  env.open_();
+  env.revealAll();
+  env.tree().select(env.nodeNamed("detail"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.type("a;b.cpp");
+  CHECK(env.popupHas("MSBuild special"));
+  env.key(Key::Enter);
+  CHECK(!fs::exists(env.dir / "Lib" / "detail" / "a;b.cpp"));
+  env.key(Key::Escape);
+}
+
+TEST(vstree_an_sdk_style_project_needs_no_edit_and_an_old_style_one_is_not_edited) {
+  Env env;
+  env.close();
+  std::string sln = slurp(env.dir / "Explorer.sln");
+  const size_t at = sln.find("Global\n");
+  const char* cs = "{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}";
+  sln.insert(at, std::string("Project(\"") + cs +
+                     "\") = \"Tool\", \"Tool\\Tool.csproj\", \"{AAAAAAAA-0000-0000-0000-0000000000B1}\"\nEndProject\n" +
+                     "Project(\"" + cs +
+                     "\") = \"Old\", \"Old\\Old.csproj\", \"{AAAAAAAA-0000-0000-0000-0000000000B2}\"\nEndProject\n");
+  spit(env.dir / "Explorer.sln", sln);
+  const std::string sdk = "<Project Sdk=\"Microsoft.NET.Sdk\">\n  <PropertyGroup />\n</Project>\n";
+  const std::string old =
+      "<Project ToolsVersion=\"15.0\">\n  <ItemGroup>\n    <Compile Include=\"a.cs\" />\n  </ItemGroup>\n</Project>\n";
+  spit(env.dir / "Tool" / "Tool.csproj", sdk);
+  spit(env.dir / "Old" / "Old.csproj", old);
+  spit(env.dir / "Old" / "a.cs", "class A {}\n");
+  env.open();
+  env.open_();
+  env.revealAll();
+  env.tree().select(env.nodeNamed("Tool"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("B.cs");
+  CHECK(fs::exists(env.dir / "Tool" / "B.cs"));
+  CHECK(contains(env.status(), "not added to Tool.csproj: an SDK-style project includes its files by glob"));
+  env.tree().select(env.nodeNamed("Old"));
+  env.app->runCommand("Explorer.NewFile");
+  REQUIRE(env.popup() != nullptr);
+  env.answer("C.cs");
+  CHECK(fs::exists(env.dir / "Old" / "C.cs"));
+  CHECK(contains(env.status(), "not added to Old.csproj: only .vcxproj projects are edited"));
+  CHECK_EQ(slurp(env.dir / "Tool" / "Tool.csproj"), sdk);
+  CHECK_EQ(slurp(env.dir / "Old" / "Old.csproj"), old);
 }
 
 TEST(vstree_new_file_refuses_a_name_that_exists_or_is_not_a_name) {

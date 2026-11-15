@@ -1827,6 +1827,19 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
   result is swapped in on the pump thread, files that left are dropped from the index and history, new ones are indexed,
   and `extraWatchRoots()` is applied to the watcher. Windows paths: all comparisons go through `pathKey` /
   component-wise compares with a `PathStyle`; `parseFolderRule` is unit-tested with `\`, drive letters and mixed case.
+* **Adding a file to a project (PROJ-ADD; `src/workspace/ProjectEdit.*`, namespace `tf::projedit`).** The explorer's New File
+  in a solution workspace plans the project edit before it creates anything: `planAdd` reads the `.vcxproj` (and, for a
+  filter node, its `.vcxproj.filters`) and returns the new texts; `unwritable` lists the files that cannot be written (the
+  explorer then runs `VcsManager::checkOut` for each when the provider is Perforce, else refuses); `commit` re-checks, writes
+  the project and then the filters file and restores the first when the second fails. The editor works on the TEXT: a
+  tolerant element scanner (`scan`: positions only, comments / CDATA / PIs skipped) finds the plain `ItemGroup`s, the
+  new `<Type Include="..." />` (or the item with `<Filter>`) is inserted with the file's own end-of-line (majority) and
+  indentation, and every other byte, the BOM included, is untouched; there is no XML writer, so no fuzz target (the scanner
+  is not a parser the product trusts: a failed scan refuses the edit). `classify` limits it to `.vcxproj`
+  (`Support::Edit`); an SDK-style project (`Sdk=` on `<Project>`) is `NoEditNeeded`, everything else `Unsupported`.
+  `Workspace::noteProjectItemAdded` adds the key to the shared project-item set and then behaves like `noteFileAdded`, so
+  the new file is a workspace file at once; the file watcher's project-change event re-reads the solution later and finds the
+  same file (`adoptScan` reports nothing added). Rules and sources: docs/VS_BEHAVIOUR.md section 20.
 * **Files outside the root.** The fast index store (`FastIndexStore`) already keys every entry by its absolute generic
   path, so outside files need no format change (`kFormatVersion` stays 3; `slnfiles_store_keys_files_outside_...`
   round-trips drive-letter, UNC and case-variant paths). `FileWatcher` gained extra roots (`addRoot(dir, recursive)` /

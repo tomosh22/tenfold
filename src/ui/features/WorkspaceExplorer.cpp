@@ -17,6 +17,7 @@
 #include "semantic/CompileCommands.h"
 #include "semantic/XmlLite.h"
 #include "ui/features/VcsState.h"
+#include "workspace/ProjectEdit.h"
 
 namespace tf::ui {
 
@@ -1050,27 +1051,163 @@ void WorkspaceExplorer::afterChange(const fs::path& select) {
   view_->markDirty();
 }
 
+bool WorkspaceExplorer::projectTarget(int node, ProjectTarget* out) const {
+  if (!solutionMode_ || folderView_) return false;
+  const TreeModel& m = view_->model();
+  std::vector<std::string> filter;  // innermost first
+  for (int n = node; n >= 0 && static_cast<size_t>(n) < m.size(); n = m.node(n).parent) {
+    const TreeNode& nd = m.node(n);
+    if (nd.kind == TreeKind::Project) {
+      if (nd.path.empty()) return false;
+      out->project = pathFromUtf8(nd.path);
+      std::string f;
+      for (auto it = filter.rbegin(); it != filter.rend(); ++it) f += (f.empty() ? "" : "\\") + *it;
+      out->filter = f;
+      if (projedit::classify(out->project, &out->note) == projedit::Support::Edit) out->note.clear();
+      else if (out->note.empty()) out->note = "not edited";
+      return true;
+    }
+    if (nd.kind == TreeKind::Folder) {
+      if (nd.path.empty()) filter.push_back(nd.name);  // a filter of the .filters file
+      else filter.clear();                             // a folder on disk (Show All Files): no filter
+    } else if (nd.kind != TreeKind::File) {
+      return false;  // a solution, a solution folder, the root
+    }
+  }
+  return false;
+}
+
+// Creates the empty file; with a project target that is edited, the project (and filters) file is changed first
+// (planned, made writable, committed) and a failure leaves nothing behind.
+void WorkspaceExplorer::createFile(const fs::path& file, const ProjectTarget* target) {
+  const std::string name = pathUtf8(file.filename());
+  auto plain = [this, file, name](const std::string& note, bool inProject) {
+    std::ofstream out(file, std::ios::binary);
+    if (!out) {
+      say("Cannot create " + name);
+      return false;
+    }
+    out.close();
+    Workspace& ws = editor_.workspace();
+    if (inProject) ws.noteProjectItemAdded(file);
+    else ws.noteFileAdded(file);
+    afterChange(file);
+    if (!note.empty()) say("Created " + name + " " + note);
+    else if (!inProject && view_->model().findPath(pathKeyUtf8(file)) < 0)
+      say("Created " + name + " (it is in no project: turn on Show All Files to see it)");
+    else say("Created " + name);
+    return true;
+  };
+  if (!target) {
+    plain({}, false);
+    return;
+  }
+  const std::string proj = pathUtf8(target->project.filename());
+  if (!target->note.empty()) {
+    plain("(not added to " + proj + ": " + target->note + ")", false);
+    return;
+  }
+  auto plan = std::make_shared<projedit::AddPlan>();
+  std::string err;
+  if (!projedit::planAdd({target->project, file, target->filter}, *plan, &err)) {
+    say("Cannot create " + name + ": cannot add it to " + proj + " (" + err + ")");
+    return;
+  }
+  for (const fs::path& f : plan->files()) {
+    const Document* d = editor_.document(f);
+    if (d && d->dirty()) {
+      say("Save " + pathUtf8(f.filename()) + " first: it has unsaved changes (" + name + " was not created)");
+      return;
+    }
+  }
+  // Commits once the project files can be written: now, or after the Perforce check-out.
+  auto finish = [this, plan, file, name, proj, target = *target]() {
+    std::error_code ec;
+    if (fs::exists(fs::symlink_status(file, ec))) {  // somebody made it meanwhile
+      say("Cannot create " + name + ": it already exists");
+      return;
+    }
+    std::ofstream out(file, std::ios::binary);
+    if (!out) {
+      say("Cannot create " + name);
+      return;
+    }
+    out.close();
+    // Already listed (a wildcard item such as gen\*.cpp covers it): the project stays as it is.
+    if (plan->editProject)
+      for (const ProjectFile& f : readProject(target.project).files)
+        if (pathsEqual(pathFromUtf8(f.path), file)) {
+          plan->editProject = plan->editFilters = false;
+          break;
+        }
+    std::string cerr;
+    if (!projedit::commit(*plan, &cerr)) {
+      std::error_code rc;
+      fs::remove(file, rc);
+      say("Cannot create " + name + ": " + cerr + " (nothing was changed)");
+      return;
+    }
+    editor_.workspace().noteProjectItemAdded(file);
+    afterChange(file);
+    say("Created " + name +
+        (plan->editProject || plan->editFilters ? " and added it to " + proj : " (" + proj + " lists it)") +
+        (target.filter.empty() ? std::string() : " in the filter " + target.filter));
+  };
+  const std::vector<fs::path> ro = projedit::unwritable(*plan);
+  if (ro.empty()) {
+    finish();
+    return;
+  }
+  const bool p4 = editor_.vcs().active() && editor_.vcs().providerName() == "perforce";
+  if (!p4) {
+    say("Cannot create " + name + ": " + pathUtf8(ro[0].filename()) + " is read-only (check it out first)");
+    return;
+  }
+  // Perforce: `p4 edit` each, in turn (off the UI thread), then re-test.
+  auto step = std::make_shared<std::function<void(size_t)>>();
+  std::weak_ptr<bool> alive = alive_;
+  std::weak_ptr<std::function<void(size_t)>> self = step;  // the check-out callback owns the step: no cycle
+  *step = [this, ro, plan, name, alive, finish, self](size_t i) {
+    if (alive.expired()) return;
+    if (i < ro.size()) {
+      editor_.vcs().checkOut(ro[i], [this, ro, i, name, alive, keep = self.lock()](bool ok, const std::string& why) {
+        if (alive.expired()) return;
+        if (!ok) {
+          say("Cannot create " + name + ": cannot check out " + pathUtf8(ro[i].filename()) + " (" + why + ")");
+          return;
+        }
+        (*keep)(i + 1);
+      });
+      return;
+    }
+    const std::vector<fs::path> still = projedit::unwritable(*plan);
+    if (!still.empty()) {
+      say("Cannot create " + name + ": " + pathUtf8(still[0].filename()) + " is still read-only after the check-out");
+      return;
+    }
+    finish();
+  };
+  (*step)(0);
+}
+
 bool WorkspaceExplorer::newFile(int node) {
   const fs::path dir = dirFor(node);
   if (dir.empty() || !prompt_) {
     say("New File: select a folder or a file in the tree first");
     return false;
   }
+  ProjectTarget target;
+  const bool inProject = projectTarget(node, &target);
+  const bool edits = inProject && target.note.empty();
   prompt_->askName(
-      "New file name", "Create", "", [this, dir](const std::string& n) { return nameProblem(n, dir, {}); },
-      [this, dir](const std::string& name) {
-        const fs::path file = dir / pathFromUtf8(name);
-        std::ofstream out(file, std::ios::binary);
-        if (!out) {
-          say("Cannot create " + name);
-          return;
-        }
-        out.close();
-        editor_.workspace().noteFileAdded(file);
-        afterChange(file);
-        if (view_->model().findPath(pathKeyUtf8(file)) < 0)
-          say("Created " + name + " (it is in no project: turn on Show All Files to see it)");
-        else say("Created " + name);
+      "New file name", "Create", "",
+      [this, dir, edits](const std::string& n) {
+        std::string p = nameProblem(n, dir, {});
+        if (p.empty() && edits) p = projedit::nameProblem(n);
+        return p;
+      },
+      [this, dir, target, inProject](const std::string& name) {
+        createFile(dir / pathFromUtf8(name), inProject ? &target : nullptr);
       });
   return true;
 }

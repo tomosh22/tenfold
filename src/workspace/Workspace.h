@@ -158,6 +158,10 @@ class Workspace {
   // Lists `dir` from disk now and notes every file in it (returns the ones that were new). For the editor's own,
   // synchronous file operations (explorer move / copy of a folder). Not for file-watcher events: those are handled
   // late, and a late listing re-adds files that were already deleted again (the churn race fixed in CI-W4).
+  // A file the editor has just added to a project (explorer New File, PROJ-ADD): a workspace file of a solution
+  // workspace at once, before the project is re-read from disk (which will find the same file). Like noteFileAdded
+  // for any other kind.
+  bool noteProjectItemAdded(const std::filesystem::path& file);
   std::vector<std::filesystem::path> noteTreeAdded(const std::filesystem::path& dir);
   bool noteFileRemoved(const std::filesystem::path& file);
   bool noteFileRenamed(const std::filesystem::path& from, const std::filesystem::path& to);
