@@ -1,10 +1,12 @@
 #pragma once
 #include <filesystem>
 #include <functional>
+#include <memory>
 #include <set>
 #include <string>
 #include <vector>
 
+#include "core/PathUtil.h"
 #include "semantic/CompileCommands.h"
 
 namespace tf {
@@ -13,8 +15,19 @@ namespace tf {
 // 10x-style: point it at a folder (or a .sln / CMakeLists.txt inside one) and
 // it scans everything, honouring ignore rules. Settings live in
 // <root>/.tenfold/workspace.json and are optional.
+//
+// Two kinds (SLN-FILES, user decision of 2026-11-15; docs/ARCHITECTURE.md "Workspace kinds"):
+//   * a folder workspace has every file under the root (the rules above);
+//   * a solution workspace (a solution is chosen or found in the root, and no compile_commands.json / CMake project
+//     takes precedence, as for the compile flags) has exactly the files of its projects wherever they are on disk
+//     (every item of every project in all configurations, the project files, solution items, shared items) plus the
+//     files of the folders listed in settings().additionalWorkspaceFolders, like 10x's Visual Studio sln workspace.
+//     A loose file in the solution folder that no project lists is not a workspace file (it stays visible to the
+//     explorer's folder view and "Show All Files": explorerFiles()).
 class Workspace {
  public:
+  enum class Kind { Folder, Solution };
+
   struct Settings {
     std::vector<std::string> sourceExtensions = {".cpp", ".cc", ".cxx", ".c", ".cu", ".mm", ".m"};
     std::vector<std::string> headerExtensions = {".h",   ".hpp", ".hh",  ".hxx", ".inl", ".ipp",
@@ -67,9 +80,19 @@ class Workspace {
     // Build and the Visual Studio debugger all use it even when the folder holds several. Empty: every root-level
     // .sln feeds the flags and the first drives the rest (the behaviour before the key existed).
     std::string solution;
+    // 10x's AdditionalWorkspaceFolders (workspace.json "additionalWorkspaceFolders", an array of strings or one comma
+    // separated string, and the spelling "AdditionalWorkspaceFolders"): extra folders of a SOLUTION workspace, as
+    // wildcard paths such as "MyFolder\\**\\*.*" (`**` = any depth, `*` / `?` within a name; relative paths are
+    // relative to the root, absolute ones are kept). A folder written without a wildcard means everything below it.
+    // Files take the folder rules of a folder workspace (ignored directories, the extension lists). Ignored by a
+    // folder workspace. See parseFolderRule().
+    std::vector<std::string> additionalWorkspaceFolders;
   };
 
   explicit Workspace(std::filesystem::path root);
+  ~Workspace();
+  Workspace(Workspace&&) noexcept;
+  Workspace& operator=(Workspace&&) noexcept;
 
   const std::filesystem::path& root() const { return root_; }
   std::filesystem::path cacheDir() const { return root_ / ".tenfold"; }
@@ -78,12 +101,51 @@ class Workspace {
   bool loadSettings(std::string* error = nullptr);
   bool saveSettings(std::string* error = nullptr) const;
 
-  // Enumerate files. Blocking; cheap enough for ~100k files.
+  // Enumerate files. Blocking; cheap enough for ~100k files (a solution workspace also reads every project: about
+  // 1 ms per project and configuration). Decides the kind.
   void scan(std::function<void(size_t)> progress = {});
+  Kind kind() const { return kind_; }
+  bool isSolutionWorkspace() const { return kind_ == Kind::Solution; }
+  // A workspace with this one's root and settings and no files: `scan()` it on a worker thread, then hand it to
+  // adoptScan() on the editor thread (the re-read after a project file changed must not block the UI).
+  Workspace scanCopy() const;
+  // Takes the file lists, kind and watch roots of `scanned` (a scanCopy() that was scanned); bumps revision() when
+  // anything differs from the current lists. Returns the files that were listed before and are not now, and the
+  // ones that are new.
+  struct Changes {
+    std::vector<std::filesystem::path> removed, added;
+    bool any() const { return !removed.empty() || !added.empty(); }
+  };
+  Changes adoptScan(Workspace&& scanned);
   const std::vector<std::filesystem::path>& sourceFiles() const { return sources_; }
   const std::vector<std::filesystem::path>& headerFiles() const { return headers_; }
   const std::vector<std::filesystem::path>& otherFiles() const { return others_; }
   std::vector<std::filesystem::path> codeFiles() const;  // sources + headers
+  // Every workspace file (sources, headers, others): in a solution workspace the files of the projects and additional
+  // folders, wherever they are.
+  std::vector<std::filesystem::path> allFiles() const;
+  // What the explorer's folder view and Show All Files list: the workspace files plus, in a solution workspace, the
+  // loose files below the root (found by the folder rules, listed by no project). Outside-root files may be in it.
+  std::vector<std::filesystem::path> explorerFiles() const;
+  // Safe from any thread. Whether the fast index should hold `file`: a folder workspace says yes (the caller filters by
+  // extension); a solution workspace says yes for a file of a project (listed or not yet created) and for one an
+  // additional folder rule covers.
+  bool isMember(const std::filesystem::path& file) const;
+  // Safe from any thread: path keys (pathKeyUtf8 of directories, no trailing slash) of the root and of every directory
+  // that holds workspace files outside it. A file whose key starts with one of them plus '/' is "the workspace's own"
+  // (symbol search lists those first).
+  std::vector<std::string> memberRootKeys() const;
+  // Editor thread. True when a change to `file` can change the file list: the solution, a project, its .filters, a
+  // .props / .targets / .vcxitems one of them imports, Directory.Build.*. False for a folder workspace.
+  bool isSolutionInput(const std::filesystem::path& file) const;
+  // Directories the file watcher must watch besides the root: the directory of each project outside the root
+  // (recursive), the other directories that hold workspace files or inputs outside the root, and the additional
+  // folders. No directory is below another root or below the root (recursive ones cover them).
+  struct WatchRoot {
+    std::filesystem::path dir;
+    bool recursive = true;
+  };
+  const std::vector<WatchRoot>& extraWatchRoots() const { return watchRoots_; }
   // Bumped by every scan() and by every incremental change that altered a list; the workspace explorer polls it.
   uint64_t revision() const { return revision_; }
   size_t fileCount() const { return sources_.size() + headers_.size() + others_.size(); }
@@ -128,13 +190,43 @@ class Workspace {
   bool hasCMake() const;
 
  private:
-  void walkTree(const std::filesystem::path& start,
-                const std::function<void(const std::filesystem::path&)>& onFile) const;
+  struct Shared;  // what other threads read: membership keys and folder rules
+  void walkTree(const std::filesystem::path& start, const std::function<void(const std::filesystem::path&)>& onFile,
+                size_t maxDepth = 256) const;
+  void scanSolution(const std::function<void(size_t)>& progress);
+  Kind detectKind() const;
+  void listFile(const std::filesystem::path& p, bool anyExtension, bool* added = nullptr);
+  void publishShared();
   std::filesystem::path root_;
   Settings settings_;
+  Kind kind_ = Kind::Folder;
   std::vector<std::filesystem::path> sources_, headers_, others_;
+  std::vector<std::filesystem::path> loose_;  // solution workspace: files below the root that no project lists
+  std::vector<std::string> expectedKeys_;     // solution workspace: pathKeys of project items that do not exist (yet)
+  std::set<std::string> inputKeys_;
+  std::vector<WatchRoot> watchRoots_;
+  std::vector<std::string> memberRootKeys_;
+  std::unique_ptr<Shared> shared_;
   uint64_t revision_ = 0;
 };
+
+// One entry of AdditionalWorkspaceFolders (10x: "wildcard paths, for example MyFolder\\**\\*.*; 10x will look for
+// MyFolder in the workspace root; \\**\\ means recursively add files"), parsed. Pure; `style` selects the case
+// rule of the name matching (Windows: case-insensitive) and which absolute spellings count.
+struct FolderRule {
+  std::filesystem::path base;     // the directory the literal part names, absolute
+  std::vector<std::string> rest;  // the pattern below it: "**", names with * and ?; the last is the file-name pattern
+  bool recursive = false;         // contains "**": everything below `base` may match
+  bool valid = false;
+  // True when `file` (absolute, normal) is covered: below `base`, its name path matches `rest`, and no directory on
+  // the way is one of the ignored names.
+  bool matches(const std::filesystem::path& file, const std::function<bool(const std::string&)>& ignoredDirName,
+               PathStyle style = nativePathStyle()) const;
+};
+FolderRule parseFolderRule(const std::string& entry, const std::filesystem::path& root,
+                           PathStyle style = nativePathStyle());
+// The entries of a comma separated AdditionalWorkspaceFolders value (blanks trimmed, empty ones dropped).
+std::vector<std::string> splitFolderList(const std::string& commaSeparated);
 
 // True for a Visual Studio solution file name: .sln or .slnx (case-insensitive).
 bool isSolutionFile(const std::filesystem::path& p);

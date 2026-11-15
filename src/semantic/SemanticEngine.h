@@ -162,6 +162,16 @@ class SemanticEngine {
     // Test hook: pretend no MSVC toolchain was found even where one is (forces the host standard library fallback of
     // .sln mode); the product decides by itself (off on Windows).
     bool forceHostStdlibFallback = false;
+    // Solution workspaces (SLN-FILES): headers that workspace files #include but no project lists (third-party and
+    // library headers, inside or outside the solution folder) are indexed for the fast tier so its answers stay
+    // exact, but they are not workspace files (Open File, find in files and symbol search never list them). Found
+    // through the #include directives of the files already indexed, resolved with each file's compile command
+    // (the includer's directory, then the command's include directories); the Windows SDK, the MSVC toolchain and the
+    // system header directories of the usual platforms are left out (isSystemHeaderPath). Bounded: nearest headers
+    // first, at most this many files, this many bytes in all, and files over maxIncludeFileBytes are skipped.
+    size_t maxIncludeIndexFiles = 20000;
+    size_t maxIncludeIndexBytes = size_t{256} << 20;
+    size_t maxIncludeFileBytes = size_t{4} << 20;
   };
 
   // Lifecycle of the clangd child as the status bar shows it.
@@ -193,6 +203,8 @@ class SemanticEngine {
     double fastSeconds = 0;
     size_t fastRelexed = 0;  // files lexed at startup (the rest came from the persisted store)
     size_t fastReused = 0;
+    size_t fastIncludeOnly =
+        0;  // solution workspace: indexed headers that are no workspace file (Options::maxIncludeIndexFiles)
     std::string compdbSource;  // existing | cmake | vcxproj | heuristic | none
     std::filesystem::path compdbPath;
     size_t compdbEntries = 0;
@@ -213,6 +225,8 @@ class SemanticEngine {
   void stop();
   Status status() const;
   bool waitForFastIndex(int timeoutMs) const;
+  bool waitForFastBase(
+      int timeoutMs) const;  // the workspace files are indexed (a solution's included headers may follow)
   // True once clangd's background index has finished at least one pass and then stayed idle for `quietMs`. The bare
   // "progress end" is not a barrier: clangd announces it before the merged index it queries is rebuilt and may start
   // another pass right after (more files enqueued, shards loaded lazily), so a query made at that instant sees a
@@ -586,7 +600,19 @@ class SemanticEngine {
 
   std::thread indexThread_;
   std::atomic<bool> fastDone_{false};
+  std::atomic<bool> fastBaseDone_{false};  // the workspace files are in; included headers (solution workspace) follow
+  std::atomic<bool> indexStop_{false};     // stop(): the index thread leaves its waits and walks
+  std::atomic<bool> compilePrepared_{false};  // prepareCompileCommands has run once (the commands are published)
   FastIndex::Stats fastStats_;
+  // Solution workspace: the persisted entries (kept until the included headers were looked up) and the headers indexed
+  // only because a workspace file includes them (key -> path; guarded by closureMu_).
+  std::vector<std::shared_ptr<const FileSymbols>> storeCache_;
+  mutable std::mutex closureMu_;  // guards includeOnly_ and storeCache_
+  std::mutex closureRunMu_;       // one indexIncludeClosure at a time
+  std::map<std::string, std::filesystem::path> includeOnly_;
+  size_t includeRelexed_ = 0;
+  // Indexes the headers the indexed files include (see Options::maxIncludeIndexFiles). Thread-safe; one run at a time.
+  void indexIncludeClosure();
   std::mutex saveMu_;  // serialises saves and guards saveRun_/savedGen_
   std::condition_variable saveCv_;
   bool saveRun_ = false;

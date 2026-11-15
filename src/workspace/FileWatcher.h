@@ -65,6 +65,16 @@ class FileWatcher {
   // the folder holding compile_commands.json. Linux only (no-op elsewhere); thread-safe.
   void addDirectory(const std::filesystem::path& dir);
 
+  // Extra roots (SLN-FILES): directories outside the main root that hold workspace files (the projects of a solution
+  // in another folder, "additional workspace folders"). `recursive` watches everything below `dir` (minus what
+  // ignoreFn excludes), otherwise only `dir` itself. Callable before start() (taken up by it) and while running (taken
+  // up by the watcher thread within one wake-up; the files already in the directory produce no events). Thread-safe.
+  // The caller keeps the set free of nesting (a root below another root or below the main root is redundant, and
+  // removing one would also drop the watches the outer root shares). Windows watches at most 62 roots in all.
+  void addRoot(const std::filesystem::path& dir, bool recursive);
+  void removeRoot(const std::filesystem::path& dir);
+  size_t rootCount() const;  // extra roots currently requested (including ones not yet taken up)
+
   // Backend capabilities (valid while running). The polling backend is not
   // event driven (latency is pollMs + debounce) and cannot pair renames: a
   // rename is seen as Deleted(old) + Created(new), and directory events are

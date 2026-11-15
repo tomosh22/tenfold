@@ -75,6 +75,11 @@ struct SearchInput {
   std::map<std::string, std::string> overrides;
 };
 
+// Where globs and SearchInput::overrides see `file`: its path relative to `root` in '/' form ("../Engine/a.cpp" for a
+// file outside the root: the files of a solution workspace's projects), the absolute path when no relative one exists
+// (another drive). Not case folded: overrides keys go through tf::pathKey.
+std::string searchRelPath(const std::filesystem::path& root, const std::filesystem::path& file);
+
 using SearchBatchFn = std::function<void(std::vector<SearchMatch>&&)>;
 using SearchDoneFn = std::function<void(const SearchSummary&)>;
 

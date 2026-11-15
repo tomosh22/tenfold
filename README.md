@@ -49,7 +49,7 @@ still works in approximate mode.
 ```sh
 cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
 ninja -C build
-./build/tenfold-tests            # engine tests, including clangd integration (756 on Linux)
+./build/tenfold-tests            # engine tests, including clangd integration (769 on Linux)
 ./build/tenfold-corpus-tests     # the stress corpora against the real engine and clangd (3 tests; not part of ctest)
 ```
 

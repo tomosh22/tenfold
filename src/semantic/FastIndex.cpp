@@ -1320,8 +1320,18 @@ void FastIndex::addLocked(std::shared_ptr<const FileSymbols> fs) {
   }
   symbolCount_ += fs->symbols.size();
   fileInfo_[fs.get()].seq = ++nextSeq_;
+  if (!hiddenKeys_.empty() && hiddenKeys_.count(key)) hidden_.insert(fs.get());
   files_[key] = std::move(fs);
   ++generation_;
+}
+
+void FastIndex::setSearchHidden(std::unordered_set<std::string> keys) {
+  std::unique_lock<std::shared_mutex> lk(mu_);
+  hiddenKeys_ = std::move(keys);
+  hidden_.clear();
+  if (hiddenKeys_.empty()) return;
+  for (auto& [key, fs] : files_)
+    if (hiddenKeys_.count(key)) hidden_.insert(fs.get());
 }
 
 void FastIndex::removeLocked(const std::string& key) {
@@ -1339,6 +1349,7 @@ void FastIndex::removeLocked(const std::string& key) {
   }
   symbolCount_ -= old->symbols.size();
   fileInfo_.erase(old.get());
+  hidden_.erase(old.get());
   {
     auto bb = byBase_.find(baseKey(old->file));
     if (bb != byBase_.end()) {
@@ -1480,6 +1491,7 @@ void FastIndex::clear() {
   std::unique_lock<std::shared_mutex> lk(mu_);
   files_.clear();
   fileInfo_.clear();
+  hidden_.clear();
   byName_.clear();
   byBase_.clear();
   ++reachGen_;
@@ -1976,12 +1988,14 @@ std::vector<FastIndex::Match> FastIndex::search(std::string_view query, size_t l
           const auto& refs = node.second;
           for (size_t j = 0; j < refs.size(); ++j) {
             const Ref& r = refs[j];
+            if (!hidden_.empty() && hidden_.count(r.file.get())) continue;
             consider({s + (r.file->symbols[r.index].definition ? 5 : 0), r.index, j, &node.first, &r.file});
           }
         }
       } else {
         const size_t end = std::min(files.size(), (b + 1) * kFilesPerBlock);
         for (size_t f = b * kFilesPerBlock; f < end; ++f) {
+          if (!hidden_.empty() && hidden_.count(files[f].file.get())) continue;
           const auto& syms = files[f].file->symbols;
           const auto& masks = files[f].info->masks;
           for (size_t i = 0; i < syms.size(); ++i) {

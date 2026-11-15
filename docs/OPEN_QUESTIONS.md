@@ -55,6 +55,29 @@ decided by the user). Each has a default we implement until answered.
   zip that does not register for `.sln` / `.slnx` (it would take them from Visual Studio); use *Open with > Choose another
   app*, a shortcut or the command line (USER_GUIDE). The possible opt-in shell verb noted under the 2026-11-14 decisions
   is therefore **not planned**; nothing is built for it.
+* **What a solution workspace contains (SLN-FILES).** "A solution workspace contains exactly the files of its projects
+  (wherever they are on disk, e.g. `..\Engine\Engine.vcxproj`'s files), plus any folders the user lists in an 'additional
+  workspace folders' setting, as 10x's 'Visual Studio sln workspace' does. A plain folder workspace is unchanged (all
+  files under the folder)." Implemented (VS_BEHAVIOUR section 19, USER_GUIDE "Workspace kinds", ARCHITECTURE "Workspace
+  kinds"). **This answers SLN-OPEN item 7** (files of projects outside the solution folder): they are workspace files
+  now; Open File, find in files, symbol search, the fast index and the file watcher cover them.
+  * Sources: 10x Workspaces.htm ("3 types of workspace", "Visual Studio sln Workspace"), Settings.htm
+    (`AdditionalWorkspaceFolders`: "Comma separated list of extra folders to add to the workspace (only for sln
+    workspaces). Paths should be wildcard paths. For example MyFolder\**\*.* 10x will look for MyFolder in the workspace
+    root. \**\ means recursively add files."), versions.htm (1.0.43 "Added AdditionalWorkspaceFolders setting for adding
+    custom folders to sln workspaces", "reload sln workspace when .filters files change", "Fixed slnx projects in folders
+    not adding files to the workspace", "fixed 'show all files' breaking if set on sln folder projects", `.slnf`).
+  * **Decisions where 10x / Visual Studio were silent** (VS_BEHAVIOUR section 19, checklist V33-V38): the setting lives
+    in `.tenfold/workspace.json` as `additionalWorkspaceFolders` (array, or 10x's comma separated string, also under
+    the spelling `AdditionalWorkspaceFolders`); a folder entry without a wildcard means "everything below it"; files
+    from additional folders follow the folder-workspace rules (ignored directories, extension lists) while project
+    items are listed whatever their extension; the project files are listed, the solution file, `.filters` files and
+    property sheets are not (a change to any of them re-reads the list, as 10x does for `.filters`); the solution
+    workspace kind follows the compile-flag precedence (a user `compile_commands.json` or a CMake project keeps a
+    folder workspace); headers that workspace files include but no project lists are indexed for the fast tier only
+    (capped; never listed). **Not done:** `.slnf` filtered solutions, SDK-style (`Microsoft.NET.Sdk`) default globs for
+    non-C++ projects (only items written in the project are listed), 10x's `Search.GlobalDirectories`, `ParserExcludeFilters`
+    and `AdditionalIncludePaths`, adding / removing files in the project from the explorer.
 
 ## User decisions of 2026-11-14
 
@@ -90,21 +113,9 @@ decided by the user). Each has a default we implement until answered.
     / `.slnx`, which would take them from Visual Studio. Use "Open with" or a shortcut (USER_GUIDE). An installer could offer
     an opt-in "Open with tenfold" shell verb (`HKCU\Software\Classes\SystemFileAssociations\.sln\shell\tenfold`) that
     does not change the default handler. Not built, and on 2026-11-15 the user said they do not want it for now.
-  * **Files of projects outside the solution folder (item 7), reported, not changed.** Today (pinned by the test
-    `slnopen_item7_projects_outside_the_solution_folder_today`): for `Game.sln` listing `..\Engine\Engine.vcxproj`, the
-    compile database includes the project's translation units (clangd gets flags for them), the Solution Explorer tree
-    lists the project and its items (it reads the `.vcxproj`) and double-click opens them. The workspace scan is folder
-    based, so those files are missing from Open File (Alt+Shift+O), find in files, symbol search / the fast index, the file
-    watcher (external edits are noticed only for open documents' own polling) and version-control status probing of the
-    scan. *Proposed design:* `Workspace::projectFiles()`, the items (`ClCompile`, `ClInclude`, `None`, `ResourceCompile`) of
-    every project of the chosen solution that lie outside the root, read with the existing `compdb::readSolution` project
-    reader (the UI's `readProject` moves to core), kept as a fourth file list beside sources / headers / others and returned
-    by `codeFiles()`; `scan()` fills it after the walk and `revision()` bumps on a solution or project change; the fast
-    index persists them under absolute keys (its store is keyed relative to the root today); the file watcher adds each
-    outside project directory; ignore rules do not apply to explicit project items; the folder-view explorer skips them
-    (the solution tree already has them); Perforce / Git roots are resolved per file. Not contained: it touches the scan,
-    the fast index store, the watcher, version control and four pickers, so it is a task of its own (about the size of
-    W9-FIX-vs). Needs your go-ahead.
+  * **Files of projects outside the solution folder (item 7): answered by the decision of 2026-11-15 above (SLN-FILES).**
+    What was proposed here (a fourth file list, absolute store keys, the watcher on each outside directory) is what was built,
+    on a wider rule: the workspace is the files of its projects.
 
 ## User decisions of 2026-11-08
 

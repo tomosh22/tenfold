@@ -9,6 +9,7 @@
 #include <mutex>
 #include <optional>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "app/Bookmarks.h"
@@ -593,6 +594,12 @@ class Editor {
   void handleFileEvent(const FileWatcher::Event& ev);  // pump thread
   void checkExternalChange(Document& doc);
   void rescanWorkspace();
+  // SLN-FILES. A solution workspace's file list follows its projects: a change to a solution, project, .filters or
+  // imported file (Workspace::isSolutionInput) re-reads them on a worker thread and swaps the lists in on the pump
+  // thread (files that left are dropped from the index, new ones are indexed, the watcher follows the new
+  // directories). Requests that arrive while one runs fold into one more run.
+  void refreshWorkspaceFiles();
+  void applyWatchRoots();  // the watcher's extra roots := Workspace::extraWatchRoots()
   // forceRestart: restart clangd even if the compile database stays where it is (its content changed).
   // `done` runs on the pump thread after the refresh that covers this request.
   void refreshBuildSystem(bool forceRestart = false, std::function<void()> done = {});
@@ -669,6 +676,9 @@ class Editor {
   int buildCursor_ = -1;                                       // index into buildMessages_ of the last jump
 
   std::unique_ptr<FileWatcher> watcher_;
+  std::vector<Workspace::WatchRoot> watchedExtra_;  // the extra roots handed to watcher_
+  bool fileRefreshRunning_ = false, fileRefreshAgain_ = false;
+  std::thread fileRefreshThread_;
   bool buildRefreshRunning_ = false, buildRefreshAgain_ = false, buildRefreshForce_ = false;
   std::vector<std::function<void()>> buildRefreshDone_;
   LineEndingsHandler inconsistentEndings_;

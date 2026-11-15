@@ -4,6 +4,9 @@
 #include <cstdlib>
 #include <fstream>
 #include <limits>
+#include <mutex>
+#include <shared_mutex>
+#include <unordered_set>
 
 #include "core/JsonUtil.h"
 #include "core/Log.h"
@@ -36,7 +39,155 @@ bool hasExt(const fs::path& p, const std::vector<std::string>& exts) {
   std::string e = lower(pathUtf8(p.extension()));
   return std::find(exts.begin(), exts.end(), e) != exts.end();
 }
+
+// The ignore rules of a folder workspace for a directory's name (Workspace::isIgnoredDir).
+bool ignoredDirName(const Workspace::Settings& st, const std::string& name) {
+  if (st.ignoreDirs.count(name)) return true;
+  const std::string ln = lower(name);
+  for (auto& n : st.ignoreDirNames)
+    if (ln == lower(n)) return true;
+  for (auto& pre : st.ignoreDirPrefixes)
+    if (!pre.empty() && ln.rfind(lower(pre), 0) == 0) return true;
+  return false;
+}
+
+std::string trimBlanks(const std::string& s) {
+  size_t a = 0, b = s.size();
+  while (a < b && std::isspace(static_cast<unsigned char>(s[a]))) ++a;
+  while (b > a && std::isspace(static_cast<unsigned char>(s[b - 1]))) --b;
+  return s.substr(a, b - a);
+}
+
+// '*' (any run) and '?' (one character) within one name; `icase` folds ASCII letters.
+bool globName(const std::string& pat, const std::string& name, bool icase) {
+  auto eq = [&](char a, char b) {
+    return icase ? std::tolower(static_cast<unsigned char>(a)) == std::tolower(static_cast<unsigned char>(b)) : a == b;
+  };
+  size_t p = 0, i = 0, star = std::string::npos, mark = 0;
+  while (i < name.size()) {
+    if (p < pat.size() && (pat[p] == '?' || eq(pat[p], name[i]))) {
+      ++p, ++i;
+    } else if (p < pat.size() && pat[p] == '*') {
+      star = p++;
+      mark = i;
+    } else if (star != std::string::npos) {
+      p = star + 1;
+      i = ++mark;
+    } else {
+      return false;
+    }
+  }
+  while (p < pat.size() && pat[p] == '*') ++p;
+  return p == pat.size();
+}
+
+bool matchSegments(const std::vector<std::string>& names, size_t i, const std::vector<std::string>& pats, size_t j,
+                   bool icase) {
+  if (j == pats.size()) return i == names.size();
+  if (pats[j] == "**") {  // zero or more directories; the last name is the file and is matched by what follows
+    for (size_t k = i; k < names.size(); ++k)
+      if (matchSegments(names, k, pats, j + 1, icase)) return true;
+    return false;
+  }
+  if (i >= names.size()) return false;
+  return globName(pats[j], names[i], icase) && matchSegments(names, i + 1, pats, j + 1, icase);
+}
+
+std::vector<std::string> components(const fs::path& p) {
+  std::vector<std::string> out;
+  for (const fs::path& c : p) {
+    std::string s = pathUtf8(c);
+    if (s.empty() || s == ".") continue;
+    out.push_back(std::move(s));
+  }
+  return out;
+}
+
+// Whether `dir` is `base` or below it (component-wise; Windows: case-insensitive).
+bool isUnder(const fs::path& dir, const fs::path& base, PathStyle style) {
+  const auto d = components(dir), b = components(base);
+  if (b.size() > d.size()) return false;
+  for (size_t i = 0; i < b.size(); ++i)
+    if (style == PathStyle::Windows ? lower(d[i]) != lower(b[i]) : d[i] != b[i]) return false;
+  return true;
+}
 }  // namespace
+
+std::vector<std::string> splitFolderList(const std::string& commaSeparated) {
+  std::vector<std::string> out;
+  std::string cur;
+  for (char c : commaSeparated + ",") {
+    if (c == ',') {
+      if (!trimBlanks(cur).empty()) out.push_back(trimBlanks(cur));
+      cur.clear();
+    } else {
+      cur += c;
+    }
+  }
+  return out;
+}
+
+FolderRule parseFolderRule(const std::string& entryIn, const fs::path& root, PathStyle style) {
+  (void)style;
+  FolderRule r;
+  std::string e = trimBlanks(entryIn);
+  if (e.empty()) return r;
+  std::replace(e.begin(), e.end(), '\\', '/');
+  const bool drive = e.size() >= 2 && std::isalpha(static_cast<unsigned char>(e[0])) && e[1] == ':';
+  const bool rooted = e[0] == '/';
+  std::vector<std::string> segs;
+  for (size_t pos = 0; pos <= e.size();) {
+    size_t j = e.find('/', pos);
+    if (j == std::string::npos) j = e.size();
+    if (j > pos) {
+      std::string seg = e.substr(pos, j - pos);
+      if (seg != ".") segs.push_back(std::move(seg));
+    }
+    pos = j + 1;
+  }
+  if (segs.empty()) return r;
+  size_t firstWild = segs.size();
+  for (size_t i = 0; i < segs.size(); ++i)
+    if (segs[i].find_first_of("*?") != std::string::npos) {
+      firstWild = i;
+      break;
+    }
+  std::string base = rooted ? (e.rfind("//", 0) == 0 ? "//" : "/") : std::string();
+  for (size_t i = 0; i < firstWild; ++i) {
+    if (i) base += '/';
+    base += segs[i];
+  }
+  if (drive && firstWild == 1) base += '/';  // "C:" alone would be the drive's current directory
+  r.rest.assign(segs.begin() + static_cast<std::ptrdiff_t>(firstWild), segs.end());
+  if (r.rest.empty()) r.rest.push_back("**");  // a folder written without a wildcard: everything below it
+  if (r.rest.back() == "**") r.rest.push_back("*");
+  for (std::string& seg : r.rest) {
+    if (seg == "*.*") seg = "*";  // Windows: every name, with or without a dot
+    if (seg == "**") r.recursive = true;
+  }
+  fs::path bp = pathFromUtf8(base);
+  if (!rooted && !drive) bp = root / bp;
+  bp = bp.lexically_normal();
+  if (!bp.has_filename()) bp = bp.parent_path();
+  r.base = std::move(bp);
+  r.valid = !r.base.empty();
+  return r;
+}
+
+bool FolderRule::matches(const fs::path& file, const std::function<bool(const std::string&)>& ignoredDirName,
+                         PathStyle style) const {
+  if (!valid) return false;
+  const auto f = components(file), b = components(base);
+  if (f.size() <= b.size()) return false;
+  const bool icase = style == PathStyle::Windows;
+  for (size_t i = 0; i < b.size(); ++i)
+    if (icase ? lower(f[i]) != lower(b[i]) : f[i] != b[i]) return false;
+  std::vector<std::string> names(f.begin() + static_cast<std::ptrdiff_t>(b.size()), f.end());
+  if (ignoredDirName)
+    for (size_t i = 0; i + 1 < names.size(); ++i)
+      if (ignoredDirName(names[i])) return false;
+  return matchSegments(names, 0, rest, 0, icase);
+}
 
 bool isSolutionFile(const fs::path& p) { return compdb::isSolutionFile(p); }
 
@@ -56,7 +207,21 @@ WorkspaceTarget resolveWorkspaceTarget(const fs::path& arg) {
   return t;
 }
 
-Workspace::Workspace(fs::path root) {
+struct Workspace::Shared {
+  mutable std::shared_mutex mu;
+  bool solution = false;
+  std::unordered_set<std::string>
+      keys;  // pathKey of every project item (listed or not yet created) and additional file
+  std::vector<FolderRule> rules;
+  Settings settings;  // the ignore rules the rules above were scanned with
+  std::vector<std::string> rootKeys;
+};
+
+Workspace::~Workspace() = default;
+Workspace::Workspace(Workspace&&) noexcept = default;
+Workspace& Workspace::operator=(Workspace&&) noexcept = default;
+
+Workspace::Workspace(fs::path root) : shared_(std::make_unique<Shared>()) {
   std::error_code ec;
   root_ = fs::weakly_canonical(root, ec);
   if (ec) root_ = fs::absolute(root);
@@ -85,6 +250,21 @@ bool Workspace::loadSettings(std::string* error) {
   };
   auto flag = [&](const char* k, bool def) { return j.contains(k) && j[k].is_boolean() ? j[k].get<bool>() : def; };
   settings_.solution = str("solution", settings_.solution);
+  for (const char* key : {"additionalWorkspaceFolders", "AdditionalWorkspaceFolders"}) {
+    if (!j.contains(key)) continue;
+    std::vector<std::string> entries;
+    if (j[key].is_string()) {
+      entries = splitFolderList(j[key].get<std::string>());
+    } else if (j[key].is_array()) {
+      for (const Json& e : j[key])
+        if (e.is_string())
+          for (std::string& one : splitFolderList(e.get<std::string>())) entries.push_back(std::move(one));
+    } else {
+      continue;
+    }
+    settings_.additionalWorkspaceFolders = std::move(entries);
+    break;
+  }
   getv("sourceExtensions", settings_.sourceExtensions);
   getv("headerExtensions", settings_.headerExtensions);
   getv("otherExtensions", settings_.otherExtensions);
@@ -168,6 +348,9 @@ bool Workspace::saveSettings(std::string* error) const {
   j["undoGroupPauseMs"] = settings_.undoGroupPauseMs;
   if (settings_.solution.empty()) j.erase("solution");
   else j["solution"] = settings_.solution;
+  j.erase("AdditionalWorkspaceFolders");  // 10x's spelling is read, ours is written
+  if (settings_.additionalWorkspaceFolders.empty()) j.erase("additionalWorkspaceFolders");
+  else j["additionalWorkspaceFolders"] = settings_.additionalWorkspaceFolders;
   std::error_code ec;
   fs::create_directories(cacheDir(), ec);
   // Write a temporary file next to it and rename over the target, so a crash never leaves a half-written file.
@@ -205,23 +388,15 @@ bool Workspace::isHeader(const fs::path& p) const {
   return hasExt(p, settings_.headerExtensions);
 }
 
-bool Workspace::isIgnoredDir(const fs::path& dir) const {
-  std::string name = pathUtf8(dir.filename());
-  if (settings_.ignoreDirs.count(name)) return true;
-  std::string ln = lower(name);
-  for (auto& n : settings_.ignoreDirNames)
-    if (ln == lower(n)) return true;
-  for (auto& pre : settings_.ignoreDirPrefixes)
-    if (!pre.empty() && ln.rfind(lower(pre), 0) == 0) return true;
-  return false;
-}
+bool Workspace::isIgnoredDir(const fs::path& dir) const { return ignoredDirName(settings_, pathUtf8(dir.filename())); }
 
 // One directory_iterator per directory instead of a single recursive_directory_iterator: when the recursive one
 // fails to descend (a path past MAX_PATH on Windows, a directory deleted mid-scan, ...) the MSVC STL empties its
 // stack, so the iterator becomes `end` and the rest of the tree is silently lost. Here a directory that cannot be
 // read costs only itself (and is logged).
-void Workspace::walkTree(const fs::path& start, const std::function<void(const fs::path&)>& onFile) const {
-  constexpr size_t kMaxDepth = 256;  // also ends symlink cycles when followSymlinks is on
+void Workspace::walkTree(const fs::path& start, const std::function<void(const fs::path&)>& onFile,
+                         size_t maxDepth) const {
+  const size_t kMaxDepth = std::min<size_t>(maxDepth, 256);  // also ends symlink cycles when followSymlinks is on
   std::vector<std::pair<fs::path, size_t>> stack;
   stack.emplace_back(start, 0);
   while (!stack.empty()) {
@@ -260,25 +435,274 @@ std::vector<fs::path> Workspace::noteTreeAdded(const fs::path& dir) {
   return added;
 }
 
+Workspace::Kind Workspace::detectKind() const {
+  if (solutionFiles().empty()) return Kind::Folder;
+  // The same precedence as the compile flags (SemanticEngine::prepareCompileCommands): a compile_commands.json of the
+  // user's (not the one tenfold generates in .tenfold) or a CMake project wins over a solution.
+  if (hasCMake() && settings_.runCMake) return Kind::Folder;
+  if (auto db = CompileDatabase::find(root_)) {
+    std::error_code ec;
+    if (db->parent_path() != fs::weakly_canonical(cacheDir(), ec)) return Kind::Folder;
+  }
+  return Kind::Solution;
+}
+
+void Workspace::listFile(const fs::path& p, bool anyExtension, bool* added) {
+  std::vector<fs::path>* list = nullptr;
+  if (isSource(p)) list = &sources_;
+  else if (isHeader(p)) list = &headers_;
+  else if (anyExtension || hasExt(p, settings_.otherExtensions)) list = &others_;
+  if (!list) {
+    if (added) *added = false;
+    return;
+  }
+  list->push_back(p);
+  if (added) *added = true;
+}
+
+void Workspace::publishShared() {
+  if (!shared_) shared_ = std::make_unique<Shared>();
+  std::unique_lock<std::shared_mutex> lk(shared_->mu);
+  shared_->solution = kind_ == Kind::Solution;
+  shared_->settings = settings_;
+  shared_->rootKeys = memberRootKeys_;
+  shared_->rules.clear();
+  shared_->keys.clear();
+  if (kind_ != Kind::Solution) return;
+  for (const std::string& e : settings_.additionalWorkspaceFolders) {
+    FolderRule r = parseFolderRule(e, root_);
+    if (r.valid) shared_->rules.push_back(std::move(r));
+  }
+  for (auto* list : {&sources_, &headers_, &others_})
+    for (const fs::path& f : *list) shared_->keys.insert(pathKey(f));
+  for (const std::string& k : expectedKeys_) shared_->keys.insert(k);
+}
+
+void Workspace::scanSolution(const std::function<void(size_t)>& progress) {
+  size_t n = 0;
+  auto tick = [&] {
+    if (progress && (++n % 1000) == 0) progress(n);
+  };
+  const PathStyle style = nativePathStyle();
+  // 1. The folder scan of the root: the files the explorer's folder view lists. Members are taken out below.
+  std::vector<fs::path> rootFiles;
+  walkTree(root_, [&](const fs::path& p) {
+    if (isSource(p) || isHeader(p) || hasExt(p, settings_.otherExtensions)) rootFiles.push_back(p);
+  });
+  // 2. The files of the projects of every solution.
+  std::set<std::string> member;
+  std::vector<fs::path> inputs, projectDirs;
+  std::vector<fs::path> declared;  // project items, in solution order
+  compdb::VcxprojOptions vo;
+  for (const fs::path& sln : solutionFiles()) {
+    compdb::SolutionFiles sf = compdb::solutionFiles(sln, vo);
+    for (fs::path& f : sf.files) declared.push_back(std::move(f));
+    for (fs::path& f : sf.inputs) inputs.push_back(std::move(f));
+    for (fs::path& d : sf.projectDirs) projectDirs.push_back(std::move(d));
+  }
+  for (const fs::path& f : declared) {
+    if (!member.insert(pathKey(f)).second) continue;
+    std::error_code ec;
+    if (fs::is_regular_file(f, ec)) {
+      listFile(f, true);
+      tick();
+    } else {
+      expectedKeys_.push_back(pathKey(f));
+    }
+  }
+  // 3. Additional workspace folders (10x AdditionalWorkspaceFolders): the folder rules, below the pattern's folder.
+  std::vector<FolderRule> rules;
+  for (const std::string& e : settings_.additionalWorkspaceFolders) {
+    FolderRule r = parseFolderRule(e, root_);
+    if (r.valid) rules.push_back(std::move(r));
+  }
+  const auto ignored = [this](const std::string& name) { return ignoredDirName(settings_, name); };
+  for (const FolderRule& r : rules) {
+    std::error_code ec;
+    if (!fs::is_directory(r.base, ec)) continue;
+    walkTree(
+        r.base,
+        [&](const fs::path& p) {
+          if (!(isSource(p) || isHeader(p) || hasExt(p, settings_.otherExtensions))) return;
+          if (!r.matches(p, ignored, style)) return;
+          if (!member.insert(pathKey(p)).second) return;
+          listFile(p, false);
+          tick();
+        },
+        r.recursive ? 256 : (r.rest.size() > 0 ? r.rest.size() - 1 : 0));
+  }
+  // 4. What is left of the folder scan is loose.
+  for (fs::path& p : rootFiles)
+    if (!member.count(pathKey(p))) loose_.push_back(std::move(p));
+  std::sort(loose_.begin(), loose_.end());
+  std::sort(expectedKeys_.begin(), expectedKeys_.end());
+  // 5. Files whose change re-reads the list, and where the watcher has to look.
+  for (const fs::path& f : inputs) inputKeys_.insert(pathKey(f));
+  std::vector<WatchRoot> cands;
+  for (const fs::path& d : projectDirs)
+    if (!isUnder(d, root_, style)) cands.push_back({d, true});
+  for (const FolderRule& r : rules)
+    if (!isUnder(r.base, root_, style)) cands.push_back({r.base, r.recursive || r.rest.size() > 1});
+  const std::string rootPrefix = pathKey(root_) + "/";
+  auto underRoot = [&](const fs::path& f) { return pathKey(f).compare(0, rootPrefix.size(), rootPrefix) == 0; };
+  std::set<std::string> outsideDirs;  // one candidate per directory
+  auto outsideDir = [&](const fs::path& f) {
+    if (underRoot(f)) return;
+    const fs::path d = f.parent_path();
+    if (outsideDirs.insert(pathKey(d)).second) cands.push_back({d, false});
+  };
+  for (auto* list : {&sources_, &headers_, &others_})
+    for (const fs::path& f : *list) outsideDir(f);
+  for (const fs::path& f : inputs) outsideDir(f);
+  std::stable_sort(cands.begin(), cands.end(), [](const WatchRoot& a, const WatchRoot& b) {
+    return std::distance(a.dir.begin(), a.dir.end()) < std::distance(b.dir.begin(), b.dir.end());
+  });
+  for (const WatchRoot& c : cands) {
+    bool covered = false;
+    for (WatchRoot& k : watchRoots_) {
+      if (pathKey(k.dir) == pathKey(c.dir)) {
+        k.recursive = k.recursive || c.recursive;
+        covered = true;
+        break;
+      }
+      if (k.recursive && isUnder(c.dir, k.dir, style)) {
+        covered = true;
+        break;
+      }
+    }
+    if (!covered) watchRoots_.push_back(c);
+  }
+  constexpr size_t kMaxWatchRoots = 256;  // a layout with more scattered directories is watched at its first 256
+  if (watchRoots_.size() > kMaxWatchRoots) {
+    Log::warn("workspace", "solution files in " + std::to_string(watchRoots_.size()) +
+                               " directories outside the root; " + "watching the first " +
+                               std::to_string(kMaxWatchRoots));
+    watchRoots_.resize(kMaxWatchRoots);
+  }
+  memberRootKeys_.push_back(pathKeyUtf8(root_));
+  for (const WatchRoot& w : watchRoots_) memberRootKeys_.push_back(pathKeyUtf8(w.dir));
+}
+
 void Workspace::scan(std::function<void(size_t)> progress) {
   sources_.clear();
   headers_.clear();
   others_.clear();
+  loose_.clear();
+  expectedKeys_.clear();
+  inputKeys_.clear();
+  watchRoots_.clear();
+  memberRootKeys_.clear();
   ++revision_;
-  size_t n = 0;
-  walkTree(root_, [&](const fs::path& p) {
-    if (isSource(p)) sources_.push_back(p);
-    else if (isHeader(p)) headers_.push_back(p);
-    else if (hasExt(p, settings_.otherExtensions)) others_.push_back(p);
-    else return;
-    if (progress && (++n % 1000) == 0) progress(n);
-  });
+  kind_ = detectKind();
+  if (kind_ == Kind::Solution) {
+    scanSolution(progress);
+  } else {
+    size_t n = 0;
+    walkTree(root_, [&](const fs::path& p) {
+      if (isSource(p)) sources_.push_back(p);
+      else if (isHeader(p)) headers_.push_back(p);
+      else if (hasExt(p, settings_.otherExtensions)) others_.push_back(p);
+      else return;
+      if (progress && (++n % 1000) == 0) progress(n);
+    });
+  }
   std::sort(sources_.begin(), sources_.end());
   std::sort(headers_.begin(), headers_.end());
   std::sort(others_.begin(), others_.end());
+  publishShared();
+}
+
+Workspace Workspace::scanCopy() const {
+  Workspace w(root_);
+  w.settings_ = settings_;
+  return w;
+}
+
+Workspace::Changes Workspace::adoptScan(Workspace&& scanned) {
+  Changes ch;
+  std::vector<fs::path> before = allFiles(), after = scanned.allFiles();
+  std::sort(before.begin(), before.end());
+  std::sort(after.begin(), after.end());
+  std::set_difference(before.begin(), before.end(), after.begin(), after.end(), std::back_inserter(ch.removed));
+  std::set_difference(after.begin(), after.end(), before.begin(), before.end(), std::back_inserter(ch.added));
+  kind_ = scanned.kind_;
+  sources_ = std::move(scanned.sources_);
+  headers_ = std::move(scanned.headers_);
+  others_ = std::move(scanned.others_);
+  loose_ = std::move(scanned.loose_);
+  expectedKeys_ = std::move(scanned.expectedKeys_);
+  inputKeys_ = std::move(scanned.inputKeys_);
+  watchRoots_ = std::move(scanned.watchRoots_);
+  memberRootKeys_ = std::move(scanned.memberRootKeys_);
+  publishShared();
+  ++revision_;
+  return ch;
+}
+
+namespace {
+bool eraseSorted(std::vector<fs::path>& list, const fs::path& p) {
+  auto it = std::lower_bound(list.begin(), list.end(), p);
+  if (it == list.end() || !(*it == p)) return false;
+  list.erase(it);
+  return true;
+}
+bool insertSorted(std::vector<fs::path>& list, const fs::path& p) {
+  auto it = std::lower_bound(list.begin(), list.end(), p);
+  if (it != list.end() && *it == p) return false;
+  list.insert(it, p);
+  return true;
+}
+}  // namespace
+
+bool Workspace::isMember(const fs::path& file) const {
+  if (!shared_) return true;
+  std::shared_lock<std::shared_mutex> lk(shared_->mu);
+  if (!shared_->solution) return true;
+  if (shared_->keys.count(pathKey(file))) return true;
+  const auto ignored = [this](const std::string& name) { return ignoredDirName(shared_->settings, name); };
+  for (const FolderRule& r : shared_->rules)
+    if (r.matches(file, ignored)) return true;
+  return false;
+}
+
+std::vector<std::string> Workspace::memberRootKeys() const {
+  if (!shared_) return {};
+  std::shared_lock<std::shared_mutex> lk(shared_->mu);
+  return shared_->rootKeys;
+}
+
+bool Workspace::isSolutionInput(const fs::path& file) const {
+  return kind_ == Kind::Solution && inputKeys_.count(pathKey(file)) != 0;
 }
 
 bool Workspace::noteFileAdded(const fs::path& p) {
+  if (kind_ == Kind::Solution) {
+    // A project item (whatever its extension), a file an additional folder covers (the extension lists apply), else
+    // a loose file below the root (the explorer's view; never a workspace file).
+    const bool classified = isSource(p) || isHeader(p) || hasExt(p, settings_.otherExtensions);
+    bool projectItem = false;
+    {
+      std::shared_lock<std::shared_mutex> lk(shared_->mu);
+      projectItem = shared_->keys.count(pathKey(p)) != 0;
+    }
+    if (projectItem || (classified && isMember(p))) {
+      std::vector<fs::path>* list = isSource(p) ? &sources_ : isHeader(p) ? &headers_ : &others_;
+      if (!insertSorted(*list, p)) return false;
+      {
+        std::unique_lock<std::shared_mutex> lk(shared_->mu);
+        shared_->keys.insert(pathKey(p));
+      }
+      eraseSorted(loose_, p);
+      ++revision_;
+      return true;
+    }
+    if (classified && isUnder(p, root_, nativePathStyle())) {
+      if (!insertSorted(loose_, p)) return false;
+      ++revision_;
+      return true;
+    }
+    return false;
+  }
   std::vector<fs::path>* list = nullptr;
   if (isSource(p)) list = &sources_;
   else if (isHeader(p)) list = &headers_;
@@ -293,13 +717,9 @@ bool Workspace::noteFileAdded(const fs::path& p) {
 
 bool Workspace::noteFileRemoved(const fs::path& p) {
   bool changed = false;
-  for (auto* list : {&sources_, &headers_, &others_}) {
-    auto it = std::lower_bound(list->begin(), list->end(), p);
-    if (it != list->end() && *it == p) {
-      list->erase(it);
-      changed = true;
-    }
-  }
+  for (auto* list : {&sources_, &headers_, &others_}) changed = eraseSorted(*list, p) || changed;
+  // A project item that disappears keeps its key: it is a workspace file again when it is re-created.
+  if (kind_ == Kind::Solution) changed = eraseSorted(loose_, p) || changed;
   if (changed) ++revision_;
   return changed;
 }
@@ -312,7 +732,7 @@ bool Workspace::noteFileRenamed(const fs::path& from, const fs::path& to) {
 
 std::vector<fs::path> Workspace::filesUnder(const fs::path& dir) const {
   std::vector<fs::path> out;
-  for (auto* list : {&sources_, &headers_, &others_})
+  for (auto* list : {&sources_, &headers_, &others_, &loose_})
     for (auto& f : *list) {
       auto [a, b] = std::mismatch(dir.begin(), dir.end(), f.begin(), f.end());
       if (a == dir.end()) out.push_back(f);
@@ -323,6 +743,19 @@ std::vector<fs::path> Workspace::filesUnder(const fs::path& dir) const {
 std::vector<fs::path> Workspace::codeFiles() const {
   std::vector<fs::path> out = sources_;
   out.insert(out.end(), headers_.begin(), headers_.end());
+  return out;
+}
+
+std::vector<fs::path> Workspace::allFiles() const {
+  std::vector<fs::path> out = sources_;
+  out.insert(out.end(), headers_.begin(), headers_.end());
+  out.insert(out.end(), others_.begin(), others_.end());
+  return out;
+}
+
+std::vector<fs::path> Workspace::explorerFiles() const {
+  std::vector<fs::path> out = allFiles();
+  out.insert(out.end(), loose_.begin(), loose_.end());
   return out;
 }
 

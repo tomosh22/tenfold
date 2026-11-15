@@ -181,7 +181,8 @@ bool Editor::start(std::string* error) {
   loadBreakpoints();
   if (opt_.log) {
     auto ms = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count();
-    opt_.log("workspace scan: " + std::to_string(ws_.fileCount()) + " files in " + std::to_string(ms) + " ms");
+    opt_.log("workspace scan: " + std::to_string(ws_.fileCount()) + " files in " + std::to_string(ms) + " ms (" +
+             (ws_.isSolutionWorkspace() ? "solution workspace" : "folder workspace") + ")");
   }
   semantic_ = std::make_unique<SemanticEngine>(ws_, opt_.semantic);
   semantic_->onDiagnostics([this](const fs::path& file, std::vector<Diagnostic> ds) {
@@ -236,6 +237,7 @@ void Editor::shutdown() {
   for (auto& h : searches_) h.cancel();
   for (auto& h : searches_) h.wait();
   searches_.clear();
+  if (fileRefreshThread_.joinable()) fileRefreshThread_.join();
   if (watcher_) {
     watcher_->stop();  // before the engine goes away: its callback uses it
     watcher_.reset();
@@ -568,6 +570,7 @@ void Editor::startWatching() {
   wo.pollMs = opt_.watchPollMs;
   wo.forcePolling = opt_.watchForcePolling;
   watcher_ = std::make_unique<FileWatcher>(wo);
+  applyWatchRoots();  // before start(): the watches exist when start() returns (an edit right after it is seen)
   bool ok = watcher_->start(
       ws_.root(), [this](const fs::path& dir) { return ws_.isIgnoredDir(dir); },
       [this](FileWatcher::Event ev) {
@@ -587,9 +590,62 @@ void Editor::startWatching() {
   if (!ok) {
     if (opt_.log) opt_.log("file watcher: could not start; workspace changes will not be tracked");
     watcher_.reset();
-  } else if (opt_.log) {
-    opt_.log("file watcher: " + watcher_->mode() + ", " + std::to_string(watcher_->watchCount()) + " directories");
+    watchedExtra_.clear();
+  } else {
+    if (opt_.log)
+      opt_.log("file watcher: " + watcher_->mode() + ", " + std::to_string(watcher_->watchCount()) + " directories" +
+               (watchedExtra_.empty() ? std::string()
+                                      : " (+" + std::to_string(watchedExtra_.size()) + " outside the root)"));
   }
+}
+
+void Editor::applyWatchRoots() {
+  if (!watcher_) return;
+  const std::vector<Workspace::WatchRoot>& want = ws_.extraWatchRoots();
+  auto same = [](const Workspace::WatchRoot& a, const Workspace::WatchRoot& b) {
+    return a.dir == b.dir && a.recursive == b.recursive;
+  };
+  for (const auto& old : watchedExtra_)
+    if (std::none_of(want.begin(), want.end(), [&](const auto& w) { return same(w, old); }))
+      watcher_->removeRoot(old.dir);
+  for (const auto& w : want)
+    if (std::none_of(watchedExtra_.begin(), watchedExtra_.end(), [&](const auto& o) { return same(w, o); }))
+      watcher_->addRoot(w.dir, w.recursive);
+  watchedExtra_ = want;
+}
+
+void Editor::refreshWorkspaceFiles() {
+  if (!ws_.isSolutionWorkspace() || !semantic_) return;
+  if (fileRefreshRunning_) {
+    fileRefreshAgain_ = true;
+    return;
+  }
+  fileRefreshRunning_ = true;
+  fileRefreshAgain_ = false;
+  if (fileRefreshThread_.joinable()) fileRefreshThread_.join();  // the previous run has posted its result
+  auto scanned = std::make_shared<Workspace>(ws_.scanCopy());
+  fileRefreshThread_ = std::thread([this, scanned] {
+    try {
+      scanned->scan();
+    } catch (const std::exception& e) {
+      if (opt_.log) opt_.log(std::string("workspace file list: ") + e.what());
+    }
+    post([this, scanned] {
+      fileRefreshRunning_ = false;
+      if (!semantic_) return;
+      const Workspace::Changes ch = ws_.adoptScan(std::move(*scanned));
+      for (const fs::path& f : ch.removed) {
+        semantic_->fileRemoved(f);
+        nav_.onFileRemoved(f);
+      }
+      if (!ch.added.empty()) semantic_->indexFilesAsync(ch.added);
+      applyWatchRoots();
+      if (opt_.log && ch.any())
+        opt_.log("workspace files: " + std::to_string(ch.added.size()) + " added, " +
+                 std::to_string(ch.removed.size()) + " removed");
+      if (fileRefreshAgain_) refreshWorkspaceFiles();
+    });
+  });
 }
 
 void Editor::checkExternalChange(Document& doc) {
@@ -612,6 +668,20 @@ bool isBuildInputFile(const std::string& name) {
   std::string ext = name.substr(dot);
   for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
   return ext == ".sln" || ext == ".slnx" || ext == ".vcxproj" || ext == ".props" || ext == ".targets";
+}
+}  // namespace
+
+namespace {
+// Names whose change may change a solution workspace's file list (Workspace::isSolutionInput knows the exact files; a
+// new project or property sheet is only known by its kind).
+bool isSolutionListInput(const std::string& name) {
+  if (name == "Directory.Build.props" || name == "Directory.Build.targets") return true;
+  const size_t dot = name.find_last_of('.');
+  if (dot == std::string::npos) return false;
+  std::string ext = name.substr(dot);
+  for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+  return ext == ".sln" || ext == ".slnx" || ext == ".vcxproj" || ext == ".vcxitems" || ext == ".props" ||
+         ext == ".targets" || ext == ".filters";
 }
 }  // namespace
 
@@ -870,15 +940,16 @@ std::string Editor::CompileCommandInfo::text(int width) const {
 
 void Editor::rescanWorkspace() {
   std::set<fs::path> before;
-  for (auto& f : ws_.filesUnder(ws_.root())) before.insert(f);
+  for (auto& f : ws_.allFiles()) before.insert(f);
   ws_.scan();
   std::set<fs::path> after;
-  for (auto& f : ws_.filesUnder(ws_.root())) after.insert(f);
+  for (auto& f : ws_.allFiles()) after.insert(f);
   for (auto& f : before)
     if (!after.count(f)) {
       semantic_->fileRemoved(f);
       nav_.onFileRemoved(f);
     }
+  applyWatchRoots();
   semantic_->indexFilesAsync(ws_.codeFiles());
   for (auto* d : documents()) checkExternalChange(*d);
 }
@@ -986,6 +1057,14 @@ void Editor::handleFileEvent(const FileWatcher::Event& ev) {
   }
   const std::string name = pathUtf8(buildFile.filename());
   if (!ev.isDirectory && isBuildInputFile(name)) refreshBuildSystem();
+  if (ws_.isSolutionWorkspace()) {
+    // A project, solution, .filters or imported file changed: the file list may have. Any other creation or removal
+    // that arrives while the list is being re-read could be missing from it: one more run.
+    if (!ev.isDirectory &&
+        (ws_.isSolutionInput(ev.path) || ws_.isSolutionInput(ev.oldPath) || isSolutionListInput(name)))
+      refreshWorkspaceFiles();
+    else if (fileRefreshRunning_ && ev.kind != E::Modified) fileRefreshAgain_ = true;
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -2101,9 +2180,8 @@ SearchHandle Editor::findInWorkspace(const std::string& query, SearchOptions opt
     // The workspace root is canonical while a document keeps the caller's spelling
     // (macOS /var -> /private/var, Windows 8.3 names and case), so canonicalise first.
     std::error_code ec;
-    std::string rel =
-        pathKey(pathKeyUtf8(fs::weakly_canonical(d->path(), ec).lexically_relative(ws_.root())), nativePathStyle());
-    if (!rel.empty() && rel.compare(0, 2, "..") != 0) in.overrides[rel] = d->buffer().text();
+    const std::string key = pathKey(searchRelPath(ws_.root(), fs::weakly_canonical(d->path(), ec)), nativePathStyle());
+    if (!key.empty()) in.overrides[key] = d->buffer().text();
   }
   searches_.erase(
       std::remove_if(searches_.begin(), searches_.end(), [](const SearchHandle& h) { return h.finished(); }),
