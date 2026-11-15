@@ -196,7 +196,7 @@ class WorkspaceExplorer {
   std::vector<std::filesystem::path> extraDirs_;
   std::unique_ptr<ExplorerPrompt> prompt_;
   std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);  // asynchronous callbacks (Perforce check-out) check it
-  std::vector<std::filesystem::path> inputs_;  // .sln / project / filters files watched for changes
+  std::vector<std::filesystem::path> inputs_;                   // .sln / project / filters files watched for changes
 };
 
 }  // namespace tf::ui
