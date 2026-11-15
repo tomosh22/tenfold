@@ -1,0 +1,5 @@
+#define A(x) A(x)
+A(y)
+#define B(x) C(x)
+#define C(x) B(x)
+B(z)

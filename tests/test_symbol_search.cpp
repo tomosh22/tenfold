@@ -232,6 +232,7 @@ std::string randomQuery(const Files& files, std::mt19937& rng) {
 
 void compareAgainstOracle(const Files& files, int queries, uint32_t seed, const char* what) {
   FastIndex idx;
+  idx.setExpandMacros(false);  // the oracle sees the extracted symbols only, not what macro calls declare
   idx.importFiles(files);
   const ByName byName = groupByName(files);
   std::mt19937 rng(seed);

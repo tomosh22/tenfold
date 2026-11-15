@@ -7,13 +7,25 @@
 fast def use_helper_sum -> helper_sum
 fast def use_max_items -> MAX_ITEMS
 fast def use_square -> SQUARE
-xfail fast def use_Gadget -> Gadget  # names declared through macro arguments (DECLARE_CLASS(Gadget)) are not in the lexer index
-xfail fast def use_compute_b -> compute_b  # same: MAKE_FUNC(compute_b, ...)
-xfail fast def use_warm -> Hue_Warm  # same: DECLARE_ENUM(Hue, Warm, Cold)
+fast def use_Gadget -> Gadget  # macro-declared name: the fast tier expands the macro (FAST-DECL)
+fast def use_compute_b -> compute_b  # macro-declared name: the fast tier expands the macro (FAST-DECL)
+fast def use_warm -> Hue_Warm  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast def use_item_id -> Item_id
 fast def use_twice_arg -> twice_fn
 fast sym "helper_sum" -> helper_sum
-xfail fast sym "Gadget" ∋ Gadget  # same: not declared as a class in the lexer index
+# FAST-DECL: names a macro declares are found with the macro expanded: pasted (the call), spelled in the macro's body (the
+# #define), spelled in the call (the argument), through an object-like macro and __LINE__
+fast def use_get_count -> getter_count_decl
+fast def use_set_size -> prop_size_decl
+fast def use_size -> prop_size_arg
+fast def use_plain -> Holder_plain
+fast def use_value -> Gadget_value
+fast def use_var_one -> catv
+fast def use_var_two -> catv2
+fast def use_limit_x -> pasted_limit
+fast def use_unique -> unique_var
+fast def use_in_body -> IN_BODY
+fast sym "Gadget" ∋ Gadget  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 # the lexer index does not know that this spelling is the function and not the macro
 fast def use_clamp01_paren -> clamp01_fn
 # #undef / #define order is invisible to the lexer index

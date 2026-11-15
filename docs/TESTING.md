@@ -22,11 +22,11 @@ for end-to-end answers on awkward code.
 
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
-| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), the project-file editor behind New File in a solution workspace (`test_project_edit.cpp`: formatting, BOM, CRLF, item groups, filters, read-only refusal), the fuzz regression inputs | 787 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), the project-file editor behind New File in a solution workspace (`test_project_edit.cpp`: formatting, BOM, CRLF, item groups, filters, read-only refusal), the fuzz regression inputs, names declared through macros (`test_macro_decl.cpp`) | 807 | clangd for the integration tests (they skip with a message without it) |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 760 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout (`tests/text`, UI build) | 30 | nothing |
 | `tenfold-corpus-tests` | the 37 corpus projects under `tests/corpus` (one test runs all of them; two more cover the runner's error paths) | 3 | clangd; not part of `ctest` |
-| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | 26 targets (24 without the UI build), not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
+| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | 27 targets (25 without the UI build), not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
 
 `ctest --preset release` runs `unit` (`tenfold-tests`), and with `-DTENFOLD_BUILD_UI=ON` also `text` (`tenfold-text-tests`) and
 `ui-unit` (`tenfold-ui-tests`) (`CMakeLists.txt`, `add_test`). Pass a substring of the test name to any suite
@@ -497,6 +497,7 @@ check invariants of the parser's result (`FUZZ_REQUIRE`).
 | `lexer`       | `CppLexer` (fast lexer)                                                                                | tokens are views into the input, in order, non-empty         |
 | `extract`     | `extractSymbols` (fast symbol extractor)                                                               | lines/columns in range, names non-empty, deterministic       |
 | `scopescan`   | `scanScopes` (lexical scope map of the scope-aware fast tier)                                          | regions nest and lie in the text, deterministic              |
+| `macroexp`    | `extractFile`'s macro templates / calls / X-macro includes, their store round trip, `mx::expandCall` under default and tiny limits (deterministic, bounded), and a `FastIndex` over the input and its two halves as macro file and caller (add / change / remove) (FAST-DECL) | the records survive the store; an expansion never exceeds the token limit; two runs agree; every symbol has a name and a non-negative position; no expansion entry is left after the files are removed |
 | `ppcond`      | `evalCondition` / `evalValue` (`#if` expressions, three-valued), `parseDirective`, `extractFile`'s condition arms, store round trip, `Evaluator` (W12-FAST-PP) | a definite answer with nothing known holds whatever the macros are; arm ids point backwards; symbol-arm pairs sorted and in range; the store keeps the tables; the evaluator is deterministic |
 | `indexstore`  | `FastIndexStore::deserialize` (persisted fast index; header size/hash/fingerprint repaired first)      | accepted stores survive a round trip; the evaluator terminates on their arm tables |
 | `xml`         | `xml::parse` (XmlLite)                                                                                 | finite tree                                                  |

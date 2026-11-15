@@ -32,14 +32,27 @@ namespace tf {
 //               u32 hasPp (0/1); with 1: u32 nArms, nSymArm, nMacros, nBodies, then nArms * { u32 parent, u32 prev,
 //               i32 line, u8 kind, u32 expr }, nSymArm * { u32 symbol, u32 arm }, nMacros * { u32 name, i32 line,
 //               u32 arm, i32 body, u8 flags(bit0 undef, bit1 function-like) }, nBodies * u32   (preprocessor
-//               conditionals, W12-FAST-PP; arm ids are 1-based and only point backwards)
+//               conditionals, W12-FAST-PP; arm ids are 1-based and only point backwards),
+//               u32 hasMx (0/1); with 1: the macro section below (FAST-DECL, format 4)
+//
+// FAST-DECL (format 4), self-contained so that it can be merged with other format changes:
+//   * bit 7 of a symbol's `kind` byte: a forward declaration (`class Widget;`); the kind is the low 7 bits.
+//   * the macro section after a file's preprocessor section: u32 nTemplates, u32 nCalls, u32 nXIncludes, then
+//       nTemplates * { u32 name, u32 body, i32 line, u8 flags(bit0 variadic, bit1 object-like), u32 nParams,
+//                      nParams * u32 param, u32 nPos, nPos * u32 position }
+//       nCalls * { u32 name, i32 line, i32 col, u32 scope, u8 scopeKind, u32 arm, u32 nArgs,
+//                  nArgs * { u32 text, i32 line, i32 col }, u8 hasContext,
+//                  with 1: 2 * { u32 text, i32 line, i32 col } (the text before / after the call) }
+//       nXIncludes * { u32 spelling, u8 flags(bit0 angled, bit1 scoped enum), i32 line, i32 col, u32 scope,
+//                      u8 scopeKind, u32 arm, u32 enumName }
+//     (function-like and identifier-bodied object-like macros, declaration-position macro calls, X-macro includes).
 //
 // Every read is bounds-checked; any inconsistency (bad magic/version, size or hash mismatch, index out of range,
 // trailing bytes) makes load() fail so the caller falls back to a full re-index. Paths are stored as given
 // (absolute generic paths), so moving a workspace simply invalidates the entries.
 class FastIndexStore {
  public:
-  static constexpr uint32_t kFormatVersion = 3;
+  static constexpr uint32_t kFormatVersion = 4;  // 4: FAST-DECL (see above)
   using Entries = std::vector<std::shared_ptr<const FileSymbols>>;
 
   // Hash of a built-in probe run through extractSymbols() combined with a manual salt, so any change to the
