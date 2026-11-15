@@ -18,6 +18,7 @@
 #include "core/PathUtil.h"
 #include "core/TextEncoding.h"
 #include "semantic/CppLexer.h"
+#include "semantic/MacroExpand.h"
 #include "semantic/PpCond.h"
 
 namespace tf {
@@ -123,8 +124,23 @@ namespace {
 class Extractor {
  public:
   explicit Extractor(std::string_view src, std::vector<std::string>* includes, bool isC,
-                     std::vector<uint8_t>* angled = nullptr)
-      : toks_(CppLexer(src, isC).all()), includes_(includes), angled_(angled) {}
+                     std::vector<uint8_t>* angled = nullptr, std::vector<MacroCall>* calls = nullptr,
+                     std::vector<MacroInclude>* xincludes = nullptr)
+      : toks_(CppLexer(src, isC).all()), includes_(includes), angled_(angled), calls_(calls), xincludes_(xincludes) {}
+  // FAST-DECL: the declarations of a macro expansion (`toks` ends with an End token). The scope stack starts as the
+  // components of `scope`, the innermost of kind `innermost`, so a member declaration is a member of its class.
+  Extractor(std::vector<Token> toks, const std::string& scope, SymbolKind innermost) : toks_(std::move(toks)) {
+    size_t b = 0;
+    while (b <= scope.size() && !scope.empty()) {
+      size_t e = scope.find("::", b);
+      if (e == std::string::npos) e = scope.size();
+      scopes_.push_back({scope.substr(b, e - b), SymbolKind::Namespace, static_cast<int>(scopes_.size()) + 1});
+      b = e + 2;
+      if (e == scope.size()) break;
+    }
+    if (!scopes_.empty()) scopes_.back().kind = innermost;
+    depth_ = static_cast<int>(scopes_.size());
+  }
 
   std::vector<Symbol> run() {
     while (!at(Tok::End)) step();
@@ -239,7 +255,12 @@ class Extractor {
   void skipBalanced(std::string_view open, std::string_view close) {
     if (!atP(open)) return;
     int d = 0;
+    const bool body = open == "{";
     while (!at(Tok::End)) {
+      if (body && at(Tok::Preprocessor)) {  // a macro defined inside a function body acts from there on (FAST-DECL)
+        handleDirective(true);
+        continue;
+      }
       if (atP(open)) ++d;
       else if (atP(close)) {
         if (--d == 0) {
@@ -323,6 +344,84 @@ class Extractor {
       }
       break;
     }
+  }
+
+  // FAST-DECL: remembers `NAME(args)` (the '(' is token `open`) as a possible macro call that declares something. Only
+  // the text and positions are kept; expanding it needs the macro's definition (FastIndex::refreshExpansions).
+  void recordCall(const Token& nameTok, size_t open, size_t preFirst = std::string::npos) {
+    if (!calls_ || nameTok.kind != Tok::Identifier || open >= toks_.size() || !toks_[open].is("(")) return;
+    constexpr size_t kMaxArgs = 24, kMaxArgBytes = 2048, kMaxCallBytes = 4096, kMaxCalls = 1u << 16;
+    if (calls_->size() >= kMaxCalls) return;
+    MacroCall c;
+    size_t closeIdx = open;
+    c.name = std::string(nameTok.text);
+    c.line = nameTok.line;
+    c.col = nameTok.col;
+    c.scope = scopeName();
+    c.scopeKind = scopes_.empty() ? SymbolKind::Namespace : scopes_.back().kind;
+    int paren = 0;
+    size_t argFirst = open + 1;
+    size_t total = 0;
+    auto endArg = [&](size_t last) {  // tokens [argFirst, last)
+      MacroArg a;
+      if (last > argFirst) {
+        const Token& f = toks_[argFirst];
+        const Token& l = toks_[last - 1];
+        const char* b = f.text.data();
+        const char* e = l.text.data() + l.text.size();
+        if (e < b || static_cast<size_t>(e - b) > kMaxArgBytes) return false;
+        a.text.assign(b, static_cast<size_t>(e - b));
+        a.line = f.line;
+        a.col = f.col;
+      }
+      total += a.text.size();
+      c.args.push_back(std::move(a));
+      return c.args.size() <= kMaxArgs && total <= kMaxCallBytes;
+    };
+    for (size_t k = open; k < toks_.size(); ++k) {
+      const Token& t = toks_[k];
+      if (t.kind == Tok::End || t.kind == Tok::Preprocessor) return;  // unterminated
+      if (t.kind != Tok::Punct) continue;
+      if (t.text == "(") {
+        ++paren;
+      } else if (t.text == ")") {
+        if (--paren == 0) {
+          closeIdx = k;
+          if (k == open + 1) break;  // `NAME()`: no arguments
+          if (!endArg(k)) return;
+          break;
+        }
+      } else if (t.text == "," && paren == 1) {
+        if (!endArg(k)) return;
+        argFirst = k + 1;
+      }
+    }
+    if (preFirst != std::string::npos) {  // after a type: keep the statement around the call
+      if (closeIdx == open || preFirst >= open) return;
+      auto span = [&](size_t first, size_t last, MacroArg& dst) {  // tokens [first, last)
+        if (last <= first) return true;
+        const Token& f = toks_[first];
+        const Token& l = toks_[last - 1];
+        const char* b = f.text.data();
+        const char* e = l.text.data() + l.text.size();
+        if (e < b || static_cast<size_t>(e - b) > kMaxArgBytes) return false;
+        dst.text.assign(b, static_cast<size_t>(e - b));
+        dst.line = f.line;
+        dst.col = f.col;
+        return true;
+      };
+      size_t end = closeIdx + 1;
+      while (end < toks_.size() && end < closeIdx + 48) {
+        const Token& t = toks_[end];
+        if (t.kind == Tok::End || t.kind == Tok::Preprocessor || t.is("{") || t.is("}")) return;
+        if (t.is(";")) break;
+        ++end;
+      }
+      if (end >= toks_.size() || !toks_[end].is(";")) return;
+      if (!span(preFirst, open - 1, c.pre) || !span(closeIdx + 1, end, c.post)) return;
+      c.withContext = true;
+    }
+    calls_->push_back(std::move(c));
   }
 
   void openScope(std::string name, SymbolKind kind) {
@@ -432,13 +531,14 @@ class Extractor {
     }
   }
 
-  void handleDirective() {
+  // `defineOnly`: inside a function body, where only `#define` declares something.
+  void handleDirective(bool defineOnly = false) {
     const Token dir = tok();
     std::string_view text = dir.text;
     advance();
     size_t p = 1;
     while (p < text.size() && (text[p] == ' ' || text[p] == '\t')) ++p;
-    if (includes_ && text.substr(p, 7) == "include") {
+    if (includes_ && !defineOnly && text.substr(p, 7) == "include") {
       p += 7;
       while (p < text.size() && (text[p] == ' ' || text[p] == '\t')) ++p;
       if (p < text.size() && (text[p] == '"' || text[p] == '<')) {
@@ -447,6 +547,27 @@ class Extractor {
         if (e != std::string_view::npos) {
           includes_->emplace_back(text.substr(p + 1, e - p - 1));
           if (angled_) angled_->push_back(close == '>' ? 1 : 0);
+          // X-macro list: the directive right before this one is a `#define` (FAST-DECL)
+          if (xincludes_ && xincludes_->size() < 4096 && (!inEnumList_ || !enumName_.empty()) && i_ >= 2 &&
+              toks_[i_ - 2].kind == Tok::Preprocessor) {
+            const std::string_view pd = toks_[i_ - 2].text;
+            size_t q = 1;
+            while (q < pd.size() && (pd[q] == ' ' || pd[q] == '\t')) ++q;
+            if (pd.compare(q, 6, "define") == 0) {
+              MacroInclude x;
+              x.spelling = std::string(text.substr(p + 1, e - p - 1));
+              x.angled = close == '>';
+              x.line = dir.line;
+              x.col = dir.col;
+              x.scope = inEnumList_ ? enumOuterScope_ : scopeName();
+              x.scopeKind = inEnumList_ || scopes_.empty() ? SymbolKind::Namespace : scopes_.back().kind;
+              if (inEnumList_) {
+                x.enumName = enumName_;
+                x.enumScoped = enumScoped_;
+              }
+              xincludes_->push_back(std::move(x));
+            }
+          }
         }
       }
       return;
@@ -574,7 +695,8 @@ class Extractor {
   }
 
   void parseNamespace() {
-    advance();  // namespace
+    const bool isInline = i_ > 0 && toks_[i_ - 1].is("inline");  // `inline namespace v1 {`: transparent for lookups
+    advance();                                                   // namespace
     while (atKw("inline")) advance();
     skipAttributes();
     if (atP("{")) {  // anonymous
@@ -600,8 +722,10 @@ class Extractor {
     if (atP("{")) {
       // "namespace a::b::c {" opens several scopes with a single brace.
       bool first = true;
-      for (auto& [n, tk] : parts) {
-        emit(tk, n, SymbolKind::Namespace, true);
+      for (size_t pi = 0; pi < parts.size(); ++pi) {
+        auto& [n, tk] = parts[pi];
+        // arity 0 marks an inline namespace (a namespace has no parameters otherwise: -1)
+        emit(tk, n, SymbolKind::Namespace, true, "\x01", isInline && pi + 1 == parts.size() ? 0 : -1);
         if (first) openScope(n, SymbolKind::Namespace);
         else scopes_.push_back({n, SymbolKind::Namespace, depth_});
         first = false;
@@ -623,10 +747,16 @@ class Extractor {
     while (atKw("final") || (at(Tok::Identifier) && tok().text == "final")) advance();
     skipAttributes();
     if (atP(";")) {
+      // forward declaration: kept (flagged) so that go to declaration lands on it
+      if (hasName && name.find("::") == std::string::npos && name.find('<') == std::string::npos &&
+          nameTok.kind == Tok::Identifier) {
+        emit(nameTok, name, kind, false);
+        out_.back().forward = true;
+      }
       pendingTemplate_ = false;
       advance();
       return;
-    }  // forward declaration
+    }
     if (atP(":")) {  // base clause
       advance();
       while (!at(Tok::End) && !atP("{") && !atP(";")) {
@@ -664,9 +794,32 @@ class Extractor {
   }
 
   // At the '{' of an enum body: indexes the enumerators (scope `enumScope`) and consumes through the closing '}'.
-  void parseEnumerators(const std::string& enumScope) {
+  void parseEnumerators(const std::string& enumScope, const std::string& enumName = {}, bool scoped = false) {
     advance();  // {
+    // directives inside the list (an X-macro: `#define X(n) n,` / `#include "list.def"` / `#undef X`) are handled
+    const bool savedIn = inEnumList_;
+    const std::string savedName = enumName_, savedOuter = enumOuterScope_;
+    const bool savedScoped = enumScoped_;
+    inEnumList_ = true;
+    enumName_ = enumName;
+    enumScoped_ = scoped;
+    enumOuterScope_ = scopeName();
+    struct Restore {
+      Extractor* e;
+      bool in, sc;
+      std::string name, outer;
+      ~Restore() {
+        e->inEnumList_ = in;
+        e->enumScoped_ = sc;
+        e->enumName_ = name;
+        e->enumOuterScope_ = outer;
+      }
+    } restore{this, savedIn, savedScoped, savedName, savedOuter};
     while (!at(Tok::End) && !atP("}")) {
+      if (at(Tok::Preprocessor)) {
+        handleDirective();
+        continue;
+      }
       skipAttributes();
       if (at(Tok::Identifier)) {
         emit(tok(), std::string(tok().text), SymbolKind::Enumerator, true, enumScope);
@@ -675,6 +828,10 @@ class Extractor {
       // skip initializer up to ',' or '}'
       int d = 0;
       while (!at(Tok::End)) {
+        if (at(Tok::Preprocessor)) {
+          handleDirective();
+          continue;
+        }
         if (atP("(") || atP("{") || atP("[")) ++d;
         else if (atP(")") || atP("]")) --d;
         else if (atP("}")) {
@@ -715,7 +872,7 @@ class Extractor {
     }
     if (hasName) emit(nameTok, name, SymbolKind::Enum, true);
     std::string enumScope = scoped && hasName ? (scopeName().empty() ? name : scopeName() + "::" + name) : scopeName();
-    parseEnumerators(enumScope);
+    parseEnumerators(enumScope, hasName ? name : std::string(), scoped);
     // trailing "} name;" for anonymous enums or variables: swallow to ';'
     while (!at(Tok::End) && !atP(";")) {
       if (at(Tok::Identifier) && (tok(1).is(";") || tok(1).is(",") || tok(1).is("="))) {
@@ -946,6 +1103,7 @@ class Extractor {
           if (typeTokens == 0 && !inClass() && lastName.find("::") == std::string::npos && !lastName.starts_with("~") &&
               !lastName.starts_with("operator")) {
             // "NAME(" at namespace scope with no return type: almost certainly a macro invocation.
+            recordCall(lastNameTok, i_);
             skipBalanced("(", ")");
             if (atP(";")) advance();
             pendingTemplate_ = false;
@@ -954,11 +1112,36 @@ class Extractor {
           // Function: parameters
           const int nameLine = lastNameTok.line;
           const size_t parenOpen = i_;
+          // A call with no type before it inside a class (`DECLARE_FIELD(int, count)`); not a constructor, destructor
+          // or out-of-line name.
+          if (typeTokens == 0 && inClass() && !friend_ && lastName != scopes_.back().name &&
+              lastName.find("::") == std::string::npos && !lastName.starts_with("~") &&
+              !lastName.starts_with("operator"))
+            recordCall(lastNameTok, parenOpen);
           skipBalanced("(", ")");
           int minArity = -1;
           bool variadic = false;
           const int arity = countParams(parenOpen, i_ - 1, &minArity, &variadic);
           const bool fileLocal = isStatic && !inClass();
+          // `int CAT(var_, one) = 1;`: a macro call that names the declarator (FAST-DECL). Only names written like
+          // macros (no lower-case letter) are kept: every prototype would otherwise be a candidate.
+          if (typeTokens > 0 && !friend_ && lastName.find("::") == std::string::npos &&
+              lastName.find_first_of("abcdefghijklmnopqrstuvwxyz") == std::string::npos &&
+              lastName.find_first_of("ABCDEFGHIJKLMNOPQRSTUVWXYZ") != std::string::npos &&
+              (atP("=") || atP(";") || atP(",") || atP("[")))
+            recordCall(lastNameTok, parenOpen, startIdx);
+          // A typeless call in a class (`DECLARE_FIELD(int, n)`) followed on a later line by another declaration or
+          // call is a macro invocation of its own: it does not swallow what follows (FAST-DECL).
+          if (typeTokens == 0 && inClass() && !friend_ && lastName != scopes_.back().name &&
+              lastName.find("::") == std::string::npos && !lastName.starts_with("~") &&
+              !lastName.starts_with("operator") && tok().line > toks_[i_ - 1].line &&
+              (at(Tok::Identifier) ||
+               (at(Tok::Keyword) && !atKw("const") && !atKw("volatile") && !atKw("noexcept") && !atKw("override") &&
+                !atKw("final") && !atKw("throw") && !atKw("try") && !atKw("requires") && !atKw("__attribute__") &&
+                !atKw("__declspec") && !atKw("mutable")))) {
+            pendingTemplate_ = false;
+            return;
+          }
           // Macro-invocation heuristic: next token on a later line and not a valid continuation.
           if (tok().line > std::max(nameLine, startLine) && !isDeclTerminatorAfterParams() && !atP("{")) {
             if (typeTokens == 0) {
@@ -1153,6 +1336,13 @@ class Extractor {
   bool friend_ = false;  // parseDeclaration is reading what follows `friend` inside a class
   std::vector<std::string>* includes_ = nullptr;
   std::vector<uint8_t>* angled_ = nullptr;
+  std::vector<MacroCall>* calls_ = nullptr;  // FAST-DECL: declaration-position macro calls
+  std::vector<MacroInclude>* xincludes_ = nullptr;
+  // FAST-DECL: set while parseEnumerators reads an enumerator list (an #include there is an X-macro list for the enum)
+  std::string enumName_;
+  bool enumScoped_ = false;
+  bool inEnumList_ = false;
+  std::string enumOuterScope_;
 };
 
 }  // namespace
@@ -1176,10 +1366,19 @@ void extractFile(std::string_view source, FileSymbols& out, bool isC) {
   out.symArm.clear();
   out.macros.clear();
   out.bodies.clear();
+  out.templates.clear();
+  out.calls.clear();
+  out.xincludes.clear();
   if (source.size() > kMaxIndexedFileBytes) return;
-  Extractor ex(source, &out.includes, isC, &out.angled);
+  Extractor ex(source, &out.includes, isC, &out.angled, &out.calls, &out.xincludes);
   out.symbols = ex.run();
+  mx::scanTemplates(ex.tokens(), out);
   pp::scanPreprocessor(ex.tokens(), out);
+}
+
+std::vector<Symbol> extractFromTokens(std::vector<Token> tokens, const std::string& scope, SymbolKind innermost) {
+  if (tokens.empty() || tokens.back().kind != Tok::End) tokens.push_back(Token{});
+  return Extractor(std::move(tokens), scope, innermost).run();
 }
 
 bool isCSourceFile(const std::filesystem::path& file) {
@@ -1305,40 +1504,111 @@ std::string baseKey(const std::filesystem::path& p) {
 
 std::string FastIndex::pathKey(const std::filesystem::path& p) { return keyFor(p); }
 
+namespace {
+// Key of the entry that holds the symbols the macro calls of `caller` declare in `target` (the calling file itself, or
+// the file of a macro definition whose body spells a declared name).
+std::string synthKey(const std::string& caller, const std::string& target) {
+  return "\x01mx\x01" + caller + "\x01" + target;
+}
+bool isSynthKey(const std::string& key) { return key.compare(0, 4, "\x01mx\x01") == 0; }
+
+bool sameTemplates(const std::vector<MacroTemplate>& a, const std::vector<MacroTemplate>& b) {
+  if (a.size() != b.size()) return false;
+  for (size_t i = 0; i < a.size(); ++i)
+    if (a[i].name != b[i].name || a[i].body != b[i].body || a[i].params != b[i].params ||
+        a[i].variadic != b[i].variadic || a[i].line != b[i].line)
+      return false;
+  return true;
+}
+}  // namespace
+
 void FastIndex::addLocked(std::shared_ptr<const FileSymbols> fs) {
   std::string key = keyFor(fs->file);
   {
     auto old = files_.find(key);
     if (old == files_.end() || old->second->includes != fs->includes) ++reachGen_;
+    // FAST-DECL: which files call macros, and whether what a call can expand to may have changed: a macro definition
+    // changed, or (an X-macro list) a file with calls came, went or changed while some file includes lists
+    const bool hadX = old != files_.end() && !old->second->xincludes.empty();
+    const bool hadCalls = old != files_.end() && !old->second->calls.empty();
+    if (old == files_.end() ? !fs->templates.empty() : !sameTemplates(old->second->templates, fs->templates))
+      ++mxEpoch_;
+    xincFiles_ = xincFiles_ - (hadX ? 1 : 0) + (fs->xincludes.empty() ? 0 : 1);
+    // (only a file that is, or may become, the list some #include names matters)
+    if ((hadCalls || !fs->calls.empty()) && (hadX ? true : xincFiles_ > 0) &&
+        (old == files_.end() || mxListKeys_.count(key) != 0))
+      ++mxEpoch_;
   }
+  const bool calls = !fs->calls.empty() || !fs->xincludes.empty();
+  insertLocked(key, std::move(fs), false);
+  if (calls) callers_.insert(key);
+  else callers_.erase(key);
+}
+
+void FastIndex::insertLocked(const std::string& key, std::shared_ptr<const FileSymbols> fs, bool synthetic) {
   removeLocked(key);
-  byBase_[baseKey(fs->file)].push_back(fs.get());
+  if (!synthetic) byBase_[baseKey(fs->file)].push_back(fs.get());
   for (size_t i = 0; i < fs->symbols.size(); ++i) {
+    if (fs->symbols[i].forward) {
+      fwdByName_[fs->symbols[i].name].push_back({fs, static_cast<uint32_t>(i)});
+      continue;
+    }
     auto& refs = byName_[fs->symbols[i].name];
     if (refs.empty()) ++namesGen_;  // a fresh node: its vector is still empty
     refs.push_back({fs, static_cast<uint32_t>(i)});
   }
   symbolCount_ += fs->symbols.size();
   fileInfo_[fs.get()].seq = ++nextSeq_;
-  if (!hiddenKeys_.empty() && hiddenKeys_.count(key)) hidden_.insert(fs.get());
+  // an expansion entry is as visible to search() as the file whose call declared the symbols
+  if (!hiddenKeys_.empty() && hiddenKeys_.count(synthetic && fs->origin ? keyFor(fs->origin->file) : key))
+    hidden_.insert(fs.get());
+  if (synthetic) {
+    ++synthCount_;
+    synthSymbols_ += fs->symbols.size();
+  }
   files_[key] = std::move(fs);
-  ++generation_;
+  if (!synthetic) ++generation_;
+}
+
+void FastIndex::addSearchHidden(const std::unordered_set<std::string>& keys) {
+  std::unique_lock<std::shared_mutex> lk(mu_);
+  auxHidden_.insert(keys.begin(), keys.end());
+  hiddenKeys_.insert(keys.begin(), keys.end());
+  for (auto& [key, fs] : files_)
+    if (hiddenKeys_.count(fs->origin ? keyFor(fs->origin->file) : key)) hidden_.insert(fs.get());
 }
 
 void FastIndex::setSearchHidden(std::unordered_set<std::string> keys) {
   std::unique_lock<std::shared_mutex> lk(mu_);
   hiddenKeys_ = std::move(keys);
+  hiddenKeys_.insert(auxHidden_.begin(), auxHidden_.end());
   hidden_.clear();
   if (hiddenKeys_.empty()) return;
   for (auto& [key, fs] : files_)
-    if (hiddenKeys_.count(key)) hidden_.insert(fs.get());
+    if (hiddenKeys_.count(fs->origin ? keyFor(fs->origin->file) : key)) hidden_.insert(fs.get());
 }
 
 void FastIndex::removeLocked(const std::string& key) {
   auto it = files_.find(key);
   if (it == files_.end()) return;
+  const bool synthetic = isSynthKey(key);
+  if (!synthetic) {  // the entries of the symbols its macro calls declare go with it (refreshExpansions rebuilds them)
+    if (auto so = synthOf_.find(key); so != synthOf_.end()) {
+      const std::vector<std::string> keys = std::move(so->second);
+      synthOf_.erase(so);
+      for (const std::string& sk : keys) removeLocked(sk);
+      it = files_.find(key);
+    }
+  }
   auto old = it->second;
   for (auto& s : old->symbols) {
+    if (s.forward) {
+      auto fw = fwdByName_.find(s.name);
+      if (fw == fwdByName_.end()) continue;
+      std::erase_if(fw->second, [&](const Ref& r) { return r.file == old; });
+      if (fw->second.empty()) fwdByName_.erase(fw);
+      continue;
+    }
     auto bn = byName_.find(s.name);
     if (bn == byName_.end()) continue;
     std::erase_if(bn->second, [&](const Ref& r) { return r.file == old; });
@@ -1350,7 +1620,10 @@ void FastIndex::removeLocked(const std::string& key) {
   symbolCount_ -= old->symbols.size();
   fileInfo_.erase(old.get());
   hidden_.erase(old.get());
-  {
+  if (synthetic) {
+    --synthCount_;
+    synthSymbols_ -= old->symbols.size();
+  } else {
     auto bb = byBase_.find(baseKey(old->file));
     if (bb != byBase_.end()) {
       std::erase(bb->second, old.get());
@@ -1358,7 +1631,7 @@ void FastIndex::removeLocked(const std::string& key) {
     }
   }
   files_.erase(it);
-  ++generation_;
+  if (!synthetic) ++generation_;
 }
 
 FastIndex::Stats FastIndex::indexFiles(const std::vector<std::filesystem::path>& files, int threads,
@@ -1455,13 +1728,16 @@ void FastIndex::importFiles(std::vector<std::shared_ptr<const FileSymbols>> file
     byName_.reserve(total / 2 + 16);
   }
   for (auto& f : files) addLocked(std::move(f));
+  lk.unlock();
+  refreshExpansions();
 }
 
 std::vector<std::shared_ptr<const FileSymbols>> FastIndex::exportFiles() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
   std::vector<std::shared_ptr<const FileSymbols>> out;
   out.reserve(files_.size());
-  for (auto& [k, fs] : files_) out.push_back(fs);
+  for (auto& [k, fs] : files_)
+    if (!fs->origin) out.push_back(fs);  // not the entries of macro expansions (FAST-DECL)
   return out;
 }
 
@@ -1469,8 +1745,11 @@ void FastIndex::updateFile(const std::filesystem::path& file, std::string_view t
   auto fs = std::make_shared<FileSymbols>();
   fs->file = file;
   extractFile(text, *fs, isCSourceFile(file));
-  std::unique_lock<std::shared_mutex> lk(mu_);
-  addLocked(std::move(fs));
+  {
+    std::unique_lock<std::shared_mutex> lk(mu_);
+    addLocked(std::move(fs));
+  }
+  refreshExpansions();
 }
 
 std::vector<std::string> FastIndex::allIncludes() const {
@@ -1482,9 +1761,19 @@ std::vector<std::string> FastIndex::allIncludes() const {
 }
 
 void FastIndex::removeFile(const std::filesystem::path& file) {
-  std::unique_lock<std::shared_mutex> lk(mu_);
-  removeLocked(keyFor(file));
-  ++reachGen_;
+  {
+    std::unique_lock<std::shared_mutex> lk(mu_);
+    const std::string key = keyFor(file);
+    if (auto it = files_.find(key); it != files_.end()) {
+      if (!it->second->templates.empty()) ++mxEpoch_;
+      if (!it->second->xincludes.empty()) --xincFiles_;
+      if (!it->second->calls.empty() && xincFiles_ > 0 && mxListKeys_.count(key) != 0) ++mxEpoch_;
+    }
+    callers_.erase(key);
+    removeLocked(key);
+    ++reachGen_;
+  }
+  refreshExpansions();
 }
 
 void FastIndex::clear() {
@@ -1493,20 +1782,260 @@ void FastIndex::clear() {
   fileInfo_.clear();
   hidden_.clear();
   byName_.clear();
+  fwdByName_.clear();
   byBase_.clear();
   ++reachGen_;
   ++namesGen_;
   symbolCount_ = 0;
+  callers_.clear();
+  xincFiles_ = 0;
+  mxListKeys_.clear();
+  synthOf_.clear();
+  synthCount_ = 0;
+  synthSymbols_ = 0;
+  ++mxEpoch_;
   ++generation_;
 }
 
 size_t FastIndex::fileCount() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
-  return files_.size();
+  return files_.size() - synthCount_;
 }
 size_t FastIndex::symbolCount() const {
   std::shared_lock<std::shared_mutex> lk(mu_);
-  return symbolCount_;
+  return symbolCount_ - synthSymbols_;
+}
+
+size_t FastIndex::expandedSymbolCount() const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  return synthSymbols_;
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// FAST-DECL: macro expansion layer
+// ---------------------------------------------------------------------------------------------------------------------
+
+namespace {
+bool arityFits(const MacroTemplate& t, size_t argc) {
+  if (t.objectLike || argc == mx::kNoArgs) return t.objectLike && argc == mx::kNoArgs;
+  return argc == t.params.size() || (t.variadic && argc >= t.params.size()) || (t.params.size() == 1 && argc == 0);
+}
+bool sameMacro(const MacroTemplate& a, const MacroTemplate& b) {
+  return a.params == b.params && a.variadic == b.variadic && a.objectLike == b.objectLike && a.body == b.body;
+}
+}  // namespace
+
+std::shared_ptr<const FileSymbols> FastIndex::resolveListLocked(const FileSymbols& includer,
+                                                                const MacroInclude& x) const {
+  const std::filesystem::path sp = std::filesystem::path(x.spelling).lexically_normal();
+  if (sp.empty()) return nullptr;
+  if (!x.angled) {
+    auto nf = files_.find(keyFor((includer.file.parent_path() / sp).lexically_normal()));
+    if (nf != files_.end() && nf->second->file != includer.file) return nf->second;
+  }
+  const std::string spell = keyFor(sp);
+  auto bb = byBase_.find(baseKey(sp));
+  if (bb == byBase_.end() || spell.rfind("../", 0) == 0) return nullptr;
+  const FileSymbols* found = nullptr;
+  for (const FileSymbols* c : bb->second) {
+    const std::string ck = keyFor(c->file);
+    if (ck.size() > spell.size() && ck.compare(ck.size() - spell.size(), spell.size(), spell) == 0 &&
+        ck[ck.size() - spell.size() - 1] == '/') {
+      if (found) return nullptr;  // two lists of that name: not certain which one
+      found = c;
+    }
+  }
+  if (!found || found->file == includer.file) return nullptr;
+  auto it = files_.find(keyFor(found->file));
+  return it == files_.end() ? nullptr : it->second;
+}
+
+void FastIndex::setExpandMacros(bool on) {
+  expandMacros_ = on;
+  {
+    std::unique_lock<std::shared_mutex> lk(mu_);
+    ++mxEpoch_;  // everything is to be expanded again (or not at all)
+  }
+  refreshExpansions();
+}
+
+void FastIndex::refreshExpansions() {
+  std::lock_guard<std::mutex> guard(mxMu_);
+  if (!expandMacros_.load()) {
+    std::unique_lock<std::shared_mutex> lk(mu_);
+    for (auto& [caller, keys] : synthOf_)
+      for (const std::string& k : keys) removeLocked(k);
+    synthOf_.clear();
+    mxSeen_.clear();
+    mxDoneEpoch_ = ~uint64_t{0};
+    return;
+  }
+  for (int attempt = 0; attempt < 3; ++attempt) {
+    struct Item {
+      std::string key;
+      std::shared_ptr<const FileSymbols> file;
+      std::vector<std::shared_ptr<const FileSymbols>> lists;  // per X-macro include of `file`: the included file
+    };
+    std::vector<Item> work;
+    uint64_t gen = 0, epoch = 0, reach = 0;
+    {
+      std::shared_lock<std::shared_mutex> lk(mu_);
+      gen = generation_.load();
+      epoch = mxEpoch_;
+      reach = reachGen_.load();
+      if (epoch != mxDoneEpoch_ || reach != mxDoneReach_) mxSeen_.clear();  // everything is to be expanded again
+      for (const std::string& key : callers_) {
+        auto it = files_.find(key);
+        if (it == files_.end()) continue;
+        auto seen = mxSeen_.find(key);
+        if (seen != mxSeen_.end() && seen->second.lock() == it->second) continue;  // expanded already
+        Item item{key, it->second, {}};
+        for (const MacroInclude& x : it->second->xincludes) item.lists.push_back(resolveListLocked(*it->second, x));
+        work.push_back(std::move(item));
+      }
+      if (!work.empty() && mxTplsEpoch_ != epoch) {
+        mxTpls_.clear();
+        for (auto& [k, fs] : files_) {
+          if (fs->origin) continue;
+          for (size_t i = 0; i < fs->templates.size(); ++i)
+            mxTpls_[fs->templates[i].name].push_back({fs, static_cast<uint32_t>(i)});
+        }
+        mxTplsEpoch_ = epoch;
+      }
+    }
+    // Expand outside the lock.
+    struct Result {
+      std::string key;
+      std::vector<std::pair<std::string, std::shared_ptr<const FileSymbols>>> synth;  // (key, entry)
+    };
+    std::vector<Result> results(work.size());
+    auto expandOne = [&](size_t wi) {
+      const FileSymbols& f = *work[wi].file;
+      std::shared_ptr<const Reach> reachSet;
+      bool reachDone = false;
+      int atLine = 0;  // where the macros in force are looked up: the call, or the #include of the list it is in
+      uint32_t atArm = 0;
+      auto resolve = [&](const std::string& name, size_t argc) -> mx::Resolved {
+        const MacroTemplate* own = nullptr;
+        int ownCount = 0;
+        for (const MacroTemplate& t : f.templates) {
+          if (t.name != name || t.line >= atLine || !arityFits(t, argc)) continue;
+          own = &t;
+          ++ownCount;
+        }
+        if (own) {
+          // Later directives of the same file that redefine or remove the name before the call win.
+          for (const MacroDef& m : f.macros)
+            if (m.name == name && m.line > own->line && m.line < atLine) return {};
+          // Several definitions, or one in a conditional arm next to others: only certain when none sits in an arm.
+          if (ownCount > 1) {
+            for (const MacroDef& m : f.macros)
+              if (m.name == name && !m.undef && m.arm != 0 && m.line < atLine) return {};
+          } else {
+            for (const MacroDef& m : f.macros)
+              if (m.name == name && m.line == own->line && m.arm != 0)
+                for (const MacroDef& o : f.macros)
+                  if (o.name == name && o.line != own->line) return {};
+          }
+          return {own, &f.file};
+        }
+        auto it = mxTpls_.find(name);
+        if (it == mxTpls_.end()) return {};
+        std::vector<const TplRef*> cands;
+        for (const TplRef& r : it->second)
+          if (r.file->file != f.file && arityFits(r.file->templates[r.index], argc)) cands.push_back(&r);
+        if (cands.empty()) return {};
+        // Only a definition the calling file can see: through its #include chain (when the chain is known)
+        if (!reachDone) {
+          reachSet = reachableFrom(f.file);
+          reachDone = true;
+        }
+        if (reachSet) {
+          std::vector<const TplRef*> seen;
+          for (const TplRef* r : cands)
+            if (reachSet->count(keyFor(r->file->file))) seen.push_back(r);
+          cands = std::move(seen);
+          if (cands.empty()) return {};
+        }
+        // And only when every visible definition says the same
+        for (const TplRef* r : cands)
+          if (!sameMacro(r->file->templates[r->index], cands[0]->file->templates[cands[0]->index])) return {};
+        return {&cands[0]->file->templates[cands[0]->index], &cands[0]->file->file};
+      };
+      std::unordered_map<std::string, std::shared_ptr<FileSymbols>> byTarget;  // key of the file -> its entry
+      std::vector<std::string> order;
+      size_t budget = 2'000'000;  // tokens of work for all the calls of this file (MacroExpand.h)
+      mx::Limits limits;
+      limits.budget = &budget;
+      auto run = [&](const MacroCall& c, const std::filesystem::path& home, const std::string& dropEnum) {
+        for (mx::Expanded& e : mx::expandCall(c, resolve, limits)) {
+          if (!dropEnum.empty() && e.sym.kind == SymbolKind::Enum && e.sym.name == dropEnum) continue;
+          const std::filesystem::path& target = e.file.empty() ? home : e.file;
+          const std::string tk = keyFor(target);
+          auto& slot = byTarget[tk];
+          if (!slot) {
+            slot = std::make_shared<FileSymbols>();
+            slot->file = target;
+            slot->origin = work[wi].file;
+            order.push_back(tk);
+          }
+          if (atArm != 0) slot->symArm.emplace_back(static_cast<uint32_t>(slot->symbols.size()), atArm);
+          slot->symbols.push_back(std::move(e.sym));
+        }
+      };
+      for (const MacroCall& c : f.calls) {
+        atLine = c.line;
+        atArm = c.arm;
+        run(c, f.file, {});
+      }
+      // The calls of an X-macro list, read with the macros defined before the #include that names it
+      for (size_t xi = 0; xi < f.xincludes.size(); ++xi) {
+        const MacroInclude& x = f.xincludes[xi];
+        const auto& list = work[wi].lists[xi];
+        if (!list || list->calls.empty()) continue;
+        for (const MacroCall& lc : list->calls) {
+          MacroCall c = lc;
+          c.scope = x.scope;
+          c.scopeKind = x.scopeKind;
+          if (!x.enumName.empty()) {
+            c.withContext = true;
+            c.pre = {std::string(x.enumScoped ? "enum class " : "enum ") + x.enumName + " {", x.line, x.col};
+            c.post = {"}", x.line, x.col};
+          }
+          atLine = x.line;
+          atArm = x.arm;
+          run(c, list->file, x.enumName);
+        }
+      }
+      results[wi].key = work[wi].key;
+      for (const std::string& tk : order) results[wi].synth.emplace_back(synthKey(work[wi].key, tk), byTarget[tk]);
+    };
+    for (size_t wi = 0; wi < work.size(); ++wi) expandOne(wi);
+    {
+      std::unique_lock<std::shared_mutex> lk(mu_);
+      if (generation_.load() != gen) continue;  // something changed meanwhile: its own refresh follows; redo this one
+      for (Result& r : results) {
+        if (auto so = synthOf_.find(r.key); so != synthOf_.end()) {
+          const std::vector<std::string> old = std::move(so->second);
+          synthOf_.erase(so);
+          for (const std::string& k : old) removeLocked(k);
+        }
+        std::vector<std::string>& keys = synthOf_[r.key];
+        for (auto& [k, fs] : r.synth) {
+          keys.push_back(k);
+          insertLocked(k, std::move(fs), true);
+        }
+        if (keys.empty()) synthOf_.erase(r.key);
+        if (auto it = files_.find(r.key); it != files_.end()) mxSeen_[r.key] = it->second;
+      }
+      for (const Item& it : work)
+        for (const auto& list : it.lists)
+          if (list) mxListKeys_.insert(keyFor(list->file));
+      mxDoneEpoch_ = epoch;
+      mxDoneReach_ = reach;
+    }
+    return;
+  }
 }
 
 std::shared_ptr<const FastIndex::Reach> FastIndex::reachableFrom(const std::filesystem::path& file,
@@ -1650,6 +2179,7 @@ std::string pairKey(const Symbol& s) {
   char group;
   if (isFunctionKind(s.kind)) group = 'f';
   else if (s.kind == SymbolKind::Variable || s.kind == SymbolKind::Field) group = 'v';
+  else if (s.kind == SymbolKind::Class || s.kind == SymbolKind::Struct || s.kind == SymbolKind::Union) group = 't';
   else return {};
   std::string k = s.scope;
   k += '\x01';
@@ -1718,6 +2248,15 @@ std::shared_ptr<const FileSymbols> FastIndex::fileSymbols(const std::filesystem:
   std::shared_lock<std::shared_mutex> lk(mu_);
   auto it = files_.find(keyFor(file));
   return it == files_.end() ? nullptr : it->second;
+}
+
+std::vector<FastIndex::Match> FastIndex::forwardDeclarations(std::string_view name) const {
+  std::shared_lock<std::shared_mutex> lk(mu_);
+  std::vector<Match> out;
+  auto it = fwdByName_.find(std::string(name));
+  if (it == fwdByName_.end()) return out;
+  for (const Ref& r : it->second) out.push_back({r.file, r.index, 0});
+  return out;
 }
 
 std::vector<FastIndex::Match> FastIndex::lookup(std::string_view name) const {
@@ -2001,6 +2540,7 @@ std::vector<FastIndex::Match> FastIndex::search(std::string_view query, size_t l
           for (size_t i = 0; i < syms.size(); ++i) {
             if ((qmask & ~masks[i]) != 0) continue;  // "scope::name" lacks one of the query's characters
             const Symbol& sym = syms[i];
+            if (sym.forward) continue;
             if (!isSubsequenceOfQualified(qLower, sym)) continue;  // cheap reject before building the string
             full.assign(sym.scope);
             if (!sym.scope.empty()) full += "::";

@@ -87,6 +87,7 @@ def Engine_new_impl -> Engine_Impl
 def Cache_new_impl -> Cache_Impl
 def Engine_Impl_decl -> Engine_Impl
 decl Engine_Impl -> Engine_Impl_decl
+fast decl Engine_Impl -> Engine_Impl_decl  # FAST-DECL: the forward declaration (def stays the definition)
 def Engine_ctor -> Engine_ctor_def
 decl Engine_ctor_def -> Engine_ctor
 def Engine_dtor -> Engine_dtor_def

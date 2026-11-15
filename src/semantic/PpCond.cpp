@@ -189,14 +189,17 @@ void scanPreprocessor(const std::vector<Token>& toks, FileSymbols& out) {
     }
   }
   if (out.arms.empty()) return;
-  for (size_t i = 0; i < out.symbols.size(); ++i) {
-    const int line = out.symbols[i].line;
+  auto armAt = [&](int line) -> uint32_t {
     auto it = std::upper_bound(timeline.begin(), timeline.end(), line,
                                [](int l, const std::pair<int, uint32_t>& e) { return l < e.first; });
-    if (it == timeline.begin()) continue;
-    const uint32_t arm = std::prev(it)->second;
+    return it == timeline.begin() ? 0 : std::prev(it)->second;
+  };
+  for (size_t i = 0; i < out.symbols.size(); ++i) {
+    const uint32_t arm = armAt(out.symbols[i].line);
     if (arm != 0) out.symArm.emplace_back(static_cast<uint32_t>(i), arm);
   }
+  for (MacroCall& c : out.calls) c.arm = armAt(c.line);  // FAST-DECL: the arm of a macro call
+  for (MacroInclude& x : out.xincludes) x.arm = armAt(x.line);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

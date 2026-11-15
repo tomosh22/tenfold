@@ -613,6 +613,9 @@ class SemanticEngine {
   size_t includeRelexed_ = 0;
   // Indexes the headers the indexed files include (see Options::maxIncludeIndexFiles). Thread-safe; one run at a time.
   void indexIncludeClosure();
+  // FAST-DECL: reads the X-macro lists (`#define X(..)` then `#include "list.def"`) the indexed files include, which
+  // are no workspace code files, so that their macro calls can be expanded (FastIndex::refreshExpansions).
+  void indexXIncludes();
   std::mutex saveMu_;  // serialises saves and guards saveRun_/savedGen_
   std::condition_variable saveCv_;
   bool saveRun_ = false;
