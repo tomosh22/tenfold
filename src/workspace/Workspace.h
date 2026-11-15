@@ -105,7 +105,8 @@ class Workspace {
   // 1 ms per project and configuration). Decides the kind.
   void scan(std::function<void(size_t)> progress = {});
   Kind kind() const { return kind_; }
-  bool isSolutionWorkspace() const { return kind_ == Kind::Solution; }
+  // Safe from any thread (the engine's workers ask); kind() is for the editor thread.
+  bool isSolutionWorkspace() const;
   // A workspace with this one's root and settings and no files: `scan()` it on a worker thread, then hand it to
   // adoptScan() on the editor thread (the re-read after a project file changed must not block the UI).
   Workspace scanCopy() const;

@@ -93,12 +93,16 @@ bool matchSegments(const std::vector<std::string>& names, size_t i, const std::v
   return globName(pats[j], names[i], icase) && matchSegments(names, i + 1, pats, j + 1, icase);
 }
 
+// The names of a path, whatever its separators ("C:\\a/b" and "C:/a\\b" are the same): split the '/' form, so the root
+// directory element of one spelling ("\\") and of the other ("/") cannot make equal paths differ (Windows).
 std::vector<std::string> components(const fs::path& p) {
   std::vector<std::string> out;
-  for (const fs::path& c : p) {
-    std::string s = pathUtf8(c);
-    if (s.empty() || s == ".") continue;
-    out.push_back(std::move(s));
+  const std::string s = pathKeyUtf8(p);
+  for (size_t pos = 0; pos <= s.size();) {
+    size_t j = s.find('/', pos);
+    if (j == std::string::npos) j = s.size();
+    if (j > pos && s.compare(pos, j - pos, ".") != 0) out.push_back(s.substr(pos, j - pos));
+    pos = j + 1;
   }
   return out;
 }
@@ -653,6 +657,12 @@ bool insertSorted(std::vector<fs::path>& list, const fs::path& p) {
   return true;
 }
 }  // namespace
+
+bool Workspace::isSolutionWorkspace() const {
+  if (!shared_) return false;
+  std::shared_lock<std::shared_mutex> lk(shared_->mu);
+  return shared_->solution;
+}
 
 bool Workspace::isMember(const fs::path& file) const {
   if (!shared_) return true;
