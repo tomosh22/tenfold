@@ -44,6 +44,8 @@ def use_b_Impl_in_Widget -> b_Impl
 decl use_b_Impl_in_Widget -> b_Impl_decl
 def use_c_Node_in_Edge -> c_Node
 decl use_c_Node_in_Edge -> c_Node_fwd
+fast decl use_c_Node_in_Edge -> c_Node_fwd  # FAST-DECL: a class's forward declaration is its declaration
+fast decl use_b_Impl_in_Widget -> b_Impl_decl
 def a_Impl_fwd -> a_Impl
 def a_Node_fwd -> a_Node
 def b_Node_fwd -> b_Node

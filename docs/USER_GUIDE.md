@@ -295,7 +295,8 @@ tenfold answers code questions from two sources:
   stands for are told apart, the headers you include, parameters and locals, and the `#if` / `#ifdef` branches that the
   file's compile command selects: a macro the project never mentions is treated as unknown, so both branches stay), so
   it cannot resolve templates, `auto` results of calls, typedef chains, overloads whose arguments are expressions it
-  cannot type, or macro-generated members.
+  cannot type, or explicit and partial specialisations of a class template (names declared through macros, including
+  X-macro lists, are found).
 * **clangd** is the real Clang front end run with your compile flags. Its answers are *authoritative*. It needs a few
   seconds to parse a file after you open it, and until its background index finishes it can only see the translation
   unit you are in (a function defined in another `.cpp` is first found by the fast index).

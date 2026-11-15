@@ -1,0 +1,10 @@
+#define V(n, ...) int n(__VA_OPT__(int a,) int b);
+V(f)
+V(g, 1, 2, 3)
+#define S(x) #x
+S(a b)
+#define P(a, b) a##b##a
+int P(x, y);
+int P(, );
+#define Q() int q;
+Q()

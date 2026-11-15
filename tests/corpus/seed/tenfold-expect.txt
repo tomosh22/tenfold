@@ -5,7 +5,7 @@
 fast def use_Vec2f -> Vec2f
 fast def use_make_default_shape -> make_default_shape_decl | make_default_shape_def
 fast def use_length_sq -> Vec2_length_sq_decl | Vec2_length_sq_def
-fast def use_get_w -> none
+fast def use_get_w -> Box_get_w  # GEO_GETTER(double, w): the fast tier expands the macro (FAST-DECL)
 fast sym "Vec2" ∋ Vec2
 fast sym "make_default_shape" ∋ make_default_shape_decl make_default_shape_def
 fast hover use_make_default_shape ~ "make_default_shape"

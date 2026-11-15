@@ -88,7 +88,7 @@ fast def score_446_use0 -> score_446_def0
 fast def visit_order_466_use3 -> visit_order_466_decl0
 fast def shared_total_477_use0 -> shared_total_477_def0
 fast def LOGGING_NOTICE_88_493_use0 -> LOGGING_NOTICE_88_493_def0 
-xfail fast def visitCustomer93_498_use0 -> visitCustomer93_498_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def visitCustomer93_498_use0 -> visitCustomer93_498_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast def chain95_l4_504_use0 -> chain95_l4_504_def0
 fast hover chain95_l4_504_use0 ~ "chain95_l4"
 fast sym "StableToken" -> StableToken_535_def0
@@ -139,10 +139,10 @@ fast def STORAGE_DECLARE_FN_225_1114_use1 -> STORAGE_DECLARE_FN_225_1114_def0
 fast def level_1123_use0 -> level_1123_def0
 fast def Real230_1130_use0 -> Real230_1130_def0
 fast hover Real230_1130_use0 ~ "Real230"
-xfail fast def markCatalog235_1148_use0 -> markCatalog235_1148_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def markCatalog235_1148_use0 -> markCatalog235_1148_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast sym "findContract239" -> findContract239_1164_decl0
 fast def CACHE_SCALE_248_1199_use2 -> CACHE_SCALE_248_1199_def0 
-xfail fast def storeBalance253_1204_use1 -> storeBalance253_1204_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def storeBalance253_1204_use1 -> storeBalance253_1204_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast sym "probeAudit" -> probeAudit_1214_decl0
 fast def deriveToken_1218_use0 -> deriveToken_1218_def0  # was xfail until FAST-OVL (overloads by argument / receiver type, scope)
 fast def apply_1229_use0 -> apply_1229_def0  # was xfail until FAST-OVL (overloads by argument / receiver type, scope)

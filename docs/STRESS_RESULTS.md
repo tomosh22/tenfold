@@ -3,20 +3,23 @@
 Measurements and findings of the corpus, stress and fuzz work (waves 9 to 12). Each agent adds its own self-contained
 section; the sections are **historical records** (numbers measured when the work was done, on the shared machine named in
 each), and a table's "not fixed" means "not fixed by that work". Format and rules of the corpora: `docs/TESTING.md`.
-Order: the fast-tier work newest first (FAST-OVL, SLN-FILES, W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE, W9-FIX-C1), then the W9 sections.
+Order: the fast-tier work newest first (FAST-OVL, FAST-DECL, SLN-FILES, W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAST-SCOPE,
+W9-FIX-C1), then the W9 sections.
 
 **Where things stand now** (the latest measurement of each; details in the sections named):
 
-* Fast/final agreement over the 36 corpora plus `vs-slnx`: **2461/2781 = 88.49 %** after FAST-OVL (2329/2781 = 83.75 %
-  before; the same lines, over the corpora's `fast` expectation lines FAST-OVL added 2515/2835 = 88.71 %). The second row
-  is the figure before FAST-OVL (after SLN-FILES; 2327/2779 before that; the third row is the 36 corpora alone, 2236/2688).
-* Fast/final agreement of the fast tier over the 36 corpora: **2236/2688 = 83.2 %** (W12-FAST-PP-STRICT; 49.2 % before
+* Fast/final agreement over the 36 corpora plus `vs-slnx`, with both FAST-DECL and FAST-OVL merged: **2625/2848 =
+  92.17 %**, 0 `FAIL`, 0 `XPASS` (`tenfold-cli corpus --json`, Release, clangd 22.1.1, measured on the merge). The 67 lines
+  more than the 2,781 before are the `fast` lines the two tasks added (FAST-DECL 13, FAST-OVL 54). Before both:
+  2329/2781 = 83.75 % (after SLN-FILES; 2327/2779 before that). Each task alone: FAST-DECL 2439/2794 = 87.29 %, FAST-OVL
+  2515/2835 = 88.71 % (sections below).
+* Earlier, the 36 corpora alone: 2236/2688 = 83.2 % (W12-FAST-PP-STRICT; 49.2 % before
   W11-FAST-SCOPE, 74.9 % after it, 83.2 % after W12-FAST-PP). Every `final` expectation passes; no `FAIL` or `XPASS`.
 * Very long lines: the keystroke-to-paint budget (8 ms) holds for every pathological file, wrap on and off, average and
   p99 (W11-PERF-LINES, in "Pathological workspaces (W9f)", bugs 8 and 9; the rows that were over budget are fixed).
-* Still open: fast tier alias chains, macro-declared names, specialisations, using-declarations, forward declarations,
-  constructor overloads, a function's address taken (`&f`) (FAST-OVL, "Where the rest is"; W11-FAST-SCOPE; W12-FAST-PP);
-  the design-change items 3 to 9 under "Not fixed" in the
+* Still open: fast tier explicit and partial specialisations, a function's address taken (`&f`), and the alias-chain /
+  using-declaration / constructor answers that the chooser keeps for clangd (the FAST-OVL and FAST-DECL sections;
+  W11-FAST-SCOPE, "Where the rest is"); the design-change items 3 to 9 under "Not fixed" in the
   pathological section; the clangd answer gaps recorded in the W9b to W9e finding tables.
 
 ## FAST-OVL: overloads by argument type and operator tokens in the fast tier (branch `task/FAST-OVL`)
@@ -154,6 +157,147 @@ expression the reader cannot start, `"x" [0] + 1`: the left operand's start was 
 seeds of 40 s each after the fix: 10,070 executions, no crash, hang or slow input (the slowest 432 ms in a sanitizer build,
 96 carets per input). Suites on the final tree: `tenfold-tests` 795 (787 before + 8) in Release and in a gcc ASan + UBSan
 Debug build; `tenfold-ui-tests` 760 (`xvfb-run -a`, unchanged: 759 pass in a full run on the loaded box, the one timing-dependent test that fails, `vsvcs_prompt_on_edit_do_not_ask_again_row_stops_the_questions`, passes on its own; a run started from a background shell fails the two terminal Ctrl-C tests because the shell leaves SIGINT ignored in its children, so that run restored it) and `tenfold-text-tests` 30; `tenfold-corpus-tests` 3 (all corpora, `TENFOLD_CORPUS_TIMEOUT=300`: 5,381 `PASS` and 131 `XFAIL` lines, 0 `FAIL`, 0 `XPASS`).
+
+## FAST-DECL: names declared through macros, X-macro lists, forward declarations, inline namespaces (branch `task/FAST-DECL`)
+
+User request: "the fast-index gaps need closing". Scope of this task: (a) names declared through macros and macro arguments
+(`pp-macros`, `pp-xmacros`, generated `macros_*.h`) and (b) alias chains, using-declarations, specialisations and forward
+declarations for `decl`. Design and rules: `docs/ARCHITECTURE.md`, "Names declared through macros, forward declarations and
+inline namespaces (FAST-DECL)". Only the fast tier changed; clangd's answers and every `final` expectation are untouched.
+
+**What changed in the fast answer.** (a) Function-like and identifier-bodied object-like `#define`s and the macro calls at
+declaration position are recorded; a call is expanded (arguments, `#` / `##` / `__VA_ARGS__` / `__VA_OPT__`, nested and
+passed macros, `__LINE__`, bounded by depth 8 / 64 expansions / 4,096 tokens / a work budget per file, braces must
+balance) and the declaration extractor runs over the result, so `DECLARE_CLASS(Gadget)` declares `Gadget` where the
+argument is written, a name only the macro's body spells where that `#define` is, a pasted name at the call. X-macro lists
+(`#define X(..)` directly followed by `#include "list.def"`, also inside an enumerator list) are read with the macros defined
+before the `#include`; the list files are indexed as hidden entries. `decl` on a class answers its forward declaration,
+and `inline namespace v1` is transparent for a qualifier. (b) *Not changed on purpose:* the alias chain (`using B3 = B2`),
+using-declaration and constructor answers of go to definition: the fast tier answers the single `refinable` alias and the
+front end holds it back until clangd has answered, so the chooser of the decision of 2026-11-06 is shown once, by the front
+end; listing the chain from the fast tier would put a chooser on screen that clangd then replaces (about 15 `def` lines, in
+`lookup-namespaces`, `overloads`, `oop-ctors`, stay different from the final answer by that decision). *Not done:* explicit
+and partial specialisations (31 lines of `templates-specialisation`; the scope of a member does not carry the template
+arguments).
+
+**Method.** As W12-FAST-PP / SLN-FILES: `tenfold-cli corpus tests/corpus/<name> --json` for each of the 37 corpora, Release,
+shared 4-core box with other builds running, clangd 22.1.1, `--timeout 900` for `vs-configs` / `vs-slnx`, 300 s for the
+others; the JSON's `fastAgreement`. *Before* = the binary built from `main` at `75d7eec` (2329/2781), *after* = this branch's
+binary on the final tree. The after column has 13 more lines than the before column because 13 `fast` lines were added to
+`pp-macros` (10), `name-collisions` (2) and `oop-virtual` (1) (all 13 agree; on the unchanged expectation files the
+agreement is **2426/2781 = 87.23 %**, measured with the binary before the last changes).
+
+| | before (`75d7eec`) | after |
+|---|---|---|
+| 36 corpora + `vs-slnx` | **2329/2781 = 83.75 %** | **2439/2794 = 87.29 %** |
+
+| corpus | before | after |
+|---|---|---|
+| `c-basic` | 93/109 (85 %) | 93/109 (85 %) |
+| `c-heuristic` | 11/18 (61 %) | 11/18 (61 %) |
+| `c-mixed-cpp` | 36/39 (92 %) | 36/39 (92 %) |
+| `c-vcxproj` | 15/18 (83 %) | 15/18 (83 %) |
+| `encodings` | 123/123 (100 %) | 123/123 (100 %) |
+| `gen-game` | 236/255 (93 %) | 245/255 (96 %) |
+| `gen-mixed` | 228/243 (94 %) | 237/243 (98 %) |
+| `gen-service` | 234/258 (91 %) | 243/258 (94 %) |
+| `harness` | 7/8 (88 %) | 7/8 (88 %) |
+| `lambdas-bindings` | 87/98 (89 %) | 87/98 (89 %) |
+| `layout-dupnames` | 38/38 (100 %) | 38/38 (100 %) |
+| `layout-exts` | 46/50 (92 %) | 46/50 (92 %) |
+| `layout-unity` | 26/26 (100 %) | 26/26 (100 %) |
+| `lookup-adl` | 35/59 (59 %) | 36/59 (61 %) |
+| `lookup-namespaces` | 48/66 (73 %) | 53/66 (80 %) |
+| `name-collisions` | 108/114 (95 %) | 112/116 (97 %) |
+| `oop-ctors` | 108/136 (79 %) | 108/136 (79 %) |
+| `oop-virtual` | 76/82 (93 %) | 79/83 (95 %) |
+| `operators` | 9/58 (16 %) | 9/58 (16 %) |
+| `overloads` | 26/76 (34 %) | 26/76 (34 %) |
+| `paths-unicode` | 70/70 (100 %) | 70/70 (100 %) |
+| `pp-includes` | 71/74 (96 %) | 71/74 (96 %) |
+| `pp-macros-std` | 12/21 (57 %) | 18/21 (86 %) |
+| `pp-macros` | 68/104 (65 %) | 107/114 (94 %) |
+| `pp-xmacros` | 15/38 (39 %) | 38/38 (100 %) |
+| `seed` | 16/24 (67 %) | 18/24 (75 %) |
+| `symlinks` | 4/6 (67 %) | 4/6 (67 %) |
+| `templates-basic` | 67/96 (70 %) | 67/96 (70 %) |
+| `templates-config` | 11/21 (52 %) | 11/21 (52 %) |
+| `templates-cxx20` | 41/58 (71 %) | 41/58 (71 %) |
+| `templates-specialisation` | 39/70 (56 %) | 39/70 (56 %) |
+| `unicode-separators` | 16/16 (100 %) | 16/16 (100 %) |
+| `vs-configs` | 91/91 (100 %) | 91/91 (100 %) |
+| `vs-nav` | 15/15 (100 %) | 15/15 (100 %) |
+| `vs-props` | 96/96 (100 %) | 96/96 (100 %) |
+| `vs-slnx` | 91/91 (100 %) | 91/91 (100 %) |
+| `vs-std` | 16/16 (100 %) | 16/16 (100 %) |
+
+**No fast answer lost.** For every line of the 37 corpora: no line that agreed before disagrees now (0; the lines of the
+three corpora with added expectations were compared by query and final answer, not by line number), and the fast answer of
+every line that still disagrees is unchanged except where it now is the final answer. 0 `FAIL`, 0 `XPASS` after the
+promotions below; the CLI run counts 5,349 `PASS` and 122 `XFAIL` lines.
+
+Where the rest is (355 of 2,794 lines disagree; by shape, before in brackets: 183 "fast is a superset of clangd's answer"
+[186], 80 "fast has no answer" [167], 46 disjoint [53], 39 subset [39], 4 overlap [4], 3 "final has none" [3]). What the
+macro work removed: `pp-macros` 36 -> 7 disagreements, `pp-xmacros` 23 -> 0, `pp-macros-std` 9 -> 3, and the `macros_*.h`
+lines of `gen-game` / `gen-mixed` / `gen-service` (9 each). What is left of the "no data in the index" class: the aliases and
+using-declarations above, specialisations, operator tokens (`operators` 48, FAST-OVL), overloads by type. The macro lines
+that remain: a function-like macro and a function of the same name (`clamp01`), `SCALE` redefined between two headers
+(needs the order of the includes), a conditional `#define` chain (`use_mode_fn`).
+
+**Expectations.** 23 `xfail` lines of the fast tier that now pass became normal lines (`pp-macros` 4, `pp-xmacros` 4 + 2
+`rename` lines, `pp-macros-std` 2, `lookup-namespaces` 2, `gen-game` 3, `gen-mixed` 3, `gen-service` 3); the two `rename`
+lines (`use_Red_1` in `pp-xmacros`) passed because the index now knows the `Red` token of `colors.def`, which clangd's rename
+leaves out. `seed`'s `fast def use_get_w -> none` is now `-> Box_get_w` (the macro `GEO_GETTER` is expanded). 13 `fast` lines
+were added (the macro-declared names of `pp-macros`; `fast decl` for a forward declaration in `name-collisions` and
+`oop-virtual`). Nothing was weakened; `final` lines are unchanged.
+
+**Cost** (generated `game` profile, `--size large --seed 1 --variant cmake`: 20,380 files, 6,981 translation units, 253,387
+symbols, 603 `macros_*.h` headers, 1,510 macro templates, 1,191 macro calls that expand to 1,191 symbols, 930 X-macro
+includes, 1,053 forward declarations; `tenfold-cli bench --no-clangd`, 5 alternating runs of each binary on a loaded box,
+`.tenfold` removed before each cold run; minimum / median):
+
+| | before | after |
+|---|---|---|
+| fast index build, cold (`fastIndexMs`) | 1,004 / 1,063 ms | 849 / 1,093 ms |
+| fast index complete, cold (`fastIndexDoneMs`) | 1,231 / 1,288 ms | 1,143 / 1,379 ms |
+| fast index, warm (store loaded) | 301 / 367 ms | 348 / 432 ms |
+| symbol search `Shape` / `area` (`symFast[..]Ms`) | 18.9 / 2.0 ms (min) | 14.0 / 3.2 ms (min) |
+| peak RSS | 156.2 MiB | 163.5 MiB (+4.7 %) |
+| store (`.tenfold/fastindex.bin`) | 9.59 MB | 9.92 MB (+3.5 %) |
+
+The cold numbers overlap within the noise of a box that was also building (the extraction adds a directive scan of the
+`#define` lines and a call record per typeless `NAME(`; the multi-threaded build absorbs it). The warm index is about 15 %
+slower to start: the expansion layer is rebuilt after the store is loaded (an expansion is never persisted, so a changed
+macro cannot leave a stale answer) and costs 50 ms of import time for the 1,191 calls here (`FastIndex::importFiles`, one
+thread: 89 ms -> 141 ms in a driver around the store). Memory: +2.6 MiB are the expansion entries (measured with
+`setExpandMacros(false)` against `true` over the loaded store), the rest the three new vectors of every `FileSymbols`
+(88 bytes x 20,380 files) and the macro records. Incremental updates (the same 20,380-file index): the edit of a file with
+macro calls 0.7 ms, of a file whose macros did not change 0.5 ms, of a macro definition 19 ms (every call is expanded again,
+1,191 here), a new file 21 ms (the include graph changed, so every call is resolved again). `Symbol` is still 80 bytes
+(`forward` sits in padding).
+
+**Store.** `FastIndexStore` format 4, extractor salt 7: bit 7 of a symbol's kind byte is `forward`, and after each file's
+preprocessor section comes the macro section (templates with token positions, calls, X-macro includes). Self-contained
+and commented in `FastIndexStore.h` / `.cpp` ("FAST-DECL") so that it can be merged with another format change; an old
+store is rejected (format mismatch) and rebuilt.
+
+**Tests.** `tests/test_macro_decl.cpp` (20 tests): the extractor's records (templates with positions, calls in namespaces
+and classes, the typed-declarator call, X-macro includes in and out of enums, a `#define` in a function body); the expander
+(declared names and their positions, `##` / `#` / variadics / `__VA_OPT__` / `__LINE__`, nested and passed macros,
+self-recursion, mutual recursion, exponential growth, depth, unbalanced scopes, the work budget, wrong argument count); the
+index layer (a macro in an included header, change / removal of the caller and of the macro file, two different
+definitions are not guessed between, `#define` / `#undef` order inside one file, X-macro lists with an enum, an unscoped
+enum and a function list, the list changing and going); forward declarations and inline namespaces; the store round trip
+with every payload byte flipped and truncations; four engine tests (names through macros, a macro call under `#ifdef`, `decl`
+of a class, `api::call` through an inline namespace). `symsearch_ranking_equivalent_sample_project` switches the expansion
+layer off for its oracle (`FastIndex::setExpandMacros`); `semantic_clangd_resolves_what_the_fast_parser_cannot` now expects the
+fast tier to land on `GEO_GETTER(double, w)`. Fuzz target `macroexp` (records, store round trip, expansion under default and
+tiny limits, an index over the input and its halves) with six regression inputs under `tests/fuzz/regressions/macroexp/`;
+30 s of it in Release (239,000 executions) and 60 s under ASan + UBSan (13,900) found nothing; all 31 regression inputs replay.
+
+Suites on the final tree: `tenfold-tests` 807 (787 + 20) in Release and in a gcc ASan + UBSan Debug build with leak
+detection; `tenfold-corpus-tests` with `TENFOLD_CORPUS_TIMEOUT=300` (3 tests); `tenfold-ui-tests` 760 and `tenfold-text-tests` 30
+under `xvfb-run -a` (unchanged).
 
 ## SLN-FILES: a solution workspace is the files of its projects (branch `task/SLN-FILES`)
 

@@ -406,8 +406,9 @@ is never emptier than the by-name one; clangd stays the authority and replaces i
    authoritative tier's refinement (W10-CHOOSE, `refinable`), the fast tier does not add it.
 
 Not done (stays a superset of clangd's answer, the chooser shows the candidates): explicit and partial specialisations of
-a class template, alias chains (`using B3 = B2` answers `B3`, clangd also the targets), names declared through macros,
-forward declarations of classes for `decl`. (Overloads of the same arity and operator tokens: FAST-OVL, next section.)
+a class template, alias chains (`using B3 = B2` answers `B3`, clangd also the targets). (Overloads of the same arity and
+operator tokens: FAST-OVL; names declared through macros, forward declarations of classes for `decl` and inline
+namespaces: FAST-DECL; both below.)
 
 Cost (`docs/STRESS_RESULTS.md`, "W11-FAST-SCOPE"): the scope map of a file is built on the first query in it (about
 45 microseconds for a few kB, 20 to 60 ms near the 512 KiB limit) and reused until the document changes; a warm query adds
@@ -502,8 +503,8 @@ unchanged for callers that only want symbols). `FileSymbols` gains, empty for a 
 * `angled`: whether each `#include` was written `<x>` or `"x"`. `FastIndex::reachableFrom` now skips the includer's
   directory and the `-iquote` directories for `<x>`, as a compiler does (it used to treat both forms alike).
 
-The store is `FastIndexStore` format 3 (arms, symbol-arm pairs, macros and bodies are persisted, every index and
-back-reference range-checked, arm ids must point backwards so the evaluator cannot loop); `kExtractorSalt` is 6 and the
+The store is `FastIndexStore` format 3 at the time of this work (format 4 since FAST-DECL, below; arms, symbol-arm pairs, macros and bodies are persisted, every index and
+back-reference range-checked, arm ids must point backwards so the evaluator cannot loop); `kExtractorSalt` was 6 and the
 probe behind the fingerprint contains conditionals.
 
 *Evaluation* (`PpExpr.{h,cpp}` is pure text and arithmetic; `PpCond.{h,cpp}` adds the translation unit):
@@ -583,6 +584,81 @@ superset); `__has_cpp_attribute`, `__has_builtin`, `__has_feature` and `__cpp_li
 (they have no caret unit); the scope maps (`ScopeScan`) still see the locals of inactive code.
 
 Cost and agreement: `docs/STRESS_RESULTS.md`, "W12-FAST-PP".
+
+### Names declared through macros, forward declarations and inline namespaces (FAST-DECL)
+
+A name a macro declares (`DECLARE_CLASS(Gadget)`, `MAKE_FUNC(compute, 1)`, `int CAT(var_, one) = 1;`, the `X(Red, 1)`
+lines of an X-macro list) is in no token sequence the extractor can read as a declaration, so the fast tier used to have
+no answer for it. It now expands the macro. Only the fast tier changed; clangd's answers are untouched.
+
+*Extraction* (`MacroExpand.{h,cpp}` `scanTemplates`, and the extractor itself; `extractFile` fills the new members of
+`FileSymbols`, all empty for a file without macros):
+
+* `templates` (`MacroTemplate`): every function-like `#define` (name, parameters, variadic flag, the body as its tokens
+  joined by single spaces, at most 2,048 bytes, 24 parameters) and every object-like `#define` whose body holds an
+  identifier (at most 256 bytes: `#define WORD limit`, not `#define N 16`). `pos` keeps, per body token, the line
+  (relative to the directive) and column where it is written, so a name that only the macro's body spells is declared
+  *there*, as clangd answers.
+* `calls` (`MacroCall`): `NAME(args)` at namespace or class scope with no type before it (the extractor already skipped
+  these as "almost certainly a macro invocation"), the arguments as source text with the position of their first token,
+  the enclosing scope and its kind, the condition arm. In a class a typeless call that is not the class's constructor,
+  destructor or an operator; the line-based "macro invocation" test also stops such a call from swallowing the
+  declaration after it (`DECLARE_FIELD(int, n)` then `int plain = 0;` used to lose `plain`). A call that names the
+  *declarator* after a type (`int CAT(var_, one) = 1;`) is recorded when its name has no lower-case letter (every
+  prototype would otherwise be a candidate), with the text before the name and after the `)` (`withContext`).
+* `xincludes` (`MacroInclude`): an `#include` that directly follows a `#define` (`#define X(n, v) n = v,` /
+  `#include "colors.def"`): an X-macro list, with the scope it sits in, or the enum whose enumerator list it is in.
+  Directives inside an enumerator list (`#define`, `#include`) are now processed, and a `#define` inside a function body
+  is a symbol (it was skipped with the body).
+
+*Expansion* (`mx::expandCall`, a pure function over a call and a `Resolver`): the arguments are substituted into the body
+(`#x` stringises, `a##b` pastes, `__VA_ARGS__` and `__VA_OPT__`, arguments are expanded first unless next to `#` / `##`),
+the result is rescanned for more macros (a macro passed as an argument and called in the body, `FIELDS(DECL_FIELD)`;
+object-like macros; `__LINE__` is the call's line), with the usual hide set against recursion and the bounds: depth 8,
+64 expansions per call, 4,096 tokens (a bigger expansion declares nothing), and braces / parentheses / brackets of the
+result must balance (a macro that opens a scope another one closes is not expanded). The declaration extractor then runs
+over the tokens in the call's scope; each symbol gets the position of the token it came from: an argument token where the
+argument spells it, the macro body where the body does (the symbol is then in the *macro's* file), the call (the macro name
+token) where it only exists by pasting. A call in an enumerator list is read inside `enum [class] Name { ... }`.
+
+*Which macro* (`FastIndex::refreshExpansions`): in the calling file, the last `#define` of the name before the call that
+no later `#undef` / redefinition before the call hides; when the file has several definitions, one of them in a conditional
+arm, nothing is expanded. Otherwise the definitions of other files, of the right argument count, that the calling file can
+see through `#include` (`reachableFrom`); if they are not all the same macro, nothing is expanded. An X-macro list is read
+with the macros defined in the *including* file before its `#include` (`SemanticEngine::indexXIncludes` indexes the list
+files, which are no code files, as hidden entries: resolved next to the includer, through the compile command's include
+directories, else by the unique workspace path suffix; at most 256 files of 4 MiB).
+
+*The layer*: the symbols a file's calls declare are extra `FileSymbols` entries of the index (key `\x01mx\x01<caller>\x01<file>`,
+`origin` = the calling file's own entry), so `lookup`, `search`, the reachability and scope filters treat them like any
+symbol, while `exportFiles()` (the store), `fileCount()` and `symbolCount()` do not see them: they are recomputed, never
+persisted, so a change in a macro's file cannot leave a stale answer in the store. Every mutation calls
+`refreshExpansions()`, which re-expands only what changed: a caller whose entry was replaced, everything when a macro
+definition changed or the include graph did (an epoch counter), and, while some file includes a list, everything when a
+file with calls changes. The condition of the call decides: `filterByConditions` evaluates the *calling file's* arm
+(`origin`) for a macro-declared symbol, so a call in an inactive `#ifdef` arm is offered as little as a declaration there.
+
+*Forward declarations and inline namespaces.* `class Widget;` / `struct Node;` / a forward-declared class template are
+symbols with `Symbol::forward` (and `definition` false), kept in a separate name table: `lookup()` and `search()` never
+return them, go to *declaration* adds them to the by-name candidates of a class-like name and `shapeAnswer` pairs them
+with the definition as it pairs a prototype with a function definition (`decl` answers the forward declaration, `def`
+the definition, as clangd does). `inline namespace v1 {` is a Namespace symbol with arity 0; a qualifier in front of a name
+(`api::call`) matches a scope through inline namespaces (`api::v1`).
+
+*Store*: `FastIndexStore` format **4**, `kExtractorSalt` 7 (comment in `FastIndexStore.h`): bit 7 of a symbol's kind byte is
+`forward`; after the preprocessor section of every file: `u32 hasMx`, then the counts and the records of the templates
+(with `pos`), calls (with `withContext`) and X-macro includes, every id and count range-checked in both passes.
+
+*Chooser decisions kept.* The fast answer for an alias (`using B3 = B2;`, `typedef`), a using-declaration and a class used
+as a construction is still the single, `refinable` answer that the front end holds back until clangd has answered
+(`Editor::deliverDefinition`): showing the whole alias chain or both targets from the fast tier would put a chooser on
+screen that clangd then replaces, which is what the decision of 2026-11-06 ("choose ... shown once, by the front end")
+excludes. Those `def` lines therefore still differ from the final answer by design.
+
+*Not done:* explicit and partial specialisations of a class template (the scope of a member does not carry the template
+arguments, so `Printer<int>::name` and `Printer<double>::name` are one name), macros that open or close a scope, a list
+included inside a function body or an initialiser (`{ #include "x.def" }` for a table), calls whose macro is defined in
+a header the calling file does not itself include, an edit of an open list file is seen when it is saved.
 
 ## clangd-only features (A9)
 

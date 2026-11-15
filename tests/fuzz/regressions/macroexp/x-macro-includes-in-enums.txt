@@ -1,0 +1,12 @@
+enum class E {
+#define X(n) n,
+#include "e.def"
+#undef X
+};
+enum {
+#define Y(n) n,
+#include "f.def"
+};
+class Fwd;
+struct S;
+inline namespace v1 { class In; }
