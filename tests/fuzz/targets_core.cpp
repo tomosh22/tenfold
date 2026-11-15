@@ -1,7 +1,8 @@
 // Fuzz harnesses of the engine parsers that need nothing but tenfold_core: the fast lexer and symbol extractor, the
-// persisted fast-index store, the XML reader, the MSBuild evaluator (.sln / .vcxproj / .props / Directory.Build.props
-// / .filters), the compile_commands.json reader and command-line splitter, the build output parser, the git / p4
-// output parsers, the line diff engine, the terminal parser, the find-in-files query / glob / regex search.
+// persisted fast-index store, the XML reader, the MSBuild evaluator (.sln / .slnx / .vcxproj / .props /
+// Directory.Build.props / .filters), the compile_commands.json reader and command-line splitter, the build output
+// parser, the git / p4 output parsers, the line diff engine, the terminal parser, the find-in-files query / glob /
+// regex search.
 #include <algorithm>
 #include <cstring>
 #include <filesystem>
@@ -554,6 +555,33 @@ void runMsbuild(const uint8_t* d, size_t n) {
   compdb::solutionConfigurations(root / "App.sln", &err);
   compdb::projectsInSolution(root / "App.sln", &err);
   xml::parse(parts.size() > 4 ? parts[4] : "", &err);
+}
+
+// .slnx: the solution parser, the configuration matrix and the commands of a solution whose projects the input
+// names. Parts: 0 = the .slnx, 1 = App/App.vcxproj (the project most inputs point at).
+void runSlnx(const uint8_t* d, size_t n) {
+  const std::vector<std::string> parts = splitParts(d, n, 2);
+  writeScratch("slnx/App.slnx", parts[0]);
+  writeScratch("slnx/App/App.vcxproj", parts.size() > 1 ? parts[1] : "");
+  const fs::path root = fs::path(scratchDir()) / "slnx";
+  std::string err;
+  const compdb::SolutionInfo info = compdb::readSolution(root / "App.slnx", &err);
+  // The whole matrix: every project in every configuration the file declares.
+  size_t cells = 0;
+  for (const compdb::SolutionConfiguration& cfg : info.configurations)
+    for (const compdb::SolutionProject& p : info.projects)
+      if (info.mapping(p, cfg)) ++cells;
+  FUZZ_REQUIRE(cells <= info.configurations.size() * info.projects.size());
+  compdb::solutionConfigurations(root / "App.slnx", &err);
+  compdb::projectsInSolution(root / "App.slnx", &err);
+  compdb::VcxprojOptions opt;
+  opt.useProcessEnvironment = false;
+  opt.environment = {{"FuzzEnv", "value"}};
+  for (const char* cfg : {"Debug", "Release"}) {
+    opt.configuration = cfg;
+    opt.platform = cfg[0] == 'D' ? "x64" : "x86";
+    compdb::fromSolution(root / "App.slnx", opt, &err);
+  }
 }
 
 // Parts: 0 = the condition, 1 = the expression to expand, 2 = properties ("name=value" per line).
@@ -1567,6 +1595,62 @@ Registrar r15(
       "\"/abs\"",
       "\"..\\\\x\""},
      768});
+
+Registrar r16(
+    {"slnx",
+     runSlnx,
+     {"tests/fixtures/slnx:.slnx"},
+     {"<Solution>\n  <Configurations>\n    <BuildType Name=\"Debug\" />\n    <BuildType Name=\"Release\" />\n"
+      "    <Platform Name=\"x64\" />\n    <Platform Name=\"x86\" />\n  </Configurations>\n"
+      "  <Folder Name=\"/Apps/Core/\">\n    <File Path=\"notes.txt\" />\n    <Project Path=\"App\\App.vcxproj\" />\n"
+      "  </Folder>\n  <Project Path=\"Lib/Lib.vcxproj\" Type=\"VC\" DisplayName=\"Lib\">\n"
+      "    <Platform Solution=\"*|x86\" Project=\"Win32\" />\n    <Build Solution=\"Release|*\" Project=\"false\" />\n"
+      "    <BuildType Solution=\"Debug|x64\" Project=\"*\" />\n  </Project>\n</Solution>\n"
+      "\n#--#\n<Project><ItemGroup><ClCompile Include=\"a.cpp\" /></ItemGroup></Project>\n",
+      "<Solution Version=\"1.0\" Description=\"d\"><Configurations><ProjectType Name=\"T\" Extension=\".x\" "
+      "BasedOn=\"T2\">"
+      "<Platform Solution=\"*|*\" Project=\"*\" /></ProjectType><ProjectType Name=\"T2\" BasedOn=\"T\" "
+      "IsBuildable=\"false\" />"
+      "</Configurations><Project Path=\"a.x\" Type=\"T\" Id=\"{11111111-2222-3333-4444-555555555555}\" "
+      "DefaultStartup=\"true\"><Deploy /><BuildDependency Project=\"b.x\" /></Project></Solution>"},
+     {"<Solution>",
+      "</Solution>",
+      "<Configurations>",
+      "</Configurations>",
+      "<BuildType Name=\"",
+      "<Platform Name=\"",
+      "<Platform Solution=\"",
+      "<BuildType Solution=\"",
+      "<Build Solution=\"",
+      "<Deploy Solution=\"",
+      "<ProjectType ",
+      "BasedOn=\"",
+      "IsBuildable=\"false\"",
+      "SupportsPlatform=\"false\"",
+      "<Folder Name=\"/",
+      "<File Path=\"",
+      "<Project Path=\"",
+      "Type=\"",
+      "Id=\"{",
+      "DisplayName=\"",
+      "DefaultStartup=\"true\"",
+      "Version=\"",
+      " Project=\"false\"",
+      " Project=\"*\"",
+      "Solution=\"*|*\"",
+      "Debug|x64",
+      "Release|*",
+      "*|x86",
+      "Any CPU",
+      "Win32",
+      "ARM64",
+      "..\\",
+      "://",
+      "<Properties Name=\"",
+      "<Property Name=\"",
+      "\n#--#\n",
+      "\xEF\xBB\xBF"},
+     1024});
 
 }  // namespace
 }  // namespace tf::fuzz

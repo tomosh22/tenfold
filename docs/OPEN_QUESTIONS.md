@@ -25,6 +25,7 @@ decided by the user). Each has a default we implement until answered.
 | 18 | Licence for tenfold itself (the repository has no LICENSE file; packages ship third-party notices only) | **Still open:** none chosen (no `LICENSE` file); packaging picks one up automatically once it exists | D1 |
 | 19 | Visual Studio 2022 Dark colours | **Partly done (W10-THEME):** colours sourced from Microsoft's colour reference and applied. **Still needs a screenshot from the user:** the values marked `[?]` in `assets/themes/vs-dark.txt`. Detail: "Table row 19 detail" below | B7b, C2c, C3c, W10-THEME |
 | 20 | What do `InsertPrevAutocomplete` (`Shift F14`) and `InsertNextAutocomplete` (`F14`) do? | **Answered, implemented (W12-CMD)** from 10x's changelog https://10xeditor.com/versions.htm: 1.0.182 "added InsertPrevAutocomplete and InsertNextAutocomplete commands to insert the next autocomplete without the dropdown (F14, shift+F14)"; later "InsertNextAutocomplete now submits autocomplete dropdown if it's visible" and "fixed InsertNextAutocomplete getting into weird state if used with Autocomplete enabled"; the same era added `AutocompletePrev/Next/PageUp/PageDown` "to allow remapping". (An earlier note here said 10xeditor.com was unreachable; it is reachable through the proxy with curl.) **Still unverified:** Shift+F14 while the list is visible (tenfold: nothing), wrap versus clamp when cycling (tenfold: wrap), undo grouping (tenfold: one step per cycle), multiple carets (tenfold: not handled), and that the candidates are the dropdown's ranked list (assumed) | W12-CMD |
+| 21 | `.slnx` (SLNX): is every rule of the XML solution format what Visual Studio does? | **Implemented (SLNX)** from Microsoft's own sources, no Windows machine. **Still unverified:** see "SLNX detail" below | SLNX |
 
 
 ## User decisions of 2026-11-08
@@ -687,6 +688,35 @@ documents nothing here except `DefaultEncoding`. Choices where VS's behaviour is
   `utf-16le`, `utf-16be`, `windows-1252` also accepted, anything else means `utf-8`. An untitled document with a non-UTF-8
   default refuses to Save As text it cannot hold, like any document.
 * **`.editorconfig` `charset`:** not read (tenfold reads only `trim_trailing_whitespace` and `insert_final_newline`). Skipped.
+
+## SLNX detail: `.slnx` solutions (SLNX)
+
+Rules and sources: docs/ARCHITECTURE.md, "Solution files (.sln and .slnx)". Microsoft documents the format only through
+the `microsoft/vs-solutionpersistence` repository (README, the XSD, the library's source and sample files) and two
+devblogs posts; the README's and the docfx pages are stubs. The semantics (defaults, rule order, wildcards, built-in
+project types) were therefore read from the library's source, the implementation Visual Studio and the `dotnet` CLI
+share, not from a prose specification. Nothing was run against a real Visual Studio. Marked **unverified**:
+
+* **Library source as the specification.** The rules are those of the library at commit `ffe47c0b` (2026-11-14). If
+  Visual Studio's own copy differs (it ships its own build of the library), tenfold follows the library.
+* **Both `foo.sln` and `foo.slnx` in the workspace folder.** The `dotnet` CLI refuses that folder (its blog says so);
+  Visual Studio opens whichever file it is given. tenfold uses the first by path (`.sln` before `.slnx`) and lists the
+  configurations of all of them (union), like several `.sln` files. The open-a-chosen-solution API belongs to SLN-OPEN.
+* **Debugger attach.** The attach compares the open solution's path (`Solution.FullName`, normalised) with the
+  workspace's solution file. That Visual Studio reports the `.slnx` path in `Solution.FullName` is assumed, not seen.
+* **`Build="false"` and IntelliSense.** A `.slnx` project with `Build=false` is evaluated with the mapped
+  configuration, as `.sln` projects with `.ActiveCfg` and no `.Build.0` are (#2 detail, P-16): same unverified claim.
+* **Leniency.** The library refuses a file with a duplicate project, a folder name without the slashes, an invalid
+  `Solution` value, a missing `Project` value, an unparsable `Version`, or a `BasedOn` loop, and a `.slnx` project
+  whose extension has no known type and no `Type`. tenfold reports each in the engine log and loads the rest, because
+  an editor that shows nothing is worse than one that shows most of a broken file.
+* **`Id` and `DefaultStartup` attributes** on `<Project>` are read by the library but not in its XSD; tenfold honours
+  them (`DefaultStartup` only moves the project first, which changes nothing tenfold shows).
+* **`<Properties>`** (debugger and website settings), `<BuildDependency>` and `Deploy` rules are parsed past and not
+  used. `.slnf` solution filters are not read.
+* **Project types beyond C++ / CLR / "never built".** Only the built-in types listed in ARCHITECTURE matter to
+  tenfold (it evaluates `.vcxproj` files only); the rest of the library's type table is not reproduced.
+* **Non-C++ projects** in a `.slnx` are listed in the tree like in a `.sln` and ignored for compile commands.
 
 ## W9 detail: Visual Studio configurations (W9-FIX-vs)
 

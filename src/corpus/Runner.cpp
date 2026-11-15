@@ -704,7 +704,7 @@ void Runner::runConfig(const Item& it) {
   bool applied = false;
   if (ed_->vsConfigurations().empty()) {
     r.status = Status::Fail;
-    r.note = "config: the corpus has no Visual Studio solution (.sln) at its root";
+    r.note = "config: the corpus has no Visual Studio solution (.sln / .slnx) at its root";
     return record(std::move(r));
   }
   if (!ed_->selectVsConfiguration(it.arg, &err, [&] { applied = true; })) {

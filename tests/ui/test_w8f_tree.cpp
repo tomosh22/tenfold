@@ -315,6 +315,57 @@ TEST(w8f_folder_tree_uses_the_scan_so_ignore_rules_apply) {
   fs::remove_all(dir, ec);
 }
 
+// SLNX: the same tree from a .slnx (tests/fixtures/slnx/Explorer is the Explorer fixture with Explorer.slnx for its
+// .sln).
+TEST(slnx_solution_tree_equals_the_sln_tree_with_solution_folders_and_items) {
+  const fs::path dir = copyFixture("../slnx/Explorer", "slnx");
+  const TreeModel m = WorkspaceExplorer::buildSolutionTree(dir / "Explorer.slnx");
+  CHECK_EQ(outline(m), kSolutionOutline);
+  CHECK(m.node(0).kind == TreeKind::Solution);
+  const int main = m.findPath((dir / "App/src/main.cpp").generic_string());
+  REQUIRE(main >= 0);
+  CHECK_EQ(m.keyOf(main), std::string("\x1f") + "App\x1f" + "Source Files\x1f" + "main.cpp");
+  const int readme = m.findPath((dir / "README.md").generic_string());  // the item of the "Solution Items" folder
+  REQUIRE(readme >= 0);
+  CHECK(m.node(readme).kind == TreeKind::File);
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+TEST(slnx_solution_folders_nest_by_their_path) {
+  const fs::path dir = copyFixture("../slnx/Explorer", "slnxnest");
+  std::ofstream(dir / "Explorer.slnx", std::ios::binary | std::ios::trunc)
+      << "<Solution>\n"
+         "  <Folder Name=\"/Libs/Core/\"><Project Path=\"Lib/Lib.vcxproj\" /></Folder>\n"
+         "  <Folder Name=\"/Libs/Core/Deep/\"><File Path=\"shared\\common.h\" /></Folder>\n"
+         "  <Folder Name=\"/Empty/\" />\n"
+         "  <Project Path=\"App/App.vcxproj\" />\n"
+         "</Solution>\n";
+  const TreeModel m = WorkspaceExplorer::buildSolutionTree(dir / "Explorer.slnx");
+  const std::string o = outline(m);
+  CHECK(o.rfind("Solution 'Explorer' (2 projects)\n", 0) == 0);
+  CHECK(o.find("\n  Libs\n    Core\n      Deep\n        common.h\n      Lib\n") != std::string::npos);
+  CHECK(o.find("\n  Empty\n") != std::string::npos);
+  CHECK(m.findPath((dir / "shared/common.h").generic_string()) >= 0);
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+TEST(slnx_a_workspace_with_only_a_slnx_opens_in_the_solution_view) {
+  Env env("../slnx/Explorer");
+  CHECK_EQ(env.ed->workspace().solutionFiles().size(), size_t(1));
+  env.key(kKeyE, kCS);
+  CHECK(env.ex().solutionMode());
+  CHECK(env.ex().hasSolution());
+  CHECK_EQ(env.tree().rows().size(), size_t(4));  // solution + App + Libraries + Solution Items
+  CHECK_EQ(env.tree().model().node(0).name, "Solution 'Explorer' (2 projects)");
+  // Switch Views: the folder view and back.
+  env.ex().setFolderView(true);
+  CHECK(!env.ex().solutionMode());
+  env.ex().setFolderView(false);
+  CHECK(env.ex().solutionMode());
+}
+
 TEST(w8f_a_solution_without_projects_falls_back_to_the_folder_tree) {
   const fs::path dir = copyFixture("Explorer", "empty");
   std::ofstream(dir / "Explorer.sln", std::ios::binary | std::ios::trunc)

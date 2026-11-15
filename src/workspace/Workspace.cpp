@@ -311,7 +311,7 @@ std::vector<fs::path> Workspace::solutionFiles() const {
   fs::directory_iterator it(root_, fs::directory_options::skip_permission_denied, ec), end;
   for (; !ec && it != end; it.increment(ec)) {  // the range-for form throws when the directory vanishes mid-walk
     std::error_code e2;
-    if (it->is_regular_file(e2) && lower(pathUtf8(it->path().extension())) == ".sln") out.push_back(it->path());
+    if (it->is_regular_file(e2) && compdb::isSolutionFile(it->path())) out.push_back(it->path());
   }
   std::sort(out.begin(), out.end());
   return out;

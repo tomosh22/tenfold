@@ -1,0 +1,13 @@
+<Solution>
+  <Configurations>
+    <BuildType Name="Debug" />
+    <BuildType Name="Release" />
+    <BuildType Name="Profile" />
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Project Path="core/core.vcxproj" />
+  <Project Path="app\app.vcxproj">
+    <BuildType Solution="Profile|*" Project="Release" />
+  </Project>
+</Solution>

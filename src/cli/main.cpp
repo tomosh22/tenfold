@@ -33,7 +33,7 @@ namespace {
 void usage() {
   std::cerr
       << "usage: tenfold-cli <workspace-root> [options]\n"
-         "       tenfold-cli compdb <file.sln|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
+         "       tenfold-cli compdb <file.sln|file.slnx|file.vcxproj> [--config Debug] [--platform x64] [-o out.json]\n"
          "                         (without -o the compile commands are printed to stdout)\n"
          "       tenfold-cli vsconfig <workspace-root> [--list | --set Debug|x64]\n"
          "       tenfold-cli build <workspace-root> [--config Debug] [--platform x64] [--cmd \"command\"]\n"
@@ -217,7 +217,7 @@ int runCompdb(int argc, char** argv) {
   }
   std::string err;
   std::vector<CompileCommand> cmds;
-  if (in.extension() == ".sln") cmds = compdb::fromSolution(in, vo, &err);
+  if (compdb::isSolutionFile(in)) cmds = compdb::fromSolution(in, vo, &err);
   else cmds = compdb::fromVcxproj(in, vo, &err);
   if (!err.empty()) std::cerr << err;
   // Without -o (or with `-o -`) the database goes to stdout, never next to the input: a compile_commands.json at a

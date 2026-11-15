@@ -81,7 +81,7 @@ std::string hostTargetTriple();
 std::vector<std::string> toHostStdlibArgs(const std::vector<std::string>& args, const std::string& hostTarget,
                                           const std::vector<std::string>& extraFlags = {});
 
-// A project listed in a .sln.
+// A project listed in a .sln or .slnx.
 struct SolutionProject {
   std::string name;
   std::string guid;  // upper-case, with braces
@@ -104,10 +104,20 @@ struct SolutionInfo {
   bool hasProjectConfigurationMap = false;
   // guid -> lower-case "config|platform" of the solution -> mapping (.ActiveCfg / .Build.0 lines).
   std::map<std::string, std::map<std::string, SolutionProjectConfiguration>> projectConfigurations;
+  // .slnx only (the .sln keeps these in NestedProjects / ProjectSection(SolutionItems), read by the explorer): solution
+  // folders are listed in `projects` with the solution-folder type guid and a synthetic guid; `nestedIn` maps a project
+  // or folder guid to its parent folder guid, `folderItems` a folder guid to its <File Path> entries as written.
+  bool isSlnx = false;
+  std::map<std::string, std::string> nestedIn;
+  std::map<std::string, std::vector<std::string>> folderItems;
   // The mapping for `project` in `solutionConfig`; nullopt when the solution does not map it (project skipped).
   std::optional<SolutionProjectConfiguration> mapping(const SolutionProject& project,
                                                       const SolutionConfiguration& solutionConfig) const;
 };
+// True for a Visual Studio solution file by extension: .sln (text) or .slnx (XML), case-insensitive.
+bool isSolutionFile(const std::filesystem::path& p);
+// Reads either format (chosen by the extension) into the same model; see docs/ARCHITECTURE.md "Solution files".
+// `error` gets a message for an unreadable or malformed file (the result is then empty or partial).
 SolutionInfo readSolution(const std::filesystem::path& sln, std::string* error = nullptr);
 std::vector<SolutionConfiguration> solutionConfigurations(const std::filesystem::path& sln,
                                                           std::string* error = nullptr);
@@ -120,7 +130,7 @@ SolutionConfiguration pickSolutionConfiguration(const std::vector<SolutionConfig
 // Parse "Debug|x64" (the platform may be missing: "Debug").
 SolutionConfiguration parseSolutionConfiguration(const std::string& name);
 
-// Projects referenced by a .sln (absolute paths, .vcxproj only; ignores the configuration mapping).
+// Projects referenced by a .sln / .slnx (absolute paths, .vcxproj only; ignores the configuration mapping).
 std::vector<std::filesystem::path> projectsInSolution(const std::filesystem::path& sln, std::string* error = nullptr);
 // Evaluate a .vcxproj (following .props imports, Directory.Build.props/targets) into compile commands.
 std::vector<CompileCommand> fromVcxproj(const std::filesystem::path& vcxproj, const VcxprojOptions& opt,

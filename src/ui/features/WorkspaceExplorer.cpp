@@ -437,7 +437,14 @@ TreeModel WorkspaceExplorer::buildSolutionTree(const fs::path& sln, const std::v
                                                const std::vector<fs::path>& extraDirs) {
   TreeModel m;
   const compdb::SolutionInfo info = compdb::readSolution(sln);
-  const SolutionExtras extras = readSolutionExtras(sln);
+  // .slnx: folders and items come with the parsed model; .sln: NestedProjects / SolutionItems sections.
+  SolutionExtras extras;
+  if (info.isSlnx) {
+    extras.nestedIn = info.nestedIn;
+    extras.itemsOf = info.folderItems;
+  } else {
+    extras = readSolutionExtras(sln);
+  }
   const int root = m.add(-1, "", TreeKind::Solution, pathKeyUtf8(sln));
   std::map<std::string, const compdb::SolutionProject*> byGuid;
   size_t projects = 0;
@@ -979,7 +986,8 @@ std::vector<fs::path> WorkspaceExplorer::projectFiles() const {
       out.push_back(pathFromUtf8(m.node(static_cast<int>(i)).path));
   if (out.empty())  // Folder view: the projects of the solution still need to follow the files
     for (const fs::path& sln : editor_.workspace().solutionFiles())
-      for (const compdb::SolutionProject& p : compdb::readSolution(sln).projects) out.push_back(p.path);
+      for (const compdb::SolutionProject& p : compdb::readSolution(sln).projects)
+        if (!p.path.empty()) out.push_back(p.path);  // a .slnx solution folder has no path
   return out;
 }
 

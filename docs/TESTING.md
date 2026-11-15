@@ -22,11 +22,11 @@ for end-to-end answers on awkward code.
 
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
-| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, the fuzz regression inputs | 719 | clangd for the integration tests (they skip with a message without it) |
-| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 649 | a display (`xvfb-run -a`); golden-image tests skip without one |
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), the fuzz regression inputs | 749 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 652 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout (`tests/text`, UI build) | 30 | nothing |
-| `tenfold-corpus-tests` | the 36 corpus projects under `tests/corpus` (one test runs all of them; two more cover the runner's error paths) | 3 | clangd; not part of `ctest` |
-| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | 24 targets (22 without the UI build), not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
+| `tenfold-corpus-tests` | the 37 corpus projects under `tests/corpus` (one test runs all of them; two more cover the runner's error paths) | 3 | clangd; not part of `ctest` |
+| `tenfold-fuzz` | mutation fuzzer (`tests/fuzz`, see "Fuzzing") | 25 targets (23 without the UI build), not tests | `-DTENFOLD_FUZZ_COVERAGE=ON` for coverage feedback |
 
 `ctest --preset release` runs `unit` (`tenfold-tests`), and with `-DTENFOLD_BUILD_UI=ON` also `text` (`tenfold-text-tests`) and
 `ui-unit` (`tenfold-ui-tests`) (`CMakeLists.txt`, `add_test`). Pass a substring of the test name to any suite
@@ -139,12 +139,12 @@ generated compile database, clangd logs) never touch the repository. `--keep` pr
 ## Writing a corpus
 
 1. Make `tests/corpus/<name>/` with the sources and whatever tells tenfold how to compile them:
-   * a `.sln` / `.vcxproj` at the root (needed for `config`; the seed does this). Off Windows there is no MSVC toolchain, so
+   * a `.sln` / `.slnx` / `.vcxproj` at the root (needed for `config`; the seed does this). Off Windows there is no MSVC toolchain, so
    tenfold parses `.sln` projects against the host's own standard library (docs/ARCHITECTURE.md "Host standard library
    fallback"): a `.sln` corpus may use `<vector>`, `<string>` ... there (`tests/corpus/vs-std` does), but then it depends on
    the host's headers and carries a `tenfold-corpus-linux-only` marker (skipped on Windows, where the MSVC STL decides).
    The older `.sln` corpora (`vs-configs`, `vs-props`, `templates-config`, `c-vcxproj`) stay standard-library free so they
-   mean the same on every platform. Every configuration you `config` into gets its own compile database and clangd index
+   mean the same on every platform; `vs-slnx` is `vs-configs` with a `.slnx` for its `.sln` (SLNX). Every configuration you `config` into gets its own compile database and clangd index
    under `.tenfold/vs/` in the scratch copy.
    * or a `compile_commands.json` (git ignores that file name by default; `.gitignore` has an exception for
    `tests/corpus/`). Use relative paths or `@CORPUS_ROOT@` in it: the runner replaces that text with the scratch copy's
@@ -542,7 +542,7 @@ tests/fuzz/run_all.sh build-fuzz/tests/fuzz/tenfold-fuzz 30 1          # every t
 build-fuzz/tests/fuzz/tenfold-fuzz --replay tests/fuzz/regressions     # the regression inputs, outside the unit tests
 ```
 
-`TMPDIR=/dev/shm` matters for the harnesses that read files (`msbuild`, `compdb`, `statefiles`, `explorer`): they write
+`TMPDIR=/dev/shm` matters for the harnesses that read files (`msbuild`, `slnx`, `compdb`, `statefiles`, `explorer`): they write
 the input to a scratch directory first.
 
 Options: `--seconds N` / `--runs N` (a deterministic budget), `--seed S`, `--corpus DIR` (read at start, new-coverage

@@ -686,7 +686,7 @@ bool evaluateCondition(const std::string& cond, const std::map<std::string, std:
 }
 
 // ---------------------------------------------------------------------------
-// .sln
+// .sln and .slnx
 // ---------------------------------------------------------------------------
 
 bool SolutionConfiguration::operator==(const SolutionConfiguration& o) const {
@@ -733,7 +733,428 @@ std::optional<SolutionProjectConfiguration> SolutionInfo::mapping(const Solution
   return m->second;
 }
 
+// ---------------------------------------------------------------------------
+// .slnx (XML solution file). Rules and sources: docs/ARCHITECTURE.md "Solution files (.sln and .slnx)".
+// ---------------------------------------------------------------------------
+
+namespace {
+
+enum class SlnxDim { BuildType, Platform, Build, Deploy };
+// One <BuildType>/<Platform>/<Build>/<Deploy> rule. `bt` / `plat` empty = every build type / platform ("*" or absent).
+struct SlnxRule {
+  SlnxDim dim;
+  std::string bt, plat, value;
+};
+struct SlnxType {  // a <ProjectType> of <Configurations>
+  std::string name, ext, typeId, basedOn;
+  std::vector<SlnxRule> rules;
+  bool isDefault() const { return name.empty() && ext.empty() && typeId.empty(); }
+};
+enum class BuiltinKind { None, Vc, Clr, NoBuild, NoPlatforms };
+struct BuiltinType {
+  const char* name;
+  const char* guid;  // without braces
+  const char* ext;   // with the dot; "" = none
+  BuiltinKind kind;
+};
+// Visual Studio's implicit project types (the ones with configuration behaviour).
+const BuiltinType kBuiltinTypes[] = {
+    {"Common C#", "9A19103F-16F7-4668-BE54-9A1E7A4F7556", "", BuiltinKind::Clr},
+    {"Common VB", "778DAE3C-4631-46EA-AA77-85C1314464D9", "", BuiltinKind::Clr},
+    {"Common F#", "6EC3EE1D-3C4E-46DD-8F32-0CC8E7565705", "", BuiltinKind::Clr},
+    {"C#", "FAE04EC0-301F-11D3-BF4B-00C04F79EFBC", ".csproj", BuiltinKind::Clr},
+    {"VB", "F184B08F-C81C-45F6-A57F-5ABD9991F28F", ".vbproj", BuiltinKind::Clr},
+    {"F#", "F2A71F9B-5D33-465A-A702-920D77279786", ".fsproj", BuiltinKind::Clr},
+    {"Shared", "D954291E-2A0B-460D-934E-DC6B0785DB48", ".shproj", BuiltinKind::NoBuild},
+    {"Website", "E24C65DC-7377-472B-9ABA-BC803B73C61A", ".webproj", BuiltinKind::Clr},
+    {"VC", "8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942", ".vcxproj", BuiltinKind::Vc},
+    {"", "8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942", ".vcxitems", BuiltinKind::NoBuild},  // shares the VC type id
+    {"Exe", "911E67C6-3D85-4FCE-B560-20A9C3E3FF48", ".exe", BuiltinKind::NoBuild},
+    {"Folder", "2150E333-8FDC-42A3-9474-1A3956D46DE8", "", BuiltinKind::NoBuild},
+    {"Javascript", "54A90642-561A-4BB1-A94E-469ADEE60C69", ".esproj", BuiltinKind::NoBuild},
+    {"Node.js", "9092AA53-FB77-4645-B42D-1CCCA6BD08BD", ".njsproj", BuiltinKind::NoBuild},
+    {"Deploy", "151D2E53-A2C4-4D7D-83FE-D05416EBD58E", ".deployproj", BuiltinKind::NoBuild},
+    {"Installer", "54435603-DBB4-11D2-8724-00A0C9A8B90C", ".vsproj", BuiltinKind::NoBuild},
+    {"Wix", "930C7802-8A8C-48F9-8165-68863BCCD9DD", ".wixproj", BuiltinKind::NoBuild},
+    {"SQL", "00D1A9C2-B5F0-4AF3-8072-F6C62B433612", ".sqlproj", BuiltinKind::NoBuild},
+    {"U-SQL-DB", "0C603C2C-620A-423B-A800-4F3E2F6281F1", ".usqldbproj", BuiltinKind::NoBuild},
+    {"U-SQL", "182E2583-ECAD-465B-BB50-91101D7C24CE", ".usqlproj", BuiltinKind::NoBuild},
+    {"SSRS", "F14B399A-7131-4C87-9E4B-1186C45EF12D", ".rptproj", BuiltinKind::NoPlatforms},
+    {"Fabric", "A07B5EB6-E848-4116-A8D0-A826331D98C6", ".sfproj", BuiltinKind::NoBuild},
+    {"Cloud Computing", "CC5FD16D-436D-48AD-A40C-5A424C6E3E79", ".ccproj", BuiltinKind::NoBuild},
+    {"Docker", "E53339B2-1760-4266-BCC7-CA923CBCF16C", ".dcproj", BuiltinKind::NoBuild},
+};
+
+bool eqi(const std::string& a, const std::string& b) { return lower(a) == lower(b); }
+std::string upperStr(std::string s) {
+  for (char& c : s) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
+  return s;
+}
+// "Any CPU" and "AnyCPU" are the same platform.
+std::string canonPlatform(const std::string& p) { return eqi(p, "Any CPU") ? "AnyCPU" : p; }
+bool samePlatform(const std::string& a, const std::string& b) { return eqi(canonPlatform(a), canonPlatform(b)); }
+
+// "{GUID}" / "GUID" -> "{GUID}" upper case; "" when it is not a GUID.
+std::string guidOf(std::string s) {
+  s = trim(std::move(s));
+  if (s.size() >= 2 && s.front() == '{' && s.back() == '}') s = s.substr(1, s.size() - 2);
+  if (s.size() != 36) return {};
+  for (size_t i = 0; i < s.size(); ++i) {
+    const bool dash = i == 8 || i == 13 || i == 18 || i == 23;
+    if (dash ? s[i] != '-' : !std::isxdigit(static_cast<unsigned char>(s[i]))) return {};
+  }
+  return "{" + upperStr(s) + "}";
+}
+
+// Persistence paths take both separators; URIs ("scheme://...") are left alone.
+std::string slnxModelPath(const std::string& p) {
+  if (p.find("://") != std::string::npos) return p;
+  std::string out = p;
+  std::replace(out.begin(), out.end(), '\\', '/');
+  return out;
+}
+
+// A <Configuration Solution="Debug|x64"> value: "" = every configuration, "*" = every value of that side. False when
+// non-empty without a '|' or with an empty side (Visual Studio refuses to load such a file).
+bool splitSlnxConfig(const std::string& s, std::string& bt, std::string& plat) {
+  bt.clear();
+  plat.clear();
+  if (s.empty()) return true;
+  const size_t bar = s.find('|');
+  if (bar == std::string::npos || bar == 0) return false;
+  bt = trim(s.substr(0, bar));
+  plat = trim(s.substr(bar + 1));
+  if (bt.empty() || plat.empty()) return false;
+  if (bt == "*") bt.clear();
+  if (plat == "*") plat.clear();
+  return true;
+}
+
+bool parseBoolStr(const std::string& s, bool& out) {
+  const std::string l = lower(trim(s));
+  if (l == "true") out = true;
+  else if (l == "false") out = false;
+  else return false;
+  return true;
+}
+
+// Reads the BuildType / Platform / Build / Deploy children of `n` as rules, in document order.
+void readSlnxRules(const xml::Node& n, std::vector<SlnxRule>& out, std::string& err) {
+  for (const auto& c : n.children) {
+    SlnxDim dim;
+    if (c->name == "BuildType") dim = SlnxDim::BuildType;
+    else if (c->name == "Platform") dim = SlnxDim::Platform;
+    else if (c->name == "Build") dim = SlnxDim::Build;
+    else if (c->name == "Deploy") dim = SlnxDim::Deploy;
+    else continue;
+    SlnxRule r{dim, {}, {}, trim(c->attr("Project"))};
+    if (!splitSlnxConfig(c->attr("Solution"), r.bt, r.plat)) {
+      err += "invalid configuration '" + c->attr("Solution") + "' in <" + c->name + ">\n";
+      continue;
+    }
+    if (r.value.empty()) {
+      if (dim == SlnxDim::Build || dim == SlnxDim::Deploy) r.value = "true";  // <Build Solution="..."/> = true
+      else {
+        err += "<" + c->name + "> needs a Project value\n";
+        continue;
+      }
+    }
+    bool b;
+    if ((dim == SlnxDim::Build || dim == SlnxDim::Deploy) && !parseBoolStr(r.value, b)) {
+      err += "invalid boolean '" + r.value + "' in <" + c->name + ">\n";
+      continue;
+    }
+    out.push_back(std::move(r));
+  }
+}
+
+struct MapState {
+  std::string bt, plat;
+  bool build = true, deploy = false;
+};
+
+// Applies the rules in order: a later matching rule wins within a dimension. `starPlatform` is what "*" stands for.
+void applySlnxRules(const std::vector<SlnxRule>& rules, const std::string& solBt, const std::string& matchPlatform,
+                    const std::string& starPlatform, MapState& st) {
+  for (const SlnxRule& r : rules) {
+    const bool allBt = r.bt.empty(), allPl = r.plat.empty();
+    const bool applies = (allBt || eqi(r.bt, solBt)) && (allPl || samePlatform(r.plat, matchPlatform));
+    if (!applies) continue;
+    switch (r.dim) {
+      case SlnxDim::BuildType: st.bt = r.value == "*" ? solBt : r.value; break;
+      case SlnxDim::Platform: st.plat = r.value == "*" ? starPlatform : r.value; break;
+      case SlnxDim::Build: parseBoolStr(r.value, st.build); break;
+      case SlnxDim::Deploy: parseBoolStr(r.value, st.deploy); break;
+    }
+  }
+}
+
+std::vector<SlnxRule> builtinKindRules(BuiltinKind k) {
+  switch (k) {
+    case BuiltinKind::Vc: return {{SlnxDim::Platform, "", "AnyCPU", "x64"}, {SlnxDim::Platform, "", "x86", "Win32"}};
+    case BuiltinKind::Clr: return {{SlnxDim::Platform, "", "", "AnyCPU"}};
+    case BuiltinKind::NoBuild: return {{SlnxDim::Build, "", "", "false"}};
+    case BuiltinKind::NoPlatforms: return {{SlnxDim::Platform, "", "", "?"}};
+    case BuiltinKind::None: break;
+  }
+  return {};
+}
+
+// The built-in type of a project: the extension's type when the Type attribute (a name or guid) agrees or is absent,
+// else the type the attribute names.
+const BuiltinType* findBuiltinType(const std::string& typeAttr, const std::string& ext) {
+  const std::string guid = guidOf(typeAttr);
+  auto matchesAttr = [&](const BuiltinType& t) {
+    if (typeAttr.empty()) return true;
+    if (!guid.empty()) return eqi(guid, "{" + std::string(t.guid) + "}");
+    return eqi(typeAttr, t.name);
+  };
+  if (!ext.empty())
+    for (const BuiltinType& t : kBuiltinTypes)
+      if (*t.ext && eqi(ext, t.ext) && matchesAttr(t)) return &t;
+  if (typeAttr.empty()) return nullptr;
+  for (const BuiltinType& t : kBuiltinTypes)
+    if (guid.empty() ? (*t.name && eqi(typeAttr, t.name)) : eqi(guid, "{" + std::string(t.guid) + "}")) return &t;
+  return nullptr;
+}
+
+const SlnxType* findUserType(const std::vector<SlnxType>& types, const std::string& typeAttr, const std::string& ext) {
+  const std::string guid = guidOf(typeAttr);
+  auto extOf = [](const std::string& e) { return e.empty() || e[0] == '.' ? e : "." + e; };
+  if (!ext.empty())
+    for (const SlnxType& t : types)
+      if (!t.ext.empty() && eqi(extOf(t.ext), ext) &&
+          (typeAttr.empty() || (!guid.empty() ? eqi(guidOf(t.typeId), guid) : eqi(typeAttr, t.name))))
+        return &t;
+  if (typeAttr.empty()) return nullptr;
+  for (const SlnxType& t : types)
+    if (guid.empty() ? (!t.name.empty() && eqi(typeAttr, t.name)) : (!t.typeId.empty() && eqi(guidOf(t.typeId), guid)))
+      return &t;
+  return nullptr;
+}
+
+// Rules of a user type: its BasedOn chain first (most general), then its own.
+void collectUserTypeRules(const std::vector<SlnxType>& types, const SlnxType& t, int depth,
+                          std::vector<SlnxRule>& out) {
+  if (depth > 32) return;  // a BasedOn loop: Visual Studio refuses the file; the chain is cut here
+  if (!t.basedOn.empty()) {
+    if (const SlnxType* base = findUserType(types, t.basedOn, {}); base && base != &t)
+      collectUserTypeRules(types, *base, depth + 1, out);
+    else if (const BuiltinType* b = findBuiltinType(t.basedOn, {}))
+      for (auto& r : builtinKindRules(b->kind)) out.push_back(r);
+  }
+  out.insert(out.end(), t.rules.begin(), t.rules.end());
+}
+
+struct SlnxBuilder {
+  SolutionInfo& info;
+  std::string dir;  // the .slnx directory, host-style
+  std::string err;
+  std::map<std::string, std::string> folderGuids;  // lower-case folder path -> guid
+  std::set<std::string> projectKeys;               // lower-case normalised persistence paths
+  struct Pending {
+    size_t index;  // into info.projects
+    std::vector<SlnxRule> rules;
+    std::string typeAttr;
+  };
+  std::vector<Pending> pending;
+  int startupIndex = -1;
+
+  std::string folder(const std::string& path) {  // creates the folder and its ancestors
+    const std::string key = lower(path);
+    if (const auto it = folderGuids.find(key); it != folderGuids.end()) return it->second;
+    const std::string guid = "{SLNX-FOLDER:" + upperStr(path) + "}";
+    folderGuids[key] = guid;
+    const std::string trimmed = path.substr(0, path.size() - 1);
+    const size_t slash = trimmed.find_last_of('/');
+    SolutionProject f;
+    f.name = trimmed.substr(slash + 1);
+    f.guid = guid;
+    f.typeGuid = "{2150E333-8FDC-42A3-9474-1A3956D46DE8}";
+    info.projects.push_back(std::move(f));
+    if (slash != 0 && slash != std::string::npos) info.nestedIn[guid] = folder(trimmed.substr(0, slash + 1));
+    return guid;
+  }
+
+  void project(const xml::Node& n, const std::string& parentFolderGuid) {
+    const std::string rawPath = trim(n.attr("Path"));
+    if (rawPath.empty()) {
+      err += "<Project> without a Path\n";
+      return;
+    }
+    const std::string modelPath = slnxModelPath(rawPath);
+    if (!projectKeys.insert(lower(normalizePathStr(modelPath))).second) {
+      err += "duplicate project " + rawPath + "\n";
+      return;
+    }
+    SolutionProject p;
+    const bool isUri = modelPath.find("://") != std::string::npos;
+    const std::string typeAttr = trim(n.attr("Type"));
+    const std::string ext = isUri ? std::string() : lower(pathUtf8(fs::path(modelPath).extension()));
+    p.name = n.attr("DisplayName");
+    if (p.name.empty() && !isUri) p.name = pathUtf8(fs::path(modelPath).stem());
+    if (p.name.empty()) p.name = rawPath;
+    p.path = isUri ? fs::path(modelPath) : fs::path(joinPathStr(dir, modelPath));
+    p.guid = guidOf(n.attr("Id"));
+    if (p.guid.empty()) p.guid = "{SLNX-PROJECT:" + upperStr(normalizePathStr(modelPath)) + "}";
+    if (const BuiltinType* bt = findBuiltinType(typeAttr, ext)) p.typeGuid = "{" + std::string(bt->guid) + "}";
+    if (const std::string g = guidOf(typeAttr); !g.empty()) p.typeGuid = g;
+    Pending pe{info.projects.size(), {}, typeAttr};
+    readSlnxRules(n, pe.rules, err);
+    if (!parentFolderGuid.empty()) info.nestedIn[p.guid] = parentFolderGuid;
+    bool startup = false;
+    parseBoolStr(n.attr("DefaultStartup"), startup);
+    if (startup && startupIndex < 0) startupIndex = static_cast<int>(pe.index);
+    info.projects.push_back(std::move(p));
+    pending.push_back(std::move(pe));
+  }
+};
+
+SolutionInfo readSlnx(const fs::path& file, std::string* error) {
+  SolutionInfo info;
+  info.path = file;
+  info.isSlnx = true;
+  std::string perr;
+  const std::unique_ptr<xml::Node> doc = xml::parseFile(pathKeyUtf8(file), &perr);
+  if (!doc) {
+    if (error) *error = perr.empty() ? "cannot read " + pathUtf8(file) : perr;
+    return info;
+  }
+  if (doc->name != "Solution") {
+    if (error) *error = pathUtf8(file) + ": the root element is <" + doc->name + ">, not <Solution>";
+    return info;
+  }
+  SlnxBuilder b{info, hostPath(pathKeyUtf8(file.parent_path())), {}, {}, {}, {}, -1};
+  // Version="1.0": the format version; a newer major version is refused, an unparsable one is an error.
+  if (const std::string v = trim(doc->attr("Version")); !v.empty()) {
+    size_t i = 0;
+    int major = 0;
+    bool ok = std::isdigit(static_cast<unsigned char>(v[0])) != 0;
+    while (i < v.size() && std::isdigit(static_cast<unsigned char>(v[i])) && major < 100000)
+      major = major * 10 + (v[i++] - '0');
+    for (; ok && i < v.size(); ++i)
+      if (!std::isdigit(static_cast<unsigned char>(v[i])) && v[i] != '.') ok = false;
+    if (!ok) b.err += "invalid Version '" + v + "'\n";
+    else if (major > 1) {
+      if (error) *error = pathUtf8(file) + ": unsupported .slnx Version " + v;
+      return info;
+    }
+  }
+
+  // <Configurations>: build types, platforms, custom project types (the first <Configurations> element wins).
+  std::vector<std::string> buildTypes, platforms;
+  std::vector<SlnxType> userTypes;
+  auto addUnique = [](std::vector<std::string>& v, const std::string& s) {
+    if (s.empty()) return;
+    for (auto& e : v)
+      if (eqi(e, s)) return;
+    v.push_back(s);
+  };
+  if (const xml::Node* cfg = doc->child("Configurations")) {
+    for (const auto& c : cfg->children) {
+      if (c->name == "BuildType") addUnique(buildTypes, trim(c->attr("Name")));
+      else if (c->name == "Platform") addUnique(platforms, trim(c->attr("Name")));
+      else if (c->name == "ProjectType") {
+        SlnxType t;
+        t.name = c->attr("Name");
+        t.ext = c->attr("Extension");
+        t.typeId = c->attr("TypeId");
+        t.basedOn = c->attr("BasedOn");
+        bool buildable = true, supportsPlatform = true;
+        parseBoolStr(c->attr("IsBuildable"), buildable);
+        parseBoolStr(c->attr("SupportsPlatform"), supportsPlatform);
+        if (!buildable) t.rules = builtinKindRules(BuiltinKind::NoBuild);
+        else {
+          if (!supportsPlatform) t.rules = builtinKindRules(BuiltinKind::NoPlatforms);
+          readSlnxRules(*c, t.rules, b.err);
+        }
+        userTypes.push_back(std::move(t));
+      }
+    }
+  }
+
+  // Folders and projects. Root projects come first, then each folder (in document order) with its projects.
+  for (const auto& c : doc->children)
+    if (c->name == "Project") b.project(*c, {});
+  for (const auto& c : doc->children) {
+    if (c->name != "Folder") continue;
+    const std::string name = slnxModelPath(c->attr("Name"));
+    if (name.size() < 2 || name.front() != '/' || name.back() != '/') {
+      b.err += "invalid folder name '" + c->attr("Name") + "' (it must start and end with '/')\n";
+      continue;
+    }
+    const std::string guid = b.folder(name);
+    for (const auto& f : c->children) {
+      if (f->name == "File" && !f->attr("Path").empty()) info.folderItems[guid].push_back(f->attr("Path"));
+      else if (f->name == "Project") b.project(*f, guid);
+    }
+  }
+  if (b.startupIndex > 0 && b.startupIndex < static_cast<int>(info.projects.size())) {
+    // DefaultStartup="true": that project goes first (Visual Studio's startup project is the first one).
+    const size_t at = static_cast<size_t>(b.startupIndex);
+    std::rotate(info.projects.begin(), info.projects.begin() + static_cast<std::ptrdiff_t>(at),
+                info.projects.begin() + static_cast<std::ptrdiff_t>(at) + 1);
+    for (auto& pe : b.pending) {
+      if (pe.index == at) pe.index = 0;
+      else if (pe.index < at) ++pe.index;
+    }
+  }
+
+  // Solution configurations. Defaults apply only when the solution has projects: Debug and Release; Any CPU.
+  if (!b.pending.empty()) {
+    if (buildTypes.empty()) buildTypes = {"Debug", "Release"};
+    if (platforms.empty()) platforms = {"Any CPU"};
+  }
+  for (const auto& bt : buildTypes)
+    for (const auto& pl : platforms) info.configurations.push_back({bt, pl});
+
+  // The project configuration matrix. Order of rules: implicit defaults, the project type's (BasedOn chain first),
+  // the solution's default type, then the project's own rules.
+  const std::vector<SlnxRule> implicitDefaults = {{SlnxDim::BuildType, "", "", "*"},
+                                                  {SlnxDim::Platform, "", "", "*"},
+                                                  {SlnxDim::Build, "", "", "true"},
+                                                  {SlnxDim::Deploy, "", "", "false"}};
+  std::vector<SlnxRule> userDefault;
+  for (const SlnxType& t : userTypes)
+    if (t.isDefault()) userDefault = t.rules;
+  info.hasProjectConfigurationMap = !b.pending.empty();
+  for (const auto& pe : b.pending) {
+    const SolutionProject& proj = info.projects[pe.index];
+    const bool isUri = pathUtf8(proj.path).find("://") != std::string::npos;
+    const std::string ext = isUri ? std::string() : lower(pathUtf8(proj.path.extension()));
+    std::vector<SlnxRule> typeRules;
+    if (const SlnxType* ut = findUserType(userTypes, pe.typeAttr, ext))
+      collectUserTypeRules(userTypes, *ut, 0, typeRules);
+    else if (const BuiltinType* bt = findBuiltinType(pe.typeAttr, ext)) typeRules = builtinKindRules(bt->kind);
+    auto& perCfg = info.projectConfigurations[proj.guid];
+    for (const auto& sc : info.configurations) {
+      MapState st;
+      // "*" in a type rule stands for the canonical platform name ("Any CPU" -> AnyCPU); in project rules, as written.
+      const std::string canon = canonPlatform(sc.platform);
+      applySlnxRules(implicitDefaults, sc.configuration, sc.platform, canon, st);
+      applySlnxRules(typeRules, sc.configuration, sc.platform, canon, st);
+      applySlnxRules(userDefault, sc.configuration, sc.platform, canon, st);
+      applySlnxRules(pe.rules, sc.configuration, sc.platform, sc.platform, st);
+      SolutionProjectConfiguration m;
+      m.configuration = st.bt;
+      m.platform = st.plat == "?" ? std::string() : st.plat;
+      m.build = st.build;
+      perCfg[lower(sc.name())] = m;
+    }
+  }
+  if (error) *error = b.err;
+  return info;
+}
+
+}  // namespace
+
+bool isSolutionFile(const fs::path& p) {
+  const std::string e = lower(pathUtf8(p.extension()));
+  return e == ".sln" || e == ".slnx";
+}
+
 SolutionInfo readSolution(const fs::path& sln, std::string* error) {
+  if (lower(pathUtf8(sln.extension())) == ".slnx") return readSlnx(sln, error);
   SolutionInfo info;
   info.path = sln;
   std::ifstream in(sln);

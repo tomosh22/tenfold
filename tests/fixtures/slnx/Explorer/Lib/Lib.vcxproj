@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<Project DefaultTargets="Build" xmlns="http://schemas.microsoft.com/developer/msbuild/2003">
+  <ItemGroup>
+    <ClCompile Include="lib.cpp" />
+    <ClCompile Include="detail\impl.cpp" />
+    <ClInclude Include="lib.h" />
+    <ClInclude Include="..\shared\common.h" />
+    <None Include="notes.txt" />
+  </ItemGroup>
+</Project>
