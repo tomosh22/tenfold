@@ -87,7 +87,7 @@ A workspace is a folder. tenfold has no open-folder dialog, no menus and no rece
 workspace on the command line (a shortcut on Windows works well).
 
 ```
-tenfold-ui C:\src\Game                     the folder (or a .sln / CMakeLists.txt inside it: its folder is used)
+tenfold-ui C:\src\Game                     the folder (or a .sln / .slnx / CMakeLists.txt inside it: its folder is used)
 tenfold-ui C:\src\Game src\main.cpp        also open a file (relative to the workspace, else to the current folder)
 ```
 
@@ -121,9 +121,9 @@ database. It tries these in order and uses the first that applies:
    (`cmake` must be on `PATH`). CMake only writes `compile_commands.json` for the Makefile and Ninja generators, not
    the Visual Studio ones; if nothing is produced, tenfold moves on to the next entry. A configure failure is logged.
    If your project is also a `.sln` and you want the solution's flags, set `"runCMake": false`.
-3. **A Visual Studio solution**: a `.sln` directly in the root folder (not in subfolders). tenfold evaluates the
+3. **A Visual Studio solution**: a `.sln` or `.slnx` directly in the root folder (not in subfolders). tenfold evaluates the
    `.vcxproj` files itself and writes `.tenfold/vs/<configuration>/compile_commands.json` with `clang-cl` style
-   commands for the active configuration (one folder per configuration, each with its own clangd index). All `.sln` files in the root are used. See [Visual Studio solutions](#visual-studio-solutions).
+   commands for the active configuration (one folder per configuration, each with its own clangd index). All `.sln` and `.slnx` files in the root are used. See [Visual Studio solutions](#visual-studio-solutions).
 4. **A heuristic guess**: every source file compiled with `-std=c++20` (`cppStandard` in `workspace.json`), and
    `-I` for the smallest set of directories that makes the `#include` lines of the workspace resolve (found with the
    fast index). Good enough to start, wrong for anything that depends on defines, generated headers or a particular
@@ -586,9 +586,25 @@ default (`editor.smoothScroll`).
 
 ## Visual Studio solutions
 
-If the workspace folder contains a `.sln` (and no `compile_commands.json` or CMake project takes precedence, see
+If the workspace folder contains a `.sln` or a `.slnx` (and no `compile_commands.json` or CMake project takes precedence, see
 [Where the compile flags come from](#where-the-compile-flags-come-from)), tenfold reads the solution and its C++
 projects itself, without MSBuild, and gives clangd the commands `cl.exe` would get, as `clang-cl` commands.
+
+**`.sln` and `.slnx`.** Visual Studio's newer XML solution format, `.slnx`, works everywhere a `.sln` does: the same
+configurations, project mapping, Solution Explorer tree (with its solution folders and items), build, `Build.SelectConfiguration`
+and `tenfold-cli compdb`. A few things differ because the format does, and tenfold follows Visual Studio:
+
+* A `.slnx` without a `<Configurations>` section has the configurations `Debug|Any CPU` and `Release|Any CPU`; with only
+  `<Platform>` entries it has `Debug` and `Release` for each platform; the list is always the full combination of
+  build types and platforms (the `.sln` can list an odd subset).
+* A C++ project in a `.slnx` follows Visual Studio's built-in rules: solution platform `Any CPU` means the project's
+  `x64`, solution `x86` means the project's `Win32`, anything else is the same name. `<BuildType>`, `<Platform>` and
+  `<Build Solution="Release|*" Project="false"/>` elements inside a `<Project>` change that per configuration (`*` is a
+  wildcard for either side; the last matching element wins). A project with `Build="false"` is still evaluated for
+  clangd in that configuration, as for a `.sln` project that has an `.ActiveCfg` but no `.Build.0`.
+* If a folder holds both `App.sln` and `App.slnx`, tenfold uses the first by name (`App.sln`).
+* An error in the file (not XML, a bad `Solution="..."` value, a duplicate project) is logged; a file that is not
+  parsable shows no projects. Details and sources: ARCHITECTURE.md, "Solution files (.sln and .slnx)".
 
 **Active configuration.** The solution's `Configuration|Platform` list decides what is available. The setting is
 `vsConfiguration` / `vsPlatform` in `.tenfold/workspace.json` (default `Debug` / `x64`). If the solution lists it, it is
@@ -605,7 +621,7 @@ To change it:
 * or `tenfold-cli vsconfig <folder> --list` and `tenfold-cli vsconfig <folder> --set "Release|x64"`, or edit
   `workspace.json` and restart.
 
-To see the commands a solution gives clangd, `tenfold-cli compdb Game.sln --config Debug --platform x64` prints the
+To see the commands a solution gives clangd, `tenfold-cli compdb Game.sln --config Debug --platform x64` (or `Game.slnx`) prints the
 database to stdout; `-o <file>` writes it to a file. It does not write next to the solution on its own: a
 `compile_commands.json` in the workspace folder takes precedence over the `.sln` (see above) and would freeze the flags.
 Write the file somewhere else, or only into a folder you want to use that way.
@@ -620,8 +636,8 @@ about which configuration you parse with in 10x.
 
 **What is read**
 
-* The `.sln`: the project list, the solution configuration list, and the project-to-configuration mapping
-  (`ProjectConfigurationPlatforms`, `.ActiveCfg` and `.Build.0`). Only C++ (`.vcxproj`) projects; C# and other projects
+* The `.sln` or `.slnx`: the project list, the solution configuration list, and the project-to-configuration mapping
+  (`ProjectConfigurationPlatforms`, `.ActiveCfg` and `.Build.0`; in a `.slnx` the defaults and the `<BuildType>` / `<Platform>` / `<Build>` rules). Only C++ (`.vcxproj`) projects; C# and other projects
   are ignored.
 * The `.vcxproj` files, with MSBuild's evaluation order: properties and conditions, `PropertyGroup`,
   `ItemDefinitionGroup`/`ClCompile` metadata, `ClCompile` items (wildcards, `Condition`, per-file metadata that overrides the
@@ -635,11 +651,11 @@ about which configuration you parse with in 10x.
   A language standard that the project leaves unset becomes `/std:c++17` (a superset of `cl`'s default, on purpose).
 * Anything that cannot be resolved (an unknown property, a toolchain macro such as `$(VC_IncludePath)`, a registry
   value) drops only the entry that contains it, never a half-written path.
-* A change to the `.sln`, a `.vcxproj`, a `.props` or `.targets` file or `Directory.Build.*` triggers a refresh.
+* A change to the `.sln` / `.slnx`, a `.vcxproj`, a `.props` or `.targets` file or `Directory.Build.*` triggers a refresh.
 
 **What is not**
 
-* `.slnx` solutions, non-C++ projects, `Update=` / `Remove=` items, `ProjectReference` include propagation,
+* Non-C++ projects, `Update=` / `Remove=` items, `ProjectReference` include propagation,
   `PlatformToolset`-dependent defaults, `UndefineAllPreprocessorDefinitions`, instance property functions
   (`$(x.Replace(...))`), and other numeric condition operators.
 * Warning switches (`DisableSpecificWarnings`, warning level): clangd's diagnostics are clangd's own, not `cl`'s.
@@ -780,7 +796,7 @@ closes it. It is a dock like the Build panel: drag its divider to resize it; whe
 `.tenfold/layout.json`. It starts closed, except the very first time a workspace with a solution is opened (no
 `layout.json` yet): then it opens, without taking the keys, like Solution Explorer (`explorer.openWithSolution`).
 
-**What it shows.** For a workspace with a `.sln` (the first one in the folder): the solution, its solution folders, the
+**What it shows.** For a workspace with a `.sln` or `.slnx` (the first one in the folder): the solution, its solution folders, the
 projects and each project's files, as the `.vcxproj` lists them (`gen\*.cpp` style wildcards are expanded; items that need
 MSBuild properties other than `$(ProjectDir)` / `$(SolutionDir)` are left out). If the project has a `.vcxproj.filters`
 file, the files sit under its filters (empty filters too); a file the project lists but the filters file does not is at the
@@ -878,8 +894,8 @@ the window (**Ctrl+Alt+O** shows / hides it, `Build.Cancel` is **Control Cancel*
 
 1. `buildCommand` in `.tenfold/workspace.json` (run through `cmd /s /c` on Windows, `sh -c` elsewhere, in the
    workspace folder); or an argument to the command: `Control Shift B: Build.Build make -j8` in your key file.
-2. A `.sln` in the folder (the first one): `msbuild <sln> /m /p:Configuration=<vsConfiguration> /p:Platform=<vsPlatform>`;
-   or, with no `.sln`, a `.vcxproj` in the folder. `msbuild` is started by name, so it has to be on `PATH`: start
+2. A `.sln` or `.slnx` in the folder (the first one): `msbuild <sln> /m /p:Configuration=<vsConfiguration> /p:Platform=<vsPlatform>`;
+   or, with no solution, a `.vcxproj` in the folder. `msbuild` is started by name, so it has to be on `PATH`: start
    tenfold from a Visual Studio *Developer Command Prompt*, or set `buildCommand`.
 3. A `CMakeLists.txt`: `cmake --build <dir> --config <vsConfiguration>`. `<dir>` is `buildDir`, else the folder of the
    compile database clangd uses if it holds a `CMakeCache.txt`, else `.tenfold/cmake-build`. tenfold never configures the
@@ -893,7 +909,7 @@ command) uses the same detection but builds from scratch: `rebuildCommand` in `w
 says so and does nothing.
 
 **Build the current file** (**Control F7**, `BuildCurrentFile`; tenfold `Build.BuildCurrentFile`) compiles only the file
-of the current tab (the saved version on disk; save first). `buildCommand` does not apply. With a `.sln` (or a lone
+of the current tab (the saved version on disk; save first). `buildCommand` does not apply. With a `.sln` / `.slnx` (or a lone
 `.vcxproj`) it runs `msbuild <project that lists the file> /t:ClCompile /p:SelectedFiles=<file>` with the solution's
 configuration mapped to the project's. Otherwise the file's entry in `compile_commands.json` is used: if its build
 directory holds a `build.ninja` the object target is built (`ninja -C <dir> <object>`), else the entry's compiler command

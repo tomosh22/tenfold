@@ -607,7 +607,7 @@ bool isBuildInputFile(const std::string& name) {
   if (dot == std::string::npos) return false;
   std::string ext = name.substr(dot);
   for (auto& c : ext) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
-  return ext == ".sln" || ext == ".vcxproj" || ext == ".props" || ext == ".targets";
+  return ext == ".sln" || ext == ".slnx" || ext == ".vcxproj" || ext == ".props" || ext == ".targets";
 }
 }  // namespace
 

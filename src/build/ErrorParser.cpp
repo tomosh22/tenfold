@@ -52,7 +52,8 @@ std::string_view stripProjectSuffix(std::string_view s) {
   size_t open = s.rfind(" [");
   if (open == std::string_view::npos) return s;
   std::string_view in = s.substr(open + 2, s.size() - open - 3);
-  for (std::string_view ext : {".vcxproj", ".csproj", ".proj", ".sln", ".targets", ".props", ".vcproj", ".wixproj"})
+  for (std::string_view ext :
+       {".vcxproj", ".csproj", ".proj", ".sln", ".slnx", ".targets", ".props", ".vcproj", ".wixproj"})
     if (endsWithNoCase(in, ext)) return trim(s.substr(0, open));
   return s;
 }

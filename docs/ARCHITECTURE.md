@@ -667,7 +667,7 @@ fast editor must:
 
 * **Compile flags are always present.** `CompileCommands` finds an existing
   `compile_commands.json`; otherwise configures CMake into
-  `.tenfold/cmake-build`; otherwise evaluates `.sln`/`.vcxproj` (MSBuild
+  `.tenfold/cmake-build`; otherwise evaluates `.sln`/`.slnx`/`.vcxproj` (MSBuild
   property expansion, conditions, imported `.props`, per-file metadata,
   `%(…)` merging) into `clang-cl` commands; otherwise emits heuristic
   commands with `-I` for every header directory. clangd also gets
@@ -697,7 +697,7 @@ fast editor must:
   process exits or is cancelled.
 * **Command selection** (`detectBuildCommand`): custom `buildCommand`
   (override or `.tenfold/workspace.json`, run via `sh -c` / `cmd /s /c`) >
-  `.sln`/`.vcxproj` -> `msbuild <sln> /m /p:Configuration=<vsConfiguration>
+  `.sln`/`.slnx`/`.vcxproj` -> `msbuild <sln> /m /p:Configuration=<vsConfiguration>
   /p:Platform=<vsPlatform>` > CMake -> `cmake --build <dir> --config <cfg>` >
   Makefile -> `make -j<cores>`. The CMake directory is `buildDir` (setting or
   override), else the directory of the compile database clangd uses when it
@@ -910,8 +910,8 @@ compiled into `tenfold-ui-tests` too).
   with a filter line listing `Editor::vsConfigurations()` ("Debug|x64", ...), the active one badged "active" and
   preselected. Enter calls `Editor::selectVsConfiguration(name, &err, applied)`. Status-bar segment `config` (declared
   after `message`, click opens the picker) shows the active configuration, `Configuration: Release|x64 (reloading...)`
-  until `applied` fires, and nothing for a workspace without a solution configuration. The list is read from the .sln
-  files on construction, on opening the picker and after a switch, not per frame (a .sln added later appears after the
+  until `applied` fires, and nothing for a workspace without a solution configuration. The list is read from the .sln / .slnx
+  files on construction, on opening the picker and after a switch, not per frame (a .sln or .slnx added later appears after the
   first open of the picker).
 
 ## Version control (C3a, `src/vcs`)
@@ -1410,7 +1410,7 @@ A front end needs to:
 
 ## Visual Studio solution settings (`compdb::fromSolution`, C5)
 
-The workspace's compiler settings come from the open `.sln` (OPEN_QUESTIONS #12), evaluated without MSBuild and
+The workspace's compiler settings come from the open `.sln` or `.slnx` (OPEN_QUESTIONS #12; see "Solution files (.sln and .slnx)"), evaluated without MSBuild and
 emitted as `clang-cl` commands, so clangd and the fast index see what `cl.exe` would. Evaluation is string-level
 (backslashes, drive letters and UNC names behave the same on every host) and hermetic apart from the environment.
 
@@ -1436,7 +1436,7 @@ and toolchain mode for a solution; `heuristic` for a heuristic one, which is how
 cached heuristic database is dropped when a solution or CMake project appears), so a hand-edited `workspace.json` is not
 served from a stale cache. `Workspace::saveSettings` merges into the existing
 `workspace.json` (unknown keys survive), writes `workspace.json.tmp` and renames it, and refuses to touch a file that is
-not a JSON object. Edits to `.sln`, `.vcxproj`, `.props`, `.targets` and `Directory.Build.*` trigger a refresh like
+not a JSON object. Edits to `.sln`, `.slnx`, `.vcxproj`, `.props`, `.targets` and `Directory.Build.*` trigger a refresh like
 `compile_commands.json` does.
 
 **One compile database and one clangd index per configuration (W9-FIX-vs, P-15).** clangd keeps its background index in
@@ -1534,11 +1534,108 @@ next to the source, in the project directory or the include directories) and no 
 everything in a file before the through header, so a source that never includes it vanishes from clangd, and clangd has
 no `.pch` to load anyway. `NotUsing` adds nothing.
 
-**Not honoured:** `Update=`/`Remove=` items, `.slnx`, non-C++ projects, `ItemDefinitionGroup` metadata for item types
+**Not honoured:** `Update=`/`Remove=` items, non-C++ projects, `ItemDefinitionGroup` metadata for item types
 other than `ClCompile`, `UndefineAllPreprocessorDefinitions`, `/Yu`-style pch semantics, `DisableSpecificWarnings` and
 other warning switches (clangd's diagnostics are its own), `StructMemberAlignment`/`CallingConvention` (layout flags;
 add through `AdditionalOptions` if wanted), `ProjectReference` include propagation, `PlatformToolset`-dependent defaults,
 instance property functions (`$(x.Replace(...))`), numeric condition operators.
+
+## Solution files (.sln and .slnx)
+
+`compdb::readSolution` reads both formats into the same `SolutionInfo` (projects, solution configurations, the
+per-project mapping), chosen by the extension (`compdb::isSolutionFile`: `.sln` or `.slnx`, any case). Everything
+downstream (`fromSolution`, `projectsInSolution`, `solutionConfigurations`, `Workspace::solutionFiles` /
+`vsConfigurations`, the engine, the flag vocabulary over every configuration, the Build commands, the explorer tree, the
+file watcher's build-input check, `tenfold-cli compdb`) goes through those, so a `.slnx` behaves exactly like the
+equivalent `.sln`; tests compare the two (`tests/test_slnx.cpp`, fixture `tests/fixtures/slnx/Pair`). Where both files
+sit in one folder the list is sorted by path and the first is used (`App.sln` before `App.slnx`); the `dotnet` CLI
+refuses that case, Visual Studio opens whichever file it is given (see OPEN_QUESTIONS, SLNX). A `.slnx` that fails to
+parse yields an empty solution and an error string (the engine logs it); a rule with a bad value is reported and
+skipped, the rest of the file still loads. Parsed with the XML reader the `.vcxproj` evaluation uses
+(`tf::xml`, `src/semantic/XmlLite.*`).
+
+**Sources.** Microsoft publishes the format as the open-source library `microsoft/vs-solutionpersistence` (the one
+Visual Studio and the `dotnet` CLI share, commit `ffe47c0b76b8927c92f8795d891ad0a1d06acb03` read on 2026-11-14). Its
+README and `docfx/docs` are stubs ("TODO"), so the rules below come from three kinds of Microsoft source; each rule
+names the ones it rests on. Only the rules were taken (the library's code is C# and nothing of it is in this repository):
+
+* [S1] README, https://github.com/microsoft/vs-solutionpersistence ("Simplified configuration rules and default logic
+  reduce the file size"; `.slnx` is the XML format, `.sln` the text format, one object model for both).
+* [S2] The XML schema shipped with the library, `src/Microsoft.VisualStudio.SolutionPersistence/Serializer/Xml/Slnx.xsd`
+  (https://github.com/microsoft/vs-solutionpersistence/blob/main/src/Microsoft.VisualStudio.SolutionPersistence/Serializer/Xml/Slnx.xsd).
+* [S3] "Introducing support for SLNX ... in the .NET CLI", https://devblogs.microsoft.com/dotnet/introducing-slnx-support-dotnet-cli/
+  (the `.slnx` that `dotnet sln migrate` writes for a solution with Debug/Release and three platforms: only the
+  `<Platform>` list and the projects remain, "the data that is missing from the new format is part of the defaults of the
+  format"; `/` in project paths; one `.sln` plus one `.slnx` in a folder is an error for the CLI).
+* [S4] "New, Simpler Solution File Format", https://devblogs.microsoft.com/visualstudio/new-simpler-solution-file-format/
+  (a `.slnx` is `<Solution><Project Path="..."/></Solution>`; Visual Studio 17.14 saves and opens it; File > Open on the
+  file).
+* [S5] The library's model and serializer source, read for the semantics the schema cannot state (defaults, rule order,
+  wildcards): `Model/SolutionConfigurationMap*.cs`, `Model/ConfigurationRuleFollower.cs`, `Model/ProjectTypeTable*.cs`,
+  `Model/BuildTypeNames.cs`, `Model/PlatformNames.cs`, `Model/SolutionModel.cs`, `Serializer/Xml/XmlDecorators/*.cs`,
+  `Utilities/PathExtensions.cs`.
+* [S6] The library's own sample files `test/Microsoft.VisualStudio.SolutionPersistence.Tests/SlnAssets/*.slnx.xml`
+  (`Everything`, `SingleNativeProject`, `PathSlashes`, `SampleMany`, `Min`) as worked examples of the above.
+* [S7] https://learn.microsoft.com/en-us/dotnet/core/tools/dotnet-sln (the CLI treats `.sln` and `.slnx` alike; `dotnet sln
+  migrate` converts).
+
+**The rules** (what `readSlnx` implements):
+
+1. *Root.* `<Solution>` with optional `Description` and `Version` [S2]. A root of any other name is an error (not a
+   solution). `Version="major.minor"`: a major above 1 is refused (the library's `CurrentVersion` is 1); an unparsable
+   value ("v1.0") is an error that the library also refuses, tenfold reports it and still reads the file [S5]. Children
+   of the root: `<Configurations>`, `<Project>`, `<Folder>`, `<Properties>` [S2]. `<Properties>`/`<Property>` (debugger
+   and website settings and the like) are read by nothing in tenfold and ignored; unknown elements are ignored.
+2. *Solution configurations.* `<Configurations>` holds `<BuildType Name>` and `<Platform Name>` [S2]. The solution
+   configurations are every pair: build types x platforms, **build type major** in declaration order
+   (`Debug|x64, Debug|x86, Release|x64, ...`), names compared case-insensitively, duplicates dropped [S5]. A `.sln`
+   lists configurations explicitly, so a `.slnx` cannot express a sparse matrix (no `Release|x86` while `Debug|x86`
+   exists): the conversion makes the matrix full [S5].
+3. *Defaults.* With no `<BuildType>` the build types are `Debug` and `Release`; with no `<Platform>` the platform is
+   `Any CPU`; both only when the solution has at least one project (a solution with none has no configurations) [S3, S5].
+4. *Project -> configuration mapping.* Every project exists in every solution configuration (there is no "unmapped
+   project" in a `.slnx`, unlike a `.sln` without `.ActiveCfg`), mapped as: first the implicit rules, then the rules of
+   the project's type, then the solution's default type rules, then the project's own rules in document order [S5].
+   Implicit: project build type = solution build type; project platform = solution platform; built; not deployed.
+   Per dimension (`BuildType`, `Platform`, `Build`, `Deploy`) the last rule that applies wins [S5].
+5. *Rule elements* [S2, S5]: `<BuildType Solution="cfg" Project="value"/>`, `<Platform Solution="cfg" Project="value"/>`,
+   `<Build Solution="cfg" Project="true|false"/>`, `<Deploy .../>` inside `<Project>` (or `<ProjectType>`). `Solution`
+   is `Build|Platform`, either side may be `*`; absent (or empty) = every configuration. A non-empty value without a
+   `|`, or with an empty side, is invalid. Names match case-insensitively; `Any CPU` and `AnyCPU` are one platform. A
+   rule naming a configuration the solution does not have never applies. `Project="*"` (BuildType, Platform) means "the
+   solution's value". `Project` is required for BuildType and Platform; for Build and Deploy it defaults to `true`
+   (`<Build Solution="Release|*"/>` re-enables) [S5]. Booleans are `true` / `false`, any case.
+6. *`Build=false`.* The project is mapped but not built in that configuration: `SolutionProjectConfiguration::build =
+   false`, exactly like a `.sln` `.ActiveCfg` without `.Build.0`; `fromSolution` still evaluates it, as for `.sln`
+   (OPEN_QUESTIONS #2, P-16) [S5].
+7. *Built-in project types* (by the `Type` attribute, a name or a GUID, else by extension) [S5]: C++ (`.vcxproj`, name
+   `VC`): solution `Any CPU` -> project `x64`, solution `x86` -> project `Win32`, every other platform unchanged; C#, VB,
+   F#, Website and the "Common" project systems: project platform `AnyCPU`; never built (`Build=false`): `.vcxitems`,
+   `.shproj`, `.exe`, `.esproj`, `.njsproj`, `.deployproj`, `.vsproj`, `.wixproj`, `.sqlproj`, `.usqldbproj`,
+   `.usqlproj`, `.sfproj`, `.ccproj`, `.dcproj`; `.rptproj`: no platform. The `*` of a type rule stands for the
+   canonical platform name (`AnyCPU`), of a project rule for the platform as written [S5].
+8. *`<ProjectType>`* inside `<Configurations>`: `Name`, `Extension`, `TypeId`, `BasedOn` (its rules apply first),
+   `IsBuildable="false"` (= never built), `SupportsPlatform="false"` (= no platform), and rule children. One without
+   `Name`/`Extension`/`TypeId` holds the solution's default rules, which apply to every project after its type's rules
+   [S2, S5]. A `BasedOn` loop is cut after 32 steps (Visual Studio refuses the file).
+9. *Solution folders.* `<Folder Name="/a/b/">`: the name starts and ends with `/`; nesting is by path, a parent that is
+   not declared exists implicitly; `<Folder>` elements do not nest in the XML [S2, S5]. A name without the slashes is an
+   error and the folder is skipped. Inside a folder: `<File Path>` (solution items) and `<Project>` [S2]. Folders are
+   listed in `SolutionInfo::projects` with the solution-folder type GUID and a synthetic id; `nestedIn` and
+   `folderItems` carry the nesting and the items (the `.sln` equivalents are `NestedProjects` and
+   `ProjectSection(SolutionItems)`, read by the explorer from the text).
+10. *Projects.* `<Project Path Type DisplayName>`, optional `Id` (a GUID, else a synthetic one), `DefaultStartup="true"`
+    (that project becomes the first one) and `<BuildDependency Project>` (ignored: tenfold does not build in
+    dependency order) [S2, S5]. The name is `DisplayName`, else the file name without extension [S5]. Order: projects
+    outside folders first, then each folder's, as the library does [S5]. A second `<Project>` for the same path is
+    an error (the first is kept).
+11. *Paths.* `Path` (projects, files, `BuildDependency`) is relative to the directory of the `.slnx`; both `/` and `\`
+    separate [S6 `PathSlashes`, S3]. A path containing `://` is a URI (a website project): kept as written, never
+    touched [S5, S6 `Everything`].
+
+Windows and the debugger need no format knowledge: the VS debugger attach compares the open solution's path
+(`Solution.FullName`) with the workspace's solution file, whichever extension it has (not run against a real Visual
+Studio, see OPEN_QUESTIONS, SLNX).
 
 ## Compile-command diagnostics (D4)
 
@@ -1553,7 +1650,7 @@ instance property functions (`$(x.Replace(...))`), numeric condition operators.
   headers and for sources the database does not cover (a project excluded in the active configuration); then `argv`
   is empty, and the report says that clangd borrows a similar entry's command (its own choice, invisible here) or uses
   the fallback flags, which are exactly the `fallbackFlags` given to clangd: `-std=<cppStandard>` and `-I<root>`.
-* `Workspace`: the first `.sln` of the root and `activeVsConfiguration()`; `vsConfigurationUsed` is true only when the
+* `Workspace`: the first `.sln` / `.slnx` of the root and `activeVsConfiguration()`; `vsConfigurationUsed` is true only when the
   source is `vcxproj` (a `compile_commands.json` or CMake takes precedence over the solution).
 * `.tenfold/clangd-config/clangd/config.yaml`: the `CompileFlags.Add` list the engine writes in heuristic mode where
   clangd honours `XDG_CONFIG_HOME` (the shared `-I` flags). It is read whatever the current source is, because clangd
@@ -1727,7 +1824,7 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
 `tenfold-cli` is the reference front end of the "Front-end contract": `tenfold-cli <workspace-root>` reads commands from
 stdin (`open`, `goto`, `def`, `decl`, `refs`, `sym`, `grep`, `hover`, `complete`, `switch`, `back`, `fwd`, `history`,
 `insert`, `wait-index`, `wait-file`, `wait-fast`, `status`, `where`, `diags`, `quit`) and drives `Editor` exactly as the GUI
-does. Sub-commands that do not open an editor session: `compdb <.sln|.vcxproj>` (print or write the generated compile
+does. Sub-commands that do not open an editor session: `compdb <.sln|.slnx|.vcxproj>` (print or write the generated compile
 commands), `vsconfig <root> [--list | --set Debug|x64]`, `build <root>`, `why <root> <file>` ("Compile-command
 diagnostics"), `log [<root>] [--tail N]` ("Local log file"), `bench <root>` (scan, fast index, one go to definition, symbol
 searches, peak RSS; the stress driver and `docs/BENCHMARKS.md` use it), `corpus <dir>` ("Corpus harness") and `--version`.
@@ -2251,8 +2348,8 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
   (`markOf`, called for visible file rows only). Theme keys (optional, `Theme::orElse`): `treeBackground`,
   `treeSelection` (focused), `treeSelectionInactive`, `treeFolder`; `vs-dark` sets the last three.
 * **`WorkspaceExplorer`**: builds the model. Solution mode (`Workspace::solutionFiles().front()` lists at least one
-  project): `readSolution` for the projects, a small pass over the `.sln` text for `NestedProjects` and
-  `ProjectSection(SolutionItems)`, `xml::parseFile` for each project's item groups (every item with an `Include` except
+  project): `readSolution` for the projects (and, for a `.slnx`, the folder nesting and items from the parsed model), a small
+  pass over the `.sln` text for `NestedProjects` and `ProjectSection(SolutionItems)`, `xml::parseFile` for each project's item groups (every item with an `Include` except
   references and configurations; `$(ProjectDir)`, `$(MSBuildProjectDirectory)` and `$(SolutionDir)` are substituted,
   other `$(...)` skipped; `*`, `?` and `**` expanded) and for `<project>.vcxproj.filters` (Filter elements, each item's
   `<Filter>`). Files go under their filter (filters are split on `\`, declared-but-empty ones included), else, with no
@@ -2262,7 +2359,7 @@ yields the default single-panel layout. `tenfold-ui <workspace> [file]` runs the
 * **File operations** (`ExplorerPrompt`, `src/ui/features/ExplorerPrompt.*`): the explorer's small modal dialogs, all `ListPopup`s: `askName` (New File / New Folder / Rename; an input row that says what Enter will do or why it cannot, e.g. "already exists"), `confirm` (a title, dim detail lines, OK / Cancel; delete goes to the OS trash through `moveToTrash`, see "Workspace, search and small core pieces") and `info` (read-only `label: value` rows for Properties).
 * **Refresh**: only while the panel is open. `EditorApp::tick` calls `WorkspaceExplorer::tick`, which looks (at most every
   300 ms; a skipped look asks for one more wake-up) at `Workspace::revision()` (a counter bumped by `scan` and by every
-  incremental file-list change, i.e. the file watcher's events) and at a stamp of the size and mtime of the `.sln`, the
+  incremental file-list change, i.e. the file watcher's events) and at a stamp of the size and mtime of the `.sln` / `.slnx`, the
   projects and their `.filters`; a change arms a 250 ms debounce, then the model is rebuilt and handed to
   `TreeView::setModel`. The VCS marker follows `VcsManager::generation()` (repaint). Closing the panel drops the
   "built" flag, so reopening builds afresh and nothing is polled meanwhile.

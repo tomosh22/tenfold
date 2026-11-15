@@ -1,0 +1,15 @@
+<Solution>
+  <Configurations>
+    <Platform Name="x64" />
+    <Platform Name="x86" />
+  </Configurations>
+  <Folder Name="/Apps/">
+    <File Path="notes.txt" />
+    <Project Path="App/App.vcxproj" />
+  </Folder>
+  <Project Path="Lib\Lib.vcxproj" />
+  <Project Path="Tool/Tool.vcxproj">
+    <Platform Solution="*|x86" Project="x64" />
+    <Build Solution="Release|*" Project="false" />
+  </Project>
+</Solution>
