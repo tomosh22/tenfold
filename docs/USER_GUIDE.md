@@ -83,7 +83,8 @@ Building from source is described in `README.md`.
 
 ## Opening a workspace
 
-A workspace is a folder, or a Visual Studio solution and its folder. There are four ways in, and they work like Visual
+A workspace is a folder, or a Visual Studio solution and its folder. There are four ways in (and one way out: [Close
+Solution](#closing-a-solution-and-the-empty-window)), and they work like Visual
 Studio's where Visual Studio has the same thing (the commands are in the File menu of the [menu bar](#menu-bar), on keys and in
 the [command palette](#command-palette)).
 
@@ -117,7 +118,8 @@ badges. The list is yours, not the workspace's: `recent.txt` in the user config 
 and removes it from the list.
 
 **4. Drag and drop.** Dropping a `.sln`, `.slnx`, `.vcxproj` or a folder on the window opens it like the dialog does;
-dropping any other file opens it as a document in a tab.
+dropping any other file opens it as a document in a tab (on the empty window, which has no tabs, its folder opens as the
+workspace with the file in a tab, like `tenfold-ui folder file`).
 
 **Opening another solution while one is open** closes the current one in the same window, as Visual Studio does:
 
@@ -133,10 +135,14 @@ dropping any other file opens it as a document in a tab.
 **Windows: double-click and Open with.** tenfold takes the path as its first argument, so *Open with > Choose another
 app > tenfold-ui.exe* on a `.sln` works, and so does a shortcut with `"C:\tools\tenfold\bin\tenfold-ui.exe"
 "C:\src\Game\Game.sln"` as the target. tenfold does **not** register itself for `.sln` files: that would take them
-from Visual Studio (a possible installer option, OPEN_QUESTIONS).
+from Visual Studio (an installer option was considered; the user does not want it for now, OPEN_QUESTIONS).
 
-Without an argument, `tenfold-ui` looks for `examples\sample_project` relative to the current folder, which exists only
-in a source checkout, so pass a folder or a solution (or use File > Open once running).
+**No argument: the empty window.** `tenfold-ui` on its own starts with no workspace: the
+[empty window](#closing-a-solution-and-the-empty-window), from which File > Open Solution... (`Control Shift O`), Open
+Folder..., Recent Projects and Solutions or a drop opens one. tenfold never reopens the last solution by itself (Visual
+Studio's *On startup, open* is *Start window* by default, 10x's `OpenLastWorkspaceOnStartup` is `false`); pick it from the
+recent list. (Older builds opened `examples\sample_project` here, which exists only in a source checkout; pass it as an
+argument when you want it. `--shell` still uses it.)
 
 On start the previous layout (tabs, split panels, pinned tabs, dock state) comes back from
 `<workspace>\.tenfold\layout.json`. A first run (no saved layout) opens `src\main.cpp` if the workspace has one, else an
@@ -151,6 +157,35 @@ whose name starts with `build-` or `cmake-build` (`build-x64`, `cmake-build-debu
 `ignoreDirs`, `ignoreDirNames` and `ignoreDirPrefixes` in
 `.tenfold/workspace.json` (see [Workspace file](#workspace-file-tenfoldworkspacejson)). Symbolic links are not followed
 unless `followSymlinks` is set.
+
+### Closing a solution and the empty window
+
+**File > Close Solution** (command `File.CloseSolution`, 10x's `CloseWorkspace` "Close the current workspace", Visual
+Studio's Close Solution; **no key**: Visual Studio's default shortcut table and 10x's default key map have none, bind one
+in your key file if you want it) closes the open workspace and leaves the window empty. It is the first half of
+opening another solution:
+
+* modified documents are asked about first, with the same prompt as for opening another solution (one file: Save / Don't
+  Save / Cancel; several: *Save changes to the following items?* Yes / No / Cancel); **Cancel keeps the solution open**.
+  `editor.confirmUnsaved` = false skips the prompt;
+* the workspace saves its `layout.json`, bookmarks and breakpoints, stops clangd, the file watcher and a running build and
+  ends its terminals, exactly like a switch to another solution; the window, its size, fullscreen and the recent list
+  stay.
+
+**The empty window** (also what `tenfold-ui` shows without an argument) has no Editor behind it: no clangd, no scan and
+no index, no file watcher, no build, no debugger session, no version control, and nothing is written into any folder.
+You see the menu bar, an empty client area and the status bar (in the "no solution" colour, `statusBackgroundNoSolution`;
+vs-dark: purple, like Visual Studio's). In the menus:
+
+* **File** keeps *Open Solution...* (`Control Shift O`), *Open Folder...*, *Recent Projects and Solutions* and *Exit*
+  (`Control Q`; nothing is modified, so there is no prompt). *Open File...*, *New File*, *Close*, *Close All Documents*,
+  *Close Solution*, *Save*, *Save All*, *Copy Full Path* and *Open Containing Folder* are greyed;
+* **Edit** is greyed completely; **View** is greyed except *Full Screen*. The command palette is not available either;
+* your key file applies (Alt tap, Alt+F, Alt+E, Alt+V, `menu.hide` and the other `menu.*` settings too); a key bound to
+  something that needs a workspace does nothing.
+
+Opening from the empty window is the ordinary flow above (no prompt: there is nothing to save). If the new workspace
+cannot be built the window stays empty and the status bar says why.
 
 ### Where the compile flags come from
 
@@ -1028,10 +1063,12 @@ tests.)
 | `editor.textFileNames` | `false` | bool | `NewTextFile` names the file `TextFileN.txt` (the lowest free N) like Visual Studio's File > New > File > Text File, instead of `Untitled N`. Off: unverified (VS_BEHAVIOUR Z14 / V13). |
 | `editor.commentBlockUsesLineComments` | `true` | bool | 10x `CommentBlockUsesLineComments`: the 10x `ToggleComment` command (Ctrl+Shift+/) comments a selection with `//` line comments; `false` wraps the selection in `/* */` instead. Without a selection it always toggles a line comment. |
 | `editor.confirmUnsaved` | `true` | bool | Closing the last tab of a modified file, closing the window and `App.Quit` ask Save / Don't Save / Cancel. `false` skips every question. Follows Visual Studio (OPEN_QUESTIONS #5). |
+| `menu.hide` | `false` | bool | 10x's `HideMainMenu`: keep the [menu bar](#menu-bar) out of the layout until it is asked for. |
+| `menu.showOnMouseHover` | `true` | bool | 10x's `ShowMainMenuOnMouseHover`: a hidden bar shows while the pointer is at the top edge. |
+| `menu.toggleOnAlt` | `true` | bool | 10x's `ToggleMainMenuOnAlt`: Alt pressed and released alone focuses the bar. |
 | `editor.detectExternalChanges` | `true` | bool | Notice a file that changed on disk behind the editor's back (Visual Studio: "Detect when file is changed outside the environment"). `false`: nothing happens and nothing is said. |
 | `editor.reloadUnlessUnsaved` | `false` | bool | Reload a changed file without asking when it has no unsaved edits (Visual Studio: "Reload modified files unless there are unsaved changes", off by default). A file with unsaved edits always asks. |
 | `editor.reloadExternalChanges` | (empty) | string | The older single setting. Empty: unused. `auto` = detect + reloadUnlessUnsaved (the old default), `prompt` = detect, always ask, `never` = do not detect and say so in the status bar. **Migration:** the old default `auto` is gone because Visual Studio's default is to ask; a `settings.txt` that sets this key keeps its old behaviour, one that did not now gets the question for clean files too (set `editor.reloadUnlessUnsaved = true` for the old silent reload). |
-| `menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt` | `false`, `true`, `true` | bool | The [menu bar](#menu-bar): 10x's `HideMainMenu`, `ShowMainMenuOnMouseHover`, `ToggleMainMenuOnAlt`. |
 | `tabs.previewTab` | `true` | bool | A single click on a file in the explorer, and the debugger stepping into an unopened file, open it in the preview tab (Visual Studio: "Allow new files to be opened in the preview tab"). `false`: a single click only selects. |
 | `tabs.previewFromFindResults` | `true` | bool | A click on a result of Find in Files or Find All References opens the preview tab (Visual Studio: "Preview selected files in Find Results"). Needs `tabs.previewTab`. |
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. The encoding of new files is `editor.defaultEncoding`. |
@@ -1569,8 +1606,10 @@ without an open file, Save without a modified one). A command tenfold does not h
   menu); the drop-downs use the context-menu keys.
 
 **File:** Open Solution... (Control Shift O; see [Opening a workspace](#opening-a-workspace)), Open Folder..., Open File...,
-Recent Projects and Solutions, New File, Close, Close All Documents, Save, Save All, Copy Full Path, Open Containing Folder,
-Exit. (There is no Save As or Close Solution: tenfold has no such command yet.)
+Recent Projects and Solutions, New File, Close, Close All Documents, Close Solution, Save, Save All, Copy Full Path, Open Containing Folder,
+Close Solution (after Close All Documents, where Visual Studio has it after Close; no key), Exit. (There is no Save As:
+tenfold has no such command yet. With no solution open the menus look the same with the workspace commands greyed, see
+[the empty window](#closing-a-solution-and-the-empty-window).)
 
 **Edit:** Undo, Redo; Cut, Copy, Paste, Paste from History..., Delete, Select All; Find and Replace > (Quick Find, Quick
 Replace, Find in Files, Replace in Files, Find Next, Find Previous); Go To > (Go To Line..., Go To All..., Go To Member...,
@@ -1768,9 +1807,10 @@ unverified items in the next sections; the log and the output of those two comma
 
 ## What does not exist yet
 
-* Menus other than File, Edit and View (see [Menu bar](#menu-bar)), `.10x` workspaces (`CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`), an empty
-  window without a workspace (`CloseWorkspace`, Visual Studio's Close Solution: opening another solution replaces the
-  open one instead), more than one workspace window at a time, and the files of projects that live outside the
+* Menus other than File, Edit and View (see [Menu bar](#menu-bar)), `.10x` workspaces (`CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`), a start
+  page in the empty window (Visual Studio's Start Window with its recent list and "Continue without code"; the empty
+  window is just the menus), opening a file with no workspace at all (10x does; a dropped file opens its folder), more
+  than one workspace window at a time, and the files of projects that live outside the
   solution's folder in Open File, find in files and symbol search (OPEN_QUESTIONS).
 * Autosave and recovery of unsaved buffers after a crash.
 * The document outline.

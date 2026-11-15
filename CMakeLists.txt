@@ -369,6 +369,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/shell/Workbench.cpp
     src/ui/shell/EditorApp.cpp
     src/ui/shell/AppHost.cpp
+    src/ui/shell/EmptyWindow.cpp
     src/ui/shell/FontSetup.cpp
     src/ui/features/NavigationUi.cpp
     src/ui/features/BreakpointList.cpp
@@ -452,6 +453,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_vs_tabs.cpp
     tests/ui/test_sln_open_ui.cpp
     tests/ui/test_menubar.cpp
+    tests/ui/test_close_sln.cpp
     tests/ui/test_vs_edit.cpp
     tests/ui/test_vs_vcs.cpp
     tests/ui/test_w11_gui.cpp
@@ -459,6 +461,9 @@ if(TENFOLD_BUILD_UI)
   target_include_directories(tenfold-ui-tests PRIVATE tests)
   target_link_libraries(tenfold-ui-tests PRIVATE tenfold_ui)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
+  # tests/ui/test_close_sln.cpp starts the real program without arguments (it must show the empty window).
+  add_dependencies(tenfold-ui-tests tenfold-ui)
+  target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_UI_EXE="$<TARGET_FILE:tenfold-ui>")
   # tests/ui/test_p2_ui.cpp drives the status bar against the fake clangd of tests/test_crash.cpp.
   add_dependencies(tenfold-ui-tests tenfold-test-helper)
   target_compile_definitions(tenfold-ui-tests PRIVATE TENFOLD_TEST_HELPER="$<TARGET_FILE:tenfold-test-helper>")

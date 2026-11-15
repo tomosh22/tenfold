@@ -124,7 +124,8 @@ const CommandAlias kAliases[] = {
     {"CreateWorkspace", "", "global", ""},
     {"OpenWorkspace", "", "global", ""},
     {"SaveWorkspace", "", "global", ""},
-    {"CloseWorkspace", "", "global", ""},
+    {"CloseWorkspace", "File.CloseSolution", "global",
+     "Visual Studio's File > Close Solution: asks about modified documents, then the window shows no workspace"},
     {"OpenSolution", "File.OpenSolution", "global",
      "a native open dialog for .sln / .slnx / .vcxproj (Visual Studio's File > Open > Project/Solution); the open "
      "solution is closed in the same window after the save prompt"},

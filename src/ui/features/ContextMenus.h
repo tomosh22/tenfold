@@ -35,6 +35,21 @@ struct MenuHooks {
 std::vector<MenuItem> buildMenu(const std::vector<MenuEntry>& entries, const MenuHooks& hooks,
                                 bool onVcsChange = false);
 
+// One block of a menu-bar menu (MENUBAR): a flat group of entries (`submenu` empty) or one submenu. `separated`: a
+// separator goes before it when something precedes it.
+struct MenuSection {
+  std::string submenu;  // the submenu's label; empty: the entries are items of the menu itself
+  std::vector<MenuEntry> entries;
+  bool separated = true;
+};
+// The File / Edit / View menus of the menu bar, one definition for the editor window and for the empty window (no
+// solution open: the same menus, the commands that need a workspace greyed).
+std::vector<MenuSection> fileMenuSections();
+std::vector<MenuSection> editMenuSections();
+std::vector<MenuSection> viewMenuSections();
+// Items for the sections: unavailable entries are dropped, a section or submenu left without items is dropped.
+std::vector<MenuItem> buildMenuSections(const std::vector<MenuSection>& sections, const MenuHooks& hooks);
+
 // The text editor menu (right-click in a TextView, Shift F10 / AppsKey with the editor focused).
 std::vector<MenuEntry> editorMenuEntries();
 // A tab of a TabStrip; the pin entry reads "Pin Tab" or "Unpin Tab". The tab is made the active one before the menu

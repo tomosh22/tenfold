@@ -947,6 +947,13 @@ void EditorApp::bindUiCommands() {
           return true;
         },
         canOpen);
+    registry_.bind(
+        "File.CloseSolution",
+        [this](const CommandContext&, std::string_view) {
+          closePickers();
+          return opener_->closeSolution();
+        },
+        [this](const CommandContext&) { return opener_->canClose(); });
   }
   registry_.bind("App.CommandPalette", [this](const CommandContext&, std::string_view) {
     closePickers();
@@ -1674,100 +1681,14 @@ bool EditorApp::menuBarEvent(const InputEvent& e) {
 // are disabled right now, and shows the live key binding); the lists are built each time a menu opens. Order and labels
 // follow Visual Studio 2022's File / Edit / View menus where tenfold has the command (VS_BEHAVIOUR section 17).
 void EditorApp::buildMenus() {
-  auto sub = [this](const std::string& label, const std::vector<MenuEntry>& entries) {
-    MenuItem m;
-    m.label = label;
-    m.sub = buildCommandMenu(entries);
-    return m;
+  MenuHooks h;
+  h.info = [this](const std::string& cmd) { return menuInfo(cmd); };
+  h.run = [this](const std::string& cmd, const std::string& arg) { runCommandId(cmd, arg, activeContext()); };
+  auto menu = [&h](const char* title, char access, std::vector<MenuSection> sections) {
+    return MenuBar::Menu{title, access, [h, sections = std::move(sections)] { return buildMenuSections(sections, h); }};
   };
-  MenuBar::Menu file{"File", 'F', [this] {
-                       return buildCommandMenu({{"File.OpenSolution", "Open Solution..."},
-                                                {"File.OpenFolder", "Open Folder..."},
-                                                {"File.OpenFile", "Open File..."},
-                                                {"File.RecentSolutions", "Recent Projects and Solutions"},
-                                                {},
-                                                {"File.New", "New File"},
-                                                {},
-                                                {"Workbench.CloseTab", "Close"},
-                                                {"Workbench.CloseAllDocuments", "Close All Documents"},
-                                                {},
-                                                {"File.Save", "Save"},
-                                                {"File.SaveAll", "Save All"},
-                                                {},
-                                                {"File.CopyPath", "Copy Full Path"},
-                                                {"File.ShowInFolder", "Open Containing Folder"},
-                                                {},
-                                                {"App.Quit", "Exit"}});
-                     }};
-  MenuBar::Menu edit{"Edit", 'E', [this, sub] {
-                       std::vector<MenuItem> out;
-                       auto group = [&](const std::vector<MenuEntry>& entries) {
-                         std::vector<MenuItem> items = buildCommandMenu(entries);
-                         if (items.empty()) return;
-                         if (!out.empty()) out.push_back(MenuItem::sep());
-                         for (MenuItem& m : items) out.push_back(std::move(m));
-                       };
-                       auto submenu = [&](const std::string& label, const std::vector<MenuEntry>& entries) {
-                         MenuItem m = sub(label, entries);
-                         if (!m.sub.empty()) out.push_back(std::move(m));
-                       };
-                       group({{"Editor.Undo", "Undo"}, {"Editor.Redo", "Redo"}});
-                       group({{"Editor.Cut", "Cut"},
-                              {"Editor.Copy", "Copy"},
-                              {"Editor.Paste", "Paste"},
-                              {"Editor.PasteHistory", "Paste from History..."},
-                              {"Editor.Delete", "Delete"},
-                              {"Editor.SelectAll", "Select All"}});
-                       if (!out.empty()) out.push_back(MenuItem::sep());
-                       submenu("Find and Replace", {{"Editor.Find", "Quick Find"},
-                                                    {"Editor.Replace", "Quick Replace"},
-                                                    {"Search.FindInWorkspace", "Find in Files"},
-                                                    {"Search.ReplaceInFiles", "Replace in Files"},
-                                                    {},
-                                                    {"Editor.FindNext", "Find Next"},
-                                                    {"Editor.FindPrev", "Find Previous"}});
-                       submenu("Go To", {{"Editor.GotoLine", "Go To Line..."},
-                                         {"Search.SymbolSearch", "Go To All..."},
-                                         {"Editor.FindFunction", "Go To Member..."},
-                                         {},
-                                         {"Editor.GotoDefinition", "Go To Definition"},
-                                         {"Editor.GotoDeclaration", "Go To Declaration"},
-                                         {"Editor.FindReferences", "Find All References"},
-                                         {"Editor.SwitchHeaderSource", "Go To Header/Source"}});
-                       submenu("Bookmarks", {{"Editor.ToggleBookmark", "Toggle Bookmark"},
-                                             {"Editor.NextBookmark", "Next Bookmark"},
-                                             {"Editor.PrevBookmark", "Previous Bookmark"},
-                                             {"Editor.ListBookmarks", "Bookmark Window"}});
-                       submenu("Outlining", {{"Editor.ToggleCollapseExpandRegion", "Toggle Outlining Expansion"},
-                                             {"Editor.ToggleCollapseExpandAllRegions", "Toggle All Outlining"},
-                                             {"Editor.CollapseToDefinitions", "Collapse to Definitions"}});
-                       submenu("Advanced", {{"Editor.ToggleComment", "Toggle Comment"},
-                                            {"Editor.FormatSelection", "Format Selection"},
-                                            {"Editor.JoinLines", "Join Lines"},
-                                            {"View.ToggleWordWrap", "Word Wrap"},
-                                            {"View.ToggleWhitespace", "View White Space"}});
-                       return out;
-                     }};
-  MenuBar::Menu view{
-      "View", 'V', [this] {
-        std::vector<MenuItem> out;
-        auto group = [&](const std::vector<MenuEntry>& entries) {
-          std::vector<MenuItem> items = buildCommandMenu(entries);
-          if (items.empty()) return;
-          if (!out.empty()) out.push_back(MenuItem::sep());
-          for (MenuItem& m : items) out.push_back(std::move(m));
-        };
-        group({{"View.ToggleWorkspaceExplorer", "Solution Explorer"},
-               {"View.ShowDiagnostics", "Error List"},
-               {"View.ToggleBuildPanel", "Output"},
-               {"Terminal.Show", "Terminal"},
-               {"View.CallHierarchy", "Call Hierarchy"},
-               {"View.TypeHierarchy", "Type Hierarchy"}});
-        group({{"App.CommandPalette", "Command Palette..."}});
-        group({{"View.ZoomIn", "Zoom In"}, {"View.ZoomOut", "Zoom Out"}, {"View.ToggleFullscreen", "Full Screen"}});
-        return out;
-      }};
-  bench_->menuBar().setMenus({std::move(file), std::move(edit), std::move(view)});
+  bench_->menuBar().setMenus({menu("File", 'F', fileMenuSections()), menu("Edit", 'E', editMenuSections()),
+                              menu("View", 'V', viewMenuSections())});
 }
 
 void EditorApp::notify(const std::string& text) { setMessage(text, kDiagMs); }

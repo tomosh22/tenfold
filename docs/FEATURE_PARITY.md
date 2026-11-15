@@ -23,7 +23,8 @@ yet · ⬜ not started · — excluded by the user
 |---|---|---|
 | Open a folder as a workspace | ✅ | `Workspace::scan`, ignore rules, extension filters. |
 | Open a Visual Studio `.sln` / `.slnx` / `.vcxproj` | ✅ | C5: projects enumerated; `.slnx` (Visual Studio's XML solution format, SLNX) is read with the same semantics: its default configurations, `<BuildType>` / `<Platform>` / `<Build>` rules with `*` wildcards, solution folders and items (ARCHITECTURE, "Solution files (.sln and .slnx)"); compile flags evaluated like MSBuild passes them to `cl.exe` per file and configuration (defines/undefines, implicit `_WIN32`/`_DEBUG`/`_DLL`/`_MT`/`UNICODE`/`_MBCS`, include / external include dirs, forced includes, pch, standards, `/permissive-`, `/EH`, `/GR-`, runtime library, `CompileAs`, per-file metadata, `ExcludedFromBuild`, property sheets, `Directory.Build.props/targets`). Solution -> project configuration mapping (`ProjectConfigurationPlatforms`); unbuilt projects skipped. Default Debug\|x64, else the first solution configuration (OPEN_QUESTIONS #2). `Build.SelectConfiguration` picker and a status-bar segment (click to switch) change the active configuration. |
-| Open a solution the way Visual Studio does (SLN-OPEN) | ✅ | `tenfold-ui Game.sln` / `.slnx` (the workspace is the solution's folder, that solution is THE solution, stored as `"solution"` in `workspace.json`); File > Open > Project/Solution on **Control Shift O** (`OpenSolution`, native SDL3 dialog), `OpenFolder`, Recent Projects and Solutions (`File.RecentSolutions`, 10 entries), drag and drop, and an in-process switch with the save prompt (VS_BEHAVIOUR section 16). Not done: Close Solution / `CloseWorkspace`, `.10x` workspaces, start-up "most recent solution", files of projects outside the solution folder in the scan (OPEN_QUESTIONS). |
+| Open a solution the way Visual Studio does (SLN-OPEN) | ✅ | `tenfold-ui Game.sln` / `.slnx` (the workspace is the solution's folder, that solution is THE solution, stored as `"solution"` in `workspace.json`); File > Open > Project/Solution on **Control Shift O** (`OpenSolution`, native SDL3 dialog), `OpenFolder`, Recent Projects and Solutions (`File.RecentSolutions`, 10 entries), drag and drop, and an in-process switch with the save prompt (VS_BEHAVIOUR section 16). Not done: `.10x` workspaces, start-up "most recent solution", files of projects outside the solution folder in the scan (OPEN_QUESTIONS). |
+| Close Solution and the empty window (CLOSE-SLN) | ✅ | File > Close Solution (`File.CloseSolution`, 10x's `CloseWorkspace`; no key in VS or in 10x's map) after the save prompt; the window then has no Editor at all (no clangd, index, watcher, build, debugger, VCS): menus with the workspace commands greyed, Open Solution... / Open Folder... / Recent Projects and Solutions / Exit and drops work. `tenfold-ui` without arguments starts in it and never reopens the last solution (VS default: Start window; 10x `OpenLastWorkspaceOnStartup` false). Not done: a Start Window / recent list on it, a rootless editor for loose files (VS_BEHAVIOUR section 18, OPEN_QUESTIONS). |
 | Menu bar: File, Edit, View (MENUBAR) | ✅ | Visual Studio 2022's dark look; click, hover-switch, Alt tap, Alt+F / E / V (off for a chord the key file binds), arrows; live key texts, greyed disabled items; Open Solution... under File. 10x's `HideMainMenu` / `ShowMainMenuOnMouseHover` / `ToggleMainMenuOnAlt` are `menu.*` settings. No other menus (Build, Debug, Window, Help) yet. |
 | Switch solution configuration / platform | ✅ | `Editor::selectVsConfiguration` / `vsConfigurations`, `tenfold-cli vsconfig`; regenerates compile commands and restarts clangd. GUI: the `Build.SelectConfiguration` picker and the status-bar configuration segment. |
 | CMake projects | ✅ | Configured into `.tenfold/cmake-build` for compile commands. |
@@ -139,16 +140,16 @@ Shift variants are separate chords (`SelectUp` ...). Remapping `AutocompleteDown
 
 ### Commands without a default key that tenfold does not implement either
 
-116 of the 307 10x commands (the rows of `CommandNames.cpp` with an empty target; the other 191 rows map to 188 tenfold
+115 of the 307 10x commands (the rows of `CommandNames.cpp` with an empty target; the other 192 rows map to 189 tenfold
 commands, `Search` / `FindInFiles`, `PerforceRevert` / `GitRestore` and `FindFile` / `OpenFile` pairs sharing one). None
-of the 116 has an entry in the default key map; they resolve to `not implemented yet:` when bound in a key file.
-Fourteen implemented 10x commands have no default key either: `OpenFolder` (SLN-OPEN), `RemoveAllBreakpoints`, `CopyActiveFilePath`,
+of the 115 has an entry in the default key map; they resolve to `not implemented yet:` when bound in a key file.
+Fifteen implemented 10x commands have no default key either: `OpenFolder` (SLN-OPEN), `CloseWorkspace` (CLOSE-SLN), `RemoveAllBreakpoints`, `CopyActiveFilePath`,
 `ShowInWorkspaceTreeWithToggle`, `ClaudeCodeTerminal`, `CursorTerminal`, `CollapseAllRegions`, `ExpandAllRegions`,
 `CollapseAllRegionsRecursive`, `ExpandAllRegionsRecursive`, `CloseAllOtherTabs`, `CloseAllButPinnedTabs`, `PinTab`,
 `TogglePinTab` (tenfold's own commands without a key are listed in the user guide, "Key bindings").
 
 - **File**: `SaveFileAs`, `CloseAll`, `ToggleReadOnly`
-- **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `CloseWorkspace`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
+- **Workspace**: `CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`, `WorkspaceSettings`, `ActiveWorkspaceSettings`, `LogWorkspaceSettings`, `SyncWorkspace`
 - **General**: `CreateSecondaryWindow`, `Show10XOutput`, `CloseOutputPanel`, `CloseFindFilePanel`, `CloseCommandPanel`, `ToggleOutputPanel`, `Settings`, `LocalSettings`, `EditKeyBindings`, `EditCurrentColourScheme`, `Colours`, `ToggleAccessibility`, `ToggleTextToSpeech`, `ImportKeyBindingsFromVS`
 - **Edit**: `ToggleLineEndings`, `ToggleWordWrapForCurrentPanel`, `ClearUpdatedLines`, `RefreshUpdatedLines`
 - **Formatting**: `ToggleIndentMode`, `FormatFile`
@@ -313,7 +314,7 @@ No 10x equivalent (tenfold-only): `editor.highlightCurrentLine`, `editor.trimTra
 | TabPanelMode | Top | Tab strip on top, left or right | M |
 | ReopenFileInCurrentPanel, OpenFileInActivePanel, RememberFilePanelPos | false, false, false | Which panel a file opens in | M |
 | UseColumnPresets, Column0Presets, Column1Presets, Column2Presets, ColumnGap | true, sources, headers, `*.bat, *.py`, 0 | Open sources in column 0 and headers in column 1 automatically | M. A 10x signature layout; tenfold opens in the active panel |
-| RestoreUnsavedFiles, RememberOpenFiles, OpenLastWorkspaceOnStartup | false, false, false | Restore unsaved buffers; reopen files and the workspace at startup | M |
+| RestoreUnsavedFiles, RememberOpenFiles, OpenLastWorkspaceOnStartup | false, false, false | Restore unsaved buffers; reopen files and the workspace at startup | M (not built; `tenfold-ui` without arguments starts with the empty window, the same as these defaults, CLOSE-SLN) |
 | FileBackupFrequency | 5000 | Back up unsaved files every N ms | M. tenfold has no backup files |
 | AutosaveWorkspace, SaveAllOnLoseFocus | false, false | Autosave | S |
 | SaveAsUsesPrevPanelPath | true | Save As starts in the previous file's folder | S, with a Save As dialog |

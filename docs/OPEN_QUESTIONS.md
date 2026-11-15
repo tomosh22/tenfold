@@ -28,6 +28,34 @@ decided by the user). Each has a default we implement until answered.
 | 21 | `.slnx` (SLNX): is every rule of the XML solution format what Visual Studio does? | **Implemented (SLNX)** from Microsoft's own sources, no Windows machine. **Still unverified:** see "SLNX detail" below | SLNX |
 
 
+## User decisions of 2026-11-15
+
+* **A Close Solution command and an empty-window state (CLOSE-SLN).** "Yes" to "a Close Solution command and an
+  empty-window state" (the answer to the SLN-OPEN open question below). Implemented (VS_BEHAVIOUR section 18, USER_GUIDE
+  "Closing a solution and the empty window"): File > Close Solution (`File.CloseSolution`; 10x's `CloseWorkspace` is
+  mapped to it), no key (neither Visual Studio's shortcut table nor 10x's default map has one), after Close All Documents
+  in the File menu; the save prompt of the switch; the closing workspace saves layout, bookmarks and breakpoints; the
+  window lands in the empty window: no Editor, so no clangd, index, watcher, build, debugger or version control; the
+  menus stay, Open Solution..., Open Folder..., Recent Projects and Solutions, Exit (and Full Screen) work, everything
+  that needs a workspace is greyed. `tenfold-ui` without arguments starts in it (the `examples/sample_project` fallback
+  is gone, CI passes the sample project explicitly); the last solution is not reopened on start (Visual Studio's default
+  *On startup* is the Start window, 10x's `OpenLastWorkspaceOnStartup` is `false`).
+  * **Decisions where Visual Studio / 10x were silent or could not be read** (VS_BEHAVIOUR C6, C7, C10; checklist
+    V28-V32): the empty window is only the menu bar, an empty area and the status bar (purple, "no solution"): no start
+    page, no Solution Explorer / Output / Terminal panels; Edit and View are greyed rather than hidden; a plain file
+    dropped on it opens its folder as the workspace with the file in a tab.
+  * **Still open (not asked yet).** (1) *A Start Window or recent list on the empty window* (VS's default start-up shows its
+    Start window: recent projects, "Open a project or solution", "Open a local folder", "Continue without code"; I could
+    not read its layout from a source, so I added nothing). (2) *Tools > Options > Environment > Startup equivalent*
+    ("Most recent solution" / "Empty environment") and 10x's `OpenLastWorkspaceOnStartup` as a setting. (3) *Documents
+    without a workspace* (10x and VS open a loose file with nothing else open; tenfold's Editor is rooted in a
+    workspace, so a rootless Editor would be a larger change: today a dropped file opens its folder). (4) *Window
+    title* with the solution name (unchanged by this task).
+* **No installer "Open with tenfold" / file-association option for now.** The user does not want it. The package stays a
+  zip that does not register for `.sln` / `.slnx` (it would take them from Visual Studio); use *Open with > Choose another
+  app*, a shortcut or the command line (USER_GUIDE). The possible opt-in shell verb noted under the 2026-11-14 decisions
+  is therefore **not planned**; nothing is built for it.
+
 ## User decisions of 2026-11-14
 
 * **A File / Edit / View menu bar (MENUBAR).** "There needs to be a 'File Edit View' toolbar at the top of the window and under
@@ -36,7 +64,7 @@ decided by the user). Each has a default we implement until answered.
   Decisions: the 10x settings `HideMainMenu`, `ShowMainMenuOnMouseHover` and `ToggleMainMenuOnAlt` exist, so they are
   settings (`menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt`), the bar can hide, and plain Alt focuses it;
   10x's default map binds none of Alt+F / Alt+E / Alt+V, so those access keys are on (a key file that binds one wins); the
-  Find bar keeps Alt+E and Alt+R while it is open; items are only commands that exist (no Save As, no Close Solution); the
+  Find bar keeps Alt+E and Alt+R while it is open; items are only commands that exist (no Save As; Close Solution was added on 2026-11-15); the
   hover and open-title colours are picks (V23). F10 does not focus the bar. Every golden that shows the whole window was
   regenerated (the bar is the only change).
 * **Open a solution the way Visual Studio does (SLN-OPEN).** "I want to be able to open a .sln or .slnx file the same way
@@ -51,8 +79,8 @@ decided by the user). Each has a default we implement until answered.
     badge and choosing it removes it; a switch ends the old workspace's terminals (they run in its folder) and cancels a
     running build, and the editor zoom is not carried over; `.vcxproj` and other files named on the command line, in the dialog
     or by a drop open their folder as the workspace without choosing a solution.
-  * **Not done.** *Close Solution / CloseWorkspace*: neither Visual Studio nor 10x's default key map gives it a key and
-    tenfold has no empty-window state; opening another solution replaces the open one. *OpenWorkspace, CreateWorkspace,
+  * **Close Solution / CloseWorkspace: answered "yes" on 2026-11-15 and implemented (CLOSE-SLN, see above).** Not done:
+    *OpenWorkspace, CreateWorkspace,
     SaveWorkspace, SyncWorkspace*: `.10x` workspaces (row 12). *Start up with the most recent solution*
     (Tools > Options > Environment > Startup): the command line decides. *Single-instance forwarding* (10x opens a file in
     the running instance): a second `tenfold-ui` is a second window. *The recent-list size* is fixed at 10 in the UI
@@ -61,7 +89,7 @@ decided by the user). Each has a default we implement until answered.
   * **File associations (possible installer option).** The package is a zip: tenfold does not register itself for `.sln`
     / `.slnx`, which would take them from Visual Studio. Use "Open with" or a shortcut (USER_GUIDE). An installer could offer
     an opt-in "Open with tenfold" shell verb (`HKCU\Software\Classes\SystemFileAssociations\.sln\shell\tenfold`) that
-    does not change the default handler. Not built.
+    does not change the default handler. Not built, and on 2026-11-15 the user said they do not want it for now.
   * **Files of projects outside the solution folder (item 7), reported, not changed.** Today (pinned by the test
     `slnopen_item7_projects_outside_the_solution_folder_today`): for `Game.sln` listing `..\Engine\Engine.vcxproj`, the
     compile database includes the project's translation units (clangd gets flags for them), the Solution Explorer tree

@@ -12,6 +12,7 @@
 #include "ui/settings/RecentSolutions.h"
 #include "ui/settings/Settings.h"
 #include "ui/shell/EditorApp.h"
+#include "ui/shell/EmptyWindow.h"
 #include "ui/shell/Workbench.h"
 
 namespace tf::ui {
@@ -28,6 +29,12 @@ namespace tf::ui {
 // new ones from the new root. Nothing is shared between workspaces except the window, the renderer and the recent
 // list. The user config is read again (the new workspace may override settings and key bindings).
 //
+// CLOSE-SLN (docs/VS_BEHAVIOUR.md section 18): the window can also have NO workspace. `openEmpty()` (tenfold-ui without
+// arguments, File > Close Solution) keeps only the settings service and the font and puts an EmptyWindow in the
+// Workbench's place: no Editor exists, so no clangd, scan, watcher, build, debugger session or version control, and
+// nothing writes into a workspace folder. Closing runs the same teardown as a switch (layout.json, bookmarks and
+// breakpoints of the closing workspace are saved first); opening from the empty window is the ordinary open().
+//
 // The switch is requested from inside event handling (WorkspaceOpener hooks), which runs in code owned by the object
 // being replaced, so it only records the request: the program calls applyPending() between two events.
 class AppHost {
@@ -43,6 +50,7 @@ class AppHost {
     std::string defaultFile = "src/main.cpp";  // opened when the workspace has no saved layout and no file was given
     std::function<void(Editor&)> setupEditor;  // e.g. the Visual Studio debugger factory
     std::function<void(EditorApp&)> setupApp;  // e.g. the window hooks (fullscreen)
+    std::function<void(bool on)> setFullscreen;  // the window's full screen (View.ToggleFullscreen in the empty window)
     // Builds the editor font from the settings at `zoomPt` extra points (default: makeEditorTextRenderer).
     std::function<std::unique_ptr<gfx::TextRenderer>(const Settings&, float zoomPt, std::string* err)> makeText;
     FileDialogBackend dialog;                        // File > Open dialogs (null: the dialog commands are unavailable)
@@ -59,20 +67,29 @@ class AppHost {
   // `target` on the recent list. False (`err`) when the new workspace could not be built; the previous one stays.
   bool open(const std::filesystem::path& target, const std::filesystem::path& file = {}, bool remember = true,
             std::string* err = nullptr);
-  // Called by the WorkspaceOpener hooks: replace the workspace at the next applyPending().
-  void requestOpen(const std::filesystem::path& target);
-  bool hasPending() const { return pending_.has_value(); }
+  // Shows the empty window (no solution or folder): the first state of `tenfold-ui` without arguments, or what is left
+  // after closing the workspace (saved first, no prompt: the caller asked already). False (`err`) when the settings or
+  // the font cannot be built; the previous state stays.
+  bool openEmpty(std::string* err = nullptr);
+  // Called by the WorkspaceOpener hooks: replace the workspace at the next applyPending(). `file`: a document to open
+  // in it (a plain file dropped on the empty window).
+  void requestOpen(const std::filesystem::path& target, const std::filesystem::path& file = {});
+  // File > Close Solution after the save prompt: show the empty window at the next applyPending().
+  void requestClose();
+  bool hasPending() const { return pending_.has_value() || closePending_; }
   // Performs the requested switch. True when the workspace was replaced (everything must be redrawn).
   bool applyPending(std::string* err = nullptr);
   // Saves layout.json and shuts the Editor down (program exit). Idempotent.
   void shutdown();
 
   bool hasWorkspace() const { return app_ != nullptr; }
+  bool isEmpty() const { return empty_ != nullptr; }  // the empty window is showing
+  EmptyWindow* empty() { return empty_.get(); }
   Editor* editor() { return editor_.get(); }
   Workbench* bench() { return bench_.get(); }
   EditorApp* app() { return app_.get(); }
   SettingsService* settings() { return settings_.get(); }
-  RootWidget* root() { return bench_.get(); }
+  RootWidget* root() { return bench_ ? static_cast<RootWidget*>(bench_.get()) : empty_.get(); }
   gfx::TextRenderer* text() { return text_.get(); }
   RecentSolutions& recent() { return recent_; }
   bool layoutRestored() const { return layoutRestored_; }
@@ -80,6 +97,8 @@ class AppHost {
   int generation() const { return generation_; }             // +1 per workspace built (tests, redraw)
 
  private:
+  bool buildEmpty(std::string* err);
+  void attachEmptySettings();
   bool build(const WorkspaceTarget& t, const std::filesystem::path& file, std::string* err);
   void teardown();
   bool rebuildFont();
@@ -93,8 +112,11 @@ class AppHost {
   std::unique_ptr<Editor> editor_;
   std::unique_ptr<Workbench> bench_;
   std::unique_ptr<EditorApp> app_;
+  std::unique_ptr<EmptyWindow> empty_;  // instead of editor_ / bench_ / app_ while no workspace is open
   WorkspaceTarget target_;
   std::optional<std::filesystem::path> pending_;
+  std::filesystem::path pendingFile_;
+  bool closePending_ = false;
   bool layoutRestored_ = false, down_ = false;
   int generation_ = 0;
 };

@@ -2742,6 +2742,38 @@ result and `Window::wake()`s, and the loop runs `pumpFileDialogResults()` on the
 (`<user config dir>/recent.txt`: absolute paths, newest first, 1..24 entries, default 10) never throws, keeps missing
 entries until `drop` / `pruneMissing`, and writes through a temp file and a rename.
 
+### Close Solution and the empty window (CLOSE-SLN, `src/ui/shell/EmptyWindow.*`, `AppHost::openEmpty` / `requestClose`)
+
+The window can have no workspace. This is NOT an `Editor` with an empty root: an Editor owns a `Workspace` whose
+`cacheDir()` is `<root>/.tenfold` (bookmarks, breakpoints, the fast index, `workspace.json`), starts clangd, a scan and a
+watcher, and a root-less one would resolve those against the current folder. Per subsystem, in the empty state: Editor
+(clangd, scan, fast index, watcher, VCS, debugger session, build runner) **none**; Workbench, EditorApp, pickers, explorer,
+terminals **none**; `SettingsService` **kept**, without a workspace layer (the user's `settings.txt`, theme and
+`KeyMappings` apply, `menu.*` too); the editor `TextRenderer` **kept**; the window, renderer, fullscreen state and the
+recent list **kept**; `Log::setWorkspace` is not called, so nothing writes into a folder (a test runs it in an empty
+current folder and checks it stays empty).
+
+`EmptyWindow` is a `RootWidget` with a `MenuBar` and a `StatusBar` and no Editor reference. Its menus come from the same
+`fileMenuSections()` / `editMenuSections()` / `viewMenuSections()` (`ContextMenus.cpp`) that `EditorApp::buildMenus` uses,
+through `buildMenuSections`, so the two windows cannot drift; its `info` hook lists every command and enables only
+`EmptyWindow::availableWithoutWorkspace` (Open Solution, Open Folder, Recent, Exit, Full Screen), which is the "enabled
+predicate" of this state. Keys: `loadKeyBindings` with the user layers, global context only; Alt tap / access keys are the
+same logic as `EditorApp::menuBarEvent`. The status bar uses `StatusBar::setNoSolution(true)` (the theme's
+`statusBackgroundNoSolution`, vs-dark purple, which the Workbench's constructor already asked for with an empty root).
+`WorkspaceOpener` got a second constructor without an Editor: the same dialogs, recent picker and `request()`, with no
+unsaved-documents step; `closeSolution()` (editor window only) is `request()`'s prompt followed by `hooks.close`.
+
+`AppHost`: `File.CloseSolution` -> `WorkspaceOpener::closeSolution` -> (prompt) `hooks.close` -> `requestClose()`; at the
+next `applyPending()` `openEmpty()` builds the settings and font first (a failure leaves the workspace alone, the editor
+window says "Cannot close the solution"), then `teardown()` (the switch's: `saveLayout`, `Editor::shutdown` which saves
+bookmarks and breakpoints, destroy app, bench, editor), then the `EmptyWindow`. `root()` returns the Workbench or the empty
+window; `editor()`, `bench()` and `app()` are null while empty (`isEmpty()`), `hasWorkspace()` means "a workspace is open".
+Opening from the empty window is `open()` as before; a plain file dropped on it is `requestOpen(folder, file)`. Fullscreen
+travels through both states (`Options::setFullscreen` is what the empty window's View.ToggleFullscreen calls). The program
+loop (`src/ui_app/main.cpp`) asks `host->empty()` next to `host->app()`: events go to `EmptyWindow::handleEvent`, Quit
+quits without a prompt. `tenfold-ui` without a workspace argument calls `openEmpty()` (the `examples/sample_project`
+fallback survives only for `--shell`).
+
 ## Menu bar (MENUBAR, `src/ui/widgets/MenuBar.*`, `EditorApp::buildMenus` / `menuBarEvent`)
 
 `MenuBar` is a child of the `Workbench` (above the NavigationUi top bar; `Workbench::onLayout` reserves its height and
@@ -2756,7 +2788,9 @@ press and release with nothing between (`menu.toggleOnAlt`), routes keys to `Men
 focused, opens Alt+F / Alt+E / Alt+V unless the key map binds that very chord (10x's default map binds none; the open
 Find bar keeps Alt+E), and reveals a hidden bar while the pointer is in the top strip (`menu.hide`,
 `menu.showOnMouseHover`; the revealed bar is a top-layer widget over the window, not a layout change). The three menus are
-lists of `MenuEntry` (command id, label) turned into items by the same `buildCommandMenu` the context menus use: a command
+`MenuSection` lists (`fileMenuSections()` ...: groups and submenus of `MenuEntry` (command id, label)) turned into items by
+`buildMenuSections` over the same `buildCommandMenu` hooks the context menus use (the empty window of CLOSE-SLN uses the
+same definitions): a command
 that does not exist is left out, a disabled one is greyed, the key text is `bindingFor` (live key map). Colours:
 `menuBarBackground`, `menuBarText`, `menuBarHover`, `menuBarPressed` in `Theme` (unset: window background, text, tab hover,
 menu background).
