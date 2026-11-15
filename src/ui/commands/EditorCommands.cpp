@@ -327,6 +327,11 @@ void registerEditorCommands(CommandRegistry& r) {
   addUi(r, "Editor.FindPrev", "Find Previous");
   addUi(r, "Editor.ListBookmarks", "List Bookmarks...");
   addUi(r, "File.OpenFile", "Open File...");
+  // SLN-OPEN: Visual Studio's File > Open > Project/Solution (Ctrl+Shift+O), File > Open > Folder and File > Recent
+  // Projects and Solutions.
+  addUi(r, "File.OpenSolution", "Open Project/Solution...");
+  addUi(r, "File.OpenFolder", "Open Folder...");
+  addUi(r, "File.RecentSolutions", "Recent Projects and Solutions...");
   addUi(r, "Search.SymbolSearch", "Go to Symbol in Workspace...");
   addUi(r, "Search.FindInWorkspace", "Find in Workspace...");
   addUi(r, "Search.NewFindInFiles", "New Find in Files Results...");

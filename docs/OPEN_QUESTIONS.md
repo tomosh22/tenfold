@@ -28,6 +28,56 @@ decided by the user). Each has a default we implement until answered.
 | 21 | `.slnx` (SLNX): is every rule of the XML solution format what Visual Studio does? | **Implemented (SLNX)** from Microsoft's own sources, no Windows machine. **Still unverified:** see "SLNX detail" below | SLNX |
 
 
+## User decisions of 2026-11-14
+
+* **A File / Edit / View menu bar (MENUBAR).** "There needs to be a 'File Edit View' toolbar at the top of the window and under
+  'File' there needs to be an 'Open Solution' button." Implemented as a Visual Studio-style menu bar with exactly these
+  three menus (USER_GUIDE "Menu bar", VS_BEHAVIOUR section 17); File starts with "Open Solution..." (Control Shift O).
+  Decisions: the 10x settings `HideMainMenu`, `ShowMainMenuOnMouseHover` and `ToggleMainMenuOnAlt` exist, so they are
+  settings (`menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt`), the bar can hide, and plain Alt focuses it;
+  10x's default map binds none of Alt+F / Alt+E / Alt+V, so those access keys are on (a key file that binds one wins); the
+  Find bar keeps Alt+E and Alt+R while it is open; items are only commands that exist (no Save As, no Close Solution); the
+  hover and open-title colours are picks (V23). F10 does not focus the bar. Every golden that shows the whole window was
+  regenerated (the bar is the only change).
+* **Open a solution the way Visual Studio does (SLN-OPEN).** "I want to be able to open a .sln or .slnx file the same way
+  I would in Visual Studio." Implemented (VS_BEHAVIOUR section 16, USER_GUIDE "Opening a workspace"): `tenfold-ui
+  Game.sln|Game.slnx|Game.vcxproj|folder [file]` roots the workspace at the solution's folder and makes that solution THE
+  solution (stored as `"solution"` in `.tenfold/workspace.json`); File > Open > Project/Solution on **Ctrl+Shift+O**
+  (`File.OpenSolution`, 10x's `OpenSolution`; a native SDL3 dialog), `File.OpenFolder` (10x's `OpenFolder`), the recent
+  list (`File.RecentSolutions`, 10 entries, `recent.txt` in the user config dir), drag and drop, and an in-process switch
+  that closes the open solution after the save prompt.
+  * **Decisions where Visual Studio / 10x were silent** (VS_BEHAVIOUR O3, O6, O8; checklist V16-V20): the dialog filter is
+    "All Project Files" (`*.sln;*.slnx;*.vcxproj`) plus "All Files"; a missing recent entry is shown with a `missing`
+    badge and choosing it removes it; a switch ends the old workspace's terminals (they run in its folder) and cancels a
+    running build, and the editor zoom is not carried over; `.vcxproj` and other files named on the command line, in the dialog
+    or by a drop open their folder as the workspace without choosing a solution.
+  * **Not done.** *Close Solution / CloseWorkspace*: neither Visual Studio nor 10x's default key map gives it a key and
+    tenfold has no empty-window state; opening another solution replaces the open one. *OpenWorkspace, CreateWorkspace,
+    SaveWorkspace, SyncWorkspace*: `.10x` workspaces (row 12). *Start up with the most recent solution*
+    (Tools > Options > Environment > Startup): the command line decides. *Single-instance forwarding* (10x opens a file in
+    the running instance): a second `tenfold-ui` is a second window. *The recent-list size* is fixed at 10 in the UI
+    (`RecentSolutions` accepts 1 to 24 like Visual Studio's option; no setting yet). *Window title* does not show the
+    solution.
+  * **File associations (possible installer option).** The package is a zip: tenfold does not register itself for `.sln`
+    / `.slnx`, which would take them from Visual Studio. Use "Open with" or a shortcut (USER_GUIDE). An installer could offer
+    an opt-in "Open with tenfold" shell verb (`HKCU\Software\Classes\SystemFileAssociations\.sln\shell\tenfold`) that
+    does not change the default handler. Not built.
+  * **Files of projects outside the solution folder (item 7), reported, not changed.** Today (pinned by the test
+    `slnopen_item7_projects_outside_the_solution_folder_today`): for `Game.sln` listing `..\Engine\Engine.vcxproj`, the
+    compile database includes the project's translation units (clangd gets flags for them), the Solution Explorer tree
+    lists the project and its items (it reads the `.vcxproj`) and double-click opens them. The workspace scan is folder
+    based, so those files are missing from Open File (Alt+Shift+O), find in files, symbol search / the fast index, the file
+    watcher (external edits are noticed only for open documents' own polling) and version-control status probing of the
+    scan. *Proposed design:* `Workspace::projectFiles()`, the items (`ClCompile`, `ClInclude`, `None`, `ResourceCompile`) of
+    every project of the chosen solution that lie outside the root, read with the existing `compdb::readSolution` project
+    reader (the UI's `readProject` moves to core), kept as a fourth file list beside sources / headers / others and returned
+    by `codeFiles()`; `scan()` fills it after the walk and `revision()` bumps on a solution or project change; the fast
+    index persists them under absolute keys (its store is keyed relative to the root today); the file watcher adds each
+    outside project directory; ignore rules do not apply to explicit project items; the folder-view explorer skips them
+    (the solution tree already has them); Perforce / Git roots are resolved per file. Not contained: it touches the scan,
+    the fast index store, the watcher, version control and four pickers, so it is a task of its own (about the size of
+    W9-FIX-vs). Needs your go-ahead.
+
 ## User decisions of 2026-11-08
 
 * **Absent macros in the fast tier's `#if` evaluation (W12-FAST-PP-STRICT).** A macro name that is not in the

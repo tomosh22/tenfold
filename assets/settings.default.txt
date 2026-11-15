@@ -75,6 +75,12 @@ editor.commentBlockUsesLineComments = true
 # false: it prompts); 10x documents nothing about files changed on disk, that default is a guess.
 # confirmUnsaved: closing the last tab of a modified file, closing the window and App.Quit ask Save / Don't Save / Cancel.
 editor.confirmUnsaved = true
+# Menu bar (File Edit View; 10x's HideMainMenu / ShowMainMenuOnMouseHover / ToggleMainMenuOnAlt, same defaults). hide: keep the
+# bar out of the way until it is asked for; showOnMouseHover: then the pointer at the top edge shows it; toggleOnAlt: pressing
+# and releasing Alt alone focuses the bar (and shows it when hidden). Alt+F / Alt+E / Alt+V open the menus either way.
+menu.hide = false
+menu.showOnMouseHover = true
+menu.toggleOnAlt = true
 # Files changed on disk (VS-TABS T9, Visual Studio's Tools > Options > Environment > Documents). detectExternalChanges:
 # notice a file that changed behind the editor's back (off: say nothing, keep the buffer). reloadUnlessUnsaved: reload a
 # document without asking unless it has unsaved changes (off, as in Visual Studio: ask "The file X has been modified

@@ -69,6 +69,12 @@ color.menuSeparator = #333337
 color.menuText = #F1F1F1
 color.menuGlyph = #999999
 color.menuDisabled = #656565
+# Menu bar (VS_BEHAVIOUR section 17): background = the IDE / title / menu bar colour [S34]; text as the menu items; the
+# hovered title and the title of the open menu (it joins the drop-down) are medium-confidence picks (checklist V23).
+color.menuBarBackground = #2D2D30
+color.menuBarText = #F1F1F1
+color.menuBarHover = #3E3E40
+color.menuBarPressed = #1B1B1C
 # Text input fields [S34]: background, border, selection (VS #66007ACC as ARGB = #007ACC at 40%).
 color.inputBackground = #333337
 color.inputBorder = #434346

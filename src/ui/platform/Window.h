@@ -32,6 +32,8 @@ class Window {
 
   // The native window handle: an HWND on Windows, null elsewhere.
   void* nativeHandle() const;
+  // The SDL_Window* (as void*, so this header stays free of SDL): the parent of native dialogs.
+  void* sdlHandle() const;
 
   void makeCurrent();
   void swap();

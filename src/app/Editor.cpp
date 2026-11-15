@@ -166,6 +166,10 @@ Editor::Editor(fs::path root, Options opt) : ws_(std::move(root)), opt_(std::mov
   readVcsSettings(ws_.cacheDir() / "workspace.json", opt_.vcs);
   vcs_ = std::make_unique<VcsManager>(*this, opt_.vcs);
   ws_.loadSettings();
+  if (!opt_.solution.empty()) {
+    std::string err;
+    if (!ws_.setSolution(opt_.solution, &err) && opt_.log) opt_.log("solution " + pathUtf8(opt_.solution) + ": " + err);
+  }
   debug_ = std::make_unique<DebugSession>(*this);
 }
 

@@ -61,6 +61,12 @@ class Workspace {
     // (ended by whitespace, a pause, or a caret move); "char" makes every typed character its own step.
     std::string undoGrouping = "word";
     int undoGroupPauseMs = 1000;  // "word" mode: a longer pause between keystrokes starts a new step
+    // The solution this workspace was opened with (JSON key "solution"; SLN-OPEN, docs/VS_BEHAVIOUR.md section 16): a
+    // path relative to the workspace root (generic separators) or absolute, to a .sln or .slnx. When it names an
+    // existing file it is THE solution: solutionFiles() returns only it, so compile flags, the Solution Explorer tree,
+    // Build and the Visual Studio debugger all use it even when the folder holds several. Empty: every root-level
+    // .sln feeds the flags and the first drives the rest (the behaviour before the key existed).
+    std::string solution;
   };
 
   explicit Workspace(std::filesystem::path root);
@@ -99,8 +105,16 @@ class Workspace {
   bool isHeader(const std::filesystem::path& p) const;
   bool isIgnoredDir(const std::filesystem::path& dir) const;
 
-  // Build-system discovery.
+  // Build-system discovery. The chosen solution (settings().solution) alone when it exists, else every .sln in the
+  // root.
   std::vector<std::filesystem::path> solutionFiles() const;
+  // The absolute path of settings().solution when it is set and the file exists, else empty.
+  std::filesystem::path chosenSolution() const;
+  // Chooses `sln` (absolute, or relative to the root; must be an existing .sln / .slnx file): stores it in settings and
+  // writes workspace.json, unless it is already the stored choice. An empty path forgets the choice. False (error
+  // set) for a missing file or another extension, or when workspace.json cannot be written (the choice stays set in
+  // memory then).
+  bool setSolution(const std::filesystem::path& sln, std::string* error = nullptr);
   // Visual Studio solution configurations of the workspace's .sln files (union, file order, no duplicates). Reads the
   // files on every call; empty without a solution.
   std::vector<compdb::SolutionConfiguration> vsConfigurations() const;
@@ -121,6 +135,21 @@ class Workspace {
   std::vector<std::filesystem::path> sources_, headers_, others_;
   uint64_t revision_ = 0;
 };
+
+// True for a Visual Studio solution file name: .sln or .slnx (case-insensitive).
+bool isSolutionFile(const std::filesystem::path& p);
+
+// What a command-line / open-dialog / drop argument means (SLN-OPEN): a directory is a folder workspace; a .sln /
+// .slnx file is a workspace rooted at its folder with that solution chosen; any other existing file (a .vcxproj,
+// CMakeLists.txt, ...) is a workspace rooted at its folder with no solution choice. `root` is absolute and lexically
+// normal; `file` is the argument itself when it was a file (empty for a directory). A path that does not exist is
+// treated as a directory.
+struct WorkspaceTarget {
+  std::filesystem::path root;
+  std::filesystem::path solution;  // absolute; empty unless the argument was a .sln / .slnx file
+  std::filesystem::path file;
+};
+WorkspaceTarget resolveWorkspaceTarget(const std::filesystem::path& arg);
 
 std::string findExecutable(const std::string& name);
 // preferBundled: look in the editor's own bin/ before PATH (used when the user

@@ -92,6 +92,12 @@ struct Theme {
   Color menuText{0, 0, 0, 0};               // context menu item text; unset = text
   Color menuGlyph{0, 0, 0, 0};              // submenu arrows; unset = the item text
   Color menuDisabled{0, 0, 0, 0};           // disabled item text; unset = textDim
+  // Menu bar (File Edit View, MENUBAR task): unset = background / text of the window, hover = tabHover, open menu's title
+  // = menuBackground.
+  Color menuBarBackground{0, 0, 0, 0};
+  Color menuBarText{0, 0, 0, 0};
+  Color menuBarHover{0, 0, 0, 0};    // the title under the pointer or selected with the keyboard
+  Color menuBarPressed{0, 0, 0, 0};  // the title of the open menu
   Color link{0, 0, 0, 0};                   // hyperlinks; unset = tabAccent. Nothing paints links yet.
   Color statusBackgroundNoSolution{0, 0, 0, 0};  // status bar while no workspace is open; unset = statusBackground
   static Color orElse(const Color& c, const Color& fallback) { return c.a > 0 ? c : fallback; }

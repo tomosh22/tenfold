@@ -83,16 +83,60 @@ Building from source is described in `README.md`.
 
 ## Opening a workspace
 
-A workspace is a folder. tenfold has no open-folder dialog, no menus and no recent-workspaces list yet: choose the
-workspace on the command line (a shortcut on Windows works well).
+A workspace is a folder, or a Visual Studio solution and its folder. There are four ways in, and they work like Visual
+Studio's where Visual Studio has the same thing (the commands are in the File menu of the [menu bar](#menu-bar), on keys and in
+the [command palette](#command-palette)).
+
+**1. The command line.**
 
 ```
-tenfold-ui C:\src\Game                     the folder (or a .sln / .slnx / CMakeLists.txt inside it: its folder is used)
-tenfold-ui C:\src\Game src\main.cpp        also open a file (relative to the workspace, else to the current folder)
+tenfold-ui C:\src\Game                     a folder
+tenfold-ui C:\src\Game\Game.sln             a solution: the workspace is C:\src\Game and Game.sln is THE solution
+tenfold-ui C:\src\Game\Game.slnx            the same for a .slnx
+tenfold-ui C:\src\Game\Game.vcxproj         a project (or CMakeLists.txt, any file): its folder is the workspace
+tenfold-ui C:\src\Game\Game.sln src\main.cpp  also open a file (relative to the workspace folder, else to the current folder)
 ```
 
-Always pass a workspace. Without one, `tenfold-ui` looks for `examples\sample_project` relative to the current
-folder, which exists only in a source checkout.
+When you name a solution, the workspace root is the solution's folder everywhere (`.tenfold\settings.txt`, workspace
+themes, key bindings, `layout.json`, the scan), and **that solution alone** feeds the compile flags, the Solution
+Explorer tree, the build and the Visual Studio debugger match, even when the folder holds several `.sln` files. The
+choice is stored as `"solution"` in `.tenfold/workspace.json`, so `tenfold-ui C:\src\Game` afterwards opens the same
+solution. A folder with several solutions and no stored choice behaves as before: every `.sln` in it feeds the flags and
+the first one drives the tree, the build and the debugger. Naming another solution on the command line replaces the
+stored choice.
+
+**2. File > Open > Project/Solution: `Control Shift O`** (Visual Studio's key; command `File.OpenSolution`, 10x's
+`OpenSolution`). A native open dialog appears, starting in the open solution's folder, with the filters *All Project
+Files* (`*.sln;*.slnx;*.vcxproj`) and *All Files*. The dialog is the operating system's (SDL3), not a tenfold picker.
+`File.OpenFolder` (10x's `OpenFolder`, no key) shows the folder dialog the same way.
+
+**3. Recent Projects and Solutions: `File.RecentSolutions`** (no key: Visual Studio has none either). A picker over the
+last 10 solutions, projects and folders you opened, newest first, with the name, the folder, and `open` or `missing`
+badges. The list is yours, not the workspace's: `recent.txt` in the user config folder (`%APPDATA%\tenfold`,
+`~/.config/tenfold`), one path per line, shared by every tenfold window. Choosing an entry whose file has gone says so
+and removes it from the list.
+
+**4. Drag and drop.** Dropping a `.sln`, `.slnx`, `.vcxproj` or a folder on the window opens it like the dialog does;
+dropping any other file opens it as a document in a tab.
+
+**Opening another solution while one is open** closes the current one in the same window, as Visual Studio does:
+
+* modified documents are asked about first, with the same prompt as closing a tab (one file: *Save changes to a.cpp?*
+  Save / Don't Save / Cancel; several: *Save changes to the following items?* Yes / No / Cancel). Cancel stops: nothing
+  closes. (`editor.confirmUnsaved` = false skips the prompt, as it does for quitting.) Opening the solution that is
+  already open does nothing;
+* the old workspace saves its `layout.json`, bookmarks and breakpoints, stops clangd, the file watcher and a running
+  build, and ends its terminals (their shells run in the old folder); the new workspace starts as if you had launched
+  tenfold with it: its own settings, key bindings, theme, layout (the tabs you had open there come back) and clangd;
+* the window, its size, fullscreen and the recent list stay. The editor zoom (`View.ZoomIn`) is not kept.
+
+**Windows: double-click and Open with.** tenfold takes the path as its first argument, so *Open with > Choose another
+app > tenfold-ui.exe* on a `.sln` works, and so does a shortcut with `"C:\tools\tenfold\bin\tenfold-ui.exe"
+"C:\src\Game\Game.sln"` as the target. tenfold does **not** register itself for `.sln` files: that would take them
+from Visual Studio (a possible installer option, OPEN_QUESTIONS).
+
+Without an argument, `tenfold-ui` looks for `examples\sample_project` relative to the current folder, which exists only
+in a source checkout, so pass a folder or a solution (or use File > Open once running).
 
 On start the previous layout (tabs, split panels, pinned tabs, dock state) comes back from
 `<workspace>\.tenfold\layout.json`. A first run (no saved layout) opens `src\main.cpp` if the workspace has one, else an
@@ -123,7 +167,7 @@ database. It tries these in order and uses the first that applies:
    If your project is also a `.sln` and you want the solution's flags, set `"runCMake": false`.
 3. **A Visual Studio solution**: a `.sln` or `.slnx` directly in the root folder (not in subfolders). tenfold evaluates the
    `.vcxproj` files itself and writes `.tenfold/vs/<configuration>/compile_commands.json` with `clang-cl` style
-   commands for the active configuration (one folder per configuration, each with its own clangd index). All `.sln` and `.slnx` files in the root are used. See [Visual Studio solutions](#visual-studio-solutions).
+   commands for the active configuration (one folder per configuration, each with its own clangd index). All `.sln` and `.slnx` files in the root are used, unless one was chosen (`tenfold-ui Game.sln`, File > Open > Project/Solution: then only that one). See [Visual Studio solutions](#visual-studio-solutions).
 4. **A heuristic guess**: every source file compiled with `-std=c++20` (`cppStandard` in `workspace.json`), and
    `-I` for the smallest set of directories that makes the `#include` lines of the workspace resolve (found with the
    fast index). Good enough to start, wrong for anything that depends on defines, generated headers or a particular
@@ -987,6 +1031,7 @@ tests.)
 | `editor.detectExternalChanges` | `true` | bool | Notice a file that changed on disk behind the editor's back (Visual Studio: "Detect when file is changed outside the environment"). `false`: nothing happens and nothing is said. |
 | `editor.reloadUnlessUnsaved` | `false` | bool | Reload a changed file without asking when it has no unsaved edits (Visual Studio: "Reload modified files unless there are unsaved changes", off by default). A file with unsaved edits always asks. |
 | `editor.reloadExternalChanges` | (empty) | string | The older single setting. Empty: unused. `auto` = detect + reloadUnlessUnsaved (the old default), `prompt` = detect, always ask, `never` = do not detect and say so in the status bar. **Migration:** the old default `auto` is gone because Visual Studio's default is to ask; a `settings.txt` that sets this key keeps its old behaviour, one that did not now gets the question for clean files too (set `editor.reloadUnlessUnsaved = true` for the old silent reload). |
+| `menu.hide`, `menu.showOnMouseHover`, `menu.toggleOnAlt` | `false`, `true`, `true` | bool | The [menu bar](#menu-bar): 10x's `HideMainMenu`, `ShowMainMenuOnMouseHover`, `ToggleMainMenuOnAlt`. |
 | `tabs.previewTab` | `true` | bool | A single click on a file in the explorer, and the debugger stepping into an unopened file, open it in the preview tab (Visual Studio: "Allow new files to be opened in the preview tab"). `false`: a single click only selects. |
 | `tabs.previewFromFindResults` | `true` | bool | A click on a result of Find in Files or Find All References opens the preview tab (Visual Studio: "Preview selected files in Find Results"). Needs `tabs.previewTab`. |
 | `editor.defaultLineEnding` | `CRLF` | string | Line ending of a new untitled file (`NewTextFile`), `CRLF` or `LF`; any other text means `CRLF`. 10x: DefaultLineEnding. The encoding of new files is `editor.defaultEncoding`. |
@@ -1046,6 +1091,7 @@ overwritten; the operation fails with a message and you fix the file by hand.
 | `cppStandard` | `c++20` | `-std=` for heuristic commands and the fallback flags. |
 | `clangdPath` | empty | clangd to use instead of the bundled one (a path, or a name on `PATH`). |
 | `clangdExtraArgs` | empty | Extra arguments appended to clangd's command line. |
+| `solution` | empty | The `.sln` / `.slnx` this workspace was opened with, relative to the folder (or absolute): the only solution used for flags, the explorer tree, the build and the debugger match. Written when you open a solution; delete it to go back to "every `.sln`, the first drives the rest". |
 | `vsConfiguration`, `vsPlatform` | `Debug`, `x64` | Active solution configuration; also used by the build. |
 | `runCMake` | `true` | Configure CMake projects into `.tenfold/cmake-build` to get compile commands. |
 | `buildCommand` | empty | Custom build command (see [Building](#building)). |
@@ -1454,6 +1500,7 @@ Keys for tenfold commands that 10x has no key for (none uses a key 10x binds in 
 | `F12`, `Control F12`, `Shift F12` | `GotoSymbolDefinition`, `Editor.GotoDeclaration`, `FindSymbolReferences` |
 | `Control Comma` | `FindSymbol` (symbol search) |
 | `Control Q` | `Exit` |
+| `Control Shift O` | `OpenSolution` (`File.OpenSolution`: Visual Studio's File > Open > Project/Solution; 10x binds nothing to it) |
 | `Control Shift B`, `Control Alt O` | `BuildActiveWorkspace`, `ToggleBuildOutputPanel` |
 | `Alt Z` | `ToggleWordWrap` |
 | `Control F9`, `Control F10`, `Control Alt Cancel`, `Control Alt B` | `Debug.ToggleBreakpointEnabled`, `Debug.RunToCursor`, `Debug.BreakAll`, `ListBreakpoints` (breakpoint list) |
@@ -1467,12 +1514,12 @@ The keys that other editors use for something else do what 10x does: `Alt Left` 
 `PlaybackKeySequence` (the command palette is `Control Shift X`), `F4` / `F8` step through search results / build
 messages, and `Control Shift M` selects the bracket scope.
 
-**Commands with no default key** (run them from the [command palette](#command-palette) or bind them yourself; there is
-no menu bar):
+**Commands with no default key** (run them from the [menu bar](#menu-bar) where it lists them, the [command palette](#command-palette), or bind them yourself):
 
 * Editor: `Editor.ToggleBlockComment`, `Editor.ListBookmarks`, `Editor.CollapseAllRegions`, `Editor.ExpandAllRegions`,
   `Editor.CollapseAllRegionsRecursive`, `Editor.ExpandAllRegionsRecursive`, `Editor.LineEndingCRLF`, `Editor.LineEndingLF`,
   `Editor.LineEndingCR`, `Editor.LineEndingLS`, `Editor.LineEndingPS`, `Editor.LineEndingNEL`.
+* Opening: `File.OpenFolder` (10x's `OpenFolder`), `File.RecentSolutions` (Visual Studio's Recent Projects and Solutions).
 * Files and tabs: `File.CopyPath`, `File.ReopenWithEncoding`, `File.SaveWithEncoding`, `File.SaveWithLineEndings`,
   `Workbench.PinTab`, `Workbench.TogglePinTab`, `Workbench.CloseOtherTabs`, `Workbench.CloseAllButPinned`,
   `Workbench.CloseAllDocuments`, `Workbench.ClosePanel`.
@@ -1498,6 +1545,41 @@ status bar. Not listed: commands that need an argument to do anything (`Workbenc
 `Alt 1` to `Alt 4`) and the palette itself. `Build.Build` is listed and runs the detected build; a custom build command
 still needs a key binding with an argument. The palette lists the commands tenfold has; 10x commands it lacks are not
 listed (see FEATURE_PARITY).
+
+## Menu bar
+
+A bar with three menus, **File**, **Edit** and **View**, sits across the top of the window, above the toolbar and the tabs,
+in Visual Studio 2022's dark colours. Every item runs a command, shows that command's *current* key binding on the right
+(it follows your key file, like the command palette) and is greyed out when the command cannot run right now (Undo
+without an open file, Save without a modified one). A command tenfold does not have is not listed.
+
+* **Mouse.** Click a title to open its menu; with a menu open, moving the pointer across the bar switches menus; a click
+  on the open title, a click anywhere else or Escape closes it. An item with `>` opens a submenu to the right.
+* **Keyboard.** Press and release **Alt** on its own: the bar takes the keyboard, the first title is highlighted and the
+  access keys are underlined. Left / Right move between titles, Enter or Down open the menu, Escape (or Alt again) leaves.
+  **Alt+F**, **Alt+E** and **Alt+V** open File, Edit and View directly (and switch menus while one is open). In an open
+  menu Up / Down / Home / End move, Left / Right switch to the neighbouring menu (or close / open a submenu), Enter runs
+  the item and a typed letter selects the next item starting with it. 10x's default key map binds none of Alt+F, Alt+E, Alt+V,
+  so they are free; if your key file binds one of them, your binding wins and that access key does nothing. While the
+  Find bar is open Alt+E (and Alt+R) belong to it, as in Visual Studio.
+* **Settings** (10x's `HideMainMenu`, `ShowMainMenuOnMouseHover`, `ToggleMainMenuOnAlt`, same defaults): `menu.hide`
+  (`false`) keeps the bar out of the layout until it is asked for; `menu.showOnMouseHover` (`true`) shows a hidden bar
+  while the pointer is at the top edge; `menu.toggleOnAlt` (`true`) is the Alt tap above (the access keys work either way).
+  Colours: the theme keys `menuBarBackground`, `menuBarText`, `menuBarHover` and `menuBarPressed` (the title of the open
+  menu); the drop-downs use the context-menu keys.
+
+**File:** Open Solution... (Control Shift O; see [Opening a workspace](#opening-a-workspace)), Open Folder..., Open File...,
+Recent Projects and Solutions, New File, Close, Close All Documents, Save, Save All, Copy Full Path, Open Containing Folder,
+Exit. (There is no Save As or Close Solution: tenfold has no such command yet.)
+
+**Edit:** Undo, Redo; Cut, Copy, Paste, Paste from History..., Delete, Select All; Find and Replace > (Quick Find, Quick
+Replace, Find in Files, Replace in Files, Find Next, Find Previous); Go To > (Go To Line..., Go To All..., Go To Member...,
+Go To Definition, Go To Declaration, Find All References, Go To Header/Source); Bookmarks >; Outlining >; Advanced >
+(Toggle Comment, Format Selection, Join Lines, Word Wrap, View White Space).
+
+**View:** Solution Explorer, Error List, Output, Terminal, Call Hierarchy, Type Hierarchy; Command Palette...; Zoom In, Zoom
+Out, Full Screen. Labels are Visual Studio's where the command is the same thing (Solution Explorer is the workspace
+explorer, Error List the diagnostics list, Output the build panel); the others are tenfold's names.
 
 ## Context menus
 
@@ -1686,8 +1768,10 @@ unverified items in the next sections; the log and the output of those two comma
 
 ## What does not exist yet
 
-* Opening a folder from the window, a menu bar, a recent-workspaces list, dropping files from the file manager onto
-  the window.
+* Menus other than File, Edit and View (see [Menu bar](#menu-bar)), `.10x` workspaces (`CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`), an empty
+  window without a workspace (`CloseWorkspace`, Visual Studio's Close Solution: opening another solution replaces the
+  open one instead), more than one workspace window at a time, and the files of projects that live outside the
+  solution's folder in Open File, find in files and symbol search (OPEN_QUESTIONS).
 * Autosave and recovery of unsaved buffers after a crash.
 * The document outline.
 * An "open log" command.

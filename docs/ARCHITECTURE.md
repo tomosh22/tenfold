@@ -1794,6 +1794,7 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
   `followSymlinks` (default off), and the walk stops at depth 256. `revision()` is bumped by every scan and by every
   incremental change (`noteFileAdded`, `noteTreeAdded`, `noteFileRemoved`, `noteFileRenamed`, called on the editor thread
   from the file watcher's posted events and from the explorer's file operations); the workspace explorer polls it.
+  The chosen solution (`"solution"`, SLN-OPEN; see "Opening workspaces and solutions" below) is read here too.
   Settings are the optional `<root>/.tenfold/workspace.json`: `loadSettings` ignores a value of the wrong type and
   `saveSettings` merges into the existing object (see "Visual Studio solution settings"). Keys: the extension lists,
   `ignoreDirs`, `ignoreDirNames`, `ignoreDirPrefixes`, `followSymlinks`, `watchFiles`, `cppStandard`, `clangdPath`,
@@ -2699,3 +2700,63 @@ remain. The platform layer is `src/ui/platform`: `Window` (SDL3), `Input` (`Inpu
   (`fuzzyMatchPositions`, blanks in the query ignored), ties by name; no query: by name. A command whose `enabled()` is
   false is dim and Enter reports it. Accept closes the popup first, then runs the command through `runCommandId`, so
   popups the command opens replace the palette cleanly and the key context is the one of the focused widget.
+
+## Opening workspaces and solutions (SLN-OPEN, `src/ui/shell/AppHost.*`, `src/ui/features/WorkspaceOpener.*`, `src/ui/settings/RecentSolutions.*`, `src/ui/platform/FileDialog.*`)
+
+Engine side (`src/workspace`): `resolveWorkspaceTarget(path)` turns a command-line, dialog or drop argument into a
+`WorkspaceTarget` (root folder, chosen solution, file): a directory is a folder workspace, a `.sln` / `.slnx` file is its
+folder with that solution chosen, any other existing file is its folder with no choice (`isSolutionFile` is the one place
+that knows both extensions). The choice is `Workspace::Settings::solution` (`workspace.json` key `"solution"`, relative
+to the root or absolute): `Workspace::solutionFiles()` returns only the chosen file when it exists, else every
+root-level `.sln` as before, and every consumer already goes through it (`SemanticEngine` compile database, `Editor::
+compileCommandInfo`, `detectBuildCommand`'s msbuild target, the debugger's solution, the Solution Explorer tree,
+`ConfigurationPicker`), so one setter changes them all. `Workspace::setSolution` stores the choice and writes
+`workspace.json` (merge, atomic) unless it is already the stored one; `Editor::Options::solution` applies it in the
+constructor, before the engine starts. The solution file names that fed a generated database are part of its stamp
+(`.tenfold/vs/<configuration>/compile_commands.stamp`, mode line), so choosing another solution of the same folder
+regenerates instead of reusing the previous one's flags. Without a chosen solution the scan of the root lists every `.sln`
+and `.slnx` (`compdb::isSolutionFile`; "Solution files (.sln and .slnx)").
+
+UI side. `AppHost` owns everything that belongs to ONE open workspace: `SettingsService`, the editor `TextRenderer`s, the
+`Editor`, the `Workbench` and the `EditorApp`, plus the `RecentSolutions` list that outlives them. `open()` builds a
+workspace (settings and font first, because they can fail and then nothing is torn down; then teardown of the old one:
+`saveLayout`, `Editor::shutdown`, destroy app, bench, editor, release the font atlas, settings; then the new Editor with
+`Options::solution`, Workbench with `restoreLayout`, the optional file argument relative to the root, EditorApp, the
+`WorkspaceOpener` hooks, `Editor::start`, `attachSettings`). The program's loop calls `applyPending()` at the top of
+every iteration: opening is requested from inside event handling (code owned by the object being replaced), so
+`WorkspaceOpener::Hooks::open` only calls `AppHost::requestOpen` and the swap happens between two events. Per-subsystem
+decisions are in VS_BEHAVIOUR O6: recreated (settings, Editor with clangd / watcher / VCS / debugger session / build
+runner, Workbench, EditorApp with pickers, key bindings, explorer and terminals), kept (window, renderer, fullscreen,
+the recent list); callbacks into an `EditorApp` hold the same `life_` weak tokens as elsewhere, and the file-dialog
+callback checks one too.
+
+`WorkspaceOpener` (inside `EditorApp`) is the UI logic: `File.OpenSolution` / `File.OpenFolder` show a
+`FileDialogBackend` request, `File.RecentSolutions` is a `ListPopup` over the list, and `request(path)` is the one entry
+for dialog, recent and drop: the same solution already open only says so; otherwise the modified documents go through
+`UnsavedPrompt` (Yes / No both continue, Cancel never calls back, so the solution stays) and then the hook runs.
+`InputType::DropFile` is handled in `EditorApp::handleEventImpl`: solutions, `.vcxproj` and folders go to `request`, other
+files open as tabs. `FileDialog` is a std::function backend so tests inject a fake that answers at once;
+`sdlFileDialogBackend(Window&)` uses `SDL_ShowFileDialogWithProperties` (the properties form of `SDL_ShowOpenFileDialog` /
+`SDL_ShowOpenFolderDialog`, parented to the window). SDL may call back on another thread: the callback only queues the
+result and `Window::wake()`s, and the loop runs `pumpFileDialogResults()` on the UI thread. `RecentSolutions`
+(`<user config dir>/recent.txt`: absolute paths, newest first, 1..24 entries, default 10) never throws, keeps missing
+entries until `drop` / `pruneMissing`, and writes through a temp file and a rename.
+
+## Menu bar (MENUBAR, `src/ui/widgets/MenuBar.*`, `EditorApp::buildMenus` / `menuBarEvent`)
+
+`MenuBar` is a child of the `Workbench` (above the NavigationUi top bar; `Workbench::onLayout` reserves its height and
+shifts the top bar, the side dock, the panels and the bottom dock down; it reserves nothing without menus, so widget
+tests that build a bare Workbench are unchanged, and none while hidden or in focus mode). It owns titles and, per title, a
+`build()` callback that returns the `MenuItem`s each time the menu opens; the drop-down is the existing `ContextMenu` as
+the modal widget. Two hooks were added to `ContextMenu` for it: `outsideFilter` (a mouse move or press outside every level
+goes to the bar first: hovering another title switches menus, a press on the open title closes) and `onSideKey` (Left on
+the top level, Right on an item without a submenu: the neighbouring menu). The bar is "active" while a drop-down is open
+or a title has the keyboard focus (Alt tap); `EditorApp::menuBarEvent` runs first in `handleEventImpl`: it detects an Alt
+press and release with nothing between (`menu.toggleOnAlt`), routes keys to `MenuBar::handleKey` while the bar is
+focused, opens Alt+F / Alt+E / Alt+V unless the key map binds that very chord (10x's default map binds none; the open
+Find bar keeps Alt+E), and reveals a hidden bar while the pointer is in the top strip (`menu.hide`,
+`menu.showOnMouseHover`; the revealed bar is a top-layer widget over the window, not a layout change). The three menus are
+lists of `MenuEntry` (command id, label) turned into items by the same `buildCommandMenu` the context menus use: a command
+that does not exist is left out, a disabled one is greyed, the key text is `bindingFor` (live key map). Colours:
+`menuBarBackground`, `menuBarText`, `menuBarHover`, `menuBarPressed` in `Theme` (unset: window background, text, tab hover,
+menu background).

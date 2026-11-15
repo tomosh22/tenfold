@@ -276,6 +276,9 @@ Alt F1: Editor.InlayHintsHold
 
 # --- Application, build, debugging, panels ---
 Control Q: Exit
+# Visual Studio's File > Open > Project/Solution (10x binds nothing to OpenSolution). Open Folder and Recent Projects and
+# Solutions have no Visual Studio default key either: File.OpenFolder / File.RecentSolutions run from the command palette.
+Control Shift O: OpenSolution
 Control Shift B: BuildActiveWorkspace
 Control Alt O: ToggleBuildOutputPanel
 Alt Z: ToggleWordWrap
