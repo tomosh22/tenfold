@@ -44,8 +44,9 @@ std::string docKey(const fs::path& p) {
     std::string key;
     Clock::time_point at;
   };
-  static std::mutex mu;
-  static std::unordered_map<std::string, Entry> cache;
+  // Never destroyed: a view torn down during static destruction (the fuzz harness's workbench) still asks for a key.
+  static std::mutex& mu = *new std::mutex;
+  static std::unordered_map<std::string, Entry>& cache = *new std::unordered_map<std::string, Entry>;
   const std::string spelling = pathUtf8(p);
   const auto now = Clock::now();
   {
