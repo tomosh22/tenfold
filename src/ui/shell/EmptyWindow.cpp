@@ -26,6 +26,18 @@ bool EmptyWindow::availableWithoutWorkspace(const std::string& id) {
 EmptyWindow::EmptyWindow(gfx::TextRenderer& text, const Theme& theme, const fs::path& userDir, Hooks hooks,
                          bool fullscreen)
     : RootWidget(text, theme), hooks_(std::move(hooks)), fullscreen_(fullscreen) {
+  StartWindow::Hooks sh;
+  sh.recent = hooks_.recent;
+  sh.openRecent = [this](const fs::path& p) {
+    opener_->chooseRecent(p);
+    start_->refresh();
+  };
+  sh.openProject = [this] { runCommand("File.OpenSolution"); };
+  sh.openFolder = [this] { runCommand("File.OpenFolder"); };
+  auto sw = std::make_unique<StartWindow>(std::move(sh));
+  start_ = sw.get();
+  addChild(std::move(sw));
+  start_->search()->setFocus();
   auto sb = std::make_unique<StatusBar>();
   status_ = sb.get();
   addChild(std::move(sb));
@@ -73,11 +85,12 @@ void EmptyWindow::onLayout() {
   menuBar_->layout({b.x, b.y, b.w, floating ? menuBar_->barHeight() : mb});
   menuBar_->setTopLayer(floating);
   status_->layout({b.x, b.y + b.h - sh, b.w, sh});
+  const float top = b.y + (floating ? 0.0f : mb);
+  start_->layout({b.x, top, b.w, std::max(0.0f, b.y + b.h - sh - top)});
 }
 
 void EmptyWindow::paint(PaintContext& ctx) {
-  // The client area is empty, like a Workbench panel without a document.
-  ctx.fill(bounds(), ctx.theme.panelBackground);
+  ctx.fill(bounds(), ctx.theme.panelBackground);  // behind the Start window
 }
 
 std::string EmptyWindow::shortcutFor(const std::string& command) const {
@@ -201,6 +214,7 @@ bool EmptyWindow::handleEvent(const InputEvent& e, int64_t nowMs) {
   if (menuBarEvent(e)) return true;
   if (modal()) return dispatch(e);  // a menu or the recent list owns the keys
   if (e.type != InputType::KeyDown || e.key == Key::Unknown) return dispatch(e);
+  if (start_->preKey(e)) return true;  // Delete: remove the selected recent entry
   const KeyMap::Result r = keys_.feed(chordFromKey(e.key, e.mods), "global", nowMs);
   switch (r.status) {
     case KeyMap::Status::Pending:

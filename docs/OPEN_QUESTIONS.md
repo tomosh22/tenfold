@@ -44,10 +44,9 @@ decided by the user). Each has a default we implement until answered.
     V28-V32): the empty window is only the menu bar, an empty area and the status bar (purple, "no solution"): no start
     page, no Solution Explorer / Output / Terminal panels; Edit and View are greyed rather than hidden; a plain file
     dropped on it opens its folder as the workspace with the file in a tab.
-  * **Still open (not asked yet).** (1) *A Start Window or recent list on the empty window* (VS's default start-up shows its
-    Start window: recent projects, "Open a project or solution", "Open a local folder", "Continue without code"; I could
-    not read its layout from a source, so I added nothing). (2) *Tools > Options > Environment > Startup equivalent*
-    ("Most recent solution" / "Empty environment") and 10x's `OpenLastWorkspaceOnStartup` as a setting. (3) *Documents
+  * **Still open (not asked yet).** (1) *A Start Window or recent list on the empty window* — **decided and built (START-WINDOW,
+    2026-11-15; VS_BEHAVIOUR section 20)**: recent list with search plus the two open actions. (2) *Tools > Options > Environment > Startup equivalent*
+    ("Most recent solution" / "Empty environment") and 10x's `OpenLastWorkspaceOnStartup` as a setting — **decided against 2026-11-15, no setting.** (3) *Documents
     without a workspace* (10x and VS open a loose file with nothing else open; tenfold's Editor is rooted in a
     workspace, so a rootless Editor would be a larger change: today a dropped file opens its folder). (4) *Window
     title* with the solution name (unchanged by this task).
