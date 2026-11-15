@@ -1,5 +1,6 @@
 #include <fcntl.h>
 #include <signal.h>
+#include <spawn.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -12,7 +13,70 @@
 
 #include "lsp/Process.h"
 
+extern char** environ;
+
 namespace tf {
+
+namespace {
+// posix_spawn shares the parent's address space with the child until exec (CLONE_VM | CLONE_VFORK on Linux), where
+// fork() copies the page tables of the whole process while holding the mmap lock, which stalls every other thread's
+// page faults, and then makes every first write after the fork a copy-on-write fault. In a process with a few hundred
+// MB of heap that cost several ms of the editor's main thread each time a worker started git (COMPL-PERF).
+// Returns false (nothing started) when the request needs something posix_spawn cannot do or the spawn failed; the
+// caller then falls back to fork/exec, which also keeps the "exit code 127" report for a program that cannot run.
+bool spawnFast(const std::string& exe, const std::vector<char*>& argv, const std::filesystem::path& cwd,
+               const Process::Env& extraEnv, bool tree, const int inPipe[2], const int outPipe[2], int stderrTarget,
+               pid_t* pid) {
+#if (defined(__GLIBC__) && (__GLIBC__ > 2 || (__GLIBC__ == 2 && __GLIBC_MINOR__ >= 29))) || defined(__APPLE__)
+  for (auto& kv : extraEnv)
+    if (kv.first == "PATH") return false;  // execvp would search the child's PATH: keep the exact old semantics
+  posix_spawn_file_actions_t fa;
+  posix_spawnattr_t at;
+  if (posix_spawn_file_actions_init(&fa) != 0) return false;
+  if (posix_spawnattr_init(&at) != 0) {
+    posix_spawn_file_actions_destroy(&fa);
+    return false;
+  }
+  bool ok = posix_spawn_file_actions_adddup2(&fa, inPipe[0], STDIN_FILENO) == 0 &&
+            posix_spawn_file_actions_adddup2(&fa, outPipe[1], STDOUT_FILENO) == 0 &&
+            posix_spawn_file_actions_adddup2(&fa, stderrTarget, STDERR_FILENO) == 0;
+  if (ok && !cwd.empty()) ok = posix_spawn_file_actions_addchdir_np(&fa, cwd.c_str()) == 0;
+  sigset_t def;
+  sigemptyset(&def);
+  sigaddset(&def, SIGPIPE);  // we ignore SIGPIPE ourselves; the child gets the default back
+  short flags = POSIX_SPAWN_SETSIGDEF;
+  if (tree) flags = static_cast<short>(flags | POSIX_SPAWN_SETPGROUP);
+  if (ok)
+    ok = posix_spawnattr_setsigdefault(&at, &def) == 0 && posix_spawnattr_setpgroup(&at, 0) == 0 &&
+         posix_spawnattr_setflags(&at, flags) == 0;
+  std::vector<std::string> envStorage;
+  std::vector<char*> envp;
+  if (ok) {
+    for (char** e = environ; e && *e; ++e) {
+      const std::string s = *e;
+      bool replaced = false;
+      for (auto& kv : extraEnv)
+        if (s.compare(0, kv.first.size() + 1, kv.first + "=") == 0) replaced = true;
+      if (!replaced) envStorage.push_back(s);
+    }
+    for (auto& kv : extraEnv) envStorage.push_back(kv.first + "=" + kv.second);
+    for (auto& s : envStorage) envp.push_back(const_cast<char*>(s.c_str()));
+    envp.push_back(nullptr);
+  }
+  pid_t p = -1;
+  if (ok) ok = ::posix_spawnp(&p, exe.c_str(), &fa, &at, argv.data(), envp.data()) == 0;
+  posix_spawn_file_actions_destroy(&fa);
+  posix_spawnattr_destroy(&at);
+  if (!ok) return false;
+  *pid = p;
+  return true;
+#else
+  (void)exe, (void)argv, (void)cwd, (void)extraEnv, (void)tree, (void)inPipe, (void)outPipe, (void)stderrTarget;
+  (void)pid;
+  return false;
+#endif
+}
+}  // namespace
 
 Process::~Process() {
   if (running() || (tree_ && pid_ > 0)) kill();  // a tree: also reap stragglers that outlived the leader
@@ -58,7 +122,10 @@ bool Process::start(const std::string& exe, const std::vector<std::string>& args
   for (auto& a : argvStorage) argv.push_back(const_cast<char*>(a.c_str()));
   argv.push_back(nullptr);
 
-  pid_t pid = ::fork();
+  pid_t pid = -1;
+  const int stderrTarget = errFd == -2 ? outPipe[1] : errFd;
+  if (!spawnFast(exe, argv, cwd, extraEnv, options.processTree, inPipe, outPipe, stderrTarget, &pid)) pid = -1;
+  if (pid < 0) pid = ::fork();
   if (pid < 0) {
     if (error) *error = std::strerror(errno);
     return false;

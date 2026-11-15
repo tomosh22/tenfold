@@ -7,7 +7,7 @@
 namespace tf {
 
 // Minimal child-process wrapper with piped stdin/stdout. stderr is redirected
-// to a log file (or discarded). Implemented in Process_posix.cpp (fork/exec)
+// to a log file (or discarded). Implemented in Process_posix.cpp (posix_spawn, fork/exec as fallback)
 // and Process_win32.cpp (CreateProcessW + anonymous pipes + job object);
 // CMake picks one. This header must not include <windows.h>.
 // Optional start() behaviour; the defaults keep the original semantics (stderr to a log file, child in our group).
