@@ -371,6 +371,7 @@ if(TENFOLD_BUILD_UI)
     src/ui/shell/EditorApp.cpp
     src/ui/shell/AppHost.cpp
     src/ui/shell/EmptyWindow.cpp
+    src/ui/shell/StartWindow.cpp
     src/ui/shell/FontSetup.cpp
     src/ui/features/NavigationUi.cpp
     src/ui/features/BreakpointList.cpp
@@ -455,6 +456,7 @@ if(TENFOLD_BUILD_UI)
     tests/ui/test_sln_open_ui.cpp
     tests/ui/test_menubar.cpp
     tests/ui/test_close_sln.cpp
+    tests/ui/test_start_window.cpp
     tests/ui/test_vs_edit.cpp
     tests/ui/test_vs_vcs.cpp
     tests/ui/test_w11_gui.cpp

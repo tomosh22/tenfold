@@ -5,7 +5,7 @@
 //     debugger or version control), the File / Edit / View menus with everything that needs a workspace greyed,
 //   * opening a solution, a folder, a recent entry or a dropped file from the empty window is the SLN-OPEN flow,
 //   * Exit works from it, `tenfold-ui` without arguments starts in it (a subprocess test), teardown is leak clean,
-//   * a golden of the empty window.
+//   * the Start window is its client area (tests/ui/test_start_window.cpp), a golden of the empty window.
 // Real AppHost, null renderer, mock font, fake file dialog.
 #include <algorithm>
 #include <chrono>
@@ -469,12 +469,13 @@ TEST(closesln_disabled_menu_items_do_nothing) {
   CHECK(env.dialogs.empty());
 }
 
-TEST(closesln_the_empty_window_shows_the_no_solution_status_bar_and_no_other_widget) {
+TEST(closesln_the_empty_window_shows_the_no_solution_status_bar_and_the_start_window_only) {
   Env env;
   REQUIRE(env.startEmpty());
   EmptyWindow& w = env.empty();
   CHECK(w.menuBar().hasMenus());
-  CHECK_EQ(w.children().size(), size_t(2));  // the bar and the status bar: nothing else
+  CHECK_EQ(w.children().size(), size_t(3));  // the Start window, the bar and the status bar: nothing else
+  CHECK(w.children()[0].get() == &w.start());
   CHECK(w.status().text("message").empty());
   CHECK(w.menuBar().bounds().h > 0);
   CHECK(w.status().bounds().y + w.status().bounds().h == 700);  // the status bar sits at the bottom
@@ -646,6 +647,23 @@ TEST(closesln_user_key_bindings_apply_in_the_empty_window) {
   CHECK(env.dialogs[0].folder);
   env.key(static_cast<Key>('Q'), ModCtrl);  // unbound by the user
   CHECK(!env.empty().quitRequested());
+}
+
+TEST(closesln_the_start_window_opens_a_recent_solution_in_the_same_window) {
+  Env env;
+  env.create();
+  env.host->recent().add(env.game / "Alpha.sln");
+  env.host->recent().add(env.other / "Gamma.sln");  // newest
+  REQUIRE(env.startEmpty());
+  REQUIRE(env.empty().start().rows().size() == 2);
+  CHECK_EQ(env.empty().start().rows()[0].name, std::string("Gamma.sln"));
+  env.key(Key::Down);
+  env.key(Key::Enter);
+  CHECK(env.host->hasPending());
+  REQUIRE(env.apply());
+  CHECK(env.host->hasWorkspace());
+  CHECK(env.host->target().solution.filename() == "Alpha.sln");
+  CHECK(env.host->recent().entries().front().filename() == "Alpha.sln");  // moved to the front like any open
 }
 
 // --- subprocess: tenfold-ui without arguments ----------------------------------------------------------------------

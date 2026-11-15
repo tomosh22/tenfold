@@ -53,6 +53,9 @@ class WorkspaceOpener {
   // File.RecentSolutions: the picker over the recent list.
   void openRecentPicker();
   void closePicker();
+  // A recent entry chosen (the picker's row, the Start window's row): opens it like request(); an entry whose file or
+  // folder is gone is dropped from the recent list with a message instead (nothing opens).
+  void chooseRecent(const std::filesystem::path& p);
   bool pickerOpen() const { return popup_ != nullptr; }
   ListPopup* popup() const { return popup_; }
 
@@ -67,7 +70,6 @@ class WorkspaceOpener {
 
  private:
   void fillRecent(const std::string& filter);
-  void chooseRecent(const std::filesystem::path& p);
 
   RootWidget& root_;
   std::function<void(const std::string&)> say_;

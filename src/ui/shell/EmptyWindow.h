@@ -9,6 +9,7 @@
 #include "ui/features/WorkspaceOpener.h"
 #include "ui/settings/KeyBindings.h"
 #include "ui/settings/Settings.h"
+#include "ui/shell/StartWindow.h"
 #include "ui/widgets/MenuBar.h"
 #include "ui/widgets/StatusBar.h"
 #include "ui/widgets/Widget.h"
@@ -19,11 +20,14 @@ namespace tf::ui {
 // when started without arguments and after File > Close Solution. It has NO Editor: nothing here can start clangd, a
 // scan, a file watcher, a build, a debugger session or version control, and nothing writes into a workspace folder.
 // What it has: the File / Edit / View menu bar (the same definitions as the editor window; everything that needs a
-// workspace is greyed, `availableWithoutWorkspace`), an empty client area, a status bar in the "no solution" colour
-// (Theme::statusBackgroundNoSolution) and the key bindings of the user (Ctrl+Shift+O, Ctrl+Q, ...). File > Open
-// Solution..., Open Folder..., Recent Projects and Solutions, drag and drop of a solution / project / folder and Exit
-// work; the opening itself is the SLN-OPEN flow: `hooks.open` records the request and the program (AppHost) replaces
-// this window between two events.
+// workspace is greyed, `availableWithoutWorkspace`), the Start window as the client area, a status bar in the "no
+// solution" colour (Theme::statusBackgroundNoSolution) and the key bindings of the user (Ctrl+Shift+O, Ctrl+Q, ...).
+// File > Open Solution..., Open Folder..., Recent Projects and Solutions, drag and drop of a solution / project /
+// folder and Exit work; the opening itself is the SLN-OPEN flow: `hooks.open` records the request and the program
+// (AppHost) replaces this window between two events.
+//
+// The client area is the Start window (START-WINDOW, docs/VS_BEHAVIOUR.md section 20): recent solutions / folders with
+// a search box and the two "Get started" actions (StartWindow). Its list is the same RecentSolutions as File > Recent.
 class EmptyWindow : public RootWidget {
  public:
   struct Hooks {
@@ -43,6 +47,7 @@ class EmptyWindow : public RootWidget {
 
   MenuBar& menuBar() { return *menuBar_; }
   StatusBar& status() { return *status_; }
+  StartWindow& start() { return *start_; }
   WorkspaceOpener& opener() { return *opener_; }
   KeyMap& keys() { return keys_; }
   const std::string& message() const { return message_; }
@@ -69,6 +74,7 @@ class EmptyWindow : public RootWidget {
   std::string shortcutFor(const std::string& command) const;
   void reloadKeys();
 
+  StartWindow* start_ = nullptr;
   StatusBar* status_ = nullptr;
   MenuBar* menuBar_ = nullptr;
   Hooks hooks_;

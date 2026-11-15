@@ -174,8 +174,8 @@ opening another solution:
 
 **The empty window** (also what `tenfold-ui` shows without an argument) has no Editor behind it: no clangd, no scan and
 no index, no file watcher, no build, no debugger session, no version control, and nothing is written into any folder.
-You see the menu bar, an empty client area and the status bar (in the "no solution" colour, `statusBackgroundNoSolution`;
-vs-dark: purple, like Visual Studio's). In the menus:
+You see the menu bar, the [Start window](#the-start-window) and the status bar (in the "no solution" colour,
+`statusBackgroundNoSolution`; vs-dark: purple, like Visual Studio's). In the menus:
 
 * **File** keeps *Open Solution...* (`Control Shift O`), *Open Folder...*, *Recent Projects and Solutions* and *Exit*
   (`Control Q`; nothing is modified, so there is no prompt). *Open File...*, *New File*, *Close*, *Close All Documents*,
@@ -186,6 +186,29 @@ vs-dark: purple, like Visual Studio's). In the menus:
 
 Opening from the empty window is the ordinary flow above (no prompt: there is nothing to save). If the new workspace
 cannot be built the window stays empty and the status bar says why.
+
+#### The Start window
+
+The client area of the empty window is modelled on Visual Studio 2022's Start window, with only what tenfold can do.
+
+* **Open recent** (left): the same list as File > Recent Projects and Solutions (`recent.txt`, newest first, at most the
+  number of entries that list keeps), one row per solution, project or folder with its **name** and, below it, its
+  **full path**. An entry whose file or folder is gone is still listed (dimmed, badge *missing*). The rows are not grouped
+  by date (Today / Yesterday / ...): `recent.txt` records no times.
+* **Search recent**: type to filter the list; the match is a case-insensitive subsequence of the name or a substring of the full
+  path, the matched letters of the name are highlighted. The box always has the keyboard focus. *Escape* clears it.
+* **Keys**: *Up*, *Down*, *Page Up*, *Page Down* move the selection, *Enter* opens it, *Delete* removes it from the list
+  (while the caret is at the end of the search text; otherwise Delete edits the text). **Mouse**: a click opens a row, a
+  right click offers *Open* and *Remove from list*, the wheel scrolls. Removing saves the list at once.
+* Opening is File > Recent's path: the open workspace (none here) is replaced in the same window and the entry moves to
+  the front. A **missing** entry does not open: the status bar says *... no longer exists; removed from the recent list*
+  and it is dropped.
+* An empty list shows *No recent projects, solutions or folders yet.*
+* **Get started** (right): *Open a project or solution* (File.OpenSolution, `Control Shift O`) and *Open a local folder*
+  (File.OpenFolder). tenfold has no clone and no new-project command, so there are no such buttons, and no *Continue without
+  code* (the empty window already is that).
+* Not done: pinning entries, date groups, and any setting to reopen the last solution at start-up (a decision of
+  2026-11-15: use the list).
 ### Workspace kinds: what a workspace contains
 
 There are two kinds of workspace, as in 10x (*Folder Workspace* and *Visual Studio sln Workspace*):
@@ -1847,8 +1870,8 @@ unverified items in the next sections; the log and the output of those two comma
 ## What does not exist yet
 
 * Menus other than File, Edit and View (see [Menu bar](#menu-bar)), `.10x` workspaces (`CreateWorkspace`, `OpenWorkspace`, `SaveWorkspace`), a start
-  page in the empty window (Visual Studio's Start Window with its recent list and "Continue without code"; the empty
-  window is just the menus), opening a file with no workspace at all (10x does; a dropped file opens its folder), more
+  page beyond the Start window's recent list and two actions (Visual Studio's clone, new project, "Continue without code",
+  pinning and date groups are not there), opening a file with no workspace at all (10x does; a dropped file opens its folder), more
   than one workspace window at a time, and the files of projects that live outside the
   solution's folder in Open File, find in files and symbol search (OPEN_QUESTIONS).
 * Autosave and recovery of unsaved buffers after a crash.
