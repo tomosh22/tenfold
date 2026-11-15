@@ -1894,7 +1894,7 @@ unverified items in the next sections; the log and the output of those two comma
 * The document outline.
 * An "open log" command.
 * Scripting (the Python API of 10x is deliberately not implemented, OPEN_QUESTIONS #11), `.10x` workspace import (not
-  wanted, #12), Unreal Engine awareness.
+  wanted, #12), Unreal Engine awareness (not wanted, user decision 2026-11-15).
 
 ## Provisional and unverified
 

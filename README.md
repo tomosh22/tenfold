@@ -207,7 +207,6 @@ integration, and packages with a bundled clangd.
 Dropped by decision: scripting (the Python API is not used). Not done yet (the "next" row of
 [`docs/IMPLEMENTATION_PLAN.md`](docs/IMPLEMENTATION_PLAN.md) section 9):
 
-* Unreal Engine awareness (`.uproject`).
 * 118 of 10x's 307 commands (none of them has a default key; pressing a key bound to one says `not implemented yet`),
   and many 10x settings. [`docs/FEATURE_PARITY.md`](docs/FEATURE_PARITY.md) has both lists.
 * Workarounds for clangd answer gaps (for example no "add `#include`" fix for `std::` names with the MSVC STL), and a

@@ -30,6 +30,10 @@ decided by the user). Each has a default we implement until answered.
 
 ## User decisions of 2026-11-15
 
+* **Unreal Engine awareness is not wanted; macOS CI is not part of done.** "I do not care about Unreal support" and "I don't
+  care about macOS CI". The Unreal row of FEATURE_PARITY is excluded (—), and the v1.0 definition of done
+  (IMPLEMENTATION_PLAN section 10) asks for green CI on Linux and Windows only. The same message asked for the editor
+  stress test (W9i), closing the fast-index gaps and a check of the benchmark budgets.
 * **A Close Solution command and an empty-window state (CLOSE-SLN).** "Yes" to "a Close Solution command and an
   empty-window state" (the answer to the SLN-OPEN open question below). Implemented (VS_BEHAVIOUR section 18, USER_GUIDE
   "Closing a solution and the empty window"): File > Close Solution (`File.CloseSolution`; 10x's `CloseWorkspace` is
