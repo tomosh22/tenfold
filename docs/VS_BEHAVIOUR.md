@@ -544,6 +544,22 @@ Not done: C# / VB / F# / `.vcxitems` / `.shproj` edits (P11), Existing Item / Ad
 folder, adding the item for a file created by drag and drop or Ctrl-drag copy, `ResourceCompile`-like types other than
 `.rc` (Midl, Image, Natvis, Text, FxCompile ...: they become `None`), the filter entry for a root item (P8).
 
+## 22. Long labels, long paths and the file icon (UI-POLISH)
+
+No source was fetched for this section and nothing was observed in a running Visual Studio (checklist V49); the rows
+record what tenfold does and the Visual Studio behaviour it follows from general knowledge of the product, with low
+confidence. 10x has nothing on these.
+
+| Item | tenfold | Visual Studio 2022 | Conf. |
+|---|---|---|---|
+| U1 A tree row wider than the panel | the label ends in "..." (U+2026 when a font of the stack has it, else three dots) instead of being cut at the edge: `TextRenderer::fit`, used by `TreeView`. `TreeView` has no horizontal scrolling | Solution Explorer scrolls horizontally and clips the label; tenfold elides instead, a deliberate deviation (a clipped word such as "Solution 'Explor" looks complete) | low |
+| U2 A long path in the Start window | the middle is replaced by the ellipsis, the start and the file name stay: `/home/dev/Company/Studio/.../Releases/2026/Game/Game.sln`; the cut follows a path separator where it can (`TextRenderer::fitMiddle`) | the Start window's recent list shows long paths with a middle ellipsis | low |
+| U3 A long name in the Start window | end ellipsis; the "missing" badge keeps its place at the right | n/a | decision |
+| U4 The file icon | a page with a folded corner and text lines, drawn with rectangles and a line: no glyph, so no missing-glyph box can appear. The earlier bare 1 px outline was read as a missing-glyph box next to the names | a page glyph (document image moniker) | medium |
+
+Not changed: tab titles already elide with `fit` (`Theme::tabMaxWidth`); list popups and the status bar still clip at the edge
+(they are single lines made of several parts; moving them to `fit` needs per-part budgets).
+
 ## Proposed implementation tasks (grouped; one task = one area)
 
 | Task | Area | Files likely touched | Depends |
@@ -631,6 +647,7 @@ folder, adding the item for a file created by drag and drop or Ctrl-drag copy, `
 * **V46** (P12) With Perforce / Git: a read-only `.vcxproj` and a new file: does VS check the project out silently, prompt, or fail? Does Add Existing Item behave the same?
 * **V47** (P10) A wildcard item (`gen\*.cpp`) written by hand: Add > New Item in a folder it covers: does VS write an explicit item as well?
 * **V48** (P11) An old-style `.csproj` with explicit `<Compile>` items: confirm Add > New Item writes `<Compile Include>` (tenfold does not).
+* **V49** (U1, U2) Narrow Solution Explorer and the Start window's recent list: does Visual Studio scroll, clip or elide a long label, and where does it put the ellipsis in a long path?
 
 ## S. Sources
 

@@ -284,9 +284,16 @@ void StartWindow::paint(PaintContext& ctx) {
     const Color base = r.missing ? t.textDim : t.text;
     const RectF clip1{x, rr.y, std::max(0.0f, right - x), rr.h};
     // The name, with the matched characters of the search drawn in the accent colour.
+    // A name that does not fit ends in an ellipsis (highlights past the cut are dropped), the path loses its middle so
+    // that the start and the file name stay readable (as Visual Studio shows long paths).
+    const std::string shown = ctx.textRenderer.fit(r.name, clip1.w);
+    const bool cut = shown != r.name;
+    const size_t ellLen = ctx.textRenderer.ellipsis().size();
+    const size_t limit = !cut ? r.name.size() : shown.size() >= ellLen ? shown.size() - ellLen : 0;
     float px = x;
     size_t from = 0, mi = 0;
     auto run = [&](size_t to, bool hit) {
+      to = std::min(to, limit);
       if (to <= from) return;
       const std::string_view s = std::string_view(r.name).substr(from, to - from);
       ctx.text(px, y1, s, hit ? t.tabAccent : base, clip1);
@@ -300,8 +307,9 @@ void StartWindow::paint(PaintContext& ctx) {
       ++mi;
     }
     run(r.name.size(), false);
-    ctx.text(x, y2, r.where, i == selected_ ? t.text : t.textDim,
-             RectF{x, rr.y, std::max(0.0f, rr.x + rr.w - pad - x), rr.h});
+    if (cut) ctx.text(px, y1, std::string_view(shown).substr(limit), base, clip1);
+    const RectF clip2{x, rr.y, std::max(0.0f, rr.x + rr.w - pad - x), rr.h};
+    ctx.text(x, y2, ctx.textRenderer.fitMiddle(r.where, clip2.w), i == selected_ ? t.text : t.textDim, clip2);
   }
   if (n > visibleRows()) {  // scrollbar thumb
     Color c = t.textDim;

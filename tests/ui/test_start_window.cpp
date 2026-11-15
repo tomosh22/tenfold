@@ -366,6 +366,7 @@ TEST(startwin_golden_vs_dark_start_window_with_recent_entries) {
   {
     // Fixed spellings, so the picture does not depend on the machine: /usr and /usr/share exist on Linux, the rest not.
     RecentSolutions recent(defaultRecentFile(user));
+    recent.add("/home/dev/Company/Studio/Projects/Platform/Games/Adventure/Releases/2026/Game/Game.sln");  // elided
     recent.add("/home/dev/Tools/Tools.slnx");
     recent.add("/usr/share");
     recent.add("/home/dev/Game/Game.sln");
@@ -409,4 +410,25 @@ TEST(startwin_golden_vs_dark_start_window_with_recent_entries) {
     std::cerr << "    " << bad << " pixels differ\n";
   }
   CHECK(bad <= golden.size() / 4 / 500);
+}
+
+TEST(startwin_long_paths_elide_in_the_middle_and_long_names_at_the_end) {
+  Fix f(false);
+  const fs::path deep = f.base / "a_rather_long_company_folder" / "another_long_folder_name" / "Game" / "Game.sln";
+  fs::create_directories(deep.parent_path());
+  std::ofstream(deep) << "\n";
+  f.recent->add(deep);
+  f.recent->save();
+  f.frame();
+  REQUIRE(f.sw().rows().size() == 1);
+  const auto& r = f.sw().rows()[0];
+  CHECK_EQ(r.name, std::string("Game.sln"));
+  const float width = 24 * 8 + 0.5f;  // 24 columns of the mock font
+  const std::string shown = f.tr->fitMiddle(r.where, width);
+  CHECK(shown != r.where);
+  CHECK(f.tr->measure(shown) <= width);
+  CHECK(shown.find(std::string(f.tr->ellipsis())) != std::string::npos);
+  CHECK(shown.size() > 8 && shown.substr(shown.size() - 8) == "Game.sln");  // the file name survives
+  CHECK_EQ(f.tr->fit("a_very_long_solution_name.sln", width),
+           std::string("a_very_long_solution_n...").substr(0, 21) + std::string(f.tr->ellipsis()));
 }
