@@ -1742,6 +1742,7 @@ std::vector<std::shared_ptr<const FileSymbols>> FastIndex::exportFiles() const {
 }
 
 void FastIndex::updateFile(const std::filesystem::path& file, std::string_view text) {
+  updatedBytes_.fetch_add(text.size(), std::memory_order_relaxed);
   auto fs = std::make_shared<FileSymbols>();
   fs->file = file;
   extractFile(text, *fs, isCSourceFile(file));

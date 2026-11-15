@@ -952,6 +952,24 @@ TEST(stress_smoke_many_carets_typing) {
   sc.finish();
 }
 
+// Not timing based: typing in a file of a few hundred KB must not re-lex the whole file for the fast index on every
+// keystroke (it did below 1 MiB: 7 ms per key for 20k lines, the whole 8 ms keystroke budget). The re-index is
+// deferred until typing pauses, so a burst of keys lexes nothing on the typing thread.
+TEST(stress_smoke_typing_in_big_file_does_not_relex_per_key) {
+  Rig r(makeSmallProject("relex", 4), false);
+  REQUIRE(r.open(r.root));
+  const fs::path file = r.root / "relex_big.cpp";
+  const std::string text = bigSource(6000);  // about 170 KB: over the lazy re-index threshold
+  writeFile(file, text);
+  REQUIRE(r.openDoc(file) != nullptr);
+  r.frame();
+  r.ed().semantic().waitForFastIndex(60000);
+  const uint64_t before = r.ed().semantic().fastIndex().updatedBytes();
+  for (int i = 0; i < 20; ++i) r.type("y");
+  const uint64_t lexed = r.ed().semantic().fastIndex().updatedBytes() - before;
+  CHECK(lexed < text.size());  // before the fix: 20 whole-file lexes
+}
+
 TEST(stress_smoke_fold_big_file) {
   Rig r(makeSmallProject("smoke_fold", 4), false);
   REQUIRE(r.open(r.root));
