@@ -10,8 +10,15 @@ fast def use_level_value -> level_three
 fast def use_sheet_kind -> sheet_debug
 fast sym "release_only" ∋ release_only_fn
 fast sym "gen_a" ∋ gen_a_fn
-fast sym "special_only" ∋ special_only_fn
-fast sym "feature_impl" ∋ feature_debug feature_release
+# SLN-FILES (user decision of 2026-11-15, OPEN_QUESTIONS): a solution workspace is the files its projects list. special_only.h
+# and features_Release/feature.h are in no project (they are only #included through include directories), so the fast
+# symbol search no longer lists them (it used to, as the folder scan found them); the fast definition still reaches them
+# because the fast index reads the headers the workspace includes. features_Debug/feature.h is a Debug item of
+# engine.vcxproj: a workspace file. The final (clangd) sym lines below are unchanged.
+fast sym "special_only" -> none
+fast sym "feature_impl" ∋ feature_debug
+fast def use_special_only -> special_only_fn
+fast def use_feature_impl -> feature_debug
 
 
 # ================= Debug|x64 =================

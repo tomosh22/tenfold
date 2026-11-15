@@ -9,11 +9,13 @@
 //   * the recent list (persistence, picker, missing entries) and dropped files.
 #include <chrono>
 #include <fstream>
+#include <set>
 #include <sstream>
 
 #include "../text/text_test_util.h"
 #include "build/BuildRunner.h"
 #include "core/PathUtil.h"
+#include "ui/features/FileSearch.h"
 #include "ui/features/WorkspaceExplorer.h"
 #include "ui/platform/FileDialog.h"
 #include "ui/settings/RecentSolutions.h"
@@ -648,10 +650,9 @@ TEST(slnopen_unsaved_changes_in_the_old_workspace_do_not_leak_into_the_new_one) 
 }
 
 // ---------------------------------------------------------------------------------------------------------------
-// Item 7: projects of the solution that live outside the solution folder (`..\Engine\Engine.vcxproj`). What tenfold
-// does today is pinned here (docs/OPEN_QUESTIONS.md, SLN-OPEN item 7): the Solution Explorer tree and opening such a
-// file work because both read the project files; the workspace scan, and with it Open File, find in files and symbol
-// search, is folder-based and does not see them.
+// Item 7 (answered by SLN-FILES, user decision of 2026-11-15): projects of the solution that live outside the solution
+// folder (`..\Engine\Engine.vcxproj`) are part of the workspace: Open File, find in files and symbol search list their
+// files; a loose file next to the solution that no project lists is not (docs/VS_BEHAVIOUR.md section 18).
 // ---------------------------------------------------------------------------------------------------------------
 namespace {
 void makeOutsideProjectSolution(Env& env) {
@@ -674,9 +675,10 @@ void makeOutsideProjectSolution(Env& env) {
 }
 }  // namespace
 
-TEST(slnopen_item7_projects_outside_the_solution_folder_today) {
+TEST(slnopen_item7_projects_outside_the_solution_folder_are_workspace_files) {
   Env env;
   makeOutsideProjectSolution(env);
+  write(env.game / "src" / "loose.cpp", "int loose_value;\n");  // in no project
   REQUIRE(env.open(env.game / "Ext.sln"));
   // The compile database covers the outside project: clangd gets its flags (and the fast index reads what it is told).
   bool engineInDb = false;
@@ -697,10 +699,35 @@ TEST(slnopen_item7_projects_outside_the_solution_folder_today) {
   }
   CHECK(project);
   CHECK(file);
-  // It opens like any file ...
   CHECK(env.openDoc(env.base / "Engine" / "src" / "Engine.cpp") != nullptr);
-  // ... but the workspace scan (folder based) does not list it: Open File, find in files and symbol search miss it.
-  bool listed = false;
-  for (const fs::path& p : env.ed().workspace().sourceFiles()) listed = listed || p.filename() == "Engine.cpp";
-  CHECK(!listed);
+  // The workspace lists it: Open File (the picker's list) and the search scope.
+  CHECK(env.ed().workspace().isSolutionWorkspace());
+  bool listed = false, loose = false;
+  for (const fs::path& p : env.ed().workspace().sourceFiles()) {
+    listed = listed || p.filename() == "Engine.cpp";
+    loose = loose || p.filename() == "loose.cpp";
+  }
+  CHECK(listed);
+  CHECK(!loose);
+  bool inPicker = false, loosePicker = false;
+  for (const std::string& f : FileSearch::collect(env.ed().workspace())) {
+    inPicker = inPicker || f.find("Engine/src/Engine.cpp") != std::string::npos;
+    loosePicker = loosePicker || f.find("loose.cpp") != std::string::npos;
+  }
+  CHECK(inPicker);
+  CHECK(!loosePicker);
+  // find in files: the outside project's file is searched, the loose one is not
+  std::set<std::string> hits;
+  bool done = false;
+  SearchOptions so;
+  env.ed().findInWorkspace(
+      "_value", so,
+      [&](const std::vector<SearchMatch>& m) {
+        for (auto& x : m) hits.insert(pathUtf8(x.file.filename()));
+      },
+      [&](const SearchSummary&) { done = true; });
+  env.ed().waitFor([&] { return done; }, 10000);
+  CHECK(hits.count("Engine.cpp") == 1);  // "int Engine_value;" of the project outside the solution folder
+  CHECK(hits.count("Alpha.cpp") == 1);
+  CHECK(hits.count("loose.cpp") == 0);
 }

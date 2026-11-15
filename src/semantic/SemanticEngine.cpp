@@ -282,7 +282,7 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     // The fast index knows every #include in the workspace; use them to infer
     // the include directories instead of guessing. It is normally done within
     // a second or two; cap the wait so a huge cold workspace still starts.
-    waitForFastIndex(15000);
+    waitForFastBase(15000);
 #ifdef _WIN32
     constexpr bool kClDriver = true;  // clangd finds the MSVC STL / Windows SDK through the clang-cl driver
 #else
@@ -370,6 +370,11 @@ bool SemanticEngine::prepareCompileCommands(const std::vector<fs::path>& sources
     std::lock_guard<std::mutex> lk(ppMu_);
     allConfigNames_.reset();
   }
+  {
+    std::lock_guard<std::mutex> lk(mu_);
+    compilePrepared_ = true;
+  }
+  cv_.notify_all();
   return locationChanged;
 }
 
@@ -591,8 +596,251 @@ void SemanticEngine::saveFastIndex() {
   else log("fast index save failed: " + err);
 }
 
+namespace {
+// Directories the toolchain and the platform SDKs own (Options::maxIncludeIndexFiles): headers there are not looked up.
+// Lower-cased '/' key of the header.
+bool isSystemHeaderPath(const std::string& lowerKey) {
+  static const char* const kParts[] = {"/windows kits/", "/microsoft visual studio/", "/vc/tools/msvc/",
+                                       "/vc/auxiliary/", "/microsoft sdks/",          "/usr/include/",
+                                       "/usr/lib/gcc/",  "/usr/lib/clang/",           "/usr/lib/llvm",
+                                       "/include/c++/",  "/library/developer/",       "/applications/xcode"};
+  for (const char* p : kParts)
+    if (lowerKey.find(p) != std::string::npos) return true;
+  return false;
+}
+}  // namespace
+
+void SemanticEngine::indexIncludeClosure() {
+  if (!ws_.isSolutionWorkspace()) return;
+  std::lock_guard<std::mutex> run(closureRunMu_);
+  const auto t0 = std::chrono::steady_clock::now();
+  const auto cmds = compileCommands();
+  if (!cmds || cmds->empty()) return;
+  struct Group {
+    incnav::SearchPath sp;
+    std::vector<std::string> quoteKeys, angleKeys;  // FastIndex::pathKey of the directories above
+    std::vector<fs::path> seeds;
+  };
+  std::vector<Group> groups;
+  std::unordered_map<std::string, size_t> groupOf;
+  for (const CompileCommand& cc : *cmds) {
+    fs::path file = cc.file.is_absolute() ? cc.file : cc.directory / cc.file;
+    file = file.lexically_normal();
+    incnav::SearchPath sp = incnav::searchPathOf(cc);
+    std::string key;
+    for (const fs::path& d : sp.quote) key += "q" + pathKeyUtf8(d) + "\n";
+    for (const fs::path& d : sp.angle) key += "a" + pathKeyUtf8(d) + "\n";
+    auto [it, fresh] = groupOf.emplace(key, groups.size());
+    if (fresh) {
+      Group ng;
+      for (const fs::path& d : sp.quote) ng.quoteKeys.push_back(FastIndex::pathKey(d));
+      for (const fs::path& d : sp.angle) ng.angleKeys.push_back(FastIndex::pathKey(d));
+      ng.sp = std::move(sp);
+      groups.push_back(std::move(ng));
+    }
+    Group& g = groups[it->second];
+    g.seeds.push_back(file);
+    // /FI and -include: included before the file itself (only the arguments are looked at; the full command parse is
+    // slow)
+    const auto& args = cc.arguments;
+    for (size_t i = 1; i < args.size(); ++i) {
+      std::string forced;
+      if (args[i].rfind("/FI", 0) == 0 && args[i].size() > 3) forced = args[i].substr(3);
+      else if (args[i] == "-include" && i + 1 < args.size()) forced = args[++i];
+      else continue;
+      fs::path f = pathFromUtf8(forced);
+      if (f.is_relative()) f = cc.directory / f;
+      g.seeds.push_back(f.lexically_normal());
+    }
+  }
+
+  std::map<std::string, fs::path> oldOnly;
+  std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> stored;
+  {
+    std::lock_guard<std::mutex> g(closureMu_);
+    oldOnly = includeOnly_;
+    for (auto& e : storeCache_) stored.emplace(FastIndex::pathKey(e->file), e);
+  }
+  std::map<std::string, fs::path> newOnly;
+  size_t bytes = 0, relexed = 0, skippedBig = 0;
+  bool capped = false;
+  // incnav::resolveInclude with the file system asked as little as possible: a candidate the index already holds is a
+  // file, and what was looked up on disk is remembered for the whole run (many projects share their directories).
+  std::unordered_map<std::string, bool> onDisk;
+  std::mutex diskMu;
+  auto isFile = [&](const fs::path& f, const std::string& key) {
+    if (fast_.fileSymbolsByKey(key)) return true;
+    {
+      std::lock_guard<std::mutex> lk(diskMu);
+      if (auto it = onDisk.find(key); it != onDisk.end()) return it->second;
+    }
+    std::error_code ec;
+    const bool is = fs::is_regular_file(f.empty() ? pathFromUtf8(key) : f, ec);
+    std::lock_guard<std::mutex> lk(diskMu);
+    onDisk.emplace(key, is);
+    return is;
+  };
+  auto resolve = [&](const incnav::IncludeRef& ref, const fs::path& includer, const std::string& includerDirKey,
+                     const Group& g) -> std::optional<fs::path> {
+    std::string sp8 = ref.spelling;
+    std::replace(sp8.begin(), sp8.end(), '\\', '/');
+    const fs::path rel = pathFromUtf8(sp8);
+    if (rel.is_absolute()) {
+      const std::string key = FastIndex::pathKey(rel);
+      return isFile(rel, key) ? std::optional<fs::path>(rel) : std::nullopt;
+    }
+    // A plain relative spelling joins a directory by concatenation (no path normalisation per candidate).
+    const bool plain = !sp8.empty() && sp8.find("..") == std::string::npos && sp8.find("./") == std::string::npos &&
+                       sp8.find("//") == std::string::npos;
+    auto tryDir = [&](const fs::path& dir, const std::string& dirKey) -> std::optional<fs::path> {
+      if (plain) {
+        const std::string key = dirKey + '/' + sp8;
+        return isFile(fs::path(), key) ? std::optional<fs::path>(pathFromUtf8(key)) : std::nullopt;
+      }
+      const fs::path f = (dir / rel).lexically_normal();
+      return isFile(f, FastIndex::pathKey(f)) ? std::optional<fs::path>(f) : std::nullopt;
+    };
+    if (!ref.angled) {
+      if (auto f = tryDir(includer.parent_path(), includerDirKey)) return f;
+      for (size_t i = 0; i < g.sp.quote.size(); ++i)
+        if (auto f = tryDir(g.sp.quote[i], g.quoteKeys[i])) return f;
+    }
+    for (size_t i = 0; i < g.sp.angle.size(); ++i)
+      if (auto f = tryDir(g.sp.angle[i], g.angleKeys[i])) return f;
+    return std::nullopt;
+  };
+  // Looks at what the walk found: indexes the files that are not indexed yet (nearest first, within the caps).
+  auto indexNew = [&](const std::vector<fs::path>& cands) {
+    std::vector<fs::path> toIndex;
+    for (const fs::path& r : cands) {
+      const std::string key = FastIndex::pathKey(r);
+      if (fast_.fileSymbolsByKey(key)) {  // indexed already: a workspace file, or kept from an earlier run
+        if (auto o = oldOnly.find(key); o != oldOnly.end()) newOnly.emplace(key, o->second);
+        continue;
+      }
+      std::string lowKey = key;
+      for (char& c : lowKey) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      if (isSystemHeaderPath(lowKey)) continue;
+      std::error_code ec;
+      const uintmax_t size = fs::file_size(r, ec);
+      if (ec) continue;
+      if (size > opt_.maxIncludeFileBytes) {
+        ++skippedBig;
+        continue;
+      }
+      if (newOnly.size() + toIndex.size() >= opt_.maxIncludeIndexFiles ||
+          bytes + static_cast<size_t>(size) > opt_.maxIncludeIndexBytes) {
+        capped = true;
+        continue;
+      }
+      bytes += static_cast<size_t>(size);
+      toIndex.push_back(r);
+    }
+    if (!toIndex.empty()) {
+      std::unordered_set<std::string> hide;
+      for (auto& [k, p] : newOnly) hide.insert(k);
+      for (auto& [k, p] : oldOnly) hide.insert(k);
+      std::vector<std::shared_ptr<const FileSymbols>> cachedSub;
+      for (const fs::path& r : toIndex) {
+        const std::string key = FastIndex::pathKey(r);
+        if (!ws_.isMember(r)) {
+          hide.insert(key);
+          newOnly.emplace(key, r);
+        }
+        if (auto c = stored.find(key); c != stored.end()) cachedSub.push_back(c->second);
+      }
+      fast_.setSearchHidden(std::move(hide));  // before the symbols arrive: they are never listed
+      const FastIndex::Stats st = fast_.indexFilesCached(toIndex, std::move(cachedSub), opt_.indexThreads);
+      relexed += st.relexed;
+    }
+  };
+  // Breadth first over all include-directory sets at once: every level expands the frontier of each set on several
+  // threads (the index is only read), then the files that are new to the index are lexed together.
+  std::vector<std::vector<fs::path>> frontier(groups.size());
+  std::vector<std::unordered_set<std::string>> visited(groups.size());
+  {
+    std::vector<fs::path> all;
+    for (size_t gi = 0; gi < groups.size(); ++gi)
+      for (fs::path& s : groups[gi].seeds)
+        if (visited[gi].insert(FastIndex::pathKey(s)).second) {
+          all.push_back(s);
+          frontier[gi].push_back(std::move(s));
+        }
+    indexNew(all);  // the seeds themselves: forced includes are not indexed yet
+  }
+  const unsigned workers = std::max(1u, std::min(opt_.indexThreads > 0 ? static_cast<unsigned>(opt_.indexThreads) : 8u,
+                                                 std::thread::hardware_concurrency()));
+  while (!indexStop_) {
+    std::vector<std::vector<fs::path>> next(groups.size());
+    std::atomic<size_t> nextGroup{0};
+    auto expand = [&] {
+      for (size_t gi; (gi = nextGroup++) < groups.size();) {
+        for (const fs::path& file : frontier[gi]) {
+          const auto fsyms = fast_.fileSymbolsByKey(FastIndex::pathKey(file));
+          if (!fsyms) continue;
+          const std::string dirKey = FastIndex::pathKey(file.parent_path());
+          for (size_t i = 0; i < fsyms->includes.size(); ++i) {
+            if (fsyms->includes[i].empty()) continue;
+            incnav::IncludeRef ref;
+            ref.spelling = fsyms->includes[i];
+            ref.angled = i < fsyms->angled.size() && fsyms->angled[i] != 0;
+            const auto r = resolve(ref, file, dirKey, groups[gi]);
+            if (!r) continue;
+            if (!visited[gi].insert(FastIndex::pathKey(*r)).second) continue;
+            next[gi].push_back(*r);
+          }
+        }
+      }
+    };
+    {
+      std::vector<std::thread> pool;
+      for (unsigned t = 1; t < workers; ++t) pool.emplace_back(expand);
+      expand();
+      for (auto& th : pool) th.join();
+    }
+    std::vector<fs::path> found;
+    std::unordered_set<std::string> seen;
+    bool any = false;
+    for (const auto& n : next) {
+      any = any || !n.empty();
+      for (const fs::path& f : n)
+        if (seen.insert(FastIndex::pathKey(f)).second) found.push_back(f);
+    }
+    if (!any) break;
+    indexNew(found);
+    frontier = std::move(next);
+  }
+  if (indexStop_) return;
+  // Headers an earlier run indexed that nothing includes any more (a changed include directory, a removed project).
+  for (auto& [k, p] : oldOnly)
+    if (!newOnly.count(k)) fast_.removeFile(p);
+  {
+    std::unordered_set<std::string> hide;
+    for (auto& [k, p] : newOnly) hide.insert(k);
+    fast_.setSearchHidden(std::move(hide));
+    std::lock_guard<std::mutex> g(closureMu_);
+    includeOnly_ = std::move(newOnly);
+    includeRelexed_ += relexed;
+    log("fast index: " + std::to_string(includeOnly_.size()) +
+        " headers included by the workspace files and listed by " + "no project (" + std::to_string(relexed) +
+        " relexed, " + std::to_string(bytes / 1024) + " KiB; " + std::to_string(groups.size()) +
+        " include-directory sets, " +
+        std::to_string(
+            std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - t0).count()) +
+        " ms)" +
+        (capped ? "; capped at " + std::to_string(opt_.maxIncludeIndexFiles) + " files / " +
+                      std::to_string(opt_.maxIncludeIndexBytes >> 20) + " MiB"
+                : std::string()) +
+        (skippedBig ? "; " + std::to_string(skippedBig) + " over " + std::to_string(opt_.maxIncludeFileBytes >> 20) +
+                          " MiB skipped"
+                    : std::string()));
+  }
+}
+
 void SemanticEngine::startFastIndex() {
   fastDone_ = false;
+  fastBaseDone_ = false;
+  indexStop_ = false;
   {
     std::lock_guard<std::mutex> g(saveMu_);
     saveRun_ = true;
@@ -604,22 +852,59 @@ void SemanticEngine::startFastIndex() {
       if (auto loaded = FastIndexStore::load(ws_.cacheDir() / "fastindex.bin", &err)) cached = std::move(*loaded);
       else log("fast index store not used: " + err);
     }
+    // A solution workspace also indexes the headers its files include (their entries are in the store too: they are
+    // not in the file list, so keep the stored entries for that second step).
+    const bool solution = ws_.isSolutionWorkspace();
+    if (solution) {
+      std::lock_guard<std::mutex> g(closureMu_);
+      storeCache_ = cached;
+    }
     try {
       fastStats_ = fast_.indexFilesCached(ws_.codeFiles(), std::move(cached), opt_.indexThreads);
     } catch (const std::exception& e) {  // never leave fastDone_ unset or take the process down
       log(std::string("fast index failed: ") + e.what());
     }
-    {
+    if (!solution) {
       std::lock_guard<std::mutex> g(saveMu_);
       // Nothing to write back if every entry came from the store untouched.
       if (fastStats_.relexed == 0 && fastStats_.dropped == 0 && fastStats_.reused > 0) savedGen_ = fast_.generation();
+    }
+    {
+      std::lock_guard<std::mutex> lk(mu_);
+      fastBaseDone_ = true;
+    }
+    cv_.notify_all();
+    if (solution) {
+      {  // the include directories come from the compile commands: wait for them (bounded)
+        std::unique_lock<std::mutex> lk(mu_);
+        for (int waited = 0; waited < 1200 && !compilePrepared_ && !indexStop_; ++waited)
+          cv_.wait_for(lk, std::chrono::milliseconds(100),
+                       [&] { return compilePrepared_.load() || indexStop_.load(); });
+      }
+      try {
+        indexIncludeClosure();
+      } catch (const std::exception& e) { log(std::string("fast index of included headers failed: ") + e.what()); }
+      std::lock_guard<std::mutex> g(saveMu_);
+      size_t dropped = 0;
+      {
+        std::lock_guard<std::mutex> cl(closureMu_);
+        for (auto& e : storeCache_)
+          if (!fast_.fileSymbolsByKey(FastIndex::pathKey(e->file))) ++dropped;
+        storeCache_.clear();
+        storeCache_.shrink_to_fit();
+      }
+      if (fastStats_.relexed == 0 && includeRelexed_ == 0 && dropped == 0 && fastStats_.reused > 0)
+        savedGen_ = fast_.generation();
     }
     fastDone_ = true;
     cv_.notify_all();
     log("fast index: " + std::to_string(fastStats_.files) + " files, " + std::to_string(fastStats_.symbols) +
         " symbols, " + std::to_string(fastStats_.bytes / 1024) + " KiB lexed (" + std::to_string(fastStats_.relexed) +
         " relexed, " + std::to_string(fastStats_.reused) + " cached, " + std::to_string(fastStats_.dropped) +
-        " dropped) in " + std::to_string(fastStats_.seconds) + "s");
+        " dropped) in " + std::to_string(fastStats_.seconds) + "s" +
+        (solution
+             ? "; " + std::to_string(fast_.fileCount() - fastStats_.files) + " more files hold the headers they include"
+             : std::string()));
     // Warm the symbol-search structures (not part of the reported index time; a query that arrives first builds
     // them itself).
     fast_.prepareSearch();
@@ -711,11 +996,13 @@ void SemanticEngine::stop() {
     cv_.notify_all();
     if (timer_.joinable()) timer_.join();
   }
+  indexStop_ = true;
   {
     std::lock_guard<std::mutex> g(saveMu_);
     saveRun_ = false;
   }
   saveCv_.notify_all();
+  cv_.notify_all();
   if (indexThread_.joinable()) indexThread_.join();
   if (auto old = takeClient()) old->stop();
 }
@@ -734,6 +1021,10 @@ SemanticEngine::Status SemanticEngine::status() const {
   s.fastReused = fastStats_.reused;
   s.fastFiles = fast_.fileCount();
   s.fastSymbols = fast_.symbolCount();
+  {
+    std::lock_guard<std::mutex> g(closureMu_);
+    s.fastIncludeOnly = includeOnly_.size();
+  }
   s.fastSeconds = fastDone_ ? fastStats_.seconds : 0;
   {
     std::lock_guard<std::mutex> lk(mu_);
@@ -749,6 +1040,11 @@ SemanticEngine::Status SemanticEngine::status() const {
 bool SemanticEngine::waitForFastIndex(int timeoutMs) const {
   std::unique_lock<std::mutex> lk(mu_);
   return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] { return fastDone_.load(); });
+}
+
+bool SemanticEngine::waitForFastBase(int timeoutMs) const {
+  std::unique_lock<std::mutex> lk(mu_);
+  return cv_.wait_for(lk, std::chrono::milliseconds(timeoutMs), [&] { return fastBaseDone_.load(); });
 }
 
 bool SemanticEngine::waitForClangdIndex(int timeoutMs, int quietMs) const {
@@ -822,6 +1118,8 @@ void SemanticEngine::workerLoop() {
 
 void SemanticEngine::fileChanged(const fs::path& file, bool includeOpen) {
   if (!ws_.isSource(file) && !ws_.isHeader(file)) return;
+  // A solution workspace indexes its project files and what they include, not every file below the root.
+  if (!ws_.isMember(file) && !fast_.fileSymbols(file)) return;
   if (!includeOpen) {
     std::lock_guard<std::mutex> lk(mu_);
     if (openDocs_.count(pathToUri(file))) return;
@@ -854,6 +1152,7 @@ void SemanticEngine::refreshCompileCommands(std::vector<fs::path> sources, std::
     bool moved = prepareCompileCommands(sources, headers, true);
     log(moved ? "compile database moved; clangd restart needed" : "compile database refreshed in place");
     if (done) done(moved);
+    if (ws_.isSolutionWorkspace() && fastDone_) indexIncludeClosure();  // other include directories: other headers
   });
 }
 
@@ -3316,9 +3615,14 @@ void SemanticEngine::workspaceSymbolsBudgeted(const std::string& query, std::vec
       }
       // clangd also indexes system headers it has seen; 10x-style symbol
       // search wants the workspace's own symbols first.
-      const std::string rootPrefix = pathKeyUtf8(ws_.root()) + "/";
-      std::stable_partition(out.begin(), out.end(),
-                            [&](const SymbolLocation& l) { return pathKeyUtf8(l.loc.file).rfind(rootPrefix, 0) == 0; });
+      // The workspace's own files: below the root and, in a solution workspace, in the directories its projects use.
+      std::vector<std::string> prefixes = ws_.memberRootKeys();
+      if (prefixes.empty()) prefixes.push_back(pathKeyUtf8(ws_.root()));
+      for (std::string& p : prefixes) p += "/";
+      std::stable_partition(out.begin(), out.end(), [&](const SymbolLocation& l) {
+        const std::string k = pathKeyUtf8(l.loc.file);
+        return std::any_of(prefixes.begin(), prefixes.end(), [&](const std::string& p) { return k.rfind(p, 0) == 0; });
+      });
       done(std::move(out), err);
     });
   });

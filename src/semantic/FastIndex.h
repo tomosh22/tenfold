@@ -177,6 +177,11 @@ class FastIndex {
   // EMPTY vector is returned (the caller is going to discard the answer anyway).
   std::vector<Match> search(std::string_view query, size_t limit = 200,
                             const std::function<bool()>& cancelled = {}) const;
+  // Files that are in the index only so that name resolution sees their declarations (headers a solution workspace's
+  // files include but no project lists): search() does not return their symbols; lookup(), reachableFrom() and every
+  // other query still see them. `keys` are pathKey()s and replace the previous set; a file added later with such a key
+  // is hidden too.
+  void setSearchHidden(std::unordered_set<std::string> keys);
   // Worker threads used by search(): 0 (default) = hardware concurrency capped at 8, 1 = scan on the calling thread.
   void setSearchThreads(int n) { searchThreads_ = n; }
   // Optional warm-up: builds the scan table plain (non-qualified) queries use. search() does this itself on demand
@@ -280,6 +285,8 @@ class FastIndex {
   };
   std::unordered_map<const FileSymbols*, FileInfo> fileInfo_;
   uint32_t nextSeq_ = 0;
+  std::unordered_set<std::string> hiddenKeys_;     // guarded by mu_
+  std::unordered_set<const FileSymbols*> hidden_;  // the entries of files_ whose key is in hiddenKeys_ (mu_)
   // Search acceleration (see prepare()). namesGen_ changes when a name is added to / erased from byName_ (guarded
   // by mu_); table_ is guarded by prepMu_.
   size_t namesGen_ = 1;

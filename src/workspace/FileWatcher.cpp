@@ -4,6 +4,7 @@
 #include <atomic>
 #include <condition_variable>
 #include <map>
+#include <memory>
 #include <mutex>
 #include <set>
 #include <thread>
@@ -48,6 +49,37 @@ struct FileWatcher::Impl {
   std::condition_variable cv;
   std::string mode;
   std::vector<fs::path> extraDirs;
+
+  // Extra roots (FileWatcher::addRoot). `extraRoots` is the requested set (guarded by mu); `rootOps` the changes the
+  // watcher thread has not applied yet (guarded by mu); `activeRoots` what the thread watches now (thread-owned once
+  // it runs; start() fills it before the thread exists).
+  struct RootSpec {
+    fs::path path;
+    bool recursive = true;
+  };
+  struct RootOp {
+    bool add = true;
+    RootSpec root;
+  };
+  std::vector<RootSpec> extraRoots;
+  std::vector<RootOp> rootOps;
+  std::vector<RootSpec> activeRoots;
+
+  std::vector<RootOp> takeRootOps() {
+    std::lock_guard<std::mutex> lk(mu);
+    std::vector<RootOp> ops;
+    ops.swap(rootOps);
+    return ops;
+  }
+  static void applyToActive(std::vector<RootSpec>& active, const RootOp& op) {
+    auto it = std::find_if(active.begin(), active.end(), [&](const RootSpec& r) { return r.path == op.root.path; });
+    if (op.add) {
+      if (it == active.end()) active.push_back(op.root);
+      else *it = op.root;
+    } else if (it != active.end()) {
+      active.erase(it);
+    }
+  }
 
   // --- debouncer (watcher thread only) ---
   struct Pending {
@@ -233,7 +265,23 @@ struct FileWatcher::Impl {
       extras = extraDirs;
     }
     for (auto& d : extras) scanInto(d, false, s);
+    for (auto& r : activeRoots) scanInto(r.path, r.recursive, s);
     return s;
+  }
+
+  // Applies the pending root changes to the polled set; an added root is read into `snap` (its files are known to the
+  // consumer already: no events), a removed one leaves it.
+  void applyRootOpsPoll(Snapshot& snap) {
+    for (const RootOp& op : takeRootOps()) {
+      applyToActive(activeRoots, op);
+      if (op.add) {
+        scanInto(op.root.path, op.root.recursive, snap);
+      } else {
+        const std::string prefix = pathUtf8(op.root.path) + static_cast<char>(fs::path::preferred_separator);
+        for (auto it = snap.begin(); it != snap.end();)
+          it = it->first.compare(0, prefix.size(), prefix) == 0 ? snap.erase(it) : std::next(it);
+      }
+    }
   }
 
   void pollLoop(Snapshot snap) {
@@ -245,6 +293,7 @@ struct FileWatcher::Impl {
         cv.wait_for(lk, std::chrono::milliseconds(wait), [&] { return stopFlag.load(); });
       }
       if (stopFlag) break;
+      applyRootOpsPoll(snap);
       auto now = Clock::now();
       if (now - lastScan >= std::chrono::milliseconds(opt.pollMs)) {
         lastScan = now;
@@ -288,6 +337,30 @@ struct FileWatcher::Impl {
   };
   std::unordered_map<int, DirId> wdId;
   std::atomic<bool> limitHit{false};
+  // Non-recursive extra roots (watcher thread only): a directory that appears in one is not followed.
+  std::set<std::string> flatDirs;
+  bool isFlat(const fs::path& dir) const { return !flatDirs.empty() && flatDirs.count(dir.string()) != 0; }
+
+  void watchRoot(const RootSpec& r) {
+    if (r.recursive) {
+      walkWatch(r.path, false);
+    } else {
+      flatDirs.insert(r.path.string());
+      addWatch(r.path);
+    }
+  }
+
+  void applyRootOps() {
+    for (const RootOp& op : takeRootOps()) {
+      applyToActive(activeRoots, op);
+      if (op.add) {
+        watchRoot(op.root);
+      } else {
+        flatDirs.erase(op.root.path.string());
+        forgetWatchesUnder(op.root.path, true);
+      }
+    }
+  }
 
   static constexpr uint32_t kMask =
       IN_CREATE | IN_DELETE | IN_MODIFY | IN_MOVED_FROM | IN_MOVED_TO | IN_ONLYDIR | IN_DONT_FOLLOW;
@@ -521,7 +594,7 @@ struct FileWatcher::Impl {
       e.isDirectory = isDir;
       if (ev->mask & IN_CREATE) {
         e.kind = Event::Created;
-        if (isDir && !ignore(path)) walkWatch(path, true);
+        if (isDir && !ignore(path) && !isFlat(dir)) walkWatch(path, true);
         note(std::move(e));
       } else if (ev->mask & IN_MODIFY) {
         if (isDir) continue;
@@ -559,7 +632,7 @@ struct FileWatcher::Impl {
           }
           if (isDir && ignore(path)) continue;
           e.kind = Event::Created;  // moved in from outside
-          if (isDir) walkWatch(path, true);
+          if (isDir && !isFlat(dir)) walkWatch(path, true);
           note(std::move(e));
         }
       }
@@ -578,12 +651,19 @@ struct FileWatcher::Impl {
   void inotifyLoop() {
     std::vector<char> buf(256 * 1024);
     while (!stopFlag) {
+      applyRootOps();
       int timeout = pendingTimeoutMs();
       if (!moves.empty()) timeout = timeout < 0 ? kMovePairMs : std::min(timeout, kMovePairMs);
       pollfd fds[2] = {{inFd, POLLIN, 0}, {wakeFd, POLLIN, 0}};
       int r = ::poll(fds, 2, timeout);
       if (r < 0 && errno != EINTR) break;
       if (stopFlag) break;
+      if (r > 0 && (fds[1].revents & POLLIN)) {  // a root was added or removed: clear the wake-up, apply at the top
+        uint64_t drain = 0;
+        ssize_t n = ::read(wakeFd, &drain, sizeof drain);
+        (void)n;
+        continue;
+      }
       if (r > 0 && (fds[0].revents & POLLIN)) {
         for (;;) {
           ssize_t n = ::read(inFd, buf.data(), buf.size());
@@ -638,6 +718,7 @@ struct FileWatcher::Impl {
         extras = extraDirs;
       }
       for (auto& d : extras) addWatch(d);
+      for (auto& r : activeRoots) watchRoot(r);
       if (limitHit) {
         log("file watcher: inotify watch limit (" + std::to_string(readWatchLimit()) + ") reached after " +
             std::to_string(wdPath.size()) +
@@ -686,28 +767,69 @@ struct FileWatcher::Impl {
   }
 
 #elif defined(_WIN32)
-  HANDLE dirHandle = INVALID_HANDLE_VALUE;
+  // One ReadDirectoryChangesW per root: the main root first, then the extra roots (FileWatcher::addRoot). The thread
+  // waits on every root's event plus `stopEvent` (stop) and `opsEvent` (a root was added or removed).
+  struct WinRoot {
+    fs::path path;
+    bool recursive = true;
+    HANDLE dirHandle = INVALID_HANDLE_VALUE;
+    HANDLE ioEvent = nullptr;
+    OVERLAPPED ov{};
+    std::vector<DWORD> buf = std::vector<DWORD>(64 * 1024 / sizeof(DWORD));  // DWORD-aligned
+    fs::path pendingOld;
+  };
+  static constexpr size_t kMaxWinRoots = 62;  // WaitForMultipleObjects takes 64 handles; two are ours
+  std::vector<std::unique_ptr<WinRoot>> winRoots;
   HANDLE stopEvent = nullptr;
-  HANDLE ioEvent = nullptr;
-  OVERLAPPED ov{};
-  std::vector<DWORD> buf = std::vector<DWORD>(64 * 1024 / sizeof(DWORD));  // DWORD-aligned
+  HANDLE opsEvent = nullptr;
 
   static constexpr DWORD kFilter = FILE_NOTIFY_CHANGE_FILE_NAME | FILE_NOTIFY_CHANGE_DIR_NAME |
                                    FILE_NOTIFY_CHANGE_SIZE | FILE_NOTIFY_CHANGE_LAST_WRITE |
                                    FILE_NOTIFY_CHANGE_CREATION;
 
-  bool issueRead() {
-    ResetEvent(ioEvent);
-    ZeroMemory(&ov, sizeof ov);
-    ov.hEvent = ioEvent;
-    return ReadDirectoryChangesW(dirHandle, buf.data(), static_cast<DWORD>(buf.size() * sizeof(DWORD)), TRUE, kFilter,
-                                 nullptr, &ov, nullptr) != 0;
+  bool issueRead(WinRoot& r) {
+    ResetEvent(r.ioEvent);
+    ZeroMemory(&r.ov, sizeof r.ov);
+    r.ov.hEvent = r.ioEvent;
+    return ReadDirectoryChangesW(r.dirHandle, r.buf.data(), static_cast<DWORD>(r.buf.size() * sizeof(DWORD)),
+                                 r.recursive ? TRUE : FALSE, kFilter, nullptr, &r.ov, nullptr) != 0;
+  }
+
+  void closeRoot(WinRoot& r) {
+    if (r.dirHandle != INVALID_HANDLE_VALUE) {
+      CancelIo(r.dirHandle);
+      CloseHandle(r.dirHandle);
+    }
+    if (r.ioEvent) CloseHandle(r.ioEvent);
+    r.dirHandle = INVALID_HANDLE_VALUE;
+    r.ioEvent = nullptr;
+  }
+
+  // Opens `path` and arms the first read; false when that fails (the root is then not watched).
+  bool openRoot(const fs::path& path, bool recursive) {
+    if (winRoots.size() >= kMaxWinRoots) {
+      log("file watcher: too many roots; not watching " + pathUtf8(path));
+      return false;
+    }
+    auto r = std::make_unique<WinRoot>();
+    r->path = path;
+    r->recursive = recursive;
+    r->dirHandle =
+        CreateFileW(path.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
+    r->ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    if (r->dirHandle == INVALID_HANDLE_VALUE || !r->ioEvent || !issueRead(*r)) {
+      closeRoot(*r);
+      return false;
+    }
+    winRoots.push_back(std::move(r));
+    return true;
   }
 
   // True when any directory between the root and `p` is ignored.
-  bool underIgnored(const fs::path& p) const {
+  bool underIgnored(const WinRoot& r, const fs::path& p) const {
     fs::path cur = p.parent_path();
-    while (!cur.empty() && cur != root && cur.has_relative_path()) {
+    while (!cur.empty() && cur != r.path && cur.has_relative_path()) {
       if (ignore(cur)) return true;
       cur = cur.parent_path();
     }
@@ -732,16 +854,14 @@ struct FileWatcher::Impl {
     }
   }
 
-  fs::path pendingOld;
-
-  void handleBuffer(const std::vector<char>& bytes) {
+  void handleBuffer(WinRoot& r, const std::vector<char>& bytes) {
     const char* p = bytes.data();
     for (;;) {
       const auto* info = reinterpret_cast<const FILE_NOTIFY_INFORMATION*>(p);
       try {
         fs::path rel(std::wstring(info->FileName, info->FileNameLength / sizeof(WCHAR)));
-        fs::path path = root / rel;
-        if (!underIgnored(path)) {
+        fs::path path = r.path / rel;
+        if (!underIgnored(r, path)) {
           Event e;
           e.path = path;
           std::error_code ec;
@@ -749,7 +869,7 @@ struct FileWatcher::Impl {
             case FILE_ACTION_ADDED:
               e.kind = Event::Created;
               e.isDirectory = fs::is_directory(path, ec);
-              if (e.isDirectory && !ignore(path)) walkFiles(path);
+              if (e.isDirectory && r.recursive && !ignore(path)) walkFiles(path);
               if (!e.isDirectory || !ignore(path)) note(std::move(e));
               break;
             case FILE_ACTION_REMOVED:
@@ -762,18 +882,18 @@ struct FileWatcher::Impl {
                 note(std::move(e));
               }
               break;
-            case FILE_ACTION_RENAMED_OLD_NAME: pendingOld = path; break;
+            case FILE_ACTION_RENAMED_OLD_NAME: r.pendingOld = path; break;
             case FILE_ACTION_RENAMED_NEW_NAME:
               e.kind = Event::Renamed;
-              e.oldPath = pendingOld;
+              e.oldPath = r.pendingOld;
               e.isDirectory = fs::is_directory(path, ec);
-              pendingOld.clear();
+              r.pendingOld.clear();
               note(std::move(e));
               break;
             default: break;
           }
         } else if (info->Action == FILE_ACTION_RENAMED_OLD_NAME) {
-          pendingOld.clear();
+          r.pendingOld.clear();
         }
       } catch (const std::exception& ex) {
         // One path std::filesystem cannot handle costs that event, not the watcher.
@@ -786,11 +906,10 @@ struct FileWatcher::Impl {
 
   bool startPlatform(Snapshot& pollSnap, bool& usePoll) {
     usePoll = false;
-    dirHandle = CreateFileW(root.c_str(), FILE_LIST_DIRECTORY, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
-                            nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS | FILE_FLAG_OVERLAPPED, nullptr);
-    ioEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
     stopEvent = CreateEventW(nullptr, TRUE, FALSE, nullptr);
-    if (dirHandle == INVALID_HANDLE_VALUE || !ioEvent || !stopEvent || !issueRead()) {
+    opsEvent = CreateEventW(nullptr, FALSE, FALSE, nullptr);
+    const bool mainOk = stopEvent && opsEvent && openRoot(root, true);
+    if (!mainOk) {
       log("file watcher: ReadDirectoryChangesW unavailable; using polling");
       closeAll();
       usePoll = true;
@@ -799,6 +918,8 @@ struct FileWatcher::Impl {
       pollSnap = takeSnapshot();
       return true;
     }
+    for (auto& r : activeRoots)
+      if (!openRoot(r.path, r.recursive)) log("file watcher: cannot watch " + pathUtf8(r.path));
     std::lock_guard<std::mutex> lk(mu);
     mode = "readdirchanges";
     return true;
@@ -806,47 +927,69 @@ struct FileWatcher::Impl {
 
   void wake() {
     if (stopEvent) SetEvent(stopEvent);
+    if (opsEvent) SetEvent(opsEvent);
   }
 
   void closeAll() {
-    if (dirHandle != INVALID_HANDLE_VALUE) CloseHandle(dirHandle);
-    if (ioEvent) CloseHandle(ioEvent);
+    for (auto& r : winRoots) closeRoot(*r);
+    winRoots.clear();
+    if (opsEvent) CloseHandle(opsEvent);
     if (stopEvent) CloseHandle(stopEvent);
-    dirHandle = INVALID_HANDLE_VALUE;
-    ioEvent = stopEvent = nullptr;
+    opsEvent = stopEvent = nullptr;
   }
 
   void addDirPlatform(const fs::path&) {}
   size_t watchesPlatform() const { return 0; }
+
+  void applyRootOps() {
+    for (const RootOp& op : takeRootOps()) {
+      applyToActive(activeRoots, op);
+      // winRoots[0] is the main root; an extra root with the same path is replaced.
+      for (size_t i = 1; i < winRoots.size(); ++i)
+        if (winRoots[i]->path == op.root.path) {
+          closeRoot(*winRoots[i]);
+          winRoots.erase(winRoots.begin() + static_cast<std::ptrdiff_t>(i));
+          break;
+        }
+      if (op.add && !openRoot(op.root.path, op.root.recursive))
+        log("file watcher: cannot watch " + pathUtf8(op.root.path));
+    }
+  }
 
   void threadMain(bool usePoll, Snapshot snap) {
     if (usePoll) {
       pollLoop(std::move(snap));
       return;
     }
-    HANDLE handles[2] = {ioEvent, stopEvent};
     while (!stopFlag) {
+      applyRootOps();
+      std::vector<HANDLE> handles;
+      handles.push_back(stopEvent);
+      handles.push_back(opsEvent);
+      for (auto& r : winRoots) handles.push_back(r->ioEvent);
       int t = pendingTimeoutMs();
-      DWORD r = WaitForMultipleObjects(2, handles, FALSE, t < 0 ? INFINITE : static_cast<DWORD>(t));
-      if (r == WAIT_OBJECT_0 + 1 || stopFlag) break;
-      if (r == WAIT_OBJECT_0) {
+      DWORD w = WaitForMultipleObjects(static_cast<DWORD>(handles.size()), handles.data(), FALSE,
+                                       t < 0 ? INFINITE : static_cast<DWORD>(t));
+      if (w == WAIT_OBJECT_0 || stopFlag) break;
+      if (w >= WAIT_OBJECT_0 + 2 && w < WAIT_OBJECT_0 + handles.size()) {
+        WinRoot& r = *winRoots[w - WAIT_OBJECT_0 - 2];
         DWORD n = 0;
-        BOOL ok = GetOverlappedResult(dirHandle, &ov, &n, FALSE);
+        BOOL ok = GetOverlappedResult(r.dirHandle, &r.ov, &n, FALSE);
         if (!ok || n == 0) {
           // Buffer overflow (n == 0) or error: events were lost.
           Event e;
           e.kind = Event::Rescan;
           note(std::move(e));
-          if (!issueRead()) break;
+          if (!issueRead(r)) break;
         } else {
-          std::vector<char> bytes(reinterpret_cast<char*>(buf.data()), reinterpret_cast<char*>(buf.data()) + n);
-          if (!issueRead()) break;  // re-arm before parsing so nothing is missed meanwhile
-          handleBuffer(bytes);
+          std::vector<char> bytes(reinterpret_cast<char*>(r.buf.data()), reinterpret_cast<char*>(r.buf.data()) + n);
+          if (!issueRead(r)) break;  // re-arm before parsing so nothing is missed meanwhile
+          handleBuffer(r, bytes);
         }
       }
       flushDue();
     }
-    CancelIo(dirHandle);
+    for (auto& r : winRoots) CancelIo(r->dirHandle);
   }
 
 #else  // other platforms: polling stub (FSEvents later)
@@ -881,6 +1024,11 @@ bool FileWatcher::start(const fs::path& root, IgnoreFn ignoreFn, Callback cb) {
   d.pending.clear();
   std::error_code ec;
   if (!fs::is_directory(root, ec)) return false;
+  {
+    // The roots requested so far; changes made from now on arrive as ops (applied again, which is harmless).
+    std::lock_guard<std::mutex> lk(d.mu);
+    d.activeRoots = d.extraRoots;
+  }
   Impl::Snapshot snap;
   bool usePoll = false;
   if (d.opt.forcePolling) {
@@ -918,6 +1066,7 @@ void FileWatcher::stop() {
   d.pending.clear();
   std::lock_guard<std::mutex> lk(d.mu);
   d.mode.clear();
+  d.rootOps.clear();
 }
 
 bool FileWatcher::running() const { return impl_->running; }
@@ -930,6 +1079,38 @@ void FileWatcher::addDirectory(const fs::path& dir) {
     d.extraDirs.push_back(dir);
   }
   if (d.running) d.addDirPlatform(dir);
+}
+
+void FileWatcher::addRoot(const fs::path& dir, bool recursive) {
+  Impl& d = *impl_;
+  {
+    std::lock_guard<std::mutex> lk(d.mu);
+    auto it = std::find_if(d.extraRoots.begin(), d.extraRoots.end(), [&](const auto& r) { return r.path == dir; });
+    if (it != d.extraRoots.end() && it->recursive == recursive) return;
+    if (it != d.extraRoots.end()) it->recursive = recursive;
+    else d.extraRoots.push_back({dir, recursive});
+    d.rootOps.push_back({true, {dir, recursive}});
+  }
+  d.cv.notify_all();
+  if (d.running) d.wake();
+}
+
+void FileWatcher::removeRoot(const fs::path& dir) {
+  Impl& d = *impl_;
+  {
+    std::lock_guard<std::mutex> lk(d.mu);
+    auto it = std::find_if(d.extraRoots.begin(), d.extraRoots.end(), [&](const auto& r) { return r.path == dir; });
+    if (it == d.extraRoots.end()) return;
+    d.extraRoots.erase(it);
+    d.rootOps.push_back({false, {dir, true}});
+  }
+  d.cv.notify_all();
+  if (d.running) d.wake();
+}
+
+size_t FileWatcher::rootCount() const {
+  std::lock_guard<std::mutex> lk(impl_->mu);
+  return impl_->extraRoots.size();
 }
 
 std::string FileWatcher::mode() const {

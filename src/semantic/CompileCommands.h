@@ -104,9 +104,10 @@ struct SolutionInfo {
   bool hasProjectConfigurationMap = false;
   // guid -> lower-case "config|platform" of the solution -> mapping (.ActiveCfg / .Build.0 lines).
   std::map<std::string, std::map<std::string, SolutionProjectConfiguration>> projectConfigurations;
-  // .slnx only (the .sln keeps these in NestedProjects / ProjectSection(SolutionItems), read by the explorer): solution
-  // folders are listed in `projects` with the solution-folder type guid and a synthetic guid; `nestedIn` maps a project
-  // or folder guid to its parent folder guid, `folderItems` a folder guid to its <File Path> entries as written.
+  // .slnx: solution folders are listed in `projects` with the solution-folder type guid and a synthetic guid;
+  // `nestedIn` maps a project or folder guid to its parent folder guid (.slnx only: the .sln keeps it in
+  // NestedProjects, read by the explorer), `folderItems` a folder guid to its <File Path> entries (.sln:
+  // ProjectSection(SolutionItems) lines) as written.
   bool isSlnx = false;
   std::map<std::string, std::string> nestedIn;
   std::map<std::string, std::vector<std::string>> folderItems;
@@ -141,6 +142,39 @@ std::vector<CompileCommand> fromVcxproj(const std::filesystem::path& vcxproj, co
 // projects the solution does not map at all are skipped.
 std::vector<CompileCommand> fromSolution(const std::filesystem::path& sln, const VcxprojOptions& opt,
                                          std::string* error = nullptr);
+
+// One item of a project, what Solution Explorer lists under it.
+struct ProjectItem {
+  std::string type;            // the item type as written: ClCompile, ClInclude, None, Text, ResourceCompile, ...
+  std::filesystem::path file;  // absolute, lexically normal; need not exist
+};
+struct ProjectItems {
+  bool loaded = false;             // the project file could be read
+  std::vector<ProjectItem> items;  // once per (type, file), in document order; ExcludedFromBuild ones included
+  std::vector<std::filesystem::path>
+      inputs;  // the files read to get them (the project, its imports, Directory.Build.*)
+};
+// Every item of an MSBuild project (`.vcxproj`, `.vcxitems`, other MSBuild formats by their written items) in ALL of
+// its configurations: the union over the project's `ProjectConfiguration` items (each evaluated with that
+// configuration and platform; `opt.configuration` / `platform` when it lists none), the way Visual Studio's Solution
+// Explorer shows them. Wildcards are expanded, imported .props / .targets / .vcxitems contribute their items,
+// `Exclude` and `Remove` apply within an item type, conditions are evaluated; an item whose value cannot be resolved
+// ($(Registry:...)) is left out. Non-file items (references, configurations, filters) are not items.
+ProjectItems projectItems(const std::filesystem::path& project, const VcxprojOptions& opt,
+                          std::string* error = nullptr);
+
+// What Visual Studio lists as the files of a solution (SLN-FILES): every project's file and items (projectItems; a
+// project that is missing or not an MSBuild file contributes its path only), the solution items of its solution
+// folders, shared-items projects (.vcxitems) as projects. Not listed: the solution file itself, .filters files, the
+// imported .props / .targets, references. Paths are absolute, lexically normal, one per path key (Windows:
+// case-folded).
+struct SolutionFiles {
+  std::vector<std::filesystem::path> files;
+  // Files whose change can change `files`: the solution, every project, its .filters file, everything imported.
+  std::vector<std::filesystem::path> inputs;
+  std::vector<std::filesystem::path> projectDirs;  // directory of every project (absolute)
+};
+SolutionFiles solutionFiles(const std::filesystem::path& sln, const VcxprojOptions& base);
 
 // Infer the smallest set of -I directories under which the given #include
 // paths (as written in source) resolve to workspace headers. Greedy set cover;

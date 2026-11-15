@@ -123,6 +123,11 @@ bool globRec(const char* p, const char* pe, const char* s, const char* se, GlobM
 
 }  // namespace
 
+std::string searchRelPath(const fs::path& root, const fs::path& file) {
+  const fs::path rel = file.lexically_relative(root);
+  return pathKeyUtf8(rel.empty() ? file : rel);
+}
+
 bool TextSearch::globMatch(std::string_view pattern, std::string_view path) {
   const char* p = pattern.data();
   const char* pe = p + pattern.size();
@@ -480,7 +485,7 @@ struct Worker {
       run.searched++;
       const std::string* over = nullptr;
       if (needRel) {
-        auto it = run.in.overrides.find(pathKey(pathKeyUtf8(file->lexically_relative(run.in.root)), nativePathStyle()));
+        auto it = run.in.overrides.find(pathKey(searchRelPath(run.in.root, *file), nativePathStyle()));
         if (it != run.in.overrides.end()) over = &it->second;
       }
       if (over) {
@@ -561,7 +566,7 @@ SearchSummary execute(const SearchInput& in, const SearchOptions& opt, const Sea
   const bool globs = !opt.includeGlobs.empty() || !opt.excludeGlobs.empty();
   run.order.reserve(in.files.size());
   for (size_t i = 0; i < in.files.size(); ++i) {
-    if (globs && !passesGlobs(opt, pathKeyUtf8(in.files[i].lexically_relative(in.root)))) continue;
+    if (globs && !passesGlobs(opt, searchRelPath(in.root, in.files[i]))) continue;
     run.order.push_back(i);
   }
 

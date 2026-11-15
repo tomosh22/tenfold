@@ -152,6 +152,45 @@ whose name starts with `build-` or `cmake-build` (`build-x64`, `cmake-build-debu
 `.tenfold/workspace.json` (see [Workspace file](#workspace-file-tenfoldworkspacejson)). Symbolic links are not followed
 unless `followSymlinks` is set.
 
+### Workspace kinds: what a workspace contains
+
+There are two kinds of workspace, as in 10x (*Folder Workspace* and *Visual Studio sln Workspace*):
+
+* **A folder workspace** contains every file under the folder (the scan above). This is every workspace without a
+  solution, and every workspace where a `compile_commands.json` or a CMake project decides the compile flags (those win
+  over a `.sln`, here as for the flags: [Where the compile flags come from](#where-the-compile-flags-come-from)).
+* **A solution workspace** (you opened a `.sln` / `.slnx`, or the folder holds one, and nothing above wins) contains
+  **exactly the files of its projects, wherever they are on disk**: a project `..\Engine\Engine.vcxproj` brings the files
+  of `Engine` into Open File, find in files, symbol search and the file watcher even though they are outside the solution
+  folder. That is every item of every project in all configurations (compile, include, none, text, resource, custom
+  build ... whatever Solution Explorer shows; wildcards, imported `.props` / `.targets` / `.vcxitems` and items that are
+  excluded from the build included), the project files themselves, the solution items of the solution folders, and the
+  files under the *additional workspace folders* below. A file that sits in the solution folder but that no project
+  lists is **not** part of the solution (it is still shown by the explorer's Folder view and *Show All Files*).
+  Project items are listed whatever their extension; files from additional folders follow the folder rules (ignored
+  directories, the extension lists). The solution file, `.filters` files and property sheets are not listed (a change to
+  any of them re-reads the list).
+
+**Additional workspace folders** (10x's `AdditionalWorkspaceFolders`, "extra folders to add to the workspace, only for sln
+workspaces"): in `.tenfold/workspace.json`,
+
+```json
+{ "additionalWorkspaceFolders": ["..\\Third\\inc\\**\\*.*", "tools\\*.py", "docs"] }
+```
+
+or 10x's own form, one comma separated string under the key `AdditionalWorkspaceFolders`:
+`"..\\Third\\inc\\**\\*.*, tools\\*.py"`. Each entry is a wildcard path: relative to the solution folder (an absolute path
+is kept as written), `**` means any depth (`MyFolder\\**\\*.*` adds every file below `MyFolder` recursively), `*` and `?`
+match within one name, the last part is the file-name pattern. A folder written with no wildcard (`docs`) means
+everything below it (tenfold's tolerance; 10x documents wildcard paths only). Folders are scanned with the folder-workspace
+rules, so `.git`, `build`, `obj` ... inside them are skipped and only files with a listed extension count. The setting
+is ignored by a folder workspace.
+
+Headers that your files `#include` but no project lists (a third-party library next to the solution, say) are not
+workspace files, but tenfold still reads them so that go to definition and the other fast answers see their
+declarations; they never appear in Open File, find in files or symbol search. The Windows SDK, the MSVC toolchain and the
+usual system header directories are left out, and the amount is capped (`docs/ARCHITECTURE.md`, "Workspace kinds").
+
 ### Where the compile flags come from
 
 clangd is exact only with the real compile flags, so the first thing tenfold does is find or make a compile
@@ -1092,6 +1131,7 @@ overwritten; the operation fails with a message and you fix the file by hand.
 | `clangdPath` | empty | clangd to use instead of the bundled one (a path, or a name on `PATH`). |
 | `clangdExtraArgs` | empty | Extra arguments appended to clangd's command line. |
 | `solution` | empty | The `.sln` / `.slnx` this workspace was opened with, relative to the folder (or absolute): the only solution used for flags, the explorer tree, the build and the debugger match. Written when you open a solution; delete it to go back to "every `.sln`, the first drives the rest". |
+| `additionalWorkspaceFolders` | empty | Extra folders of a solution workspace (10x `AdditionalWorkspaceFolders`; also read as the string key `AdditionalWorkspaceFolders`). See [Workspace kinds](#workspace-kinds-what-a-workspace-contains). |
 | `vsConfiguration`, `vsPlatform` | `Debug`, `x64` | Active solution configuration; also used by the build. |
 | `runCMake` | `true` | Configure CMake projects into `.tenfold/cmake-build` to get compile commands. |
 | `buildCommand` | empty | Custom build command (see [Building](#building)). |

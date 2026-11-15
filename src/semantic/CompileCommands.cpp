@@ -1166,6 +1166,8 @@ SolutionInfo readSolution(const fs::path& sln, std::string* error) {
   std::string line;
   enum class Section { None, SolutionConfigs, ProjectConfigs } section = Section::None;
   bool first = true;
+  std::string curProject;  // guid of the Project(...) block being read
+  bool inItems = false;    // inside its ProjectSection(SolutionItems)
   while (std::getline(in, line)) {
     if (first && line.rfind("\xEF\xBB\xBF", 0) == 0) line.erase(0, 3);  // UTF-8 BOM
     first = false;
@@ -1192,7 +1194,26 @@ SolutionInfo readSolution(const fs::path& sln, std::string* error) {
       std::string g = parts[3];
       for (auto& c : g) c = static_cast<char>(std::toupper(static_cast<unsigned char>(c)));
       pr.guid = g;
+      curProject = g;
       info.projects.push_back(std::move(pr));
+      continue;
+    }
+    if (line.rfind("EndProject", 0) == 0 && line.rfind("EndProjectSection", 0) != 0) {
+      curProject.clear();
+      inItems = false;
+      continue;
+    }
+    if (line.rfind("ProjectSection(SolutionItems)", 0) == 0) {
+      inItems = true;
+      continue;
+    }
+    if (line.rfind("EndProjectSection", 0) == 0) {
+      inItems = false;
+      continue;
+    }
+    if (inItems && !curProject.empty()) {  // "relative\\path = relative\\path": the solution folder's files
+      const size_t itemEq = line.find('=');
+      if (itemEq != std::string::npos) info.folderItems[curProject].push_back(trim(line.substr(0, itemEq)));
       continue;
     }
     if (line.rfind("GlobalSection(", 0) == 0) {
@@ -1273,6 +1294,30 @@ std::vector<fs::path> projectsInSolution(const fs::path& sln, std::string* error
 
 namespace {
 
+// Parsed project documents by path (projectItems evaluates a project once per configuration; the files are the same).
+struct ParseCache {
+  std::map<std::string, std::shared_ptr<const xml::Node>> docs;  // null = unreadable
+  std::map<std::string, std::string> errors;
+};
+
+std::shared_ptr<const xml::Node> parseCached(const std::shared_ptr<ParseCache>& cache, const std::string& path,
+                                             std::string* err) {
+  if (cache) {
+    if (auto it = cache->docs.find(path); it != cache->docs.end()) {
+      if (!it->second && err) *err = cache->errors[path];
+      return it->second;
+    }
+  }
+  std::string e;
+  std::shared_ptr<const xml::Node> doc = xml::parseFile(path, &e);
+  if (cache) {
+    cache->docs[path] = doc;
+    if (!doc) cache->errors[path] = e;
+  }
+  if (!doc && err) *err = e;
+  return doc;
+}
+
 struct ProjectState {
   EvalCtx cx;
   std::string projectDir;                     // string-level, forward slashes
@@ -1282,8 +1327,9 @@ struct ProjectState {
     std::string dir;   // directory of the file the node came from
     std::string file;  // that file (for $(MSBuildThisFile...) when the node is evaluated in pass 2 / 3)
   };
-  std::vector<std::unique_ptr<xml::Node>> roots;  // keeps the imported documents alive
-  std::vector<Scope> defGroups, itemGroups;       // pass 1 output, in import order
+  std::vector<std::shared_ptr<const xml::Node>> roots;  // keeps the imported documents alive
+  std::shared_ptr<ParseCache> cache;         // optional: documents parsed by an earlier evaluation of the same project
+  std::vector<Scope> defGroups, itemGroups;  // pass 1 output, in import order
   struct Item {
     std::string file;
     std::map<std::string, std::string> meta;  // raw values; may still contain %(Name) references
@@ -1413,7 +1459,7 @@ void importFile(const std::string& path, ProjectState& st) {
   if (st.visited.count(key)) return;
   st.visited.insert(key);
   std::string err;
-  auto doc = xml::parseFile(key, &err);
+  auto doc = parseCached(st.cache, key, &err);
   if (!doc) {
     st.error += key + ": " + err + "\n";
     return;
@@ -1453,19 +1499,27 @@ void defineOnce(std::vector<std::string>& defs, const std::string& d) {
   defs.push_back(d);
 }
 
-}  // namespace
+// What loadProject leaves for the passes that follow.
+struct LoadedProject {
+  fs::path projectDirPath;
+  std::string projPath;
+  std::string platformLow;
+};
 
-std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOptions& opt, std::string* error) {
-  std::vector<CompileCommand> out;
+// Pass 1 of the evaluation: the built-in properties, then the project's properties and imports in document order
+// (the project body sits between Directory.Build.props and .targets). Fills `st`; false when the project cannot be
+// read (`error` says why).
+bool loadProject(const fs::path& vcxproj, const VcxprojOptions& opt, ProjectState& st, LoadedProject& lp,
+                 std::string* error) {
   std::error_code ec;
   fs::path proj = fs::weakly_canonical(vcxproj, ec);
   const fs::path projectDirPath = proj.parent_path();
-  ProjectState st;
   st.cx.env = opt.environment;
   st.cx.processEnv = opt.useProcessEnvironment;
   st.projectDir = normalizePathStr(pathKeyUtf8(projectDirPath));
   const std::string projPath = normalizePathStr(pathKeyUtf8(proj));
   const std::string platformLow = lower(opt.platform);
+  lp = {projectDirPath, projPath, platformLow};
   auto& P = st.cx.props;
   P["configuration"] = opt.configuration;
   P["platform"] = opt.platform;
@@ -1497,10 +1551,10 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
   // Pass 1: properties and imports, in document order (the project body between Directory.Build.props and .targets).
   {
     std::string err;
-    auto doc = xml::parseFile(projPath, &err);
+    auto doc = parseCached(st.cache, projPath, &err);
     if (!doc) {
       if (error) *error = projPath + ": " + err + "\n";
-      return out;
+      return false;
     }
     st.visited.insert(projPath);
     st.cx.props["msbuildthisfiledirectory"] = st.projectDir + "/";
@@ -1528,6 +1582,19 @@ std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOp
     st.cx.props["msbuildthisfile"] = pathUtf8(proj.filename());
     if (opt.directoryBuildFiles) importDirectoryBuild(st, "Directory.Build.targets");
   }
+  return true;
+}
+
+}  // namespace
+
+std::vector<CompileCommand> fromVcxproj(const fs::path& vcxproj, const VcxprojOptions& opt, std::string* error) {
+  std::vector<CompileCommand> out;
+  std::error_code ec;
+  ProjectState st;
+  LoadedProject lp;
+  if (!loadProject(vcxproj, opt, st, lp, error)) return out;
+  const fs::path& projectDirPath = lp.projectDirPath;
+  const std::string& platformLow = lp.platformLow;
 
   // Pass 2: item definitions with the final property values.
   for (auto& g : st.defGroups) {
@@ -1891,6 +1958,184 @@ std::vector<std::string> toHostStdlibArgs(const std::vector<std::string>& in, co
     if (mapped) continue;
     if (a == "-m32" || a == "-m64" || a.rfind("--target=", 0) == 0) continue;
     out.push_back(a);
+  }
+  return out;
+}
+
+// ---------------------------------------------------------------------------
+// Project items (SLN-FILES)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Items whose Include is not a file: configurations, references, filters, capabilities, macros of a property sheet.
+bool isNonFileItemType(const std::string& t) {
+  static const std::set<std::string> skip = {"ProjectConfiguration",
+                                             "ProjectReference",
+                                             "Reference",
+                                             "PackageReference",
+                                             "PackageVersion",
+                                             "FrameworkReference",
+                                             "SDKReference",
+                                             "COMReference",
+                                             "COMFileReference",
+                                             "Import",
+                                             "Using",
+                                             "Filter",
+                                             "Service",
+                                             "Folder",
+                                             "BootstrapperPackage",
+                                             "WebReferenceUrl",
+                                             "BuildMacro",
+                                             "ProjectCapability",
+                                             "GlobalPropertiesToRemove",
+                                             "AdditionalIncludeDirectories"};
+  return skip.count(t) != 0;
+}
+
+// The "Debug|x64" pairs of a project's `ProjectConfiguration` items, in file order.
+std::vector<std::pair<std::string, std::string>> projectConfigurationsOf(const xml::Node& root) {
+  std::vector<std::pair<std::string, std::string>> out;
+  for (const xml::Node* group : root.childrenNamed("ItemGroup"))
+    for (const xml::Node* pc : group->childrenNamed("ProjectConfiguration")) {
+      std::string cfg, plat;
+      if (const xml::Node* c = pc->child("Configuration")) cfg = trim(c->text);
+      if (const xml::Node* p = pc->child("Platform")) plat = trim(p->text);
+      if (cfg.empty() || plat.empty()) {
+        const std::string inc = pc->attr("Include");
+        const size_t bar = inc.find('|');
+        if (bar == std::string::npos) continue;
+        cfg = trim(inc.substr(0, bar));
+        plat = trim(inc.substr(bar + 1));
+      }
+      std::pair<std::string, std::string> v{cfg, plat};
+      if (std::find(out.begin(), out.end(), v) == out.end()) out.push_back(std::move(v));
+    }
+  return out;
+}
+
+}  // namespace
+
+ProjectItems projectItems(const fs::path& project, const VcxprojOptions& opt, std::string* error) {
+  ProjectItems out;
+  constexpr size_t kMaxConfigurations = 32;  // a hand-made project with hundreds is not worth hundreds of evaluations
+  auto cache = std::make_shared<ParseCache>();
+  std::error_code ec;
+  std::vector<std::pair<std::string, std::string>> configs;
+  {
+    std::string perr;
+    const fs::path canon = fs::weakly_canonical(project, ec);
+    if (auto doc = parseCached(cache, normalizePathStr(pathKeyUtf8(canon)), &perr))
+      configs = projectConfigurationsOf(*doc);
+  }
+  if (configs.empty()) configs.push_back({opt.configuration, opt.platform});
+  if (configs.size() > kMaxConfigurations) configs.resize(kMaxConfigurations);
+
+  std::set<std::string> seenItems, seenInputs;
+  std::string err;
+  const PathStyle style = nativePathStyle();
+  for (const auto& [cfg, plat] : configs) {
+    VcxprojOptions o = opt;
+    o.configuration = cfg;
+    o.platform = plat;
+    ProjectState st;
+    st.cache = cache;
+    LoadedProject lp;
+    std::string perr;
+    if (!loadProject(project, o, st, lp, &perr)) {
+      err += perr;
+      break;
+    }
+    out.loaded = true;
+    for (const std::string& v : st.visited)
+      if (seenInputs.insert(pathKey(v, style)).second) out.inputs.push_back(pathFromUtf8(v).lexically_normal());
+    if (!st.error.empty()) err += st.error;
+
+    struct Rec {
+      std::string type, file;
+    };
+    std::vector<Rec> cur;  // this configuration's items in document order
+    for (auto& g : st.itemGroups) {
+      enterScope(st, g);
+      const std::string gc = g.node->attr("Condition");
+      if (!gc.empty() && !evalCondition(gc, st.cx, g.dir)) continue;
+      for (const auto& childPtr : g.node->children) {
+        const xml::Node& it = *childPtr;
+        if (isNonFileItemType(it.name)) continue;
+        const std::string ic = it.attr("Condition");
+        if (!ic.empty() && !evalCondition(ic, st.cx, g.dir)) continue;
+        auto expand = [&](const std::string& spec) {
+          std::vector<std::string> files;
+          for (const std::string& entry : splitSemis(expandEx(spec, st.cx, Missing::Poison))) {
+            if (poisoned(entry)) continue;
+            for (std::string& f : expandInclude(st.projectDir, entry)) files.push_back(std::move(f));
+          }
+          return files;
+        };
+        if (const std::string rm = it.attr("Remove"); !rm.empty()) {
+          std::set<std::string> gone;
+          for (const std::string& f : expand(rm)) gone.insert(pathKey(f, style));
+          cur.erase(
+              std::remove_if(cur.begin(), cur.end(),
+                             [&](const Rec& r) { return r.type == it.name && gone.count(pathKey(r.file, style)); }),
+              cur.end());
+          continue;
+        }
+        const std::string inc = it.attr("Include");
+        if (inc.empty()) continue;  // Update= changes metadata only
+        std::set<std::string> excluded;
+        if (const std::string ex = it.attr("Exclude"); !ex.empty())
+          for (const std::string& f : expand(ex)) excluded.insert(pathKey(f, style));
+        for (std::string& f : expand(inc))
+          if (!excluded.count(pathKey(f, style))) cur.push_back({it.name, std::move(f)});
+      }
+    }
+    for (Rec& r : cur)
+      if (seenItems.insert(r.type + '|' + pathKey(r.file, style)).second)
+        out.items.push_back({std::move(r.type), pathFromUtf8(r.file).lexically_normal()});
+  }
+  if (error) *error = err;
+  return out;
+}
+
+SolutionFiles solutionFiles(const fs::path& sln, const VcxprojOptions& base) {
+  SolutionFiles out;
+  std::set<std::string> seen, seenInputs, seenDirs;
+  auto add = [&](const fs::path& p) {
+    const fs::path n = p.lexically_normal();
+    if (seen.insert(pathKey(n)).second) out.files.push_back(n);
+  };
+  auto addInput = [&](const fs::path& p) {
+    const fs::path n = p.lexically_normal();
+    if (seenInputs.insert(pathKey(n)).second) out.inputs.push_back(n);
+  };
+  std::error_code ec;
+  VcxprojOptions opt = base;
+  opt.solutionFile = fs::weakly_canonical(sln, ec);
+  if (opt.solutionDir.empty()) opt.solutionDir = opt.solutionFile.parent_path();
+  addInput(sln);
+  const SolutionInfo info = readSolution(sln);
+  const fs::path slnDir = sln.parent_path();
+  for (const auto& [guid, items] : info.folderItems)
+    for (const std::string& rel : items) {
+      if (rel.empty()) continue;
+      add(slnDir / pathFromUtf8(hostPath(rel)));
+    }
+  static const std::set<std::string> kMsbuildExts = {".vcxproj", ".vcxitems", ".csproj", ".vbproj",    ".fsproj",
+                                                     ".shproj",  ".pyproj",   ".proj",   ".nativeproj"};
+  for (const SolutionProject& p : info.projects) {
+    if (lower(p.typeGuid) == "{2150e333-8fdc-42a3-9474-1a3956d46de8}") continue;  // a solution folder
+    add(p.path);
+    addInput(p.path);
+    if (const fs::path dir = p.path.parent_path(); seenDirs.insert(pathKey(dir)).second) out.projectDirs.push_back(dir);
+    fs::path filters = p.path;
+    filters += ".filters";
+    if (fs::is_regular_file(filters, ec)) addInput(filters);  // Visual Studio's folders of the project tree
+    if (!kMsbuildExts.count(lower(pathUtf8(p.path.extension())))) continue;
+    if (!fs::is_regular_file(p.path, ec)) continue;
+    ProjectItems pi = projectItems(p.path, opt);
+    for (const ProjectItem& it : pi.items) add(it.file);
+    for (const fs::path& in : pi.inputs) addInput(in);
   }
   return out;
 }

@@ -444,6 +444,29 @@ context menus; the menu bar reuses their widget.
 | M10 Hidden bar | `menu.hide`: no room reserved, the bar floats over the top edge while the pointer is there (`menu.showOnMouseHover`), after Alt, or with a menu open | 10x only ([S67]); VS has no such setting (the bar can be hidden through Tools > Customize in recent versions, not checked) | [S67] | high | **Implemented** because 10x has it. |
 | M11 Other menus | none | VS has Project, Build, Debug, Test, Analyze, Tools, Extensions, Window, Help; the user asked for File, Edit, View only | user brief | high | not added on purpose. |
 
+## 18. What a solution workspace contains (SLN-FILES)
+
+User decision of 2026-11-15 (OPEN_QUESTIONS): a solution workspace contains exactly the files of its projects wherever they
+are on disk, plus the folders of an "additional workspace folders" setting, "as 10x's Visual Studio sln workspace does";
+a folder workspace is unchanged. Research date 2026-11-15, sources [S62], [S63], [S71]-[S73] (10x pages fetched with curl);
+nothing was observed in a running Visual Studio or 10x (checklist V28-V33).
+
+| Item | tenfold | Visual Studio 2022 / 10x | Source | Conf. |
+|---|---|---|---|---|
+| F1 Kinds | folder workspace, solution workspace | 10x: "supports 3 types of workspace: Folder Workspace, 10x Workspace, Visual Studio sln Workspace"; a folder workspace "will contain all files in the folder and sub folders" | [S62] | high |
+| F2 Project items | every item of every project, all configurations, whatever the type or extension (compile, include, none, text, resource, custom build, excluded from build, wildcards, imported `.props` / `.targets` / `.vcxitems`) | Solution Explorer lists every item of the project; Go To All / Find in Files "Entire Solution" cover project items wherever they are; a loose file that no project lists is not part of the solution | user brief, [S69] | medium (VS not observed here) |
+| F3 Project files, solution items | the project files and the solution folders' items are listed; the solution file, `.filters` and property sheets are not | VS shows projects as nodes and solution items under their folder; `.filters` is not an item in Solution Explorer (it appears with Show All Files); 10x reloads the sln workspace when `.filters` change but does not say it lists them | [S63] | low: V31 |
+| F4 Outside the solution folder | `..\Engine\Engine.vcxproj` files are workspace files | a project path may point anywhere; its items show in Solution Explorer | user decision | high |
+| F5 Additional folders | `AdditionalWorkspaceFolders`: comma separated wildcard paths (`MyFolder\**\*.*`), relative to the solution folder, `**` recursive; ignored by folder workspaces | the 10x setting, verbatim in Settings.htm: "Comma separated list of extra folders to add to the workspace (only for sln workspaces). Paths should be wildcard paths. ... 10x will look for MyFolder in the workspace root. \**\ means recursively add files." Added in 10x 1.0.43 (13/06/2023, change-log) | [S71], [S63] | high for the format, medium for matching details (V29) |
+| F6 Where the setting lives | `.tenfold/workspace.json` `additionalWorkspaceFolders` (array or the 10x string; also `AdditionalWorkspaceFolders`) | 10x: General section of `.10x_settings`, with a per-workspace override file named after the sln; tenfold has no `.10x_settings` import (OPEN_QUESTIONS #12) | [S71], [S63] | decision |
+| F7 A folder without a wildcard | everything below it | not documented (10x says "should be wildcard paths") | none | tolerance: V29 |
+| F8 Extensions and ignore rules inside additional folders | the folder-workspace rules (ignored directories, extension lists) | 10x: the wildcard decides; `Search.ExcludeList` / `ParserExcludeFilters` are separate settings (not implemented) | [S71] | decision |
+| F9 Which kind | the compile-flag precedence: a user `compile_commands.json` or a CMake project keeps a folder workspace | 10x has no such precedence (an opened `.sln` is a sln workspace) | tenfold | decision (lead's brief) |
+| F10 `.slnf`, `.slnx` | `.slnx` like `.sln`; `.slnf` not supported | 10x: ".slnf support", "Fixed slnx projects in folders not adding files to the workspace" | [S63] | open |
+| F11 Non-C++ projects | explicit items of any MSBuild project (`.csproj` ...) | SDK-style projects list files by implicit globs; 10x: "parsing of c# VS NET projects (files now recursivly added by default)" | [S63] | open: V32 |
+| F12 Headers no project lists | indexed for the fast tier (go to definition), not listed by Open File / find in files / symbol search | VS IntelliSense follows `#include`s; Go To All does not list them unless in the solution | [S69] | decision: V33 |
+| F13 Explorer | Folder view and Show All Files unchanged: they still list the loose files below the solution folder | Solution Explorer Show All Files lists all files under the project folders | [S63] ("support for Show All Files in VS projects") | high |
+
 ## Proposed implementation tasks (grouped; one task = one area)
 
 | Task | Area | Files likely touched | Depends |
@@ -459,7 +482,8 @@ context menus; the menu bar reuses their widget.
 | **VS-TREE** (implemented: X2, X3, X5, X6, X7, X8, X9, C10; skipped: X1 optional, X4 low, X10 optional, C6-C9 medium-low) | Solution Explorer: type-ahead, view toggle (Solution/Folder, Show All Files), default-open, state persistence, drag-drop, file operations, preview on click | `src/ui/features/Explorer*`, `src/ui/features/WorkspaceExplorer.*`, `src/ui/widgets/TreeView.*` | VS-TABS |
 | **VS-TERM** (done except the tab menu's Open in Terminal) | Terminal key bindings (Ctrl+C = SIGINT, Ctrl+Shift+C/V), default shell, Open in Terminal | `src/ui/features/Terminal*`, `src/term/*`, key map defaults | none |
 | **VS-VCS** (implemented: VC3, VC5, VC6; VC1 and VC4 need no change; skipped: VC2 low) | Marks for untracked/added in Perforce (blue ?, red plus, red check, yellow triangle), `perforce.promptOnEdit`, P4 history actions | `src/vcs/*`, `src/ui/features/VcsUi.cpp`, `src/ui/features/PerforceUi.cpp`, `src/ui/widgets/VcsBadge.h`, tab markers | V7 (Git untracked) |
-| **SLN-OPEN** (done except Close Solution, start-up "most recent solution", files of projects outside the solution folder in the scan; section 16) | Open .sln / .slnx from the command line, File > Open > Project/Solution, in-process solution switch, recent list, drag and drop | `src/workspace/Workspace.*`, `src/ui/shell/AppHost.*`, `src/ui/features/WorkspaceOpener.*`, `src/ui/settings/RecentSolutions.*`, `src/ui/platform/FileDialog.*`, `src/ui_app/main.cpp` | none |
+| **SLN-OPEN** (done except Close Solution, start-up "most recent solution"; section 16) | Open .sln / .slnx from the command line, File > Open > Project/Solution, in-process solution switch, recent list, drag and drop | `src/workspace/Workspace.*`, `src/ui/shell/AppHost.*`, `src/ui/features/WorkspaceOpener.*`, `src/ui/settings/RecentSolutions.*`, `src/ui/platform/FileDialog.*`, `src/ui_app/main.cpp` | none |
+| **SLN-FILES** (done; section 18) | A solution workspace is the files of its projects wherever they are, plus additional workspace folders | `src/workspace/Workspace.*`, `src/workspace/FileWatcher.*`, `src/semantic/CompileCommands.*`, `src/semantic/SemanticEngine.*`, `src/semantic/FastIndex.*`, `src/app/Editor.*` | SLN-OPEN |
 | **MENUBAR** (done; Build / Debug / Window / Help menus are not wanted yet; section 17) | File / Edit / View bar with Alt handling, theme keys, `menu.*` settings, goldens regenerated | `src/ui/widgets/MenuBar.*`, `src/ui/widgets/ContextMenu.*`, `src/ui/shell/Workbench.*`, `src/ui/shell/EditorApp.cpp` | SLN-OPEN |
 | **VS-EDIT** (done: Z4, Z8; built but off by default pending verification: Z1, Z14, Z19; Z7, Z11, Z20 already matched; skipped Z2, Z3, Z6, Z9, Z12, Z13, Z18 and the rows without a change) | Auto-close quotes default, copy line, zoom editor-only | `src/app/EditorEditing.cpp`, `src/ui/shell/EditorApp.*`, settings | none |
 
@@ -506,6 +530,12 @@ context menus; the menu bar reuses their widget.
 * **V25** (M7, M8, M9) Compare item order, grouping, labels and shortcuts of File, Edit and View with section 17; note any item VS shows greyed that tenfold shows enabled.
 * **V26** (M4) With File open, move across to Edit and View; click the open title; press Left at the first item.
 * **V27** (M5) While Find (Ctrl+F) is open, does Alt+E open the Edit menu or toggle "Use Regular Expressions"?
+* **V28** (F2) A solution with a project in `..\Engine`: Go To All (Ctrl+T) and Find in Files > Entire Solution: do the Engine files show? A loose `.cpp` next to the `.sln` that no project lists: does either find it?
+* **V29** (F5, F7) In 10x: `AdditionalWorkspaceFolders` = `MyFolder\**\*.*`, `MyFolder\*.h`, `MyFolder` (no wildcard), `*\inc\*.h`, an absolute path: what is added each time? Does `.git` / `build` inside get skipped? Does the extension list (`Search`) still filter?
+* **V30** (F2) A `.vcxproj` with an item only in Release, one in an imported `.props`, one excluded from build, one `Remove`d: which appear under the project in Solution Explorer?
+* **V31** (F3) Does Solution Explorer (or 10x's tree) list `.vcxproj.filters`, the `.sln`, a property sheet? Does Go To All?
+* **V32** (F11) An SDK-style `.csproj` (no explicit items): are its `.cs` files listed in 10x's sln workspace?
+* **V33** (F12) Go To Definition on a name declared in a third-party header that no project lists: opens it; does Go To All list that header?
 * **V15** (Q6) Tools > Options > Text Editor > C/C++ > IntelliSense: is there an Inlay Hints option, what is its default, does Alt+F1 show hints when the option is off, and is the hold a toggle?
 
 ## S. Sources
@@ -578,6 +608,9 @@ context menus; the menu bar reuses their widget.
 * [S67] https://10xeditor.com/10xDocumentation/Settings.htm and SettingsList.htm (HideMainMenu, ShowMainMenuOnMouseHover, ToggleMainMenuOnAlt)
 * [S68] assets/KeyMappings.default.10x_settings in this repository (no Alt+F / Alt+E / Alt+V binding, no plain Alt)
 * [S69] https://learn.microsoft.com/en-us/visualstudio/ide/go-to?view=vs-2022 (Go To All) and https://learn.microsoft.com/en-us/visualstudio/ide/finding-and-replacing-text?view=vs-2022 (Quick Find, Quick Replace, Find in Files)
+* [S71] https://10xeditor.com/10xDocumentation/Settings.htm (`AdditionalWorkspaceFolders`, `Search.GlobalDirectories`, `ParserExcludeFilters`, `AdditionalIncludePaths`; curl, 2026-11-15)
+* [S72] https://10xeditor.com/10xDocumentation/10xWorkspaces.htm and WorkspaceSearch.htm (exclude filters; fetched 2026-11-15)
+* [S73] https://10xeditor.com/versions.htm 1.0.44 "Workspace Search Directories" / "Extra Workspace Files" settings for sln workspaces, 1.0.43 AdditionalWorkspaceFolders, "reload sln workspace when .filters files change", 1.0.110 Show All Files in VS projects
 * [S70] [S60] again for File.OpenProject, File.OpenFile, Edit.Find, Edit.GoToAll, View.SolutionExplorer, View.ErrorList, View.Output (the default shortcut table)
 
 **Environment note.** `learn.microsoft.com` is blocked for the WebFetch tool in this session ("has to be allowed in the

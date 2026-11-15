@@ -426,10 +426,7 @@ TreeModel WorkspaceExplorer::buildFolderTree(const fs::path& root, const std::ve
 }
 
 TreeModel WorkspaceExplorer::buildFolderTree(const Workspace& ws) {
-  std::vector<fs::path> all;
-  all.reserve(ws.fileCount());
-  for (const auto* list : {&ws.sourceFiles(), &ws.headerFiles(), &ws.otherFiles()})
-    all.insert(all.end(), list->begin(), list->end());
+  std::vector<fs::path> all = ws.explorerFiles();
   return buildFolderTree(ws.root(), all);
 }
 
@@ -496,19 +493,12 @@ TreeModel WorkspaceExplorer::buildTree(const Workspace& ws, const TreeOptions& o
     const std::vector<fs::path> slns = ws.solutionFiles();
     if (!slns.empty()) {
       std::vector<fs::path> all;
-      if (opts.showAll) {
-        all.reserve(ws.fileCount());
-        for (const auto* list : {&ws.sourceFiles(), &ws.headerFiles(), &ws.otherFiles()})
-          all.insert(all.end(), list->begin(), list->end());
-      }
+      if (opts.showAll) { all = ws.explorerFiles(); }
       TreeModel m = buildSolutionTree(slns.front(), opts.showAll ? &all : nullptr, opts.extraDirs);
       if (m.node(0).expandable()) return m;
     }
   }
-  std::vector<fs::path> all;
-  all.reserve(ws.fileCount());
-  for (const auto* list : {&ws.sourceFiles(), &ws.headerFiles(), &ws.otherFiles()})
-    all.insert(all.end(), list->begin(), list->end());
+  std::vector<fs::path> all = ws.explorerFiles();
   return buildFolderTree(ws.root(), all, opts.extraDirs);
 }
 

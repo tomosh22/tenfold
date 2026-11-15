@@ -7,6 +7,8 @@ Order: the fast-tier work newest first (W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAS
 
 **Where things stand now** (the latest measurement of each; details in the sections named):
 
+* Fast/final agreement over the 36 corpora plus `vs-slnx`: **2329/2781 = 83.75 %** after SLN-FILES (2327/2779 before; the
+  first row below is the 36 corpora alone, 2236/2688).
 * Fast/final agreement of the fast tier over the 36 corpora: **2236/2688 = 83.2 %** (W12-FAST-PP-STRICT; 49.2 % before
   W11-FAST-SCOPE, 74.9 % after it, 83.2 % after W12-FAST-PP). Every `final` expectation passes; no `FAIL` or `XPASS`.
 * Very long lines: the keystroke-to-paint budget (8 ms) holds for every pathological file, wrap on and off, average and
@@ -14,6 +16,55 @@ Order: the fast-tier work newest first (W12-FAST-PP-STRICT, W12-FAST-PP, W11-FAS
 * Still open: fast tier overloads by argument type, alias chains, macro-declared names, operator tokens, specialisations
   (W11-FAST-SCOPE, "Where the rest is"; W12-FAST-PP); the design-change items 3 to 9 under "Not fixed" in the
   pathological section; the clangd answer gaps recorded in the W9b to W9e finding tables.
+
+## SLN-FILES: a solution workspace is the files of its projects (branch `task/SLN-FILES`)
+
+User decision of 2026-11-15 (`docs/OPEN_QUESTIONS.md`, `docs/VS_BEHAVIOUR.md` section 18): in a solution workspace the file
+lists are the files of the projects (wherever they are), the solution items and the additional workspace folders; the fast
+tier additionally indexes the headers those files `#include` (resolved with the compile commands' include directories, not
+listed anywhere; caps and exclusions in `docs/ARCHITECTURE.md`, "Workspace kinds"). Folder, CMake and compile-database
+workspaces are unchanged.
+
+**Agreement (method as W12-FAST-PP: `tenfold-cli corpus tests/corpus/<name> --json` for each of the 37 corpora, Release,
+shared `-j3` box, clangd 22.1.1, `--timeout 900` for `vs-configs`; the JSON's `fastAgreement`, `file:line` sets compared line
+by line between the binary built from `8c6c2b5` and this branch).**
+
+| | before (8c6c2b5) | after |
+|---|---|---|
+| 36 corpora + `vs-slnx` | **2327/2779 = 83.74 %** (2236/2688 + `vs-slnx` 91/91) | **2329/2781 = 83.75 %** |
+
+Every corpus has the same agreement as before except `vs-props` (94/94 -> 96/96: two added `fast def` lines, below). No line
+that agreed before disagrees now, none that disagreed changed its answer (`fastAgreement.disagreements` identical for all 37),
+and the `vs-configs` / `vs-slnx` figures are unchanged (91/91 each; 183 s each, as before). 0 `FAIL`, 0 `XPASS`. The eight
+solution-workspace corpora (`c-vcxproj`, `gen-service`, `seed`, `templates-config`, `vs-configs`, `vs-props`, `vs-slnx`,
+`vs-std`) and the 29 others behave identically otherwise.
+
+**Changed corpus lines (all in `tests/corpus/vs-props/tenfold-expect.txt`, commented there with the decision).** The headers
+`engine/special_inc/special_only.h` and `engine/features_Release/feature.h` are in no project (only `#include`d through
+include directories), so a loose file is no longer an answer of the fast `sym`:
+`fast sym "special_only" ∋ special_only_fn` became `-> none`; `fast sym "feature_impl" ∋ feature_debug feature_release`
+became `∋ feature_debug` (`features_Debug/feature.h` is a Debug item of `engine.vcxproj`). Coverage is kept by two new lines,
+`fast def use_special_only -> special_only_fn` and `fast def use_feature_impl -> feature_debug`: the fast definition still
+reaches those headers because the fast index reads the headers the workspace includes. The final (clangd) `sym` lines are
+unchanged. The first version of the header step missed forced includes (`/FI`) as files to index and lost `vs-std`'s
+`def use_forced_size` (16/16 -> 15/16); fixed (seeds are indexed too) and re-measured 16/16.
+
+**Performance** (generated `service` profile, `--variant vs`, 20,635 files, 196 projects, 6,753 translation units;
+`tenfold-cli bench --no-clangd`, store removed before each run, 3 runs each, a loaded 4-core box):
+
+| | before | after |
+|---|---|---|
+| workspace scan (`scanMs`; the after figure reads every project and each of its 2 configurations) | 53-87 ms | 350-390 ms |
+| compile database | 1.4-1.6 s | 1.4-1.6 s |
+| `Editor::start` returns | 1.4-1.7 s | 1.8-2.0 s |
+| fast index complete (`fastIndexDoneMs`) | 1.4-1.7 s | 3.7 s |
+| peak RSS | 280-296 MiB | 304-318 MiB |
+
+The workspace files are indexed as before (about 0.7 s); the rest of the difference is the header step: it waits for the
+compile commands, then walks the `#include` graph of 6,753 units in 196 include-directory sets (about 1.9 s here; 3.5 s before
+the candidate paths were joined by string concatenation and the units' include sets were walked on several threads; this
+generated code includes only its own headers, so the step finds 1 new file). `fastBaseDone` (the workspace files) is
+available at the old time; `waitForFastIndex` now also waits for the header step.
 
 ## W12-FAST-PP-STRICT: absent macros are unknown unless the project mentions them (branch `task/W12-FAST-PP-STRICT`)
 

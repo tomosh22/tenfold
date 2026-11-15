@@ -22,7 +22,7 @@ for end-to-end answers on awkward code.
 
 | Executable | What | Tests (Linux) | Needs |
 |---|---|---:|---|
-| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), the fuzz regression inputs | 756 | clangd for the integration tests (they skip with a message without it) |
+| `tenfold-tests` | engine, headless: text model, navigation, LSP, fast index, compile commands, search, build, debug (fake backend), VCS (fake `p4`, real `git`), terminal, file watcher, pathological workspaces, `.slnx` solutions (`test_slnx.cpp`), solution workspaces (`test_sln_files.cpp`: the file list of a solution, additional folders, extra watcher roots, the headers the fast index adds, the store with files outside the root, the search scope), the fuzz regression inputs | 769 | clangd for the integration tests (they skip with a message without it) |
 | `tenfold-ui-tests` | UI (`-DTENFOLD_BUILD_UI=ON`): widgets, TextView, commands, pickers, features, goldens in `tests/golden` | 699 | a display (`xvfb-run -a`); golden-image tests skip without one |
 | `tenfold-text-tests` | FreeType font, glyph atlas, text layout (`tests/text`, UI build) | 30 | nothing |
 | `tenfold-corpus-tests` | the 37 corpus projects under `tests/corpus` (one test runs all of them; two more cover the runner's error paths) | 3 | clangd; not part of `ctest` |

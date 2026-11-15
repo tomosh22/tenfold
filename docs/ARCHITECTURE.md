@@ -1802,6 +1802,52 @@ The UI on top of the terminal engine. 10x commands `NewTerminal`, `ShowTerminal`
   `msvcToolchain`, `undoGrouping`, `undoGroupPauseMs`, `debug.attachAtStartup`, `debug.visualStudioSync` (and the `vcs`
   object, see "Version control"). The same header holds executable discovery: `findExecutable`, `resolveClangd` /
   `findClangd` ("Packaging"), `bundledBinDir`.
+* **Workspace kinds (SLN-FILES; `Workspace::kind()`).** `scan()` first decides the kind with the precedence of the compile
+  flags (`SemanticEngine::prepareCompileCommands`): no solution in the root (`solutionFiles()`), a CMake project
+  (`CMakeLists.txt` with `runCMake`) or a `compile_commands.json` that is not the one tenfold generates in `.tenfold`
+  make a **folder workspace**: the walk above is the whole story. Otherwise it is a **solution workspace**:
+  `sourceFiles()` / `headerFiles()` / `otherFiles()` hold exactly the files `compdb::solutionFiles()` returns for every
+  solution of `solutionFiles()`, plus the additional folders; the walk of the root still happens, and what it finds
+  that no project lists goes to a fifth list, `loose_` (`explorerFiles()` = lists + loose, which is what the explorer's
+  Folder view and Show All Files read, so they are unchanged). `compdb::solutionFiles` (`CompileCommands.cpp`) reads the
+  solution (`readSolution`: projects, `ProjectSection(SolutionItems)` / `.slnx` `<File>` into `folderItems`) and every
+  MSBuild project (`.vcxproj`, `.vcxitems`, `.csproj` ... by extension) with `compdb::projectItems`: the same evaluator
+  as `fromVcxproj` (`loadProject` = pass 1, properties and imports; a `ParseCache` so the second configuration does not
+  parse the `.props` again), run once per `ProjectConfiguration` of the project (at most 32) and the item groups of
+  every import read for every item type (not `ProjectConfiguration`, references, `Filter`, `BuildMacro` ...), honouring
+  `Condition`, `Exclude` and `Remove`; wildcards are expanded by the evaluator's own globber. Items are listed whatever
+  their extension and whether or not `ExcludedFromBuild`; one that does not exist yet is remembered (`expectedKeys_`) and
+  becomes a workspace file when it is created. Additional folders (`parseFolderRule`, `FolderRule::matches`: 10x's
+  wildcard paths, `**`, `*`, `?`, Windows case-insensitive) are walked below the rule's literal folder with the
+  folder-workspace ignore rules and extension lists. Keys of members are `pathKey()` (case-folded on Windows).
+  Thread safety: the lists belong to the editor thread; `isMember()` and `memberRootKeys()` read a `Shared` block
+  (membership keys + rules, `shared_mutex`) and are safe from the watcher and clangd callback threads. `scanCopy()` /
+  `adoptScan()` let the editor re-read the projects on a worker thread (`Editor::refreshWorkspaceFiles`) when a
+  solution, project, `.filters` or imported file (`isSolutionInput()`, or a name that looks like one) changes; the
+  result is swapped in on the pump thread, files that left are dropped from the index and history, new ones are indexed,
+  and `extraWatchRoots()` is applied to the watcher. Windows paths: all comparisons go through `pathKey` /
+  component-wise compares with a `PathStyle`; `parseFolderRule` is unit-tested with `\`, drive letters and mixed case.
+* **Files outside the root.** The fast index store (`FastIndexStore`) already keys every entry by its absolute generic
+  path, so outside files need no format change (`kFormatVersion` stays 3; `slnfiles_store_keys_files_outside_...`
+  round-trips drive-letter, UNC and case-variant paths). `FileWatcher` gained extra roots (`addRoot(dir, recursive)` /
+  `removeRoot`): inotify watches (a non-recursive root does not follow new subdirectories), polling snapshots, and on
+  Windows one `ReadDirectoryChangesW` handle per root (at most 62). `Editor::applyWatchRoots` keeps them equal to
+  `Workspace::extraWatchRoots()`: every project directory outside the root (recursive), the other directories holding
+  workspace files or solution inputs outside it, and the additional folders, collapsed so none is below another
+  recursive one or below the root (at most 256). `searchRelPath` gives find in files and its globs a root-relative
+  `../Engine/a.cpp` key for outside files. Open File lists outside files by absolute path.
+* **Headers the workspace includes (solution workspaces).** After the workspace files are indexed
+  (`waitForFastBase`), `SemanticEngine::indexIncludeClosure` takes the compile commands (it waits for them), groups them
+  by search path (`incnav::searchPathOf`), and walks the `#include` graph of the indexed files breadth-first per group
+  (`incnav::resolveInclude`: the includer's directory, then the command's include directories; forced includes are
+  seeds). Resolved files not yet indexed are lexed in parallel per level (the persisted store supplies unchanged ones)
+  unless they are under a system / SDK directory (`isSystemHeaderPath`: Windows Kits, Visual Studio / MSVC, Microsoft
+  SDKs, `/usr/include`, `/usr/lib/gcc|clang|llvm`, `/include/c++/`, Xcode), larger than `maxIncludeFileBytes` (4 MiB), or
+  beyond `maxIncludeIndexFiles` (20000) / `maxIncludeIndexBytes` (256 MiB), nearest first. They are marked
+  `FastIndex::setSearchHidden`: `search()` (symbol search) never returns their symbols, every other query (lookup,
+  reachableFrom, definitions) sees them. `fastDone_` / `waitForFastIndex` mean "base and closure"; `waitForFastBase` is the
+  base alone (the heuristic compile database waits for that one). A refresh of the compile commands re-runs it; headers
+  nothing includes any more are removed. `fileChanged` ignores a path that is neither a member nor already indexed.
 * **`TextSearch`** (`src/search/TextSearch.*`) is the find-in-files engine. It knows nothing of `Editor` or `Workspace`:
   the caller passes a `SearchInput` (root, file list, optional in-memory text for open documents) and `SearchOptions`,
   `TextSearch::start` returns a `SearchHandle` (cancel / wait) and delivers batches (`onBatch`, 200 matches each) and one

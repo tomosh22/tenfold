@@ -154,6 +154,7 @@ add_executable(tenfold-tests
   tests/test_vcxproj.cpp
   tests/test_vs_configs.cpp
   tests/test_slnx.cpp
+  tests/test_sln_files.cpp
   tests/test_sln_open.cpp
   tests/test_semantic.cpp
   tests/test_process.cpp
