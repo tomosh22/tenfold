@@ -1,0 +1,4 @@
+struct Id { Id(int); bool operator==(const Id&) const; };
+bool b = 1 == y; bool c = x != y; bool d = a < b < c;
+/* a + b
+  a + b */ int e = a == b;

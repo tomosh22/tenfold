@@ -383,6 +383,30 @@ these is now a `PERF_CHECK` (8 ms, times `TENFOLD_PERF_SCALE`) and CI enforces t
 the earlier pathological runs (a long line re-lexed or re-measured per key) are fixed; how: `docs/ARCHITECTURE.md`, "Very
 long lines". The 50 MB single-line rows of B2c above are unchanged: they are the Editor's own insert into a 50 MB string.
 
+## COMPL-PERF: completion keystroke-to-paint failed in the full UI run, not alone
+
+Finding: `completion_keeps_the_keystroke_to_paint_budget_with_a_big_list` (5000 items, worst < 8 ms) passed alone (worst
+1.2-1.7 ms, avg 0.9-1.4 ms) but failed in most full `tenfold-ui-tests` runs (worst 9.5-14.3 ms, avg 2.6-3.4 ms). Per-phase
+timing of the keystroke (event, pump, tick, render, wall and thread CPU) showed the completion code itself is the same in
+both: event 0.6-1.1 ms CPU (refilter of the 5000 items plus the popup rows), tick 0.02-0.05 ms, render 0.03-0.09 ms. What
+differed was other work: during the six keystrokes the process burned 14-18 ms of CPU on a thread that was not the UI
+thread, and the UI thread's wall time exceeded its CPU time. That thread is the VCS worker: the first edit of a file makes
+it start `git` (`VcsExec::runCommand`, `Process::start`), and `Process::start` used `fork()`. fork copies the page tables
+of the whole process while holding the mmap lock (so the UI thread's page faults and allocations wait) and turns the next
+write to every page into a copy-on-write fault. The full suite's process is big (earlier tests leave hundreds of MB of
+heap), the single-test process is tiny. Measured around `Process::start` of `git` in the full run (605 spawns): `fork`
+median 16.6 ms / p90 21.7 ms / max 29 ms of CPU per spawn; `posix_spawn` median 0.12 ms / p90 0.16 ms / max 2.0 ms.
+Alone, `fork` costs 0.24 ms, which is why the test never failed alone. The same stall hits any budget that is timed while
+a worker starts a child (`git`, `p4`, clangd) in a large process.
+
+Fix: `Process::start` (`src/lsp/Process_posix.cpp`) uses `posix_spawnp` (file actions for the three descriptors and the
+working directory, default SIGPIPE, own process group for `processTree`, the parent's environment plus the overrides)
+where it can; it falls back to the old `fork`/`exec` when the platform lacks `posix_spawn_file_actions_addchdir_np`,
+when the overrides contain `PATH` (execvp would search the child's), or when the spawn fails (a program that cannot run
+still reports exit code 127). Regression tests in `tests/test_process.cpp`: the child still gets cwd, env override, default
+SIGPIPE and its own group; and `process_start_cost_does_not_grow_with_the_heap` (400 MB touched heap, thread CPU of
+`Process::start` < 2 ms, `PERF_CHECK`; fork measures 10.4 ms there, `posix_spawn` 0.13 ms).
+
 ## Historical numbers (from the plan, quiet machine, 8755-file Godot)
 
 | Workspace | Launch to interactive | Launch to first TU parsed | `def` after parse | Fast index |

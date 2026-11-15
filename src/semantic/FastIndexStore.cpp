@@ -28,14 +28,14 @@ constexpr size_t kPpCounts = 4 * 4;  // nArms, nSymArm, nMacros, nBodies
 constexpr size_t kArmRecord = 4 + 4 + 4 + 1 + 4;
 constexpr size_t kSymArmRecord = 4 + 4;
 constexpr size_t kMacroRecord = 4 + 4 + 4 + 4 + 1;
-constexpr uint32_t kExtractorSalt =
-    6;  // 6: preprocessor conditionals (arms, per-symbol arm, #define / #undef records, integer bodies).
-        // 5: minArity, variadic and fileLocal (static) per symbol, `static int x;` in a class is a
-        // declaration. 4: NEL / LS / PS count as line breaks in token positions (stored lines of
-        // files that have them were off). 3: arity in the flags byte, operator names,
-        // macros behind comments, friends, typedef bodies. 2: BOM skipped, lone CR
-        // ends lines, C keywords for .c
-        // bump by hand for changes the probe below cannot observe
+constexpr uint32_t kExtractorSalt = 7;  // 7: FAST-DECL: function-like macro templates and declaration-position macro
+                                        // calls (format 4). 6: preprocessor conditionals (arms, per-symbol arm, #define
+                                        // / #undef records, integer bodies). 5: minArity, variadic and fileLocal
+                                        // (static) per symbol, `static int x;` in a class is a declaration. 4: NEL / LS
+                                        // / PS count as line breaks in token positions (stored lines of files that have
+                                        // them were off). 3: arity in the flags byte, operator names, macros behind
+                                        // comments, friends, typedef bodies. 2: BOM skipped, lone CR ends lines, C
+                                        // keywords for .c bump by hand for changes the probe below cannot observe
 
 uint64_t hashBytes(const char* p, size_t n) {
   uint64_t h = 0x9E3779B97F4A7C15ull ^ n;
@@ -85,6 +85,127 @@ bool fail(std::string* err, const char* msg) {
   return false;
 }
 
+// ---- FAST-DECL (format 4): macro templates, macro calls, X-macro includes
+// -------------------------------------------- The layout is documented in FastIndexStore.h. Strings are ids into the
+// interned table. The records are variable-sized, so pass 1 walks the section (mxSkip) and pass 2 decodes it (mxRead).
+constexpr size_t kMxTemplateFixed = 4 + 4 + 4 + 1 + 4;
+constexpr size_t kMxCallFixed = 4 + 4 + 4 + 4 + 1 + 4 + 4;
+constexpr size_t kMxArgRecord = 4 + 4 + 4;
+constexpr size_t kMxIncRecord = 4 + 1 + 4 + 4 + 4 + 1 + 4 + 4;
+
+// Pass 1: advances over the section, false when it does not fit.
+bool mxSkip(Reader& r) {
+  const uint32_t has = r.get<uint32_t>();
+  if (!r.ok || has > 1) return false;
+  if (!has) return true;
+  const uint32_t nt = r.get<uint32_t>(), nc = r.get<uint32_t>(), nx = r.get<uint32_t>();
+  if (!r.ok || nt > r.left() / kMxTemplateFixed || nc > r.left() / kMxCallFixed || nx > r.left() / kMxIncRecord)
+    return false;
+  for (uint32_t i = 0; i < nt; ++i) {
+    if (r.left() < kMxTemplateFixed) return false;
+    r.pos += 4 + 4 + 4 + 1;
+    const uint32_t np = r.get<uint32_t>();
+    if (!r.ok || np > r.left() / 4) return false;
+    r.pos += size_t(np) * 4;
+    const uint32_t nPos = r.get<uint32_t>();
+    if (!r.ok || nPos > r.left() / 4) return false;
+    r.pos += size_t(nPos) * 4;
+  }
+  for (uint32_t i = 0; i < nc; ++i) {
+    if (r.left() < kMxCallFixed) return false;
+    r.pos += kMxCallFixed - 4;
+    const uint32_t na = r.get<uint32_t>();
+    if (!r.ok || na > r.left() / kMxArgRecord) return false;
+    r.pos += size_t(na) * kMxArgRecord;
+    const uint8_t ctx = r.get<uint8_t>();
+    if (!r.ok || ctx > 1 || (ctx && r.left() < 2 * kMxArgRecord)) return false;
+    if (ctx) r.pos += 2 * kMxArgRecord;
+  }
+  if (size_t(nx) * kMxIncRecord > r.left()) return false;
+  r.pos += size_t(nx) * kMxIncRecord;
+  return r.ok;
+}
+
+// Pass 2: decodes the section into `fs`; every id and count is range-checked. `nArms`: the file's arm count.
+bool mxRead(Reader& r, FileSymbols& fs, const std::vector<std::string_view>& strs, uint32_t nArms) {
+  if (r.get<uint32_t>() == 0) return r.ok;
+  const uint32_t nt = r.get<uint32_t>(), nc = r.get<uint32_t>(), nx = r.get<uint32_t>();
+  if (!r.ok) return false;
+  auto str = [&](uint32_t id, std::string& dst) {
+    if (id >= strs.size()) return false;
+    dst.assign(strs[id]);
+    return true;
+  };
+  fs.templates.resize(nt);
+  for (auto& t : fs.templates) {
+    const uint32_t name = r.get<uint32_t>(), body = r.get<uint32_t>();
+    t.line = r.get<int32_t>();
+    const uint8_t fl = r.get<uint8_t>();
+    const uint32_t np = r.get<uint32_t>();
+    if (!r.ok || fl > 3 || np > r.left() / 4 || !str(name, t.name) || !str(body, t.body)) return false;
+    t.variadic = fl & 1;
+    t.objectLike = fl & 2;
+    t.params.resize(np);
+    for (auto& p : t.params)
+      if (!str(r.get<uint32_t>(), p)) return false;
+    const uint32_t nPos = r.get<uint32_t>();
+    if (!r.ok || nPos > r.left() / 4) return false;
+    t.pos.resize(nPos);
+    for (auto& p : t.pos) p = r.get<uint32_t>();
+  }
+  fs.calls.resize(nc);
+  for (auto& c : fs.calls) {
+    const uint32_t name = r.get<uint32_t>();
+    c.line = r.get<int32_t>();
+    c.col = r.get<int32_t>();
+    const uint32_t scope = r.get<uint32_t>();
+    const uint8_t kind = r.get<uint8_t>();
+    c.arm = r.get<uint32_t>();
+    const uint32_t na = r.get<uint32_t>();
+    if (!r.ok || kind > static_cast<uint8_t>(SymbolKind::Unknown) || c.arm > nArms || na > r.left() / kMxArgRecord ||
+        !str(name, c.name) || !str(scope, c.scope))
+      return false;
+    c.scopeKind = static_cast<SymbolKind>(kind);
+    c.args.resize(na);
+    for (auto& a : c.args) {
+      const uint32_t text = r.get<uint32_t>();
+      a.line = r.get<int32_t>();
+      a.col = r.get<int32_t>();
+      if (!r.ok || !str(text, a.text)) return false;
+    }
+    const uint8_t ctx = r.get<uint8_t>();
+    if (!r.ok || ctx > 1) return false;
+    if (ctx) {
+      c.withContext = true;
+      for (MacroArg* a : {&c.pre, &c.post}) {
+        const uint32_t text = r.get<uint32_t>();
+        a->line = r.get<int32_t>();
+        a->col = r.get<int32_t>();
+        if (!r.ok || !str(text, a->text)) return false;
+      }
+    }
+  }
+  if (size_t(nx) * kMxIncRecord > r.left()) return false;
+  fs.xincludes.resize(nx);
+  for (auto& x : fs.xincludes) {
+    const uint32_t spelling = r.get<uint32_t>();
+    const uint8_t fl = r.get<uint8_t>();
+    x.line = r.get<int32_t>();
+    x.col = r.get<int32_t>();
+    const uint32_t scope = r.get<uint32_t>();
+    const uint8_t kind = r.get<uint8_t>();
+    x.arm = r.get<uint32_t>();
+    const uint32_t en = r.get<uint32_t>();
+    if (!r.ok || fl > 3 || kind > static_cast<uint8_t>(SymbolKind::Unknown) || x.arm > nArms ||
+        !str(spelling, x.spelling) || !str(scope, x.scope) || !str(en, x.enumName))
+      return false;
+    x.angled = fl & 1;
+    x.enumScoped = fl & 2;
+    x.scopeKind = static_cast<SymbolKind>(kind);
+  }
+  return r.ok;
+}
+
 }  // namespace
 
 uint32_t FastIndexStore::extractorFingerprint() {
@@ -93,6 +214,17 @@ uint32_t FastIndexStore::extractorFingerprint() {
 #include <vector>
 #include "a/b.h"
 #define MAC(x) (x)
+#define DECL_MAC(Name, ...) \
+        struct Name {             \
+          int v;                  \
+        };
+      DECL_MAC(Mx1, 1, 2)
+      class FwdProbe;
+      int TYPED_MAC(Mx2, 3) = 1;
+      enum XE {
+#define XM(n) n,
+#include "x/list.def"
+      };
       namespace n1::n2 {
       template <class T>
       class C : public B {
@@ -157,7 +289,7 @@ uint32_t FastIndexStore::extractorFingerprint() {
       blob += '\0';
       blob += s.scope;
       blob += '\0';
-      put<int32_t>(blob, static_cast<int32_t>(s.kind));
+      put<int32_t>(blob, static_cast<int32_t>(s.kind) | (s.forward ? 0x100 : 0));
       put<int32_t>(blob, s.line);
       put<int32_t>(blob, s.col);
       put<uint8_t>(blob, static_cast<uint8_t>(s.definition));
@@ -194,6 +326,26 @@ uint32_t FastIndexStore::extractorFingerprint() {
       blob += b;
       blob += '\0';
     }
+    for (auto& t : probed.templates) {
+      blob += t.name;
+      blob += '\0';
+      blob += t.body;
+      blob += '\0';
+      for (auto& p : t.params) blob += p + ',';
+      put<uint8_t>(blob, (t.variadic ? 1 : 0) | (t.objectLike ? 2 : 0));
+      for (uint32_t p : t.pos) put<uint32_t>(blob, p);
+    }
+    for (auto& c : probed.calls) {
+      blob += c.name + '\0' + c.scope + '\0';
+      put<int32_t>(blob, c.line);
+      put<int32_t>(blob, c.col);
+      for (auto& a : c.args) blob += a.text + '\0';
+      if (c.withContext) blob += c.pre.text + '\1' + c.post.text + '\0';
+    }
+    for (auto& x : probed.xincludes) {
+      blob += x.spelling + '\0' + x.scope + '\0' + x.enumName + '\0';
+      put<int32_t>(blob, x.line);
+    }
     uint64_t h = hashBytes(blob.data(), blob.size());
     return static_cast<uint32_t>(h ^ (h >> 32));
   }();
@@ -229,7 +381,8 @@ std::string FastIndexStore::serialize(const Entries& files) {
       put<uint32_t>(body, intern(s.scope));
       put<int32_t>(body, s.line);
       put<int32_t>(body, s.col);
-      put<uint8_t>(body, static_cast<uint8_t>(s.kind));
+      put<uint8_t>(body,
+                   static_cast<uint8_t>(static_cast<uint8_t>(s.kind) | (s.forward ? 0x80 : 0)));  // bit 7: forward
       // bit 0 definition, bit 1 template, bits 2..7 arity + 1 (0 = not a function / unknown)
       put<uint8_t>(body, static_cast<uint8_t>((s.definition ? 1 : 0) | (s.isTemplate ? 2 : 0) | ((s.arity + 1) << 2)));
       // bits 0..5 minArity + 1 (0 = unknown), bit 6 fileLocal, bit 7 variadic
@@ -263,6 +416,55 @@ std::string FastIndexStore::serialize(const Entries& files) {
         put<uint8_t>(body, static_cast<uint8_t>((m.undef ? 1 : 0) | (m.functionLike ? 2 : 0)));
       }
       for (auto& b : f->bodies) put<uint32_t>(body, intern(b));
+    }
+    // FAST-DECL (format 4)
+    const bool mx = !f->templates.empty() || !f->calls.empty() || !f->xincludes.empty();
+    put<uint32_t>(body, mx ? 1 : 0);
+    if (mx) {
+      put<uint32_t>(body, static_cast<uint32_t>(f->templates.size()));
+      put<uint32_t>(body, static_cast<uint32_t>(f->calls.size()));
+      put<uint32_t>(body, static_cast<uint32_t>(f->xincludes.size()));
+      for (auto& t : f->templates) {
+        put<uint32_t>(body, intern(t.name));
+        put<uint32_t>(body, intern(t.body));
+        put<int32_t>(body, t.line);
+        put<uint8_t>(body, (t.variadic ? 1 : 0) | (t.objectLike ? 2 : 0));
+        put<uint32_t>(body, static_cast<uint32_t>(t.params.size()));
+        for (auto& p : t.params) put<uint32_t>(body, intern(p));
+        put<uint32_t>(body, static_cast<uint32_t>(t.pos.size()));
+        for (uint32_t p : t.pos) put<uint32_t>(body, p);
+      }
+      for (auto& c : f->calls) {
+        put<uint32_t>(body, intern(c.name));
+        put<int32_t>(body, c.line);
+        put<int32_t>(body, c.col);
+        put<uint32_t>(body, intern(c.scope));
+        put<uint8_t>(body, static_cast<uint8_t>(c.scopeKind));
+        put<uint32_t>(body, c.arm);
+        put<uint32_t>(body, static_cast<uint32_t>(c.args.size()));
+        for (auto& a : c.args) {
+          put<uint32_t>(body, intern(a.text));
+          put<int32_t>(body, a.line);
+          put<int32_t>(body, a.col);
+        }
+        put<uint8_t>(body, c.withContext ? 1 : 0);
+        if (c.withContext)
+          for (const MacroArg* a : {&c.pre, &c.post}) {
+            put<uint32_t>(body, intern(a->text));
+            put<int32_t>(body, a->line);
+            put<int32_t>(body, a->col);
+          }
+      }
+      for (auto& x : f->xincludes) {
+        put<uint32_t>(body, intern(x.spelling));
+        put<uint8_t>(body, static_cast<uint8_t>((x.angled ? 1 : 0) | (x.enumScoped ? 2 : 0)));
+        put<int32_t>(body, x.line);
+        put<int32_t>(body, x.col);
+        put<uint32_t>(body, intern(x.scope));
+        put<uint8_t>(body, static_cast<uint8_t>(x.scopeKind));
+        put<uint32_t>(body, x.arm);
+        put<uint32_t>(body, intern(x.enumName));
+      }
     }
   }
 
@@ -353,6 +555,7 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         return bad("bad counts");
       r.pos += need;
     }
+    if (!mxSkip(r)) return bad("bad macro section");  // FAST-DECL (format 4)
   }
   if (r.left() != 0) return bad("trailing data");
 
@@ -383,6 +586,8 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
         s.line = fr.get<int32_t>();
         s.col = fr.get<int32_t>();
         uint8_t kind = fr.get<uint8_t>();
+        s.forward = kind & 0x80;  // FAST-DECL (format 4): bit 7 of the kind byte
+        kind &= 0x7f;
         uint8_t flags = fr.get<uint8_t>();
         uint8_t extra = fr.get<uint8_t>();
         if (!fr.ok || name >= stringCount || scope >= stringCount || kind > static_cast<uint8_t>(SymbolKind::Unknown)) {
@@ -472,6 +677,10 @@ std::optional<FastIndexStore::Entries> FastIndexStore::deserialize(const char* d
           }
           b.assign(strs[id]);
         }
+      }
+      if (!mxRead(fr, *fs, strs, static_cast<uint32_t>(fs->arms.size()))) {  // FAST-DECL (format 4)
+        failed = true;
+        return;
       }
       out[fi] = std::move(fs);
     }

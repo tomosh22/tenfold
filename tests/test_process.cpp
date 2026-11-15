@@ -1,5 +1,9 @@
+#include <algorithm>
 #include <atomic>
 #include <chrono>
+#include <ctime>
+#include <filesystem>
+#include <iostream>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -11,6 +15,7 @@
 #include "test_main.h"
 
 using namespace tf;
+namespace fs = std::filesystem;
 
 namespace {
 std::string readAll(Process& p) {
@@ -244,5 +249,78 @@ TEST(jsonrpc_queued_messages_reach_a_reading_server_in_order_before_stop_closes_
   REQUIRE(seen.size() == 300);
   for (int i = 0; i < 300; ++i) CHECK_EQ(seen[static_cast<size_t>(i)], i);
   c.stop(500);
+}
+#endif
+
+#ifdef __linux__
+// Process::start uses posix_spawn where it can (a fork() of a process with a big heap costs milliseconds and stalls the
+// other threads, COMPL-PERF); these pin what the child must still get exactly as with fork/exec.
+TEST(process_spawn_child_gets_cwd_env_default_sigpipe_and_group) {
+  const fs::path dir = fs::temp_directory_path() / "tf_proc_spawn_cwd";
+  fs::create_directories(dir);
+  {
+    Process p;
+    std::string err;
+    Process::Env env = {{"TENFOLD_SPAWN_A", "one"}, {"HOME", "/tenfold/home"}};  // one new, one overriding
+    REQUIRE(p.start("/bin/sh", {"-c", "pwd; echo $TENFOLD_SPAWN_A $HOME; grep SigIgn /proc/$$/status"}, dir, {}, &err,
+                    env));
+    const std::string out = readAll(p);
+    CHECK(contains(out, fs::canonical(dir).string().c_str()));
+    CHECK(contains(out, "one /tenfold/home"));
+    const size_t at = out.find("SigIgn:");
+    REQUIRE(at != std::string::npos);
+    const unsigned long long ign = std::stoull(out.substr(at + 7), nullptr, 16);
+    CHECK_EQ(ign & (1ull << 12), 0ull);  // SIGPIPE (13) is back to the default in the child
+    p.wait(5000);
+  }
+  {
+    Process p;
+    std::string err;
+    ProcessOptions po;
+    po.processTree = true;
+    REQUIRE(p.start("/bin/sh", {"-c", "echo $$; ps -o pgid= -p $$"}, {}, {}, &err, {}, po));
+    const std::string out = readAll(p);
+    const long pid = std::stol(out);
+    const size_t nl = out.find('\n');
+    REQUIRE(nl != std::string::npos);
+    CHECK_EQ(std::stol(out.substr(nl + 1)), pid);  // its own process group
+    p.wait(5000);
+  }
+  {
+    Process p;
+    std::string err;
+    // A program that cannot run still reports exit code 127 through the fork fallback, as before.
+    if (p.start("tenfold-no-such-executable-xyz", {}, {}, {}, &err)) {
+      readAll(p);
+      CHECK_EQ(p.wait(5000), 127);
+    }
+  }
+  std::error_code ec;
+  fs::remove_all(dir, ec);
+}
+
+TEST(process_start_cost_does_not_grow_with_the_heap) {
+  // 400 MB of touched heap: fork() copies its page tables (~10 ms of CPU and a stall of every other thread);
+  // posix_spawn does not. The budget is on this thread's CPU time, so a loaded machine does not matter.
+  std::vector<char> heap(400u << 20);
+  for (size_t i = 0; i < heap.size(); i += 4096) heap[i] = 1;
+  auto cpuMs = [] {
+    timespec ts;
+    clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts);
+    return ts.tv_sec * 1e3 + ts.tv_nsec / 1e6;
+  };
+  double worst = 0;
+  for (int i = 0; i < 5; ++i) {
+    Process p;
+    std::string err;
+    const double t0 = cpuMs();
+    REQUIRE(p.start("/bin/sh", {"-c", "exit 0"}, {}, {}, &err));
+    worst = std::max(worst, cpuMs() - t0);
+    readAll(p);
+    p.wait(5000);
+  }
+  std::cerr << "    PERF: Process::start with a 400 MB heap: worst " << worst << " ms CPU (budget 2 ms)\n";
+  PERF_CHECK(worst < 2.0, "Process::start with a 400 MB heap (2 ms CPU)");
+  CHECK(heap[4096] == 1);
 }
 #endif

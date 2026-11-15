@@ -838,6 +838,82 @@ void SemanticEngine::indexIncludeClosure() {
   }
 }
 
+void SemanticEngine::indexXIncludes() {
+  struct Site {
+    fs::path includer;
+    const MacroInclude* x;
+    std::shared_ptr<const FileSymbols> owner;
+  };
+  std::vector<Site> sites;
+  for (const auto& f : fast_.exportFiles())
+    for (const MacroInclude& x : f->xincludes) sites.push_back({f->file, &x, f});
+  if (sites.empty()) return;
+  constexpr size_t kMaxLists = 256;
+  constexpr uintmax_t kMaxListBytes = 4u << 20;
+  std::vector<fs::path> everything;                                      // the workspace's files, read at most once
+  std::unordered_map<std::string, std::vector<const fs::path*>> byName;  // lower-case file name -> workspace files
+  bool haveNames = false;
+  std::vector<fs::path> found;
+  std::unordered_set<std::string> keys;
+  for (const Site& s : sites) {
+    if (found.size() >= kMaxLists || indexStop_) break;
+    std::string sp8 = s.x->spelling;
+    std::replace(sp8.begin(), sp8.end(), '\\', '/');
+    const fs::path rel = pathFromUtf8(sp8);
+    if (rel.empty() || rel.is_absolute()) continue;
+    fs::path hit;
+    std::error_code ec;
+    auto tryDir = [&](const fs::path& d) {
+      if (!hit.empty()) return;
+      const fs::path p = (d / rel).lexically_normal();
+      if (fs::is_regular_file(p, ec)) hit = p;
+    };
+    if (!s.x->angled) tryDir(s.includer.parent_path());
+    if (hit.empty()) {
+      std::vector<fs::path> q, a;
+      includeDirsOf(s.includer, q, a);
+      if (!s.x->angled)
+        for (const fs::path& d : q) tryDir(d);
+      for (const fs::path& d : a) tryDir(d);
+    }
+    if (hit.empty() && !s.x->angled) {  // the only workspace file whose path ends with the spelling
+      if (!haveNames) {
+        everything = ws_.allFiles();
+        for (const fs::path& f : everything) {
+          std::string n = pathUtf8(f.filename());
+          for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+          byName[n].push_back(&f);
+        }
+        haveNames = true;
+      }
+      std::string n = pathUtf8(rel.filename());
+      for (char& c : n) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+      const std::string want = "/" + FastIndex::pathKey(rel);
+      if (auto it = byName.find(n); it != byName.end()) {
+        int n2 = 0;
+        for (const fs::path* f : it->second) {
+          const std::string k = FastIndex::pathKey(*f);
+          if (k.size() > want.size() && k.compare(k.size() - want.size(), want.size(), want) == 0) {
+            hit = *f;
+            ++n2;
+          }
+        }
+        if (n2 != 1) hit.clear();
+      }
+    }
+    if (hit.empty()) continue;
+    const std::string key = FastIndex::pathKey(hit);
+    if (fast_.fileSymbolsByKey(key) || !keys.insert(key).second) continue;
+    const uintmax_t listBytes = fs::file_size(hit, ec);
+    if (ec || listBytes > kMaxListBytes) continue;
+    found.push_back(hit);
+  }
+  if (found.empty()) return;
+  fast_.addSearchHidden(keys);  // before the symbols arrive: they are never listed
+  fast_.indexFiles(found, opt_.indexThreads);
+  log("fast index: " + std::to_string(found.size()) + " macro lists read for their calls");
+}
+
 void SemanticEngine::startFastIndex() {
   fastDone_ = false;
   fastBaseDone_ = false;
@@ -897,6 +973,9 @@ void SemanticEngine::startFastIndex() {
       if (fastStats_.relexed == 0 && includeRelexed_ == 0 && dropped == 0 && fastStats_.reused > 0)
         savedGen_ = fast_.generation();
     }
+    try {
+      indexXIncludes();
+    } catch (const std::exception& e) { log(std::string("fast index of macro lists failed: ") + e.what()); }
     fastDone_ = true;
     cv_.notify_all();
     log("fast index: " + std::to_string(fastStats_.files) + " files, " + std::to_string(fastStats_.symbols) +
@@ -1121,7 +1200,7 @@ void SemanticEngine::workerLoop() {
 }
 
 void SemanticEngine::fileChanged(const fs::path& file, bool includeOpen) {
-  if (!ws_.isSource(file) && !ws_.isHeader(file)) return;
+  if (!ws_.isSource(file) && !ws_.isHeader(file) && !fast_.fileSymbols(file)) return;  // (a macro list is indexed too)
   // A solution workspace indexes its project files and what they include, not every file below the root.
   if (!ws_.isMember(file) && !fast_.fileSymbols(file)) return;
   if (!includeOpen) {
@@ -2488,15 +2567,18 @@ std::vector<FastIndex::Match> SemanticEngine::filterByConditions(const fs::path&
       kept.push_back(m);
       continue;
     }
+    // A symbol a macro call declares (FAST-DECL) sits in the arm of the call, which is numbered in the calling file's
+    // own entry.
+    const FileSymbols& armFile = m.file->origin ? *m.file->origin : *m.file;
     // A candidate is judged in the translation unit that compiles it: the caret's when that includes the file, else
     // its own when it has a compile command (the definition in another .cpp), else the caret's.
     const pp::TuEnv* env = caretEnv.get();
-    if (!caretEnv->contains(m.file.get()) && commandOf(snap, m.file->file)) {
+    if (!caretEnv->contains(&armFile) && commandOf(snap, m.file->file)) {
       auto& slot = own[FastIndex::pathKey(m.file->file)];
       if (!slot) slot = ppEnvOf(m.file->file);
       env = slot.get();
     }
-    if (evalFor(env).armActive(*m.file, arm) != pp::Tri::False) kept.push_back(m);
+    if (evalFor(env).armActive(armFile, arm) != pp::Tri::False) kept.push_back(m);
   }
   return kept.empty() ? matches : kept;
 }
@@ -2534,11 +2616,86 @@ std::shared_ptr<const ScopeMap> SemanticEngine::scopeMapOf(const std::filesystem
   });
 }
 
+std::shared_ptr<const FileSigs> SemanticEngine::fileSigsOf(const std::filesystem::path& file,
+                                                           const Document* doc) const {
+  constexpr size_t kMaxBytes = 1u << 20;  // larger files keep the by-name answer
+  if (!doc) {
+    std::lock_guard<std::mutex> lk(mu_);
+    auto it = openDocs_.find(pathToUri(file));
+    if (it != openDocs_.end()) doc = it->second;
+  }
+  uint64_t a = 0, b = 0;
+  if (doc) {
+    a = static_cast<uint64_t>(doc->version());
+    b = static_cast<uint64_t>(reinterpret_cast<uintptr_t>(doc));
+  } else if (auto fsyms = fast_.fileSymbols(file)) {
+    a = static_cast<uint64_t>(fsyms->mtime);
+    b = fsyms->size;
+  }
+  return sigCache_.get(FastIndex::pathKey(file), a, b, [&]() -> std::shared_ptr<const FileSigs> {
+    std::string text;
+    if (doc) {
+      text = doc->buffer().textForIndex();
+    } else {
+      std::error_code ec;
+      const auto sz = std::filesystem::file_size(file, ec);
+      if (ec || sz > kMaxBytes) return nullptr;
+      std::string raw;
+      if (!readRegularFile(file, raw)) return nullptr;
+      text = isValidUtf8(raw) ? std::move(raw) : decodeFileBytes(raw).text;
+    }
+    if (text.size() > kMaxBytes) return nullptr;
+    return std::make_shared<const FileSigs>(std::move(text), isCSourceFile(file));
+  });
+}
+
+// An operator token (`a + b`, `x[i]`, `os << v`, `p->m`, a literal with a user-defined suffix): the user-declared
+// operator functions the operands' types select (FastOverload). Nothing when the caret is on no such token.
+std::vector<SymbolLocation> SemanticEngine::approximateOperator(const Document& doc, Position pos,
+                                                                FastIndex::Want want) const {
+  std::vector<SymbolLocation> out;
+  const Position cp = doc.buffer().clamp(pos);
+  const std::string& text = doc.buffer().line(cp.line);
+  if (cp.column < 0 || static_cast<size_t>(cp.column) >= text.size()) return out;
+  // only a character that can start an operator token or a literal is worth the scope map and the lexing
+  const char c0 = text[static_cast<size_t>(cp.column)];
+  if (!std::isdigit(static_cast<unsigned char>(c0)) &&
+      std::string_view("+-*/%^&|~!=<>[(\"'").find(c0) == std::string_view::npos)
+    return out;
+  CaretInfo ci;
+  ScopeEnv env;
+  ci.file = doc.path();
+  ci.map = scopeMapOf(doc.path(), &doc);
+  ci.at = {cp.line, cp.column};
+  ci.text = text;
+  ci.wordStart = ci.wordEnd = static_cast<size_t>(cp.column);
+  ci.lineAt = [&doc](int l) -> const std::string& { return doc.buffer().line(l); };
+  ci.lineCount = doc.buffer().lineCount();
+  env.index = &fast_;
+  env.includeDirsOf = [this](const std::filesystem::path& f, std::vector<std::filesystem::path>& q,
+                             std::vector<std::filesystem::path>& a) { includeDirsOf(f, q, a); };
+  env.mapOf = [this, &doc](const std::filesystem::path& f) { return scopeMapOf(f, f == doc.path() ? &doc : nullptr); };
+  env.sigsOf = [this, &doc](const std::filesystem::path& f) { return fileSigsOf(f, f == doc.path() ? &doc : nullptr); };
+  std::vector<FastIndex::Match> kept = operatorTokenMatches(env, ci);
+  if (kept.empty()) return out;
+  kept = filterByConditions(doc.path(), std::move(kept));
+  FastIndex::Shape shape;
+  shape.want = want;
+  for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
+  std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {
+    const bool af = a.loc.file == doc.path(), bf = b.loc.file == doc.path();
+    if (af != bf) return af;
+    return a.definition > b.definition;
+  });
+  return out;
+}
+
 std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Document& doc, Position pos,
                                                                    FastIndex::Want want) const {
   auto word = doc.buffer().wordAt(pos);
   std::vector<SymbolLocation> out;
-  if (word.text.empty()) return out;
+  if (word.text.empty() || std::isdigit(static_cast<unsigned char>(word.text[0])))
+    return approximateOperator(doc, pos, want);  // an operator token, or a number (a literal with a suffix)
   // Qualified context: "A::B::name" to the left of the word narrows the scope.
   std::string qualifier;
   {
@@ -2608,6 +2765,16 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
       }
     }
   }
+  // Go to declaration of a class-like name: its forward declarations too (`class Widget;`), the declaration clangd
+  // lands on instead of the definition (FastIndex::shapeAnswer pairs them with the definition).
+  if (want == FastIndex::Want::Declaration && word.text != "operator" && !shape.constructorOnly && !matches.empty()) {
+    bool tag = false;
+    for (const auto& m : matches)
+      tag = tag || m.sym().kind == SymbolKind::Class || m.sym().kind == SymbolKind::Struct ||
+            m.sym().kind == SymbolKind::Union;
+    if (tag)
+      for (auto& m : fast_.forwardDeclarations(lookupName)) matches.push_back(std::move(m));
+  }
   // Lexical scope of the caret (FastScope): the enclosing namespaces / classes / functions, the declared types of
   // locals and fields, using-directives. Not for operator names.
   CaretInfo ci;
@@ -2639,6 +2806,9 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     env.mapOf = [this, &doc](const std::filesystem::path& f) {
       return scopeMapOf(f, f == doc.path() ? &doc : nullptr);
     };
+    env.sigsOf = [this, &doc](const std::filesystem::path& f) {
+      return fileSigsOf(f, f == doc.path() ? &doc : nullptr);
+    };
     // A parameter or local variable of the enclosing function is what an unqualified, unaccessed name means.
     if (qualifier.empty() && !ci.globalQualifier && accessKindOf(ci) == AccessKind::None) {
       if (auto v = findLocal(ci)) {
@@ -2663,21 +2833,62 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     // #define on): `int x = late; #define late 1` names a variable or nothing, not the macro.
     if (m.sym().kind == SymbolKind::Macro && m.file->file == doc.path() && m.sym().line > word.range.start.line)
       return false;
-    // A function-like macro is only a macro where a '(' follows its name.
+    // A function-like macro is only a macro where a '(' follows its name (or where it is passed as a bare argument to
+    // another macro, `APPLY(ADD3, 1, 2)`, which expands it).
     if (m.sym().kind == SymbolKind::Macro && m.sym().arity >= 0) {
       size_t a = wEnd;
       while (a < text.size() && (text[a] == ' ' || text[a] == '\t')) ++a;
-      if (a >= text.size() || text[a] != '(') return false;
+      if (a >= text.size() || text[a] != '(') {
+        if (a >= text.size() || (text[a] != ',' && text[a] != ')')) return false;
+        // inside the parentheses of a macro call on this line?
+        int depth = 0;
+        size_t k = wStart;
+        bool inMacroCall = false;
+        while (k > 0) {
+          const char c = text[--k];
+          if (c == ')') ++depth;
+          else if (c == '(' && depth-- == 0) {
+            size_t e = k;
+            while (e > 0 && (text[e - 1] == ' ' || text[e - 1] == '\t')) --e;
+            size_t b = e;
+            while (b > 0 && (std::isalnum(static_cast<unsigned char>(text[b - 1])) || text[b - 1] == '_')) --b;
+            if (b < e)
+              for (const auto& mm : fast_.lookup(text.substr(b, e - b)))
+                if (mm.sym().kind == SymbolKind::Macro) {
+                  inMacroCall = true;
+                  break;
+                }
+            break;
+          }
+        }
+        if (!inMacroCall) return false;
+      }
     }
     return true;
   };
+  // Does the scope `sc` of a candidate answer to the written qualifier? An inline namespace is transparent: `api::call`
+  // finds `api::v1::call` (a Namespace symbol with arity 0 marks `inline namespace v1`).
+  auto scopeMatches = [&](std::string sc) {
+    for (int guard = 0; guard < 8; ++guard) {
+      if (sc == qualifier || sc.ends_with("::" + qualifier)) return true;
+      const size_t cut = sc.rfind("::");
+      const std::string last = cut == std::string::npos ? sc : sc.substr(cut + 2);
+      const std::string outer = cut == std::string::npos ? std::string() : sc.substr(0, cut);
+      if (last.empty() || outer.empty()) return false;
+      bool inl = false;
+      for (const auto& nm : fast_.lookup(last))
+        if (nm.sym().kind == SymbolKind::Namespace && nm.sym().arity == 0 && nm.sym().scope == outer) {
+          inl = true;
+          break;
+        }
+      if (!inl) return false;
+      sc = outer;
+    }
+    return false;
+  };
   std::vector<FastIndex::Match> kept;
   for (auto& m : matches) {
-    if (!qualifier.empty()) {
-      const std::string& sc = m.sym().scope;
-      bool ok = sc == qualifier || sc.ends_with("::" + qualifier);
-      if (!ok) continue;
-    }
+    if (!qualifier.empty() && !scopeMatches(m.sym().scope)) continue;
     if (passes(m)) kept.push_back(m);
   }
   if (kept.empty() && !qualifier.empty() && scoped) {
@@ -2701,7 +2912,28 @@ std::vector<SymbolLocation> SemanticEngine::approximateDefinitions(const Documen
     kept = narrowByMacroState(doc.path(), word.range.start.line, word.text, a < text.size() && text[a] == '(',
                               std::move(kept));
   }
-  if (scoped) kept = narrowByScope(env, ci, std::move(kept));
+  if (scoped) {
+    kept = narrowByScope(env, ci, std::move(kept));
+  } else if (word.text == "operator" && kept.size() > 1) {
+    // `a.operator()(1.0)`: the overloads of the written operator-function-id by the call's arguments (FastOverload)
+    ci.file = doc.path();
+    ci.map = scopeMapOf(doc.path(), &doc);
+    ci.at = {word.range.start.line, word.range.start.column};
+    ci.text = text;
+    ci.wordStart = wStart;
+    ci.wordEnd = wEnd;
+    ci.word = word.text;
+    ci.lineAt = [&doc](int l) -> const std::string& { return doc.buffer().line(l); };
+    ci.lineCount = doc.buffer().lineCount();
+    env.index = &fast_;
+    env.mapOf = [this, &doc](const std::filesystem::path& f) {
+      return scopeMapOf(f, f == doc.path() ? &doc : nullptr);
+    };
+    env.sigsOf = [this, &doc](const std::filesystem::path& f) {
+      return fileSigsOf(f, f == doc.path() ? &doc : nullptr);
+    };
+    kept = narrowByOverload(env, ci, std::move(kept));
+  }
   for (auto& m : FastIndex::shapeAnswer(std::move(kept), shape)) out.push_back(fromFast(m));
   // Same-file first, definitions first.
   std::stable_sort(out.begin(), out.end(), [&](const SymbolLocation& a, const SymbolLocation& b) {
@@ -3716,7 +3948,8 @@ void SemanticEngine::workspaceSymbolsBudgeted(const std::string& query, std::vec
 void SemanticEngine::documentSymbols(const Document& doc, LocationsCallback cb) {
   std::vector<SymbolLocation> approx;
   if (auto fsyms = fast_.fileSymbols(doc.path())) {
-    for (size_t i = 0; i < fsyms->symbols.size(); ++i) approx.push_back(fromFast({fsyms, i, 0}));
+    for (size_t i = 0; i < fsyms->symbols.size(); ++i)
+      if (!fsyms->symbols[i].forward) approx.push_back(fromFast({fsyms, i, 0}));
   }
   std::string uri = doc.uri();
   deliverWithBudget(std::move(approx), std::move(cb), [this, uri](auto done) {

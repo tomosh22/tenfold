@@ -21,6 +21,7 @@
 #include "lsp/LspClient.h"
 #include "semantic/CompileCommands.h"
 #include "semantic/FastIndex.h"
+#include "semantic/FastOverload.h"
 #include "semantic/FastScope.h"
 #include "semantic/IncludeNav.h"
 #include "semantic/PpCond.h"
@@ -384,6 +385,7 @@ class SemanticEngine {
   std::shared_ptr<LspClient> clangd() const;
 
   // Approximate lookups (also used by the UI for instant "peek" popups).
+  std::vector<SymbolLocation> approximateOperator(const Document& doc, Position pos, FastIndex::Want want) const;
   std::vector<SymbolLocation> approximateDefinitions(const Document& doc, Position pos,
                                                      FastIndex::Want want = FastIndex::Want::Any) const;
   std::vector<SymbolLocation> approximateSymbols(const std::string& query, size_t limit = 200) const;
@@ -513,6 +515,7 @@ class SemanticEngine {
   mutable std::mutex cmdIndexMu_;
   mutable std::shared_ptr<const std::vector<CompileCommand>> cmdIndexSnap_;  // the snapshot cmdIndex_ was built from
   mutable std::unordered_map<std::string, size_t> cmdIndex_;                 // path key -> index into the snapshot
+  mutable SigCache sigCache_;      // FAST-OVL: file texts with parsed function signatures (FastOverload)
   mutable ScopeCache scopeCache_;  // lexical scope maps of files (FastScope), keyed by the index entry
   // The compile command of exactly this file in `snap` (which must stay alive while the pointer is used), or null.
   const CompileCommand* commandOf(const std::shared_ptr<const std::vector<CompileCommand>>& snap,
@@ -550,6 +553,7 @@ class SemanticEngine {
   std::shared_ptr<const std::unordered_set<std::string>> flagVocabulary(
       const std::shared_ptr<const std::vector<CompileCommand>>& snap) const;
   // The scope map of `file` for the fast tier: from the open document or from disk, cached per index entry.
+  std::shared_ptr<const FileSigs> fileSigsOf(const std::filesystem::path& file, const Document* doc = nullptr) const;
   std::shared_ptr<const ScopeMap> scopeMapOf(const std::filesystem::path& file, const Document* doc = nullptr) const;
   // clangd_ and compileCommands_ are replaced from other threads than the ones reading them; both are only
   // touched through the snapshot accessors. clientMu_ is a leaf lock (never held across a call out).
@@ -622,6 +626,9 @@ class SemanticEngine {
   size_t includeRelexed_ = 0;
   // Indexes the headers the indexed files include (see Options::maxIncludeIndexFiles). Thread-safe; one run at a time.
   void indexIncludeClosure();
+  // FAST-DECL: reads the X-macro lists (`#define X(..)` then `#include "list.def"`) the indexed files include, which
+  // are no workspace code files, so that their macro calls can be expanded (FastIndex::refreshExpansions).
+  void indexXIncludes();
   std::mutex saveMu_;  // serialises saves and guards saveRun_/savedGen_
   std::condition_variable saveCv_;
   bool saveRun_ = false;

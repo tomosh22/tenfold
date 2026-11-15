@@ -1,0 +1,3 @@
+struct V { operator const char*() const; auto operator<=>(const V&) const = default; };
+int x = ((((((((((((((((a + b) * c)))))))))))))))[0](1)(2)->y;
+auto l = 1_x + "a"_y + 'c'_z; x++ + ++y - -z;

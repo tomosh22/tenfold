@@ -43,7 +43,7 @@ fast sym "table18_fn_11" -> table18_fn_11_142_decl0 | table18_fn_11_142_def0
 fast def table18_fn_11_142_use1 -> table18_fn_11_142_decl0 | table18_fn_11_142_def0
 fast def MATH_JOINT_19_143_use1 -> MATH_JOINT_19_143_def0 
 fast def MATH_SCRIPT_20_144_use0 -> MATH_SCRIPT_20_144_def0 
-xfail fast def bindLight25_149_use0 -> bindLight25_149_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def bindLight25_149_use0 -> bindLight25_149_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast def kStep27_156_use0 -> kStep27_156_def0
 fast def level_174_use2 -> level_174_def0
 fast def limit_175_use5 -> limit_175_def0
@@ -74,8 +74,8 @@ fast def Base_452_use3 -> Base_452_def0
 fast def empty_473_use0 -> empty_473_def0
 fast def MEMORY_TWEEN_84_480_use2 -> MEMORY_TWEEN_84_480_def0 
 fast def MEMORY_DECLARE_FN_88_484_use0 -> MEMORY_DECLARE_FN_88_484_def0 
-xfail fast def combineVector89_485_use0 -> combineVector89_485_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
-xfail fast def flushBody90_486_use0 -> flushBody90_486_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def combineVector89_485_use0 -> combineVector89_485_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
+fast def flushBody90_486_use0 -> flushBody90_486_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast def kStep91_500_use1 -> kStep91_500_def0
 fast hover kStep91_500_use1 ~ "kStep91"
 fast sym "TiledLightFrame" -> TiledLightFrame_511_def0

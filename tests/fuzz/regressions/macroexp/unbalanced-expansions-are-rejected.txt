@@ -1,0 +1,5 @@
+#define OPEN(n) namespace n {
+OPEN(zz)
+#define BAD(n) int n(
+BAD(q)
+int after = 0;

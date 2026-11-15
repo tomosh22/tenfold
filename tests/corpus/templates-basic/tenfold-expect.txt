@@ -214,7 +214,10 @@ rename Stack_top_c_def topConst2
 
 # ---- fast lines whose candidates include the non-self-contained files stack.tpp / algo.inl: the answer is a set of
 # candidates (the fast tier cannot tell overloads or decl/def apart). Last, because the lines run in order.
-xfail fast def use_push -> Stack_push_rv_decl | Stack_push_rv_def  # fast tier returns every push() of Stack and Queue (6 locations)
+fast def use_push -> Stack_push_rv_decl | Stack_push_rv_def  # `s.push(1)` on a `Stack<int>`: T = int, the literal is an rvalue
 fast def use_push -> Stack_push_decl | Stack_push_def | Stack_push_rv_decl | Stack_push_rv_def | Queue_push_decl | Queue_push_def
+fast def use_push_lv -> Stack_push_decl | Stack_push_def  # an lvalue `int` binds the const T& overload (FAST-OVL)
+fast def use_push_rv -> Stack_push_rv_decl | Stack_push_rv_def  # std::move(one): an xvalue
+fast def use2_push -> Stack_push_rv_decl | Stack_push_rv_def  # Stack<std::string>::push("a"): a temporary string
 fast def use_apply_each -> apply_each_decl | apply_each_def
 fast def use_clamp -> clamp_decl | clamp_def

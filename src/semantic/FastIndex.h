@@ -54,6 +54,9 @@ struct Symbol {
   // Internal linkage that is visible in the symbol's own file only: `static` at namespace scope (functions and
   // variables). Entities in an anonymous namespace carry "(anonymous)" in their scope instead.
   bool fileLocal = false;
+  // A forward declaration (`class Widget;`, `struct Node;`) of a class / struct / union: kept for go to declaration
+  // only. Never an answer of search() or lookup() (forwardDeclarations() lists them); definition is false.
+  bool forward = false;
   std::string qualified() const { return scope.empty() ? name : scope + "::" + name; }
 };
 
@@ -88,6 +91,59 @@ struct MacroDef {
   bool functionLike = false;
 };
 
+// ---- FAST-DECL: names declared through macros --------------------------------------------------------------------
+// A macro the file defines (`#define NAME(params) body`; object-like ones only when their body holds an identifier),
+// kept (bounded) so that the macro calls that declare things can be expanded (MacroExpand.h). Source order within the
+// file; `line` is the 0-based line of the directive.
+struct MacroTemplate {
+  std::string name;
+  std::vector<std::string> params;  // without a trailing `...` (variadic) and without `__VA_ARGS__`
+  bool variadic = false;
+  bool objectLike = false;  // `#define NAME body` (kept only when the body names something: an identifier)
+  std::string body;         // the replacement list: its tokens (comments removed) joined by single spaces
+  // Where each token of `body` is spelled in the file: (line - `line`) << 16 | column, line delta and column clipped
+  // to 255 / 65535 (0xFFFFFFFF: unknown). One entry per token, or empty (all unknown).
+  std::vector<uint32_t> pos;
+  int line = 0;
+};
+// One argument of a macro call, as written (source text, comments included) and where its first token is.
+struct MacroArg {
+  std::string text;
+  int line = 0;
+  int col = 0;
+};
+// A call that looks like a macro invoked in place of a declaration: `NAME(args)` at namespace or class scope with no
+// type before it (`DECLARE_CLASS(Gadget)`, `X(Red, 1, "red")`). `line` / `col` are the position of NAME.
+struct MacroCall {
+  std::string name;
+  int line = 0;
+  int col = 0;
+  std::string scope;  // qualified enclosing scope, as Symbol::scope
+  SymbolKind scopeKind =
+      SymbolKind::Namespace;  // innermost enclosing scope: Namespace (also global), Class, Struct, Union
+  uint32_t arm = 0;           // conditional arm the call sits in (as Symbol arms)
+  std::vector<MacroArg> args;
+  // A call that names the declarator after a type (`int CAT(var_, one) = 1;`): the text before the name (from the start
+  // of the declaration) and after the closing parenthesis (up to the `;`), so the expansion is read in its statement.
+  bool withContext = false;
+  MacroArg pre, post;
+};
+
+// An `#include` that follows a `#define` directly (`#define X(n) ...` / `#include "list.def"`): the included file's
+// macro calls are read with the macros defined before it (an X-macro list). `enumName` is set when the include sits in
+// the enumerator list of that enum.
+struct MacroInclude {
+  std::string spelling;
+  bool angled = false;
+  int line = 0;
+  int col = 0;
+  std::string scope;  // qualified scope the include sits in (for an enumerator list: the enum's enclosing scope)
+  SymbolKind scopeKind = SymbolKind::Namespace;
+  uint32_t arm = 0;
+  std::string enumName;
+  bool enumScoped = false;
+};
+
 struct FileSymbols {
   std::filesystem::path file;
   std::vector<Symbol> symbols;
@@ -98,6 +154,14 @@ struct FileSymbols {
   std::vector<std::pair<uint32_t, uint32_t>> symArm;  // (symbol index, arm id) for the symbols inside an arm, sorted
   std::vector<MacroDef> macros;                       // #define / #undef directives
   std::vector<std::string> bodies;
+  // FAST-DECL (store format 4): function-like macros defined here, and the declaration-position macro calls.
+  std::vector<MacroTemplate> templates;
+  std::vector<MacroCall> calls;
+  std::vector<MacroInclude> xincludes;
+  // Not persisted. Set on the entry that holds the symbols a file's macro calls declare (FastIndex::refreshExpansions):
+  // `file` is the calling file, `origin` the calling file's own entry (the one the arm ids of `symArm` refer to), and
+  // the symbols are positioned at the macro argument / call that produced them.
+  std::shared_ptr<const FileSymbols> origin;
   // The arm id of symbol `i` (0 = unconditional).
   uint32_t armOf(size_t i) const {
     if (symArm.empty()) return 0;
@@ -166,6 +230,18 @@ class FastIndex {
   // Incremented by every mutation; lets a saver tell whether the index changed since it last persisted.
   uint64_t generation() const { return generation_.load(std::memory_order_acquire); }
 
+  // FAST-DECL: expands the declaration-position macro calls of every indexed file with the macros the index knows
+  // (MacroExpand.h) and indexes the symbols they declare, as extra entries of the calling file (FileSymbols::origin is
+  // set; exportFiles() / fileCount() do not see them). Called by every mutation; cheap when nothing it depends on
+  // changed (a call is expanded again only when its file changed, a macro definition changed or the include graph
+  // changed). Thread-safe.
+  void refreshExpansions();
+  // Switches the expansion layer off (and removes it) or on again; on by default. For tests that compare the index with
+  // an oracle over the extracted files, and for measuring.
+  void setExpandMacros(bool on);
+  // Number of symbols that come from macro expansion (tests, statistics).
+  size_t expandedSymbolCount() const;
+
   void updateFile(const std::filesystem::path& file, std::string_view text);
   void removeFile(const std::filesystem::path& file);
   void clear();
@@ -182,6 +258,9 @@ class FastIndex {
   // other query still see them. `keys` are pathKey()s and replace the previous set; a file added later with such a key
   // is hidden too.
   void setSearchHidden(std::unordered_set<std::string> keys);
+  // Like setSearchHidden for files that stay hidden whatever setSearchHidden later says (the lists an X-macro file
+  // includes, read for their macro calls only). Call before the files are added.
+  void addSearchHidden(const std::unordered_set<std::string>& keys);
   // Worker threads used by search(): 0 (default) = hardware concurrency capped at 8, 1 = scan on the calling thread.
   void setSearchThreads(int n) { searchThreads_ = n; }
   // Optional warm-up: builds the scan table plain (non-qualified) queries use. search() does this itself on demand
@@ -190,6 +269,8 @@ class FastIndex {
   void prepareSearch() const;
   // Exact (case-sensitive) name lookup, definitions first.
   std::vector<Match> lookup(std::string_view name) const;
+  // The forward declarations (`class Widget;`) of a class-like name; lookup() and search() never return them.
+  std::vector<Match> forwardDeclarations(std::string_view name) const;
 
   // What the caller wants out of a name lookup (see shapeAnswer).
   enum class Want { Any, Definition, Declaration };
@@ -254,7 +335,13 @@ class FastIndex {
   using NameMap = std::unordered_map<std::string, std::vector<Ref>>;
   struct ScanTable;
   void addLocked(std::shared_ptr<const FileSymbols> fs);
+  // `synthetic`: an expansion entry (see synthKey): not counted as a file, not in the reverse include table, hidden
+  // like its file, does not change generation().
+  void insertLocked(const std::string& key, std::shared_ptr<const FileSymbols> fs, bool synthetic);
   void removeLocked(const std::string& key);
+  // The indexed file an X-macro include names (next to the includer, else the only indexed file whose path ends with
+  // the spelling), null when there is none or it is ambiguous. Caller holds mu_.
+  std::shared_ptr<const FileSymbols> resolveListLocked(const FileSymbols& includer, const MacroInclude& x) const;
   // Builds / refreshes the table the plain (non-qualified) search scans if a mutation made it stale. Caller holds
   // mu_ (shared or unique). The returned table is valid for as long as mu_ stays held.
   std::shared_ptr<const ScanTable> prepare() const;
@@ -263,6 +350,7 @@ class FastIndex {
   mutable std::shared_mutex mu_;
   std::unordered_map<std::string, std::shared_ptr<const FileSymbols>> files_;  // key: generic path string
   NameMap byName_;                                                             // key: exact name
+  NameMap fwdByName_;  // forward declarations (Symbol::forward), by name: not in byName_
   size_t symbolCount_ = 0;
   std::unordered_map<std::string, std::vector<const FileSymbols*>> byBase_;  // lower-cased file name -> files
   std::atomic<uint64_t> reachGen_{1};  // bumped when the #include graph may have changed
@@ -276,6 +364,29 @@ class FastIndex {
   mutable std::unordered_map<std::string, ReachEntry> reach_;
   std::atomic<uint64_t> generation_{0};
   std::atomic<int> searchThreads_{0};
+  // FAST-DECL. mxEpoch_ changes when a function-like macro definition is added, removed or changed (mu_); callers_
+  // holds the keys of the files that have macro calls (mu_); synthCount_ the entries of files_ that are expansions
+  // (mu_); mxDone_ is what the last refresh was computed for (mxMu_).
+  std::atomic<bool> expandMacros_{true};
+  uint64_t mxEpoch_ = 0;
+  std::unordered_set<std::string> callers_;
+  std::unordered_set<std::string> mxListKeys_;  // keys of the files some X-macro include named (mu_)
+  size_t xincFiles_ = 0;                        // files with X-macro includes (mu_)
+  std::unordered_set<std::string> auxHidden_;   // keys of files added by addSearchHidden (mu_)
+  std::unordered_map<std::string, std::vector<std::string>>
+      synthOf_;  // calling file's key -> its expansion entries' keys (mu_)
+  size_t synthCount_ = 0;
+  size_t synthSymbols_ = 0;
+  struct TplRef {
+    std::shared_ptr<const FileSymbols> file;
+    uint32_t index = 0;
+  };
+  std::mutex mxMu_;  // serialises refreshExpansions; guards the three below
+  uint64_t mxDoneEpoch_ = ~uint64_t{0};
+  uint64_t mxDoneReach_ = ~uint64_t{0};
+  uint64_t mxTplsEpoch_ = ~uint64_t{0};
+  std::unordered_map<std::string, std::weak_ptr<const FileSymbols>> mxSeen_;  // caller key -> the entry last expanded
+  std::unordered_map<std::string, std::vector<TplRef>> mxTpls_;  // macro name -> its templates, as of mxTplsEpoch_
   // Per indexed file: its add order (search tie-break for qualified queries: refs of one name are in add order)
   // and, once a qualified query has needed them, the per-symbol character masks of "scope::name" that let that
   // scan skip most symbols without touching their strings. Guarded by mu_; `masks` is filled lazily under prepMu_.

@@ -30,6 +30,9 @@
 #include "semantic/CppLexer.h"
 #include "semantic/FastIndex.h"
 #include "semantic/FastIndexStore.h"
+#include "semantic/FastOverload.h"
+#include "semantic/FastScope.h"
+#include "semantic/MacroExpand.h"
 #include "semantic/PpCond.h"
 #include "semantic/PpExpr.h"
 #include "semantic/ScopeScan.h"
@@ -308,6 +311,62 @@ void runScopeScan(const uint8_t* d, size_t n) {
   FUZZ_REQUIRE(scanScopes(src).regions.size() == m.regions.size());
 }
 
+// FAST-OVL: parameter lists read from declarations, argument types, overload selection and operator tokens over any
+// text: every caret position sampled from the text is answered (or not) without a crash, and a narrowed candidate set
+// is never larger than, nor empty when given, the by-name one.
+void runOverload(const uint8_t* d, size_t n) {
+  const std::string src(view(d, n));
+  FastIndex idx;
+  const std::filesystem::path file = "/fuzz/f.cpp";
+  idx.updateFile(file, src);
+  auto sigs = std::make_shared<const FileSigs>(src, false);
+  auto map = std::make_shared<const ScopeMap>(scanScopes(src));
+  ScopeEnv env;
+  env.index = &idx;
+  env.mapOf = [&](const std::filesystem::path&) { return map; };
+  env.sigsOf = [&](const std::filesystem::path&) { return sigs; };
+  std::vector<std::string> lines;
+  {
+    size_t b = 0;
+    while (b <= src.size() && lines.size() < 400) {
+      size_t e = src.find('\n', b);
+      if (e == std::string::npos) e = src.size();
+      lines.push_back(src.substr(b, e - b));
+      b = e + 1;
+    }
+  }
+  for (const Symbol& s : extractSymbols(src)) {
+    const OvSignature sg = parseSignature(src, s.line, s.col, s.name);
+    FUZZ_REQUIRE(sg.params.size() <= 4096);
+  }
+  size_t asked = 0;
+  for (int line = 0; line < static_cast<int>(lines.size()) && asked < 96; ++line) {
+    const std::string& text = lines[static_cast<size_t>(line)];
+    for (size_t col = 0; col < text.size() && asked < 96; col += 1 + col / 8) {
+      ++asked;
+      CaretInfo ci;
+      ci.file = file;
+      ci.map = map;
+      ci.at = {line, static_cast<int>(col)};
+      ci.text = text;
+      ci.wordStart = col;
+      size_t e = col;
+      while (e < text.size() && (std::isalnum(static_cast<unsigned char>(text[e])) || text[e] == '_')) ++e;
+      ci.wordEnd = e;
+      ci.word = text.substr(col, e - col);
+      ci.lineAt = [&](int l) -> const std::string& { return lines[static_cast<size_t>(l)]; };
+      ci.lineCount = static_cast<int>(lines.size());
+      operatorTokenMatches(env, ci);
+      if (!ci.word.empty()) {
+        auto by = idx.lookup(ci.word);
+        const size_t before = by.size();
+        auto kept = narrowByScope(env, ci, std::move(by));
+        FUZZ_REQUIRE(kept.size() <= before && (before == 0 || !kept.empty()));
+      }
+    }
+  }
+}
+
 // The store checks a size and a hash of the payload before it looks at anything else, so a mutated file would be
 // rejected at once. The harness repairs those header fields (and the extractor fingerprint) first, so that the
 // mutations reach the record parsing; the magic, the format version and the counts stay as mutated.
@@ -413,6 +472,74 @@ void runPpCond(const uint8_t* d, size_t n) {
     for (uint32_t a = 0; a <= f->arms.size(); ++a) FUZZ_REQUIRE(ev.armActive(*f, a) == ev2.armActive(*f, a));
     for (const MacroDef& m : f->macros) (void)ev.macroAt(m.name, f.get(), m.line + 1);
   }
+}
+
+// FAST-DECL: the macro expander and the expansion layer. The input as a source file: templates / calls / macro lists
+// are recorded, survive the store, expand within their limits (deterministically), and the index built from the file
+// (and from its two halves, as caller and macro file) answers and un-answers without trouble.
+void runMacroExpand(const uint8_t* d, size_t n) {
+  const std::string_view src = view(d, n);
+  auto f = std::make_shared<FileSymbols>();
+  f->file = "/fuzz/a.cpp";
+  extractFile(src, *f);
+  for (const MacroTemplate& t : f->templates) {
+    FUZZ_REQUIRE(!t.name.empty() && t.body.size() <= mx::kMaxBodyBytes + 1);
+    FUZZ_REQUIRE(t.pos.empty() || t.pos.size() <= t.body.size());
+    FUZZ_REQUIRE(t.params.size() <= mx::kMaxParams);
+  }
+  FastIndexStore::Entries entries{f};
+  const std::string blob = FastIndexStore::serialize(entries);
+  auto back = FastIndexStore::deserialize(blob.data(), blob.size());
+  FUZZ_REQUIRE(back.has_value() && back->size() == 1);
+  const FileSymbols& g = *(*back)[0];
+  FUZZ_REQUIRE(g.templates.size() == f->templates.size() && g.calls.size() == f->calls.size() &&
+               g.xincludes.size() == f->xincludes.size());
+  for (size_t i = 0; i < f->templates.size(); ++i)
+    FUZZ_REQUIRE(g.templates[i].body == f->templates[i].body && g.templates[i].pos == f->templates[i].pos &&
+                 g.templates[i].params == f->templates[i].params);
+  auto resolve = [&](const std::string& name, size_t argc) -> mx::Resolved {
+    const MacroTemplate* best = nullptr;
+    for (const MacroTemplate& t : f->templates) {
+      if (t.name != name) continue;
+      const bool fits =
+          t.objectLike ? argc == mx::kNoArgs
+                       : (argc != mx::kNoArgs && (argc == t.params.size() || (t.variadic && argc >= t.params.size()) ||
+                                                  (t.params.size() == 1 && argc == 0)));
+      if (fits) best = &t;
+    }
+    return {best, best ? &f->file : nullptr};
+  };
+  mx::Limits small;
+  small.maxDepth = 3;
+  small.maxExpansions = 8;
+  small.maxTokens = 64;
+  const mx::Limits defaults;
+  size_t budget = 64;  // calls expanded per input: keeps one input fast
+  for (const MacroCall& c : f->calls) {
+    if (budget-- == 0) break;
+    const auto a = mx::expandCall(c, resolve, defaults);
+    const auto b = mx::expandCall(c, resolve, defaults);
+    FUZZ_REQUIRE(a.size() == b.size());
+    FUZZ_REQUIRE(a.size() <= defaults.maxTokens);
+    for (const mx::Expanded& e : a) FUZZ_REQUIRE(!e.sym.name.empty() && e.sym.line >= 0 && e.sym.col >= 0);
+    (void)mx::expandCall(c, resolve, small);
+    (void)mx::expandCallText(c, resolve, small);
+  }
+  // as an index: the whole input, and its halves as a macro file and a caller
+  FastIndex idx;
+  idx.updateFile("/fuzz/a.cpp", src);
+  const size_t mid = src.size() / 2;
+  idx.updateFile("/fuzz/m.h", src.substr(0, mid));
+  idx.updateFile("/fuzz/b.cpp", src.substr(mid));
+  FUZZ_REQUIRE(idx.fileCount() == 3);
+  for (const Symbol& s : f->symbols) (void)idx.lookup(s.name);
+  FUZZ_REQUIRE(idx.exportFiles().size() == 3);
+  idx.updateFile("/fuzz/m.h", src.substr(mid));
+  idx.removeFile("/fuzz/a.cpp");
+  FUZZ_REQUIRE(idx.fileCount() == 2);
+  idx.removeFile("/fuzz/m.h");
+  idx.removeFile("/fuzz/b.cpp");
+  FUZZ_REQUIRE(idx.fileCount() == 0 && idx.expandedSymbolCount() == 0);
 }
 
 void runIndexStore(const uint8_t* d, size_t n) {
@@ -957,6 +1084,19 @@ Registrar r2b({"scopescan",
                 "using namespace std; namespace fs = std::filesystem; auto lam = [&](int z) { return z; };\n"},
                kCppDict,
                4096});
+Registrar r2d({"overload",
+               runOverload,
+               {"src/semantic:.cpp,.h", "tests/corpus:.cpp,.h,.c,.hpp,.inl", "examples:.cpp,.h,.c,.hpp"},
+               {"struct V { int operator[](int i) const; V& operator+=(const V&); bool operator==(const V&) const; };\n"
+                "V operator+(const V& a, const V& b); int f(int); int f(double); int f(const char*);\n"
+                "int g(V a, V b) { V c = a + b; c += a; f(1); f(1.5); f(\"s\"); return c[0] + (a == b); }\n",
+                "template <class T> int pick(T); template <class T> int pick(T*); int pick(int);\n"
+                "struct B { void put(const B&); void put(B&&); int who() &; int who() &&; int who() const&; };\n"
+                "void h(B b) { b.put(B()); b.who(); std::move(b).who(); pick<int>(&b); pick(3u); }\n",
+                "Len operator\"\"_km(long double); void u() { auto x = 2.5_km; auto y = \"a\"_s; x++; --x; x->y; x[1]; "
+                "x(2); }\n"},
+               kCppDict,
+               4096});
 Registrar r2c({"ppcond",
                runPpCond,
                {"src/semantic:.cpp,.h", "tests/corpus:.cpp,.h,.c,.hpp,.inl", "examples:.cpp,.h,.c"},
@@ -992,6 +1132,19 @@ Registrar r2c({"ppcond",
                 " \\\n",
                 "/*",
                 "*/",
+                "//"},
+               1024});
+Registrar r2e({"macroexp",
+               runMacroExpand,
+               {"tests/corpus/pp-macros:.cpp,.h", "tests/corpus/pp-xmacros:.cpp,.h,.def", "src/semantic:.cpp,.h"},
+               {"#define DECL(Name, ...) struct Name { int v; };\nDECL(Gadget, 1)\n",
+                "#define CAT_(a, b) a##b\n#define CAT(a, b) CAT_(a, b)\nint CAT(var_, __LINE__) = 1;\n",
+                "#define A(x) B(x)\n#define B(x) A(x)\nA(y)\n",
+                "enum class E {\n#define X(n) n,\n#include \"e.def\"\n};\nclass Fwd;\n",
+                "#define F(X) X(int, a) X(int, b)\n#define D(t, n) t n;\nstruct S { F(D) int c; };\n",
+                "#define O(n, ...) int n(__VA_OPT__(int a, ) int b);\nO(f)\nO(g, 1)\n"},
+               {"#define ", "#undef ", "#include \"x.def\"\n", "##", "#", "__VA_ARGS__", "__VA_OPT__(", "__LINE__", "(",
+                ")", ",", "...", "enum class E {\n", "inline namespace v1 {\n", "class Fwd;\n", " \\\n", "/*", "*/",
                 "//"},
                1024});
 Registrar r3({"indexstore",

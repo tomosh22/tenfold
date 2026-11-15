@@ -5,7 +5,7 @@
 # ---- fast tier (before clangd has the TU) ----
 fast def use_Thing -> est_Thing
 fast def use_make -> est_make | est_make_def
-xfail fast def use_Opts -> v1_Opts  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+fast def use_Opts -> v1_Opts  # inline namespace v1 is transparent for the qualifier (FAST-DECL)
 fast def use_v2_Opts -> v2_Opts
 fast def use_inner_value -> inner_value | inner_value_def
 fast def use_outer_value -> outer_value | outer_value_def
@@ -17,7 +17,7 @@ fast def static_a_tick_use -> static_a_tick
 fast def static_b_tick_use -> static_b_tick
 fast def anon_a_get_use -> anon_a_Impl_get
 fast def anon_b_get_use -> anon_b_Impl_get
-xfail fast def use_call -> v1_call | v1_call_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
+fast def use_call -> v1_call | v1_call_def  # inline namespace v1 is transparent for the qualifier (FAST-DECL)
 fast def use_call_v2 -> v2_call | v2_call_def
 xfail fast def use_Node_get -> outer_Node_get | outer_Node_get_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks
 xfail fast def use_dir_get -> inner_Node_get | inner_Node_get_def  # fast tier is name-only: returns every same-named definition (all namespaces/TUs) instead of the one lookup picks

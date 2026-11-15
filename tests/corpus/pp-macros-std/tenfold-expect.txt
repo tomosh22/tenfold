@@ -8,8 +8,8 @@ fast def use_trace -> trace_on | trace_off
 fast sym "registry" ∋ registry_fn
 fast sym "op_one" -> op_one
 fast def use_trace -> trace_on
-xfail fast def use_Color_names -> decl_enum  # Color_names exists only by pasting inside DEFINE_ENUM: not in the lexer index
-xfail fast def use_Red -> c_Red  # enumerators declared through LIST(ENUM_ITEM): not in the lexer index
+fast def use_Color_names -> decl_enum  # macro-declared name: the fast tier expands the macro (FAST-DECL)
+fast def use_Red -> c_Red  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 
 # ---- macros around std containers ----
 def use_it -> it_decl

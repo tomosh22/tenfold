@@ -1,0 +1,3 @@
+template <class T, int N
+void f(T v, const T& w, T* p, T&& r, int n(
+struct S { void g(int x, 

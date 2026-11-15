@@ -11,7 +11,7 @@ fast def bas_record_24_use0 -> bas_record_24_def0
 fast hover bas_record_24_use0 ~ "bas_record"
 xfail fast def stamp_37_use0 -> stamp_37_def0  # fast tier is name-only: the word 'stamp' has 8 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
 fast def BAS_JOB_15_43_use14 -> BAS_JOB_15_43_def0 
-xfail fast def bas_encode_20_48_use7 -> bas_encode_20_48_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def bas_encode_20_48_use7 -> bas_encode_20_48_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast def bas_base_27_56_use0 -> bas_base_27_56_def0
 fast sym "bas_size_28_t" -> bas_size_28_t_57_def0
 fast def bas_size_28_t_57_use0 -> bas_size_28_t_57_def0
@@ -28,7 +28,7 @@ fast def Id39_136_use0 -> Id39_136_def0
 fast hover Id39_136_use0 ~ "Id39"
 fast def UTIL_SCHEDULE_40_164_use3 -> UTIL_SCHEDULE_40_164_def0 
 fast def UTIL_TARIFF_41_165_use1 -> UTIL_TARIFF_41_165_def0 
-xfail fast def bindBalance45_169_use0 -> bindBalance45_169_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def bindBalance45_169_use0 -> bindBalance45_169_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast sym "rotateAudit" -> rotateAudit_171_decl0 | rotateAudit_171_def0
 fast def rotateAudit_171_use2 -> rotateAudit_171_decl0 | rotateAudit_171_def0
 fast hover rotateAudit_171_use2 ~ "rotateAudit"
@@ -54,7 +54,7 @@ fast hover MaskedShipment_277_use9 ~ "MaskedShipment"
 fast sym "shared_speed" -> shared_speed_286_decl0 | shared_speed_286_def0
 fast def shared_speed_286_use0 -> shared_speed_286_decl0 | shared_speed_286_def0
 fast sym "compute_customer" -> compute_customer_290_decl0
-xfail fast def reset_318_use2 -> reset_318_def0  # fast tier is name-only: the word 'reset' has 4 definitions in the project (other classes, namespaces, overloads, constructors), the lexer index has no scope, receiver type or overload step
+fast def reset_318_use2 -> reset_318_def0  # was xfail until FAST-OVL (overloads by argument / receiver type, scope)
 fast def mark_mailbox_334_use1 -> mark_mailbox_334_def0
 fast sym "SortedPayment" -> SortedPayment_342_def0
 fast def SortedPayment_342_use11 -> SortedPayment_342_def0
@@ -119,7 +119,7 @@ fast def lis_apply_socket_887_use1 -> lis_apply_socket_887_decl0 | lis_apply_soc
 fast def LIS_QUEUE_202_902_use0 -> LIS_QUEUE_202_902_def0 
 fast def LIS_DECLARE_FN_204_904_use2 -> LIS_DECLARE_FN_204_904_def0 
 fast def LIS_SCALE_211_914_use0 -> LIS_SCALE_211_914_def0 
-xfail fast def lis_apply_215_918_use0 -> lis_apply_215_918_def0  # fast tier: names declared through macro arguments are not found (W9c P-2)
+fast def lis_apply_215_918_use0 -> lis_apply_215_918_def0  # macro-declared name: the fast tier expands the macro (FAST-DECL)
 fast def TiledInvoice_Max_977_use0 -> TiledInvoice_Max_977_def0
 fast def scale_983_use0 -> scale_983_def0
 fast sym "mergeProfile" -> mergeProfile_991_decl0 | mergeProfile_991_def0

@@ -3,8 +3,8 @@
 # reached through a qualified name, friends declared in a class and defined later.
 
 # ---- fast tier ----
-xfail fast def use_draw_circle -> shape_draw_circle | shape_draw_circle_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
-xfail fast def use_draw_square -> shape_draw_square | shape_draw_square_def  # fast tier is name-only: returns every same-named definition regardless of ADL/qualification/hiding
+fast def use_draw_circle -> shape_draw_circle | shape_draw_circle_def  # ADL: the namespace of the argument's class (FAST-OVL)
+fast def use_draw_square -> shape_draw_square | shape_draw_square_def
 fast def use_draw_int -> global_draw | global_draw_def
 fast def use_other_draw -> other_draw | other_draw_def
 fast def use_dot -> hf_dot
